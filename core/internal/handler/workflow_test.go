@@ -366,6 +366,70 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 		t.Fatalf("archive audit fields missing: %#v", archivedRun)
 	}
 
+	// Task creation and update must use the immutable Stage IDs from this Run's
+	// copied plan, not the source workflow_version Stage IDs. Run plans can be
+	// adjusted independently after migration 255, so the two ID spaces are
+	// intentionally different.
+	createBoundTask := httptest.NewRecorder()
+	testHandler.CreateIssue(createBoundTask, newRequest(http.MethodPost, "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":                "Created directly in the SOP Run",
+		"project_id":           projectID,
+		"workflow_instance_id": instance.ID,
+		"workflow_stage_id":    firstStage.ID,
+	}))
+	if createBoundTask.Code != http.StatusCreated {
+		t.Fatalf("create Task with Run Stage: status=%d body=%s", createBoundTask.Code, createBoundTask.Body.String())
+	}
+	var directlyBound IssueResponse
+	if err := json.Unmarshal(createBoundTask.Body.Bytes(), &directlyBound); err != nil {
+		t.Fatalf("decode directly bound Task: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, directlyBound.ID)
+	})
+	if directlyBound.WorkflowInstanceID == nil || *directlyBound.WorkflowInstanceID != instance.ID ||
+		directlyBound.WorkflowStageID == nil || *directlyBound.WorkflowStageID != firstStage.ID {
+		t.Fatalf("created Task did not keep Run assignment: %#v", directlyBound)
+	}
+
+	moveDirectlyBound := httptest.NewRecorder()
+	testHandler.UpdateIssue(moveDirectlyBound, workflowRequest(
+		http.MethodPatch,
+		"/api/issues/"+directlyBound.ID,
+		map[string]any{
+			"workflow_instance_id": instance.ID,
+			"workflow_stage_id":    secondStage.ID,
+		},
+		map[string]string{"id": directlyBound.ID},
+	))
+	if moveDirectlyBound.Code != http.StatusOK {
+		t.Fatalf("move Task to another Run Stage: status=%d body=%s", moveDirectlyBound.Code, moveDirectlyBound.Body.String())
+	}
+	var directlyMoved IssueResponse
+	if err := json.Unmarshal(moveDirectlyBound.Body.Bytes(), &directlyMoved); err != nil {
+		t.Fatalf("decode directly moved Task: %v", err)
+	}
+	if directlyMoved.WorkflowStageID == nil || *directlyMoved.WorkflowStageID != secondStage.ID {
+		t.Fatalf("updated Task did not keep target Run Stage: %#v", directlyMoved)
+	}
+
+	crossRunStage := httptest.NewRecorder()
+	testHandler.UpdateIssue(crossRunStage, workflowRequest(
+		http.MethodPatch,
+		"/api/issues/"+directlyBound.ID,
+		map[string]any{
+			"workflow_instance_id": instance.ID,
+			"workflow_stage_id":    emptyRun.Stages[0].ID,
+		},
+		map[string]string{"id": directlyBound.ID},
+	))
+	if crossRunStage.Code != http.StatusBadRequest {
+		t.Fatalf("Stage from another Run must be rejected, got %d: %s", crossRunStage.Code, crossRunStage.Body.String())
+	}
+	if _, err := testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, directlyBound.ID); err != nil {
+		t.Fatalf("delete directly bound Task: %v", err)
+	}
+
 	attach := httptest.NewRecorder()
 	testHandler.AttachWorkflowTask(
 		attach,

@@ -20,7 +20,7 @@ import {
  * push/replace, shell back/forward, error recovery) mutate the store — none
  * of them touch the router. This makes invariant 1 hold by construction:
  *
- *   - Router location change WITH a pending token   → expected, consume it.
+ *   - Router location change toward the pending target → expected.
  *   - Router location change WITHOUT a pending token → protocol error →
  *     bounded recovery (re-reconcile toward the session URL, capped).
  *
@@ -33,8 +33,9 @@ import {
 let router: DataRouter | null = null;
 let initialized = false;
 
-/** Navigations the Coordinator itself started and hasn't seen commit yet. */
-let pendingTokens = 0;
+/** The latest navigation started by the Coordinator but not committed yet. */
+let pendingNavigation: { token: number; target: string } | null = null;
+let navigationToken = 0;
 
 /** Bounded recovery: consecutive protocol-error recoveries. */
 let recoveryAttempts = 0;
@@ -90,6 +91,20 @@ function currentRouterUrl(r: DataRouter): string {
   return `${pathname}${search ?? ""}${hash ?? ""}`;
 }
 
+/**
+ * Read/subscribe helpers for platform consumers that must reflect the route
+ * currently painted by RouterProvider. The tab store can be one destination
+ * ahead while data-router loaders are pending, so it is not a safe source for
+ * page-visible pathname/search state.
+ */
+export function getAppRouterLocation(): string {
+  return currentRouterUrl(getAppRouter());
+}
+
+export function subscribeAppRouterLocation(onChange: () => void): () => void {
+  return getAppRouter().subscribe(onChange);
+}
+
 function activeSessionUrl(): string | null {
   return getActiveTab(useTabStore.getState())?.url ?? null;
 }
@@ -103,11 +118,29 @@ function reconcile(): void {
   const r = getAppRouter();
   const target = activeSessionUrl() ?? "/";
   if (currentRouterUrl(r) === target) {
+    if (pendingNavigation?.target === target) pendingNavigation = null;
     recoveryAttempts = 0;
     return;
   }
-  pendingTokens++;
-  r.navigate(target, { replace: true });
+  // Store writes unrelated to navigation (tab title resolution, scroll
+  // mementos, query-driven presentation) can arrive while React Router is
+  // still loading the destination. Do not restart that same navigation: two
+  // overlapping replaces can commit out of order and briefly restore the
+  // outgoing page between two renders of the destination.
+  if (pendingNavigation?.target === target) return;
+
+  const token = ++navigationToken;
+  pendingNavigation = { token, target };
+  void r.navigate(target, { replace: true }).finally(() => {
+    if (pendingNavigation?.token !== token) return;
+    if (currentRouterUrl(r) === target) {
+      pendingNavigation = null;
+      recoveryAttempts = 0;
+      return;
+    }
+    pendingNavigation = null;
+    reconcile();
+  });
 }
 
 /**
@@ -190,16 +223,20 @@ export function initTabCoordinator(): void {
   const r = getAppRouter();
 
   r.subscribe(() => {
-    if (pendingTokens > 0) {
-      // A navigation the Coordinator started. Consume the token.
-      pendingTokens--;
-      recoveryAttempts = 0;
+    const url = currentRouterUrl(r);
+    if (pendingNavigation) {
+      // Data routers notify both when loading begins and when the location
+      // commits. Keep the navigation pending through loading notifications;
+      // clear it only when its actual target becomes current.
+      if (url === pendingNavigation.target) {
+        pendingNavigation = null;
+        recoveryAttempts = 0;
+      }
       return;
     }
     // Location changed without a token. If it happens to match the session
     // (idempotent double-commit), accept silently; otherwise it's a
     // protocol error — recover toward the session URL, bounded.
-    const url = currentRouterUrl(r);
     const sessionUrl = activeSessionUrl() ?? "/";
     if (url === sessionUrl) return;
     if (recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
@@ -243,7 +280,8 @@ export function initTabCoordinator(): void {
 export function __resetTabCoordinatorForTests(): void {
   router = null;
   initialized = false;
-  pendingTokens = 0;
+  pendingNavigation = null;
+  navigationToken = 0;
   recoveryAttempts = 0;
   activeHostElement = null;
   queryClient = null;

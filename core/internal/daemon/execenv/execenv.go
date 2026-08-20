@@ -33,6 +33,13 @@ type ProjectResourceForEnv struct {
 	Label        string          `json:"label,omitempty"` // optional user-supplied label
 }
 
+type WorkflowStageForEnv struct {
+	ID        string
+	Name      string
+	StableKey string
+	Position  int32
+}
+
 // PrepareParams holds all inputs needed to set up an execution environment.
 type PrepareParams struct {
 	WorkspacesRoot string // base path for all envs (e.g., ~/silieco_workspaces)
@@ -118,6 +125,16 @@ type TaskContextForEnv struct {
 	AgentName                     string
 	AgentInstructions             string // agent identity/persona instructions, injected into CLAUDE.md
 	AgentSkills                   []SkillContextForEnv
+	WorkflowStageName             string
+	WorkflowStageStableKey        string
+	WorkflowInstanceID            string
+	WorkflowInstanceTitle         string
+	WorkflowStageID               string
+	NextWorkflowStageID           string
+	NextWorkflowStageName         string
+	NextWorkflowStageStableKey    string
+	AvailableWorkflowStages       []WorkflowStageForEnv
+	RequiredSkillNames            []string
 	DisabledRuntimeSkills         []RuntimeSkillRefForEnv
 	Repos                         []RepoContextForEnv     // workspace repos available for checkout
 	ProjectID                     string                  // active project for this task, when present

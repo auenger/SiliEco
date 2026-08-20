@@ -274,9 +274,10 @@ silieco task create --title "..." --workflow-instance <run-uuid> --workflow-stag
 silieco task update <task-id> --workflow-instance <run-uuid> --workflow-stage <stage-uuid>
 ```
 
-The Stage must belong to that workflow run's published version; the server also
-aligns the Task to the run's Project. To detach an existing Task cleanly while
-keeping the Task itself, explicitly clear both coordinates:
+The Stage UUID is the immutable Stage copy owned by that specific workflow run,
+not the source SOP version's Stage UUID. The server validates the Run and Stage
+as one pair and aligns the Task to the run's Project. To detach an existing Task
+cleanly while keeping the Task itself, explicitly clear both coordinates:
 
 ```bash
 silieco task update <task-id> --workflow-instance "" --workflow-stage ""
@@ -284,6 +285,17 @@ silieco task update <task-id> --workflow-instance "" --workflow-stage ""
 
 Do not confuse `--workflow-stage <uuid>` with `--stage <N>`: the former places
 a Task in an SOP run; the latter groups sub-tasks into parent wake barriers.
+
+When the current Task is already SOP-bound, every continuation, child, or
+follow-up Task inherits the same workflow run unless the user explicitly asks
+for work outside that SOP. Choose the target Stage from the SOP Stage catalog in
+the runtime context: prefer a phase named or semantically described by the user
+(for example, “prototype”, “MVP”, or “原型” maps to the corresponding Stage),
+then an explicit next/successor request maps to the reported next Stage, and
+same-phase work stays in the current Stage. Always include both workflow flags
+on create. A human assignee, `--status backlog`, or a request not to auto-run
+changes execution behavior only; none of them authorizes dropping SOP binding.
+Attaching the new Task to a later Stage does not transition the workflow run.
 
 ## Incorrect → correct
 

@@ -693,6 +693,46 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 		b.WriteString("The person who assigned this issue left this instruction for the run. Treat it as scope guidance and follow it before doing anything broader:\n\n")
 		fmt.Fprintf(&b, "> %s\n\n", ctx.HandoffNote)
 	}
+	if ctx.WorkflowStageName != "" {
+		b.WriteString("## SOP Stage\n\n")
+		if ctx.WorkflowInstanceTitle != "" {
+			fmt.Fprintf(&b, "**SOP Run:** %s (`%s`)\n\n", ctx.WorkflowInstanceTitle, ctx.WorkflowInstanceID)
+		}
+		fmt.Fprintf(&b, "**Stage:** %s", ctx.WorkflowStageName)
+		if ctx.WorkflowStageStableKey != "" {
+			fmt.Fprintf(&b, " (`%s`)", ctx.WorkflowStageStableKey)
+		}
+		b.WriteString("\n\n")
+		fmt.Fprintf(&b, "**Current Stage ID:** `%s`\n\n", ctx.WorkflowStageID)
+		if len(ctx.AvailableWorkflowStages) > 0 {
+			b.WriteString("**Stages in this SOP Run:**\n\n")
+			for _, candidate := range ctx.AvailableWorkflowStages {
+				fmt.Fprintf(&b, "- %d. %s", candidate.Position, candidate.Name)
+				if candidate.StableKey != "" {
+					fmt.Fprintf(&b, " (`%s`)", candidate.StableKey)
+				}
+				fmt.Fprintf(&b, " — `%s`\n", candidate.ID)
+			}
+			b.WriteString("\n")
+		}
+		if ctx.NextWorkflowStageID != "" {
+			fmt.Fprintf(&b, "**Next Stage:** %s", ctx.NextWorkflowStageName)
+			if ctx.NextWorkflowStageStableKey != "" {
+				fmt.Fprintf(&b, " (`%s`)", ctx.NextWorkflowStageStableKey)
+			}
+			fmt.Fprintf(&b, "\n\n**Next Stage ID:** `%s`\n\n", ctx.NextWorkflowStageID)
+		} else {
+			b.WriteString("**Next Stage:** None — this is the final Stage.\n\n")
+		}
+		fmt.Fprintf(&b, "Continuation, child, and follow-up Tasks must preserve this SOP Run with `--workflow-instance %s --workflow-stage <stage-id>` unless the user explicitly requests work outside the SOP. Select the Stage by the user's named or semantic intent from the list above; use the next Stage for an explicit next/successor request; otherwise keep the current Stage for same-phase work. Backlog or human assignment only suppresses automatic execution and must not remove SOP binding. Attaching a Task to a later Stage does not transition the SOP Run.\n\n", ctx.WorkflowInstanceID)
+		if len(ctx.RequiredSkillNames) > 0 {
+			b.WriteString("**Mandatory skills for this Stage:**\n\n")
+			for _, name := range ctx.RequiredSkillNames {
+				fmt.Fprintf(&b, "- **%s**\n", name)
+			}
+			b.WriteString("\nRead each corresponding `SKILL.md` completely before performing Stage work.\n\n")
+		}
+	}
 
 	b.WriteString("## Quick Start\n\n")
 	fmt.Fprintf(&b, "Run `silieco issue get %s --output json` to fetch the full issue details.\n\n", ctx.IssueID)

@@ -147,6 +147,8 @@ function WorkflowTaskCard({ task }: { task: Issue }) {
           </div>
           <AppLink
             href={paths.taskDetail(task.id)}
+            target="_blank"
+            newTabTitle={`${task.identifier}: ${task.title}`}
             className="mt-1 block line-clamp-2 text-body font-medium leading-snug text-foreground hover:underline"
           >
             {task.title}

@@ -167,8 +167,16 @@ comment-triggered runs otherwise must not change status unless asked.
 | Behavior | File:line |
 |---|---|
 | `--workflow-instance` + `--workflow-stage` on Task create/update | `core/cmd/silieco/cmd_issue.go` (`issueCreateCmd`, `issueUpdateCmd`, `runIssueCreate`, `runIssueUpdate`) |
-| Assignment pair validation, Project alignment, and Stage membership validation | `core/internal/handler/issue.go` (`UpdateIssue`, `validateWorkflowTaskAssignment`) |
+| Task create validates Project alignment and membership of the immutable Run Stage copy | `core/internal/service/issue.go` (`IssueService.Create`, `GetWorkflowInstanceStage`) |
+| Task update validates Project alignment and the same Run + Run Stage atomic pair | `core/internal/handler/issue.go` (`UpdateIssue`, `validateWorkflowTaskAssignment`) |
 | Explicit null pair detaches a Task from its SOP run | `core/internal/handler/issue.go` (`UpdateIssue`); `core/internal/handler/workflow.go` (`DetachWorkflowTask`) |
+| Claimed SOP Task exposes the immutable Run Stage catalog for semantic target selection | `core/internal/handler/daemon.go` (`buildClaimedTaskResponse`); `core/internal/daemon/prompt.go` (`buildWorkflowStagePromptBlock`) |
+
+The continuation-inheritance rule in `SKILL.md` is an agent execution contract:
+the runtime prompt supplies the same Run UUID plus all immutable Stage UUIDs,
+while create/update validation remains enforced by the server paths above.
+Backlog is independently handled by `shouldEnqueueAgentTask`, so it never
+implies detaching workflow coordinates.
 
 ## Metadata CLI
 

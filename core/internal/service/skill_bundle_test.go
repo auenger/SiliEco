@@ -1,6 +1,10 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
+)
 
 func TestBuildAgentSkillBundlesProducesRefsAndFullBundles(t *testing.T) {
 	bundles, refs := BuildAgentSkillBundles([]AgentSkillData{
@@ -34,5 +38,15 @@ func TestBuildAgentSkillBundlesAssignsBuiltinID(t *testing.T) {
 	}
 	if refs[0].ID != "builtin:silieco-working-on-issues" || refs[0].Source != "builtin" {
 		t.Fatalf("builtin ref = %+v", refs[0])
+	}
+}
+
+func TestResolveRequiredSkillsSupportsCanonicalAndLegacyBuiltinRefs(t *testing.T) {
+	svc := &TaskService{}
+	for _, ref := range []string{"builtin:silieco-split-feature", "silieco-split-feature"} {
+		sk, missing := svc.ResolveRequiredSkills(t.Context(), pgtype.UUID{}, []string{ref})
+		if len(missing) != 0 || len(sk) != 1 || sk[0].Name != "silieco-split-feature" {
+			t.Fatalf("ResolveRequiredSkills(%q) = skills=%v missing=%v", ref, sk, missing)
+		}
 	}
 }

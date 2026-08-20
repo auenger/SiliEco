@@ -4560,6 +4560,104 @@ func (d *Daemon) ensureTaskSkillBundles(ctx context.Context, task *Task) error {
 	return nil
 }
 
+func verifyRequiredStageSkills(task *Task) error {
+	if task == nil || task.WorkflowStage == nil || len(task.WorkflowStage.RequiredSkills) == 0 {
+		return nil
+	}
+	available := make(map[string]bool)
+	if task.Agent != nil {
+		for _, skill := range task.Agent.Skills {
+			available[skill.Name] = true
+		}
+	}
+	var missing []string
+	for _, name := range task.WorkflowStage.RequiredSkills {
+		if !available[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("mandatory SOP skills were not hydrated: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func workflowStageName(stage *WorkflowStageContextData) string {
+	if stage == nil {
+		return ""
+	}
+	return stage.Name
+}
+
+func workflowStageStableKey(stage *WorkflowStageContextData) string {
+	if stage == nil {
+		return ""
+	}
+	return stage.StableKey
+}
+
+func workflowInstanceID(stage *WorkflowStageContextData) string {
+	if stage == nil {
+		return ""
+	}
+	return stage.InstanceID
+}
+
+func workflowInstanceTitle(stage *WorkflowStageContextData) string {
+	if stage == nil {
+		return ""
+	}
+	return stage.InstanceTitle
+}
+
+func workflowStageID(stage *WorkflowStageContextData) string {
+	if stage == nil {
+		return ""
+	}
+	return stage.StageID
+}
+
+func nextWorkflowStageID(stage *WorkflowStageContextData) string {
+	if stage == nil || stage.NextStage == nil {
+		return ""
+	}
+	return stage.NextStage.StageID
+}
+
+func nextWorkflowStageName(stage *WorkflowStageContextData) string {
+	if stage == nil || stage.NextStage == nil {
+		return ""
+	}
+	return stage.NextStage.Name
+}
+
+func nextWorkflowStageStableKey(stage *WorkflowStageContextData) string {
+	if stage == nil || stage.NextStage == nil {
+		return ""
+	}
+	return stage.NextStage.StableKey
+}
+
+func workflowRequiredSkillNames(stage *WorkflowStageContextData) []string {
+	if stage == nil {
+		return nil
+	}
+	return append([]string(nil), stage.RequiredSkills...)
+}
+
+func availableWorkflowStages(stage *WorkflowStageContextData) []execenv.WorkflowStageForEnv {
+	if stage == nil || len(stage.AvailableStages) == 0 {
+		return nil
+	}
+	stages := make([]execenv.WorkflowStageForEnv, 0, len(stage.AvailableStages))
+	for _, candidate := range stage.AvailableStages {
+		stages = append(stages, execenv.WorkflowStageForEnv{
+			ID: candidate.StageID, Name: candidate.Name, StableKey: candidate.StableKey, Position: candidate.Position,
+		})
+	}
+	return stages
+}
+
 // resolveSkillBundle downloads one skill bundle and writes it to the on-disk
 // cache before returning. The request runs under its own deadline, scaled to
 // the bundle's declared size rather than the daemon's fixed 30s control-plane
@@ -4791,6 +4889,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if err := d.ensureTaskSkillBundles(prepareCtx, &task); err != nil {
 		return TaskResult{}, err
 	}
+	if err := verifyRequiredStageSkills(&task); err != nil {
+		return TaskResult{}, fmt.Errorf("%w: %v", errSkillBundleUnavailable, err)
+	}
 
 	agentName := "agent"
 	var agentID string
@@ -4823,6 +4924,16 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		AgentName:                        agentName,
 		AgentInstructions:                instructions,
 		AgentSkills:                      convertSkillsForEnv(skills),
+		WorkflowStageName:                workflowStageName(task.WorkflowStage),
+		WorkflowStageStableKey:           workflowStageStableKey(task.WorkflowStage),
+		WorkflowInstanceID:               workflowInstanceID(task.WorkflowStage),
+		WorkflowInstanceTitle:            workflowInstanceTitle(task.WorkflowStage),
+		WorkflowStageID:                  workflowStageID(task.WorkflowStage),
+		NextWorkflowStageID:              nextWorkflowStageID(task.WorkflowStage),
+		NextWorkflowStageName:            nextWorkflowStageName(task.WorkflowStage),
+		NextWorkflowStageStableKey:       nextWorkflowStageStableKey(task.WorkflowStage),
+		AvailableWorkflowStages:          availableWorkflowStages(task.WorkflowStage),
+		RequiredSkillNames:               workflowRequiredSkillNames(task.WorkflowStage),
 		DisabledRuntimeSkills:            convertDisabledRuntimeSkillsForEnv(task.Agent, task.RuntimeID, provider),
 		Repos:                            convertReposForEnv(task.Repos),
 		ProjectID:                        task.ProjectID,

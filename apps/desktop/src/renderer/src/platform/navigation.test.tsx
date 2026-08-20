@@ -21,6 +21,31 @@ vi.mock("@/stores/window-overlay-store", () => ({
 
 const auth = vi.hoisted(() => ({ logout: vi.fn() }));
 
+const committedLocation = vi.hoisted(() => {
+  let url = "/acme/tasks";
+  const listeners = new Set<() => void>();
+  return {
+    get: () => url,
+    set(next: string) {
+      url = next;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    reset() {
+      url = "/acme/tasks";
+      listeners.clear();
+    },
+  };
+});
+
+vi.mock("@/platform/tab-coordinator", () => ({
+  getAppRouterLocation: committedLocation.get,
+  subscribeAppRouterLocation: committedLocation.subscribe,
+}));
+
 vi.mock("@silieco/core/auth", () => ({
   useAuthStore: Object.assign(() => null, {
     getState: () => auth,
@@ -36,6 +61,7 @@ beforeEach(() => {
   overlay.close.mockReset();
   overlay.overlay = null;
   auth.logout.mockReset();
+  committedLocation.reset();
   useTabStore.getState().reset();
   useTabStore.getState().switchWorkspace("acme"); // default tab /acme/tasks
   Object.defineProperty(window, "desktopAPI", {
@@ -121,6 +147,19 @@ describe("push", () => {
       stack: ["/acme/tasks", "/acme/projects?sort=name"],
       index: 1,
     });
+  });
+
+  it("keeps page-visible location on the committed route while navigation is pending", () => {
+    committedLocation.set("/acme/projects/project-1?run=run-1");
+    const getAdapter = renderProvider();
+
+    getAdapter().push("/acme/tasks/TDP-18");
+
+    expect(getActiveTab(useTabStore.getState())?.url).toBe(
+      "/acme/tasks/TDP-18",
+    );
+    expect(getAdapter().pathname).toBe("/acme/projects/project-1");
+    expect(getAdapter().searchParams.get("run")).toBe("run-1");
   });
 
   it("is a no-op when the target exactly matches the active session url", () => {

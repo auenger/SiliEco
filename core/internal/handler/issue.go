@@ -2804,6 +2804,9 @@ func (h *Handler) validateWorkflowTaskAssignment(
 	if instance.Status == "completed" || instance.Status == "cancelled" {
 		return db.WorkflowInstance{}, http.StatusConflict, "workflow run is closed"
 	}
+	if instance.ArchivedAt.Valid {
+		return db.WorkflowInstance{}, http.StatusConflict, "workflow run is archived"
+	}
 	if !instance.ProjectID.Valid {
 		return db.WorkflowInstance{}, http.StatusConflict, "workflow run is not assigned to a project"
 	}
@@ -2812,8 +2815,11 @@ func (h *Handler) validateWorkflowTaskAssignment(
 	}); err != nil {
 		return db.WorkflowInstance{}, http.StatusConflict, "workflow run project no longer exists"
 	}
-	if _, err := h.Queries.GetWorkflowStageInVersion(ctx, db.GetWorkflowStageInVersionParams{
-		ID: stageID, WorkflowVersionID: instance.WorkflowVersionID, WorkspaceID: workspaceID,
+	// workflow_stage_id on a Task refers to this Run's immutable Stage copy.
+	// Validate both IDs as one pair so a Stage from the source definition or
+	// another Run cannot be attached through the generic Task update endpoint.
+	if _, err := h.Queries.GetWorkflowInstanceStage(ctx, db.GetWorkflowInstanceStageParams{
+		ID: stageID, WorkflowInstanceID: instance.ID, WorkspaceID: workspaceID,
 	}); err != nil {
 		return db.WorkflowInstance{}, http.StatusBadRequest, "stage does not belong to the selected workflow run"
 	}
@@ -2983,6 +2989,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	_, workflowInstanceTouched := rawFields["workflow_instance_id"]
 	_, workflowStageTouched := rawFields["workflow_stage_id"]
+	if workflowInstanceTouched != workflowStageTouched {
+		writeError(w, http.StatusBadRequest, "workflow_instance_id and workflow_stage_id must be updated together")
+		return
+	}
 	if workflowInstanceTouched {
 		if req.WorkflowInstanceID != nil && strings.TrimSpace(*req.WorkflowInstanceID) != "" {
 			workflowInstanceID, ok := parseUUIDOrBadRequest(w, *req.WorkflowInstanceID, "workflow_instance_id")
@@ -3508,14 +3518,16 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		}
 
 		params := db.UpdateIssueParams{
-			ID:            prevIssue.ID,
-			AssigneeType:  prevIssue.AssigneeType,
-			AssigneeID:    prevIssue.AssigneeID,
-			StartDate:     prevIssue.StartDate,
-			DueDate:       prevIssue.DueDate,
-			ParentIssueID: prevIssue.ParentIssueID,
-			ProjectID:     prevIssue.ProjectID,
-			Stage:         prevIssue.Stage,
+			ID:                 prevIssue.ID,
+			AssigneeType:       prevIssue.AssigneeType,
+			AssigneeID:         prevIssue.AssigneeID,
+			StartDate:          prevIssue.StartDate,
+			DueDate:            prevIssue.DueDate,
+			ParentIssueID:      prevIssue.ParentIssueID,
+			ProjectID:          prevIssue.ProjectID,
+			WorkflowInstanceID: prevIssue.WorkflowInstanceID,
+			WorkflowStageID:    prevIssue.WorkflowStageID,
+			Stage:              prevIssue.Stage,
 		}
 
 		if req.Updates.Title != nil {

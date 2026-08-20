@@ -72,6 +72,65 @@ func TestBuildQuickCreatePromptRules(t *testing.T) {
 	}
 }
 
+func TestBuildPromptDeclaresMandatorySOPStageSkills(t *testing.T) {
+	out := BuildPrompt(Task{
+		IssueID: "issue-1",
+		WorkflowStage: &WorkflowStageContextData{
+			InstanceID: "run-1", InstanceTitle: "Payment feature SOP",
+			StageID: "stage-current", Name: "Feature split", StableKey: "split_feature",
+			RequiredSkills: []string{"silieco-split-feature"},
+			NextStage:      &WorkflowNextStageData{StageID: "stage-next", Name: "Feature implementation", StableKey: "implement_feature"},
+			AvailableStages: []WorkflowNextStageData{
+				{StageID: "stage-current", Name: "Feature split", StableKey: "split_feature", Position: 4},
+				{StageID: "stage-next", Name: "Feature implementation", StableKey: "implement_feature", Position: 5},
+				{StageID: "stage-mvp", Name: "Prototype or MVP", StableKey: "prototype_feature", Position: 3},
+			},
+		},
+	}, "codex")
+	for _, want := range []string{
+		"Payment feature SOP", "run-1", "Feature split", "stage-current", "split_feature",
+		"Feature implementation", "stage-next", "implement_feature", "Prototype or MVP", "stage-mvp",
+		"--workflow-instance run-1", "Backlog controls execution only",
+		"silieco-split-feature", "read every required SKILL.md completely",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ownership prompt missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestQuickCreatePromptDoesNotExecuteTargetStageSkills(t *testing.T) {
+	out := BuildPrompt(Task{
+		QuickCreatePrompt: "Create the payment feature",
+		WorkflowStage: &WorkflowStageContextData{
+			Name: "Feature split", RequiredSkills: []string{"silieco-split-feature"},
+		},
+	}, "codex")
+	if strings.Contains(out, "mandatory for this run") || strings.Contains(out, "silieco-split-feature") {
+		t.Fatalf("quick-create must only create the issue, not execute its target Stage skill:\n%s", out)
+	}
+}
+
+func TestCommentPromptIncludesCurrentAndNextSOPStage(t *testing.T) {
+	out := BuildPrompt(Task{
+		IssueID: "issue-1", TriggerCommentID: "comment-1", TriggerCommentContent: "请创建下一个阶段的任务",
+		WorkflowStage: &WorkflowStageContextData{
+			InstanceID: "run-1", InstanceTitle: "Feature SOP", StageID: "stage-current", Name: "Split", StableKey: "split",
+			NextStage: &WorkflowNextStageData{StageID: "stage-next", Name: "Develop", StableKey: "develop"},
+			AvailableStages: []WorkflowNextStageData{
+				{StageID: "stage-current", Name: "Split", StableKey: "split", Position: 1},
+				{StageID: "stage-mvp", Name: "Prototype or MVP", StableKey: "prototype", Position: 2},
+				{StageID: "stage-next", Name: "Develop", StableKey: "develop", Position: 3},
+			},
+		},
+	}, "codex")
+	for _, want := range []string{"Feature SOP", "stage-current", "stage-next", "stage-mvp", "Prototype or MVP", "--workflow-instance run-1", "semantically intended", "MUST remain attached"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("comment prompt missing SOP next-stage context %q:\n%s", want, out)
+		}
+	}
+}
+
 // TestBuildQuickCreatePromptAssigneeIncludesSquads locks in the SILI-2165
 // fix: the assignee-resolution rules must tell the agent to consult the
 // squad list alongside members and agents. Before this, a quick-create

@@ -4169,6 +4169,51 @@ func (s *TaskService) LoadAgentSkillBundles(ctx context.Context, agentID pgtype.
 	return BuildAgentSkillBundles(skills)
 }
 
+// ResolveRequiredSkills resolves the stable references stored on an SOP Stage.
+// Built-ins may be referenced as builtin:<name> (preferred) or by their legacy
+// name. Workspace skills may be referenced by UUID (preferred) or legacy name.
+// The caller must fail closed when missing is non-empty.
+func (s *TaskService) ResolveRequiredSkills(ctx context.Context, workspaceID pgtype.UUID, required []string) (skills []AgentSkillData, missing []string) {
+	builtins := make(map[string]AgentSkillData)
+	for _, skill := range s.BuiltinSkills() {
+		builtins[skill.Name] = skill
+	}
+
+	seen := make(map[string]bool)
+	for _, raw := range required {
+		ref := strings.TrimSpace(raw)
+		if ref == "" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+
+		builtinName := strings.TrimPrefix(ref, "builtin:")
+		if skill, ok := builtins[builtinName]; ok && (strings.HasPrefix(ref, "builtin:") || ref == builtinName) {
+			skills = append(skills, skill)
+			continue
+		}
+
+		var row db.Skill
+		var err error
+		if id, parseErr := util.ParseUUID(ref); parseErr == nil {
+			row, err = s.Queries.GetSkillInWorkspace(ctx, db.GetSkillInWorkspaceParams{ID: id, WorkspaceID: workspaceID})
+		} else {
+			row, err = s.Queries.GetSkillByWorkspaceAndName(ctx, db.GetSkillByWorkspaceAndNameParams{WorkspaceID: workspaceID, Name: ref})
+		}
+		if err != nil {
+			missing = append(missing, ref)
+			continue
+		}
+		data := AgentSkillData{ID: util.UUIDToString(row.ID), Source: skillbundle.SourceWorkspace, Name: row.Name, Description: row.Description, Content: row.Content}
+		files, _ := s.Queries.ListSkillFiles(ctx, row.ID)
+		for _, file := range files {
+			data.Files = append(data.Files, AgentSkillFileData{Path: file.Path, Content: file.Content})
+		}
+		skills = append(skills, data)
+	}
+	return skills, missing
+}
+
 func BuildAgentSkillBundles(skills []AgentSkillData) ([]AgentSkillData, []AgentSkillRefData) {
 	bundles := make([]AgentSkillData, 0, len(skills))
 	refs := make([]AgentSkillRefData, 0, len(skills))

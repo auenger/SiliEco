@@ -1,14 +1,23 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { RouterProvider } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { ScrollRestorationProvider } from "@silieco/views/platform";
 import { useActiveGroup, useTabStore } from "@/stores/tab-store";
 import {
   createScrollRestorationAdapter,
+  getAppRouterLocation,
   getAppRouter,
   initTabCoordinator,
   registerActiveHostElement,
   registerCoordinatorQueryClient,
+  subscribeAppRouterLocation,
 } from "@/platform/tab-coordinator";
 
 /**
@@ -66,6 +75,17 @@ export function TabContent() {
 function ActiveTabHost({ tabId }: { tabId: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const router = getAppRouter();
+  const activeUrl = useTabStore((state) => {
+    const slug = state.activeWorkspaceSlug;
+    const group = slug ? state.byWorkspace[slug] : undefined;
+    return group?.tabs.find((tab) => tab.id === tabId)?.url ?? null;
+  });
+  const committedUrl = useSyncExternalStore(
+    subscribeAppRouterLocation,
+    getAppRouterLocation,
+    () => "/",
+  );
+  const routeAligned = activeUrl !== null && committedUrl === activeUrl;
   const scrollAdapter = useMemo(
     () => createScrollRestorationAdapter(tabId),
     [tabId],
@@ -82,9 +102,17 @@ function ActiveTabHost({ tabId }: { tabId: string }) {
   // flex layout.
   return (
     <div ref={hostRef} style={{ display: "contents" }}>
-      <ScrollRestorationProvider adapter={scrollAdapter}>
-        <RouterProvider router={router} />
-      </ScrollRestorationProvider>
+      {routeAligned ? (
+        <ScrollRestorationProvider adapter={scrollAdapter}>
+          <RouterProvider router={router} />
+        </ScrollRestorationProvider>
+      ) : (
+        <div
+          className="min-h-0 flex-1 bg-background"
+          data-testid="tab-route-pending"
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 }

@@ -518,6 +518,73 @@ func TestProjectsAndResourcesSkillCoversDurableContext(t *testing.T) {
 	}
 }
 
+func TestFeatureWorkflowBuiltinSkillsAreCompleteAndSafe(t *testing.T) {
+	expected := []string{
+		"silieco-new-feature",
+		"silieco-enrich-feature",
+		"silieco-review-spec",
+		"silieco-prototype-feature",
+		"silieco-split-feature",
+		"silieco-start-feature",
+		"silieco-implement-feature",
+		"silieco-verify-feature",
+		"silieco-run-feature",
+		"silieco-complete-feature",
+	}
+
+	for _, name := range expected {
+		skill, ok := findSkill(t, name)
+		if !ok {
+			continue
+		}
+		fm, _, _ := splitFrontmatter(skill.Content)
+		if got := strings.TrimSpace(fm["user-invocable"]); got != "false" {
+			t.Errorf("%s user-invocable = %q, want false", name, got)
+		}
+		for _, contract := range []string{"## Input", "## Required output"} {
+			if !strings.Contains(skill.Content, contract) {
+				t.Errorf("%s missing stage contract section %q", name, contract)
+			}
+		}
+	}
+
+	runSkill, ok := findSkill(t, "silieco-run-feature")
+	if ok {
+		for _, want := range []string{
+			"silieco-start-feature",
+			"silieco-implement-feature",
+			"must not be invoked here",
+			"Never invoke `silieco-verify-feature` or `silieco-complete-feature`",
+		} {
+			if !strings.Contains(runSkill.Content, want) {
+				t.Errorf("silieco-run-feature missing %q", want)
+			}
+		}
+	}
+
+	splitSkill, ok := findSkill(t, "silieco-split-feature")
+	if ok {
+		for _, want := range []string{
+			"--parent <current-task-id>",
+			"--stage 1",
+			"--status backlog",
+			"--workflow-instance <run-uuid>",
+			"--workflow-stage <development-stage-uuid>",
+			"never guess it",
+			"silieco task children <current-task-id>",
+		} {
+			if !strings.Contains(splitSkill.Content, want) {
+				t.Errorf("silieco-split-feature missing %q", want)
+			}
+		}
+	}
+
+	verifySkill, ok := findSkill(t, "silieco-verify-feature")
+	if ok && !strings.Contains(verifySkill.Content, "blocks completion") {
+		t.Error("silieco-verify-feature must block completion when required verification fails")
+	}
+}
+
 func findSkill(t *testing.T, name string) (AgentSkillData, bool) {
 	t.Helper()
 	for _, s := range loadBuiltinSkills() {

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import {
   NavigationProvider,
   type NavigationAdapter,
@@ -9,9 +9,12 @@ import {
   useTabStore,
   getActiveTab,
   splitTabUrl,
-  useActiveTabUrl,
 } from "@/stores/tab-store";
 import { useWindowOverlayStore } from "@/stores/window-overlay-store";
+import {
+  getAppRouterLocation,
+  subscribeAppRouterLocation,
+} from "@/platform/tab-coordinator";
 
 function requireRuntimeAppUrl(scope: string): string {
   const runtimeConfig = window.desktopAPI.runtimeConfig;
@@ -161,16 +164,22 @@ export function DesktopNavigationProvider({
   children: React.ReactNode;
 }) {
   const appUrl = requireRuntimeAppUrl("DesktopNavigationProvider");
-  // The active session's url IS the location. Primitive subscription: this
-  // only re-renders when the active url actually changes.
-  const activeUrl = useActiveTabUrl();
+  // Shared pages must observe the URL that RouterProvider has actually
+  // committed, not the tab store's requested destination. During an async
+  // transition the old page is still mounted; exposing the destination's
+  // search params early can make that old page mutate before it unmounts
+  // (for example, an SOP run board briefly falling back to the Task board).
+  const committedUrl = useSyncExternalStore(
+    subscribeAppRouterLocation,
+    getAppRouterLocation,
+    () => "/",
+  );
   const location = useMemo(() => {
-    const url = activeUrl ?? "/";
-    const { pathname, suffix } = splitTabUrl(url);
+    const { pathname, suffix } = splitTabUrl(committedUrl);
     const hashIdx = suffix.indexOf("#");
     const search = hashIdx === -1 ? suffix : suffix.slice(0, hashIdx);
     return { pathname, search };
-  }, [activeUrl]);
+  }, [committedUrl]);
 
   const adapter: NavigationAdapter = useMemo(
     () => ({

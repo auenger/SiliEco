@@ -243,16 +243,21 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 			ID:          workflowInstanceID,
 			WorkspaceID: p.WorkspaceID,
 		})
-		if err != nil || instance.Status == "completed" || instance.Status == "cancelled" {
+		if err != nil || instance.ArchivedAt.Valid || instance.Status == "completed" || instance.Status == "cancelled" {
 			return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
 		}
 		if !instance.ProjectID.Valid || instance.ProjectID != projectID {
 			return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
 		}
-		if _, err := qtx.GetWorkflowStageInVersion(ctx, db.GetWorkflowStageInVersionParams{
-			ID:                workflowStageID,
-			WorkflowVersionID: instance.WorkflowVersionID,
-			WorkspaceID:       p.WorkspaceID,
+		// Tasks bind to the immutable Stage copy owned by this Run, not to the
+		// source workflow_version Stage. A Run plan can be adjusted independently
+		// after it starts, so validating against workflow_stage rejects every
+		// instance-stage ID and can also accept a source Stage that is not present
+		// in the adjusted Run.
+		if _, err := qtx.GetWorkflowInstanceStage(ctx, db.GetWorkflowInstanceStageParams{
+			ID:                 workflowStageID,
+			WorkflowInstanceID: instance.ID,
+			WorkspaceID:        p.WorkspaceID,
 		}); err != nil {
 			return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
 		}

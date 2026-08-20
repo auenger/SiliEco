@@ -1579,6 +1579,35 @@ type claimBuildFailure struct {
 	message string
 }
 
+func appendUniqueSkills(existing, added []service.AgentSkillData) []service.AgentSkillData {
+	seen := make(map[string]bool, len(existing))
+	for _, skill := range existing {
+		seen[skill.Name] = true
+	}
+	for _, skill := range added {
+		if !seen[skill.Name] {
+			existing = append(existing, skill)
+			seen[skill.Name] = true
+		}
+	}
+	return existing
+}
+
+func appendUniqueSkillRefs(existing, added []service.AgentSkillRefData) []service.AgentSkillRefData {
+	seen := make(map[string]bool, len(existing))
+	for _, skill := range existing {
+		seen[skill.Source+":"+skill.ID] = true
+	}
+	for _, skill := range added {
+		key := skill.Source + ":" + skill.ID
+		if !seen[key] {
+			existing = append(existing, skill)
+			seen[key] = true
+		}
+	}
+	return existing
+}
+
 // buildClaimedTaskResponse assembles the full daemon claim payload for a
 // single already-claimed task and computes the exact comment ids embedded in
 // it (deliveredCommentIDs). Shared by the per-runtime handler
@@ -1596,11 +1625,11 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 	// in the capability-aware response built below.
 	deliveredCommentIDs = []pgtype.UUID{}
 	composioMCPEnabled := h.composioMCPAppsEnabled(r.Context())
+	useSkillRefs := requestHasClientCapability(r, protocol.DaemonCapabilitySkillBundlesV1)
 	if composioMCPEnabled {
 		resp.ConnectedApps = parseRuntimeConnectedAppsForClaim(task.RuntimeConnectedApps, task.ID)
 	}
 	if agent, err := h.Queries.GetAgent(r.Context(), task.AgentID); err == nil {
-		useSkillRefs := requestHasClientCapability(r, protocol.DaemonCapabilitySkillBundlesV1)
 		var customEnv map[string]string
 		if agent.CustomEnv != nil {
 			if err := json.Unmarshal(agent.CustomEnv, &customEnv); err != nil {
@@ -1783,6 +1812,71 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			if issue.WorkflowInstanceID.Valid && issue.WorkflowStageID.Valid {
 				resp.WorkflowInstanceID = uuidToString(issue.WorkflowInstanceID)
 				resp.WorkflowStageID = uuidToString(issue.WorkflowStageID)
+				instance, instanceErr := h.Queries.GetWorkflowInstanceInWorkspace(r.Context(), db.GetWorkflowInstanceInWorkspaceParams{
+					ID: issue.WorkflowInstanceID, WorkspaceID: issue.WorkspaceID,
+				})
+				if instanceErr != nil {
+					_, _ = h.TaskService.CancelTask(r.Context(), task.ID)
+					return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, &claimBuildFailure{
+						outcome: "error_workflow_instance", status: http.StatusConflict, message: "task SOP run no longer exists",
+					}
+				}
+				stage, stageErr := h.Queries.GetWorkflowInstanceStage(r.Context(), db.GetWorkflowInstanceStageParams{
+					ID: issue.WorkflowStageID, WorkflowInstanceID: issue.WorkflowInstanceID, WorkspaceID: issue.WorkspaceID,
+				})
+				if stageErr != nil {
+					_, _ = h.TaskService.CancelTask(r.Context(), task.ID)
+					return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, &claimBuildFailure{
+						outcome: "error_workflow_stage", status: http.StatusConflict, message: "task SOP stage no longer exists",
+					}
+				}
+				required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), issue.WorkspaceID, stage.RequiredSkills)
+				if len(missing) > 0 {
+					_, _ = h.TaskService.CancelTask(r.Context(), task.ID)
+					slog.Warn("daemon claim blocked by missing SOP required skill",
+						"task_id", uuidToString(task.ID), "workflow_stage_id", uuidToString(stage.ID), "missing", missing)
+					return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, &claimBuildFailure{
+						outcome: "error_required_skill", status: http.StatusConflict,
+						message: "required SOP skill is unavailable: " + strings.Join(missing, ", "),
+					}
+				}
+				resolvedNames := make([]string, 0, len(required))
+				for _, skill := range required {
+					resolvedNames = append(resolvedNames, skill.Name)
+				}
+				resp.WorkflowStage = &WorkflowStageContextData{
+					InstanceID: uuidToString(issue.WorkflowInstanceID), InstanceTitle: instance.Title,
+					StageID: uuidToString(stage.ID), StableKey: stage.StableKey, Name: stage.Name,
+					Position: stage.Position, RequiredSkills: resolvedNames,
+				}
+				stages, stagesErr := h.Queries.ListWorkflowInstanceStages(r.Context(), db.ListWorkflowInstanceStagesParams{
+					WorkflowInstanceID: issue.WorkflowInstanceID, WorkspaceID: issue.WorkspaceID,
+				})
+				if stagesErr != nil {
+					_, _ = h.TaskService.CancelTask(r.Context(), task.ID)
+					return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, &claimBuildFailure{
+						outcome: "error_workflow_stages", status: http.StatusConflict, message: "task SOP stages are unavailable",
+					}
+				}
+				resp.WorkflowStage.AvailableStages = make([]WorkflowNextStageData, 0, len(stages))
+				for _, candidate := range stages {
+					ref := WorkflowNextStageData{
+						StageID: uuidToString(candidate.ID), StableKey: candidate.StableKey, Name: candidate.Name, Position: candidate.Position,
+					}
+					resp.WorkflowStage.AvailableStages = append(resp.WorkflowStage.AvailableStages, ref)
+					if candidate.Position > stage.Position && resp.WorkflowStage.NextStage == nil {
+						next := ref
+						resp.WorkflowStage.NextStage = &next
+					}
+				}
+				if resp.Agent != nil && len(required) > 0 {
+					bundles, refs := service.BuildAgentSkillBundles(required)
+					if useSkillRefs {
+						resp.Agent.SkillRefs = appendUniqueSkillRefs(resp.Agent.SkillRefs, refs)
+					} else {
+						resp.Agent.Skills = appendUniqueSkills(resp.Agent.Skills, bundles)
+					}
+				}
 			}
 			if issue.ProjectID.Valid {
 				resp.ProjectID = uuidToString(issue.ProjectID)
@@ -2729,6 +2823,26 @@ func (h *Handler) ResolveTaskSkillBundles(w http.ResponseWriter, r *http.Request
 	}
 
 	bundles, _ := h.TaskService.LoadAgentSkillBundles(r.Context(), task.AgentID)
+	// Stage-required workspace skills are task-scoped capabilities. They do not
+	// need to be permanently assigned to the Agent, but the slim-claim resolver
+	// must authorize the same union that buildClaimedTaskResponse advertised.
+	if task.IssueID.Valid {
+		if issue, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
+			ID: task.IssueID, WorkspaceID: runtime.WorkspaceID,
+		}); err == nil && issue.WorkflowInstanceID.Valid && issue.WorkflowStageID.Valid {
+			if stage, err := h.Queries.GetWorkflowInstanceStage(r.Context(), db.GetWorkflowInstanceStageParams{
+				ID: issue.WorkflowStageID, WorkflowInstanceID: issue.WorkflowInstanceID, WorkspaceID: issue.WorkspaceID,
+			}); err == nil {
+				required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), issue.WorkspaceID, stage.RequiredSkills)
+				if len(missing) > 0 {
+					writeError(w, http.StatusConflict, "required SOP skill is unavailable: "+strings.Join(missing, ", "))
+					return
+				}
+				bundles = appendUniqueSkills(bundles, required)
+			}
+		}
+	}
+	bundles, _ = service.BuildAgentSkillBundles(bundles)
 	allowed := make(map[string]service.AgentSkillData, len(bundles))
 	for _, bundle := range bundles {
 		allowed[bundle.Source+"\x00"+bundle.ID] = bundle

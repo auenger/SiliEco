@@ -157,6 +157,113 @@ function stage(
 
 export const SOP_TEMPLATES: SopTemplate[] = [
   {
+    id: "feature-development",
+    name: "Feature 研发工作流",
+    description: "面向第一版交付的轻量 Feature 流程：用 Task 和 Markdown 产物串联需求、拆分、开发、验证与归档。",
+    source: "preset",
+    stages: [
+      {
+        ...stage(
+          "需求输入与分析",
+          "当前 Task / 原始需求 / 用户反馈 / 业务目标",
+          "feature-brief.md 或 Task 内的等价需求说明",
+          "silieco-new-feature",
+        ),
+        description: "把当前大 Task 收敛为目标、范围、约束、验收条件和待确认问题。",
+      },
+      {
+        ...stage(
+          "PRD 产出",
+          "已确认的 feature-brief.md / Task 需求说明",
+          "PRD.md（含验收条件与候选开发切片）",
+          "silieco-enrich-feature",
+        ),
+        description: "输出足够支撑第一版开发的轻量 PRD，不强制额外生成 task.md 和 checklist.md。",
+      },
+      {
+        ...stage(
+          "PRD 校验",
+          "PRD.md / 项目与仓库上下文",
+          "spec-review.md（pass 或 block）",
+          "silieco-review-spec",
+          {
+            statuses: ["todo", "in_review", "done", "blocked"],
+            gateEnabled: true,
+            deciderType: "human",
+            requireHuman: true,
+          },
+        ),
+        description: "只检查会阻碍第一版实现或验收的问题，通过人工 Gate 确认范围。",
+      },
+      {
+        ...stage(
+          "原型或 MVP",
+          "已通过校验的 PRD.md",
+          "prototype-decision.md + 可选 Prototype / MVP",
+          "silieco-prototype-feature",
+          {
+            statuses: ["todo", "in_progress", "in_review", "done", "blocked"],
+            gateEnabled: true,
+            deciderType: "human",
+            requireHuman: true,
+          },
+        ),
+        description: "先判断是否需要原型；仅在存在关键不确定性时产出最小 Demo 或技术 Spike。",
+      },
+      {
+        ...stage(
+          "Feature 拆分与开发准备",
+          "当前大 Task / PRD.md / 原型结论",
+          "已关联的开发子 Task / 分组顺序 / 覆盖摘要",
+          "silieco-split-feature",
+        ),
+        description: "把大 Task 拆成父子关联的小 Task，用子任务 Stage 屏障表达并行组与先后顺序。",
+      },
+      {
+        ...stage(
+          "开发实现",
+          "当前开发子 Task / PRD.md / 前置子 Task 结果",
+          "代码 / 聚焦测试 / 实现交接说明",
+          "silieco-run-feature",
+          {
+            statuses: ["todo", "in_progress", "in_review", "done", "blocked"],
+          },
+        ),
+        description: "每个子 Task 独立执行开发前检查和实现；不在本 Stage 重复执行最终验收。",
+      },
+      {
+        ...stage(
+          "本地化测试与验收",
+          "待验收实现 / PRD 验收条件 / 子 Task 结果",
+          "verification-report.md 或 Task 验收记录",
+          "silieco-verify-feature",
+          {
+            statuses: ["todo", "in_progress", "in_review", "done", "blocked"],
+            gateEnabled: true,
+            deciderType: "human",
+            requireHuman: true,
+          },
+        ),
+        description: "按改动范围执行本地检查并验证验收条件；失败保持 block，不进入完成阶段。",
+      },
+      {
+        ...stage(
+          "完成与归档",
+          "通过验收的实现 / 子 Task 状态 / verification-report.md",
+          "completion-summary.md / Release Notes / 后续项",
+          "silieco-complete-feature",
+          {
+            statuses: ["todo", "in_review", "done", "blocked"],
+            gateEnabled: true,
+            deciderType: "human",
+            requireHuman: true,
+          },
+        ),
+        description: "汇总子 Task 和验证结果，准备交付记录；合并、推送与发布仍按授权执行。",
+      },
+    ],
+  },
+  {
     id: "bid",
     name: "投标模板",
     description: "从招标文件分析到审核、得分点比较的完整交付流程。",
@@ -239,6 +346,12 @@ export const SOP_TEMPLATES: SopTemplate[] = [
     stages: [stage("", "", "", "")],
   },
 ];
+
+function blankSopTemplate(): SopTemplate {
+  const template = SOP_TEMPLATES.find((item) => item.id === "blank");
+  if (!template) throw new Error("blank SOP template is missing");
+  return template;
+}
 
 let stageSequence = 0;
 function cloneStages(template: SopTemplate) {
@@ -778,7 +891,7 @@ export function ProjectSopDesigner({
       return next;
     });
   const addStage = () => {
-    const item = cloneStages(SOP_TEMPLATES[4]!)[0]!;
+    const item = cloneStages(blankSopTemplate())[0]!;
     setStages((current) => [...current, item]);
     setExpanded((current) => new Set(current).add(item.id));
   };
@@ -918,7 +1031,7 @@ export function ProjectSopDesigner({
                   : t(($) => $.page.description)}
               </p>
             </div>
-            <Button size="sm" onClick={() => begin(SOP_TEMPLATES[4]!)}>
+            <Button size="sm" onClick={() => begin(blankSopTemplate())}>
               <Plus className="size-3.5" />
               {t(($) => $.page.create)}
             </Button>

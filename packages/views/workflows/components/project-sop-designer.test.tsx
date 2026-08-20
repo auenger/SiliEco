@@ -132,6 +132,7 @@ describe("ProjectSopDesigner", () => {
   it("offers the prototype templates without rendering Task management", () => {
     renderDesigner();
 
+    expect(screen.getByRole("button", { name: /Feature 研发工作流/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /投标模板/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /软件开发模板/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Bug 修复模板/ })).toBeInTheDocument();
@@ -139,6 +140,49 @@ describe("ProjectSopDesigner", () => {
     expect(screen.getByRole("button", { name: /空白 SOP/ })).toBeInTheDocument();
     expect(screen.queryByText("Task board")).not.toBeInTheDocument();
     expect(screen.queryByText("Start a Workflow")).not.toBeInTheDocument();
+  });
+
+  it("maps the built-in Feature workflow stages to their platform skills", () => {
+    renderDesigner();
+
+    fireEvent.click(screen.getByRole("button", { name: /Feature 研发工作流/ }));
+
+    expect(screen.getByDisplayValue("Feature 研发工作流")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("需求输入与分析")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("PRD 产出")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("PRD 校验")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("原型或 MVP")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Feature 拆分与开发准备")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("开发实现")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("本地化测试与验收")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("完成与归档")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish SOP" }));
+
+    const [payload] = createWorkflow.mock.calls[0]!;
+    expect(payload.stages).toHaveLength(8);
+    expect(payload.stages.map((item: { required_skills: string[] }) => item.required_skills)).toEqual([
+      ["silieco-new-feature"],
+      ["silieco-enrich-feature"],
+      ["silieco-review-spec"],
+      ["silieco-prototype-feature"],
+      ["silieco-split-feature"],
+      ["silieco-run-feature"],
+      ["silieco-verify-feature"],
+      ["silieco-complete-feature"],
+    ]);
+    expect(payload.stages[4].output_spec).toEqual({
+      default_artifact: "已关联的开发子 Task / 分组顺序 / 覆盖摘要",
+    });
+    expect(payload.stages[2].gate).toMatchObject({
+      type: "human",
+      require_human: true,
+    });
+    expect(payload.stages[5].gate).toMatchObject({ type: "none" });
+    expect(payload.stages[6].gate).toMatchObject({
+      type: "human",
+      require_human: true,
+    });
   });
 
   it("starts a published SOP with a distinct editable run name", () => {

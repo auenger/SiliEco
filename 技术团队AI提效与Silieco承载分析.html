@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="技术团队工作负荷、AI 提效路径与 Silieco 承载能力分析报告">
+  <title>技术团队 AI 提效与 Silieco 承载分析</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f3f6f7;
+      --surface: #fbfcfc;
+      --surface-strong: #ffffff;
+      --text: #172225;
+      --muted: #5e6d71;
+      --line: #d9e1e3;
+      --accent: #087f73;
+      --accent-strong: #06685f;
+      --accent-soft: #dcefeb;
+      --warn: #a14f12;
+      --warn-soft: #fae9db;
+      --risk: #9b3944;
+      --risk-soft: #f6e3e6;
+      --shadow: 0 18px 44px rgba(34, 58, 63, 0.08);
+      --radius: 14px;
+      --max: 1180px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101617;
+        --surface: #172022;
+        --surface-strong: #1c2729;
+        --text: #edf4f3;
+        --muted: #a6b5b7;
+        --line: #324044;
+        --accent: #55c7b8;
+        --accent-strong: #7dd7cb;
+        --accent-soft: #173b38;
+        --warn: #f1a365;
+        --warn-soft: #402b1e;
+        --risk: #ee929d;
+        --risk-soft: #402329;
+        --shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+      line-height: 1.65;
+      text-rendering: optimizeLegibility;
+    }
+
+    a { color: inherit; }
+
+    button {
+      border: 0;
+      border-radius: 9px;
+      background: var(--accent-strong);
+      color: #ffffff;
+      font: inherit;
+      font-weight: 700;
+      padding: 0.72rem 1rem;
+      cursor: pointer;
+    }
+
+    button:hover { filter: brightness(1.06); }
+    button:active { transform: translateY(1px); }
+    button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+    .page {
+      width: min(calc(100% - 40px), var(--max));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      border-bottom: 1px solid color-mix(in srgb, var(--line), transparent 20%);
+      background: color-mix(in srgb, var(--bg), transparent 8%);
+      backdrop-filter: blur(14px);
+    }
+
+    .topbar-inner {
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      font-size: 0.95rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .hero {
+      min-height: min(720px, calc(100dvh - 64px));
+      display: grid;
+      grid-template-columns: minmax(0, 1.28fr) minmax(300px, 0.72fr);
+      align-items: center;
+      gap: clamp(36px, 7vw, 96px);
+      padding: 72px 0;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      margin-bottom: 18px;
+      color: var(--accent-strong);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      max-width: 760px;
+      margin-bottom: 22px;
+      font-size: clamp(2.7rem, 6.2vw, 5.8rem);
+      line-height: 0.99;
+      letter-spacing: -0.065em;
+    }
+
+    .hero-copy {
+      max-width: 680px;
+      margin-bottom: 30px;
+      color: var(--muted);
+      font-size: clamp(1.05rem, 1.8vw, 1.3rem);
+      line-height: 1.6;
+    }
+
+    .verdict {
+      border-left: 5px solid var(--accent);
+      border-radius: var(--radius);
+      background: var(--surface-strong);
+      box-shadow: var(--shadow);
+      padding: 26px;
+    }
+
+    .verdict strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent-strong);
+      font-size: 1.55rem;
+      letter-spacing: -0.035em;
+    }
+
+    .verdict p { margin: 0; color: var(--muted); }
+
+    .hero-facts {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 12px;
+    }
+
+    .fact {
+      min-height: 136px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 22px;
+    }
+
+    .fact.primary {
+      grid-row: span 2;
+      min-height: 284px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background: var(--accent-soft);
+      border-color: color-mix(in srgb, var(--accent), var(--line) 60%);
+    }
+
+    .fact-value {
+      display: block;
+      font-size: clamp(2.25rem, 5vw, 4.5rem);
+      font-weight: 850;
+      line-height: 1;
+      letter-spacing: -0.07em;
+    }
+
+    .fact-label {
+      display: block;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    main section { padding: 76px 0; }
+
+    .section-head {
+      max-width: 760px;
+      margin-bottom: 38px;
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      font-size: clamp(2rem, 4.2vw, 3.5rem);
+      line-height: 1.08;
+      letter-spacing: -0.05em;
+    }
+
+    h3 {
+      margin-bottom: 10px;
+      font-size: 1.08rem;
+      letter-spacing: -0.02em;
+    }
+
+    .section-head p, .muted { color: var(--muted); }
+
+    .signal-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 0.75fr;
+      gap: 18px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: clamp(24px, 4vw, 40px);
+    }
+
+    .workload-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .workload-item {
+      min-height: 150px;
+      border-radius: calc(var(--radius) - 3px);
+      background: var(--surface-strong);
+      padding: 20px;
+    }
+
+    .workload-item b {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent-strong);
+      font-size: 1.65rem;
+      letter-spacing: -0.04em;
+    }
+
+    .workload-item span { color: var(--muted); font-size: 0.9rem; }
+
+    .priority-list {
+      display: grid;
+      gap: 20px;
+    }
+
+    .priority-item {
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .priority-item:last-child { padding-bottom: 0; border-bottom: 0; }
+    .priority-item p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+
+    .capability-map {
+      display: grid;
+      grid-template-columns: 0.88fr 1.12fr;
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .native-list {
+      margin: 22px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 12px;
+    }
+
+    .native-list li {
+      position: relative;
+      padding-left: 25px;
+    }
+
+    .native-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.62em;
+      width: 10px;
+      height: 4px;
+      border-radius: 4px;
+      background: var(--accent);
+    }
+
+    .boundary {
+      background: var(--accent-soft);
+      border-color: color-mix(in srgb, var(--accent), var(--line) 60%);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .flow-step {
+      position: relative;
+      min-height: 124px;
+      display: flex;
+      align-items: flex-end;
+      border-radius: 11px;
+      background: var(--surface-strong);
+      padding: 16px;
+      font-size: 0.9rem;
+      font-weight: 750;
+    }
+
+    .flow-step:not(:last-child)::after {
+      content: ">";
+      position: absolute;
+      right: -9px;
+      top: 15px;
+      z-index: 1;
+      color: var(--accent-strong);
+      font-size: 1.1rem;
+      font-weight: 900;
+    }
+
+    .fit-list { display: grid; gap: 14px; }
+
+    .fit-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.8fr) 110px minmax(260px, 1.7fr);
+      gap: 20px;
+      align-items: center;
+      border-radius: 12px;
+      background: var(--surface);
+      padding: 20px 22px;
+    }
+
+    .fit-label { font-weight: 780; }
+
+    .fit-grade {
+      display: inline-flex;
+      width: fit-content;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 0.82rem;
+      font-weight: 800;
+    }
+
+    .fit-grade.medium { background: var(--warn-soft); color: var(--warn); }
+    .fit-grade.low { background: var(--risk-soft); color: var(--risk); }
+    .fit-note { color: var(--muted); font-size: 0.92rem; }
+
+    .sop-shell {
+      border-radius: var(--radius);
+      background: var(--surface-strong);
+      box-shadow: var(--shadow);
+      padding: clamp(24px, 4vw, 42px);
+    }
+
+    .sop-track {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 28px;
+    }
+
+    .sop-item {
+      min-height: 180px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .sop-item:nth-child(2), .sop-item:nth-child(6) { background: var(--accent-soft); }
+    .sop-item:nth-child(4), .sop-item:nth-child(7) { background: var(--warn-soft); }
+
+    .sop-item b {
+      display: block;
+      margin-bottom: 14px;
+      color: var(--accent-strong);
+      font-size: 1.05rem;
+    }
+
+    .sop-item p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+
+    .gap-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .gap-item {
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 26px;
+    }
+
+    .gap-item p { margin-bottom: 0; color: var(--muted); }
+
+    .guardrail {
+      margin-top: 20px;
+      border-left: 5px solid var(--risk);
+      border-radius: var(--radius);
+      background: var(--risk-soft);
+      padding: 24px 26px;
+    }
+
+    .guardrail b { color: var(--risk); }
+    .guardrail p { margin: 6px 0 0; }
+
+    .decision {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .decision-main {
+      border-radius: var(--radius);
+      background: var(--accent-strong);
+      color: #ffffff;
+      padding: clamp(30px, 5vw, 54px);
+    }
+
+    .decision-main h2 { max-width: 760px; }
+    .decision-main p { max-width: 720px; margin-bottom: 0; color: rgba(255, 255, 255, 0.8); }
+
+    .decision-side {
+      border-radius: var(--radius);
+      background: var(--surface-strong);
+      padding: 30px;
+    }
+
+    .decision-side ol { margin: 18px 0 0; padding-left: 1.25rem; }
+    .decision-side li { margin-bottom: 10px; color: var(--muted); }
+
+    footer {
+      padding: 40px 0 56px;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    @media (max-width: 900px) {
+      .hero,
+      .signal-grid,
+      .capability-map,
+      .decision { grid-template-columns: 1fr; }
+
+      .hero { min-height: auto; padding: 64px 0; }
+      .hero-facts { max-width: 620px; }
+      .flow { grid-template-columns: 1fr; }
+      .flow-step { min-height: 82px; }
+      .flow-step:not(:last-child)::after { content: "v"; right: 16px; top: auto; bottom: -17px; }
+      .sop-track { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 640px) {
+      .page { width: min(calc(100% - 28px), var(--max)); }
+      .topbar-inner { min-height: 58px; }
+      .topbar .meta { display: none; }
+      .topbar button { padding: 0.58rem 0.8rem; font-size: 0.86rem; }
+      h1 { font-size: clamp(2.6rem, 14vw, 4.1rem); }
+      main section { padding: 58px 0; }
+      .hero-facts, .workload-list, .gap-grid, .sop-track { grid-template-columns: 1fr; }
+      .fact.primary { grid-row: auto; min-height: 210px; }
+      .fit-row { grid-template-columns: 1fr; gap: 8px; }
+      .fit-row { padding: 18px; }
+    }
+
+    @media print {
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --surface: #f6f8f8;
+        --surface-strong: #ffffff;
+        --text: #172225;
+        --muted: #526064;
+        --line: #d6dfe1;
+        --accent: #087f73;
+        --accent-strong: #06685f;
+        --accent-soft: #e5f3f0;
+        --warn: #93450e;
+        --warn-soft: #f9eadf;
+        --risk: #963541;
+        --risk-soft: #f7e7e9;
+      }
+
+      body { background: #ffffff; font-size: 10.5pt; }
+      .topbar { position: static; backdrop-filter: none; }
+      .top-actions button { display: none; }
+      .hero { min-height: auto; padding: 42px 0; }
+      main section { padding: 38px 0; break-inside: avoid; }
+      .panel, .fit-row, .sop-item, .gap-item, .verdict { break-inside: avoid; box-shadow: none; }
+      .sop-track { grid-template-columns: repeat(4, 1fr); }
+      footer { padding-bottom: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="page topbar-inner">
+      <div class="brand">Silieco 承载能力评估</div>
+      <div class="top-actions">
+        <span class="meta">依据 2026-08-14 技术团队会议纪要</span>
+        <button type="button" onclick="window.print()">打印报告</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="page">
+      <section class="hero">
+        <div>
+          <span class="eyebrow">AI 提效路径评估</span>
+          <h1>Silieco 能承载，但必须守住边界</h1>
+          <p class="hero-copy">它适合作为 AI 研发协作与流程控制平面，负责组织任务、SOP、Agent、产物和人工审批。</p>
+          <div class="verdict">
+            <strong>适合立即开展内部试点</strong>
+            <p>上游渠道接入最成熟，监控自动化次之。生产发布、安全处置和合规审计仍需外部系统与人工兜底。</p>
+          </div>
+        </div>
+
+        <div class="hero-facts" aria-label="工作负荷摘要">
+          <article class="fact primary">
+            <span class="fact-value">50%</span>
+            <span class="fact-label">团队精力投入新业务系统建设，不确定性最高，AI 适合辅助而非主导。</span>
+          </article>
+          <article class="fact">
+            <span class="fact-value">10%-20%</span>
+            <span class="fact-label">上游渠道接入，流程标准化潜力最高。</span>
+          </article>
+          <article class="fact">
+            <span class="fact-value">5%-10%</span>
+            <span class="fact-label">运维与监控，重复性强，适合自动巡检。</span>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <section>
+      <div class="page">
+        <div class="section-head">
+          <h2>会议释放的核心信号</h2>
+          <p>团队真正需要的不是单点 AI 工具，而是一套能把重复工作固化为流程、把高风险操作留给人工决策的协作机制。</p>
+        </div>
+
+        <div class="signal-grid">
+          <div class="panel">
+            <h3>工作负荷结构</h3>
+            <div class="workload-list">
+              <div class="workload-item">
+                <b>新业务</b>
+                <span>数字钱包、VA 账户、会计体系等项目专业性强，设计责任不能交给 AI。</span>
+              </div>
+              <div class="workload-item">
+                <b>渠道接入</b>
+                <span>接口接入路径相对固定，但文档缺失和协议差异会制造大量异常分支。</span>
+              </div>
+              <div class="workload-item">
+                <b>商户支持</b>
+                <span>签名、白名单、订单和定制需求零散，适合先做分类与信息收集。</span>
+              </div>
+              <div class="workload-item">
+                <b>运维安全</b>
+                <span>单人兼顾运维和安全，巡检、报告与合规材料形成持续压力。</span>
+              </div>
+            </div>
+          </div>
+
+          <aside class="panel">
+            <h3>已经形成的共识</h3>
+            <div class="priority-list">
+              <div class="priority-item">
+                <h3>优先上游接入与监控</h3>
+                <p>一个标准化程度高，一个重复性强，最容易形成可度量的提效结果。</p>
+              </div>
+              <div class="priority-item">
+                <h3>继续使用自建 GitLab</h3>
+                <p>代码、凭据和网络权限必须满足资金业务的安全要求。</p>
+              </div>
+              <div class="priority-item">
+                <h3>不建设独立支付沙箱</h3>
+                <p>改用 Mock、契约测试和固定报文验证降低环境维护成本。</p>
+              </div>
+              <div class="priority-item">
+                <h3>人工审批不能取消</h3>
+                <p>安全、合规、资金语义与生产发布必须由明确责任人确认。</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="page">
+        <div class="section-head">
+          <h2>Silieco 的角色</h2>
+          <p>Silieco 管理工作与责任链，专业系统负责执行与验证。两者组合后才能形成可靠的 AI 工作流。</p>
+        </div>
+
+        <div class="capability-map">
+          <article class="panel">
+            <h3>当前已有的承载能力</h3>
+            <ul class="native-list">
+              <li>Task、Project、依赖、验收条件、附件与活动记录</li>
+              <li>版本化 SOP、Workflow Run 和有序 Stage</li>
+              <li>人工、Agent 与混合门禁，以及驳回回退</li>
+              <li>Agent、Swarm、Skills 和本地运行时</li>
+              <li>定时或 Webhook 触发的 Autopilot</li>
+              <li>自建 GitLab MR 与 Pipeline 状态接入</li>
+              <li>Lark、Slack、邮件和对象存储集成点</li>
+            </ul>
+          </article>
+
+          <article class="panel boundary">
+            <h3>必须明确的产品边界</h3>
+            <p class="muted">Silieco 不是监控平台、CI 引擎、安全扫描器或支付开发框架。它把这些工具串成可追踪、可审批、可复盘的工作过程。</p>
+            <div class="flow" aria-label="Silieco 协作流程">
+              <div class="flow-step">外部告警、需求或代码事件</div>
+              <div class="flow-step">Autopilot 或 Task 触发</div>
+              <div class="flow-step">Agent 按 Skill 执行</div>
+              <div class="flow-step">GitLab、Jenkins 验证</div>
+              <div class="flow-step">人工审批与发布</div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="page">
+        <div class="section-head">
+          <h2>各场景适配判断</h2>
+          <p>优先做能够快速验证流程价值的半自动场景，不追求一步到位的无人化闭环。</p>
+        </div>
+
+        <div class="fit-list">
+          <article class="fit-row">
+            <div class="fit-label">上游银行接入 SOP</div>
+            <span class="fit-grade">高</span>
+            <div class="fit-note">流程、产物和审批节点明确，是最适合下周 Demo 与第一阶段试点的场景。</div>
+          </article>
+          <article class="fit-row">
+            <div class="fit-label">AI Code Review</div>
+            <span class="fit-grade">中高</span>
+            <div class="fit-note">Silieco 负责触发、记录和整改跟踪，GitLab/Jenkins 负责真正阻断不合格代码。</div>
+          </article>
+          <article class="fit-row">
+            <div class="fit-label">SDK 生成与维护</div>
+            <span class="fit-grade">中高</span>
+            <div class="fit-note">适合通过模板、Skill 和契约测试形成标准流水线，仍需补充发布规范。</div>
+          </article>
+          <article class="fit-row">
+            <div class="fit-label">监控巡检与报告</div>
+            <span class="fit-grade medium">中</span>
+            <div class="fit-note">调度与协作能力已具备，但需要 MySQL、Redis、AWS 和日志平台的只读连接器。</div>
+          </article>
+          <article class="fit-row">
+            <div class="fit-label">商户问题处理</div>
+            <span class="fit-grade medium">中</span>
+            <div class="fit-note">适合分类、补充信息、生成排查结论和创建研发 Task，不适合直接自动修改生产配置。</div>
+          </article>
+          <article class="fit-row">
+            <div class="fit-label">新业务系统建设</div>
+            <span class="fit-grade medium">中</span>
+            <div class="fit-note">可以辅助 PRD、设计、测试和评审，不能替代财务、合规与核心架构责任人。</div>
+          </article>
+          <article class="fit-row">
+            <div class="fit-label">合规审计与自动处置</div>
+            <span class="fit-grade low">中低</span>
+            <div class="fit-note">可辅助生成材料和归集证据，但当前不足以作为 PCI、ISO 的完整审计控制系统。</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="page">
+        <div class="sop-shell">
+          <div class="section-head">
+            <h2>推荐的上游接入 SOP</h2>
+            <p>用一份脱敏银行 API 文档完成端到端演示，重点展示资料缺口处理、Agent 产出和人工门禁。</p>
+          </div>
+
+          <div class="sop-track">
+            <article class="sop-item">
+              <b>接收资料</b>
+              <p>上传 API 文档、示例报文、认证说明和联系人信息。</p>
+            </article>
+            <article class="sop-item">
+              <b>结构化分析</b>
+              <p>Agent 提取接口清单、字段、认证方式、错误码和回调协议。</p>
+            </article>
+            <article class="sop-item">
+              <b>识别缺口</b>
+              <p>生成资料缺失、歧义和需要向银行确认的问题清单。</p>
+            </article>
+            <article class="sop-item">
+              <b>人工确认</b>
+              <p>业务和技术负责人确认金额、币种、状态及资金语义。</p>
+            </article>
+            <article class="sop-item">
+              <b>生成实现</b>
+              <p>Agent 生成适配器骨架、Mock、契约测试和接入文档。</p>
+            </article>
+            <article class="sop-item">
+              <b>双重评审</b>
+              <p>代码 Agent 检查质量，安全 Agent 检查凭据、日志和边界。</p>
+            </article>
+            <article class="sop-item">
+              <b>流水线验证</b>
+              <p>GitLab/Jenkins 运行测试、扫描和构建，不由 AI 自行判定通过。</p>
+            </article>
+            <article class="sop-item">
+              <b>验收沉淀</b>
+              <p>人工批准上线，生成接入报告，并沉淀可复用 Skill。</p>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="page">
+        <div class="section-head">
+          <h2>进入生产前必须补齐</h2>
+          <p>这些缺口不会阻碍 Demo，但会决定系统能否用于资金业务的正式流程。</p>
+        </div>
+
+        <div class="gap-grid">
+          <article class="gap-item">
+            <h3>领域连接器与 Skills</h3>
+            <p>补充 MySQL、Redis、日志、AWS、GitLab/Jenkins、银行接口和支付安全检查能力。</p>
+          </article>
+          <article class="gap-item">
+            <h3>凭据与权限治理</h3>
+            <p>使用短期、只读、最小权限凭据。生产密钥不进入普通 Agent 配置。</p>
+          </article>
+          <article class="gap-item">
+            <h3>CI 强制门禁</h3>
+            <p>测试、SAST、依赖扫描与 Secret Scan 必须在 GitLab/Jenkins 中强制执行。</p>
+          </article>
+          <article class="gap-item">
+            <h3>合规级审计</h3>
+            <p>补充全局查询、防篡改归档、导出、保留策略和权限变更记录。</p>
+          </article>
+          <article class="gap-item">
+            <h3>消息渠道</h3>
+            <p>当前优先使用 Lark。微信、企业微信和 Telegram 需要新增 Connector。</p>
+          </article>
+          <article class="gap-item">
+            <h3>生产成熟度</h3>
+            <p>先使用测试仓库、脱敏文档和只读监控数据验证流程，再逐步扩大范围。</p>
+          </article>
+        </div>
+
+        <div class="guardrail">
+          <b>安全底线</b>
+          <p>Agent 可以分析、生成和建议，但不能自行重启服务、修改防火墙、写生产数据库、批准安全例外或执行生产发布。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="page decision">
+        <article class="decision-main">
+          <h2>先把一个流程跑通，再扩展到整个平台</h2>
+          <p>下周一优先演示上游银行接入。第二个简化场景展示定时巡检、AI 分析、异常建单和运维确认。两条路径都不需要改造 Silieco 核心代码即可启动。</p>
+        </article>
+        <aside class="decision-side">
+          <h3>Demo 准备清单</h3>
+          <ol>
+            <li>一份脱敏银行 API 文档</li>
+            <li>一个测试 GitLab 仓库</li>
+            <li>一名开发 Agent 和一名 Review Agent</li>
+            <li>渠道接入 Skill 与评审检查表</li>
+            <li>一条可展示状态的测试 Pipeline</li>
+            <li>明确的人工审批责任人</li>
+          </ol>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="page">技术团队工作负荷与 AI 提效路径分析，生成日期：2026-08-14</div>
+  </footer>
+</body>
+</html>

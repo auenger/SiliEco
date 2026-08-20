@@ -55,6 +55,39 @@ func perTurnContextBlocks(task Task) string {
 	}
 	b.WriteString(execenv.BuildTaskInitiatorBlock(task.InitiatorType, task.InitiatorName, task.InitiatorEmail))
 	b.WriteString(execenv.BuildConnectedAppsBlock(task.ConnectedApps))
+	if task.QuickCreatePrompt == "" {
+		b.WriteString(buildWorkflowStagePromptBlock(task.WorkflowStage))
+	}
+	return b.String()
+}
+
+func buildWorkflowStagePromptBlock(stage *WorkflowStageContextData) string {
+	if stage == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## SOP Run Context\n\n")
+	fmt.Fprintf(&b, "This issue belongs to SOP Run %q (run ID: %s), current Stage %q (key: %s, stage ID: %s).\n", stage.InstanceTitle, stage.InstanceID, stage.Name, stage.StableKey, stage.StageID)
+	if len(stage.AvailableStages) > 0 {
+		b.WriteString("Stages available in this SOP Run:\n")
+		for _, candidate := range stage.AvailableStages {
+			fmt.Fprintf(&b, "- position %d: %q (key: %s, stage ID: %s)\n", candidate.Position, candidate.Name, candidate.StableKey, candidate.StageID)
+		}
+	}
+	if next := stage.NextStage; next != nil {
+		fmt.Fprintf(&b, "The next Stage in this same SOP Run is %q (key: %s, stage ID: %s).\n", next.Name, next.StableKey, next.StageID)
+	} else {
+		b.WriteString("This is the final Stage in the SOP Run.\n")
+	}
+	fmt.Fprintf(&b, "Any continuation, child, or follow-up task derived from this issue MUST remain attached to SOP Run %s unless the user explicitly asks for work outside the SOP. Always pass both `--workflow-instance %s` and `--workflow-stage <stage-id>` to `silieco task create`.\n", stage.InstanceID, stage.InstanceID)
+	b.WriteString("Choose `<stage-id>` from the Stage list above: match a specifically named or semantically intended phase first (for example, an MVP/prototype request maps to a Stage named Prototype or MVP); otherwise use the next Stage when the user says next/successor, and otherwise keep the current Stage for work in the same phase. Never create an unbound continuation task merely because it is assigned to a human, parked in Backlog, or should not run automatically. Backlog controls execution only; SOP attachment is independent. Binding a task to a later Stage does not transition the SOP Run.\n")
+	if len(stage.RequiredSkills) > 0 {
+		b.WriteString("The following current-Stage skills are mandatory for this run:\n")
+		for _, name := range stage.RequiredSkills {
+			fmt.Fprintf(&b, "- %s\n", name)
+		}
+		b.WriteString("Before doing current-Stage work, locate and read every required SKILL.md completely, then follow its inputs, outputs, artifacts, and constraints. If any required skill cannot be loaded, stop and report which skill is missing; do not improvise a replacement.\n")
+	}
 	return b.String()
 }
 
