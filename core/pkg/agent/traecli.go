@@ -112,9 +112,9 @@ func (b *traecliBackend) Execute(ctx context.Context, prompt string, opts ExecOp
 		[]string{"acp", "serve", "--yolo"},
 		filterCustomArgs(opts.CustomArgs, traecliBlockedArgs, b.cfg.Logger)...,
 	)
-	cmd := exec.CommandContext(runCtx, execPath, traecliArgs...)
+	cmd := b.cfg.commandAt(execPath).exec(runCtx, traecliArgs...)
 	hideAgentWindow(cmd)
-	b.cfg.Logger.Info("agent command", "exec", execPath, "args", traecliArgs)
+	logAgentCommand(b.cfg.Logger, "traecli", cmd)
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}

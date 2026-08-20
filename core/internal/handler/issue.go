@@ -57,6 +57,7 @@ type IssueResponse struct {
 	DueDate   *string `json:"due_date"`
 	CreatedAt string  `json:"created_at"`
 	UpdatedAt string  `json:"updated_at"`
+	Revision  string  `json:"revision"`
 	// Metadata is the per-issue KV map (see issue_metadata.go). Always emitted
 	// (empty object when unset) so frontend code can `issue.metadata[key]`
 	// without nil-guarding the parent field.
@@ -111,6 +112,7 @@ func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 		ProjectID:          uuidToPtr(i.ProjectID),
 		WorkflowInstanceID: uuidToPtr(i.WorkflowInstanceID),
 		WorkflowStageID:    uuidToPtr(i.WorkflowStageID),
+		Revision:           timestampToString(i.UpdatedAt),
 		Position:           i.Position,
 		Stage:              int4ToPtr(i.Stage),
 		StartDate:          dateToPtr(i.StartDate),
@@ -2757,6 +2759,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateIssueRequest struct {
+	ExpectedRevision   *string  `json:"expected_revision"`
 	Title              *string  `json:"title"`
 	Description        *string  `json:"description"`
 	Status             *string  `json:"status"`
@@ -2864,6 +2867,14 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		WorkflowInstanceID: prevIssue.WorkflowInstanceID,
 		WorkflowStageID:    prevIssue.WorkflowStageID,
 		Stage:              prevIssue.Stage,
+	}
+	if req.ExpectedRevision != nil {
+		revision, parseErr := time.Parse(time.RFC3339Nano, *req.ExpectedRevision)
+		if parseErr != nil {
+			writeError(w, http.StatusBadRequest, "expected_revision must be an RFC3339 timestamp")
+			return
+		}
+		params.ExpectedRevision = pgtype.Timestamptz{Time: revision, Valid: true}
 	}
 
 	// COALESCE fields — only set when explicitly provided
@@ -3080,6 +3091,13 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	issue, err := h.Queries.UpdateIssue(r.Context(), params)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && req.ExpectedRevision != nil {
+			current, loadErr := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{ID: prevIssue.ID, WorkspaceID: prevIssue.WorkspaceID})
+			if loadErr == nil {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "issue changed since it was loaded", "code": "revision_conflict", "current": issueToResponse(current, h.getIssuePrefix(r.Context(), current.WorkspaceID)), "attempted": req})
+				return
+			}
+		}
 		slog.Warn("update issue failed", append(logger.RequestAttrs(r), "error", err, "issue_id", id, "workspace_id", workspaceID)...)
 		writeError(w, http.StatusInternalServerError, "failed to update issue: "+err.Error())
 		return
@@ -3170,7 +3188,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			AssigneeChanged: assigneeChanged,
 			StatusChanged:   statusChanged,
 		},
-		h.issueTriggerWriteProbe(r, actorType, issue),
+		h.issueTriggerWriteProbe(r, actorType, actorID, issue),
 	); ok && !req.SuppressRun {
 		h.dispatchIssueRun(r.Context(), issue, trigger, actorType, actorID, req.HandoffNote)
 	}
@@ -3694,7 +3712,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 				AssigneeChanged: assigneeChanged,
 				StatusChanged:   statusChanged,
 			},
-			h.issueTriggerWriteProbe(r, actorType, issue),
+			h.issueTriggerWriteProbe(r, actorType, actorID, issue),
 		); ok && !req.Updates.SuppressRun {
 			h.dispatchIssueRun(r.Context(), issue, trigger, actorType, actorID, req.Updates.HandoffNote)
 		}

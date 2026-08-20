@@ -16,8 +16,9 @@ const minShortIDPrefixLen = 4
 const resolverListPageLimit = 50
 
 type resolvedID struct {
-	ID      string
-	Display string
+	ID       string
+	Display  string
+	Revision string
 }
 
 type idCandidate struct {
@@ -180,7 +181,7 @@ func fetchIssueRef(ctx context.Context, client *cli.APIClient, ref string) (reso
 	if c.Display == "" {
 		c.Display = c.ID
 	}
-	return resolvedID{ID: c.ID, Display: c.Display}, nil
+	return resolvedID{ID: c.ID, Display: c.Display, Revision: strVal(issue, "revision")}, nil
 }
 
 func looksLikeIssueIdentifier(input string) bool {

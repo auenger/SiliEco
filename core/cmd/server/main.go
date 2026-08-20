@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/silieco-ai/silieco/core/internal/analytics"
 	"github.com/silieco-ai/silieco/core/internal/daemonws"
 	"github.com/silieco-ai/silieco/core/internal/events"
@@ -23,7 +24,6 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/service"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 	"github.com/silieco-ai/silieco/core/pkg/featureflag"
-	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -423,7 +423,13 @@ func main() {
 	}
 
 	// Start background sweeper to mark stale runtimes as offline.
-	go runRuntimeSweeper(sweepCtx, queries, liveness, taskSvc, bus)
+	runtimeReconnectGrace := envDuration("SILIECO_RUNTIME_RECONNECT_GRACE", defaultRuntimeReconnectGrace)
+	if runtimeReconnectGrace < minimumRuntimeReconnectGrace {
+		slog.Warn("runtime reconnect grace is shorter than heartbeat freshness; clamping",
+			"configured", runtimeReconnectGrace, "minimum", minimumRuntimeReconnectGrace)
+		runtimeReconnectGrace = minimumRuntimeReconnectGrace
+	}
+	go runRuntimeSweeper(sweepCtx, pool, queries, liveness, taskSvc, bus, runtimeReconnectGrace)
 	go heartbeatScheduler.Run(sweepCtx)
 	go runAutopilotFailureMonitor(autopilotCtx, queries, bus, envFailureMonitorConfig())
 	go runDBStatsLogger(sweepCtx, pool)

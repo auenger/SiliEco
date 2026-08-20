@@ -41,7 +41,9 @@ import {
   TimelineEntriesSchema,
   UserSchema,
   WorkflowInstanceSchema,
+  WorkflowStageTranscriptResponseSchema,
   WorkflowSchema,
+  WorkspaceMCPServerListSchema,
 } from "./schemas";
 import { parseWithFallback } from "./schema";
 
@@ -81,6 +83,38 @@ describe("ListProjectResourcesResponseSchema", () => {
       { endpoint: "test" },
     );
     expect(parsed).toEqual(EMPTY_LIST_PROJECT_RESOURCES_RESPONSE);
+  });
+});
+
+describe("SOP execution capability schemas", () => {
+  it("parses the redacted workspace MCP catalog without requiring secrets", () => {
+    const parsed = WorkspaceMCPServerListSchema.parse({
+      servers: [{
+        id: "mcp-1",
+        workspace_id: "ws-1",
+        name: "docs",
+        configured: true,
+        created_by: null,
+        created_at: "2026-08-20T00:00:00Z",
+        updated_at: "2026-08-20T00:00:00Z",
+      }],
+    });
+    expect(parsed.servers[0]?.name).toBe("docs");
+    expect(parsed.servers[0]).not.toHaveProperty("config");
+  });
+
+  it("defaults additive worktree fields for transcripts from an older server", () => {
+    const parsed = WorkflowStageTranscriptResponseSchema.parse({
+      runs: [{
+        id: "run-1",
+        task_id: "task-1",
+        agent_id: "agent-1",
+        status: "completed",
+        created_at: "2026-08-20T00:00:00Z",
+      }],
+    });
+    expect(parsed.runs[0]?.worktree_branch).toBeNull();
+    expect(parsed.runs[0]?.worktree_delivery_status).toBeNull();
   });
 });
 

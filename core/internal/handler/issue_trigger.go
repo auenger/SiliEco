@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -21,11 +22,19 @@ const maxPreviewTriggerIssues = 500
 // boundary (validateAssigneePair on assign) and inside enqueueSquadLeaderTask
 // (canEnqueueSquadLeader), so a write must NOT re-run or sink it — it passes
 // allow-all. The self-loop check needs the request's X-Task-ID header.
-func (h *Handler) issueTriggerWriteProbe(r *http.Request, actorType string, issue db.Issue) service.IssueTriggerProbe {
+func (h *Handler) issueTriggerWriteProbe(r *http.Request, actorType, actorID string, issue db.Issue) service.IssueTriggerProbe {
 	return service.IssueTriggerProbe{
 		CanAccessAgent: nil, // allow-all; gate lives at the write boundary
 		IsSelfLoop: func() bool {
 			return h.isAgentRunningOnIssue(r, actorType, issue)
+		},
+		SuppressActiveSelfAssignment: func(agentID pgtype.UUID) bool {
+			suppress := h.shouldSuppressActiveSelfAssignment(r.Context(), actorType, actorID, issue.ID, agentID)
+			if suppress {
+				slog.Info("suppressing duplicate self-assignment enqueue",
+					"issue_id", uuidToString(issue.ID), "agent_id", uuidToString(agentID))
+			}
+			return suppress
 		},
 	}
 }
@@ -43,7 +52,18 @@ func (h *Handler) issueTriggerPreviewProbe(r *http.Request, actorType, actorID, 
 		IsSelfLoop: func() bool {
 			return h.isAgentRunningOnIssue(r, actorType, issue)
 		},
+		SuppressActiveSelfAssignment: func(agentID pgtype.UUID) bool {
+			return h.shouldSuppressActiveSelfAssignment(r.Context(), actorType, actorID, issue.ID, agentID)
+		},
 	}
+}
+
+func (h *Handler) shouldSuppressActiveSelfAssignment(ctx context.Context, actorType, actorID string, issueID, targetAgentID pgtype.UUID) bool {
+	if actorType != "agent" || actorID == "" || actorID != uuidToString(targetAgentID) {
+		return false
+	}
+	active, err := h.hasActiveTaskForIssueAndAgent(ctx, issueID, targetAgentID)
+	return active || err != nil
 }
 
 // dispatchIssueRun executes the enqueue side effect for a decision produced by

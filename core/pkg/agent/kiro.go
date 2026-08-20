@@ -58,9 +58,9 @@ func (b *kiroBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 	runCtx, cancel := runContext(ctx, timeout)
 
 	kiroArgs := append([]string{"acp", "--trust-all-tools"}, filterCustomArgs(opts.CustomArgs, kiroBlockedArgs, b.cfg.Logger)...)
-	cmd := exec.CommandContext(runCtx, execPath, kiroArgs...)
+	cmd := b.cfg.commandAt(execPath).exec(runCtx, kiroArgs...)
 	hideAgentWindow(cmd)
-	b.cfg.Logger.Info("agent command", "exec", execPath, "args", kiroArgs)
+	logAgentCommand(b.cfg.Logger, "kiro", cmd)
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}

@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/silieco-ai/silieco/core/internal/analytics"
 	"github.com/silieco-ai/silieco/core/internal/events"
@@ -28,10 +31,15 @@ const (
 	// 150s leaves a 45s buffer above the 105s worst-case DB age, and keeps
 	// detection latency for a genuinely-dead runtime under staleThreshold +
 	// sweepInterval = 180s (~3 minutes).
-	staleThresholdSeconds = 150.0
+	staleThresholdSeconds        = 150.0
+	defaultRuntimeReconnectGrace = 3 * time.Hour
+	minimumRuntimeReconnectGrace = time.Duration(staleThresholdSeconds) * time.Second
+	offlineTaskFailBatchSize     = 500
 	// offlineRuntimeTTLSeconds deletes offline runtimes with no active agents
 	// after this duration. 7 days gives users plenty of time to restart daemons.
-	offlineRuntimeTTLSeconds = 7 * 24 * 3600.0
+	offlineRuntimeTTLSeconds  = 7 * 24 * 3600.0
+	runtimeGCBatchSize        = 100
+	runtimeGCOperationTimeout = 5 * time.Second
 	// dispatchTimeoutSeconds fails tasks stuck in 'dispatched' beyond this.
 	// The dispatched→running transition should be near-instant, so 5 minutes
 	// means something went wrong (e.g. StartTask API call failed silently).
@@ -78,6 +86,10 @@ const (
 	chatFinalizeBatchSize = 100
 )
 
+type runtimeGCTxStarter interface {
+	Begin(context.Context) (pgx.Tx, error)
+}
+
 // runRuntimeSweeper periodically marks runtimes as offline if their
 // last_seen_at exceeds the stale threshold, and fails orphaned tasks.
 // This handles cases where the daemon crashes, is killed without calling
@@ -89,7 +101,7 @@ const (
 // hot heartbeat path; the DB is allowed to lag up to runtimeHeartbeatDBFlushInterval).
 // When liveness is unavailable or errors, we fall back to trusting the DB
 // stale window — that is the original behavior.
-func runRuntimeSweeper(ctx context.Context, queries *db.Queries, liveness handler.LivenessStore, taskSvc *service.TaskService, bus *events.Bus) {
+func runRuntimeSweeper(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, liveness handler.LivenessStore, taskSvc *service.TaskService, bus *events.Bus, reconnectGrace time.Duration) {
 	ticker := time.NewTicker(sweepInterval)
 	defer ticker.Stop()
 
@@ -99,10 +111,11 @@ func runRuntimeSweeper(ctx context.Context, queries *db.Queries, liveness handle
 			return
 		case <-ticker.C:
 			sweepStaleRuntimes(ctx, queries, liveness, taskSvc, bus)
-			sweepStaleTasks(ctx, queries, taskSvc, bus)
+			sweepOfflineRuntimeTasks(ctx, queries, taskSvc, reconnectGrace)
+			sweepStaleTasks(ctx, queries, taskSvc, bus, reconnectGrace)
 			sweepExpiredQueuedTasks(ctx, queries, taskSvc)
 			sweepDeferredChatFinalizations(ctx, queries, taskSvc)
-			gcRuntimes(ctx, queries, bus)
+			gcRuntimes(ctx, txStarter, queries, bus)
 		}
 	}
 }
@@ -167,15 +180,6 @@ func sweepStaleRuntimes(ctx context.Context, queries *db.Queries, liveness handl
 
 	slog.Info("runtime sweeper: marked stale runtimes offline", "count", len(staleRows), "workspaces", len(workspaces))
 
-	// Fail orphaned tasks (dispatched/running) whose runtimes just went offline.
-	failedTasks, err := queries.FailTasksForOfflineRuntimes(ctx)
-	if err != nil {
-		slog.Warn("runtime sweeper: failed to clean up stale tasks", "error", err)
-	} else if len(failedTasks) > 0 {
-		slog.Info("runtime sweeper: failed orphaned tasks", "count", len(failedTasks))
-		taskSvc.HandleFailedTasks(ctx, failedTasks)
-	}
-
 	// Notify frontend clients so they re-fetch runtime list.
 	for wsID := range workspaces {
 		bus.Publish(events.Event{
@@ -186,6 +190,21 @@ func sweepStaleRuntimes(ctx context.Context, queries *db.Queries, liveness handl
 				"action": "stale_sweep",
 			},
 		})
+	}
+}
+
+func sweepOfflineRuntimeTasks(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService, reconnectGrace time.Duration) {
+	failedTasks, err := queries.FailTasksForOfflineRuntimes(ctx, db.FailTasksForOfflineRuntimesParams{
+		ReconnectGraceSecs: reconnectGrace.Seconds(),
+		MaxPerTick:         offlineTaskFailBatchSize,
+	})
+	if err != nil {
+		slog.Warn("runtime sweeper: failed to settle reconnect timeouts", "error", err)
+		return
+	}
+	if len(failedTasks) > 0 {
+		slog.Info("runtime sweeper: failed tasks beyond reconnect grace", "count", len(failedTasks))
+		taskSvc.HandleFailedTasks(ctx, failedTasks)
 	}
 }
 
@@ -223,25 +242,38 @@ func filterStaleRuntimesByLiveness(ctx context.Context, candidates []db.SelectSt
 	return ids
 }
 
-// gcRuntimes deletes offline runtimes that have exceeded the TTL and have
-// no active (non-archived) agents. Before deleting, it cleans up any
-// archived agents so the FK constraint (ON DELETE RESTRICT) doesn't block.
-func gcRuntimes(ctx context.Context, queries *db.Queries, bus *events.Bus) {
-	deleted, err := queries.DeleteStaleOfflineRuntimes(ctx, offlineRuntimeTTLSeconds)
+// gcRuntimes retires stale runtime rows in bounded, independent transactions.
+// Terminal task history is detached before deletion so the legacy runtime FK
+// cascade can never erase transcripts, artifacts, usage, or token records.
+func gcRuntimes(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, bus *events.Bus) {
+	candidates, err := queries.ListStaleOfflineRuntimeGCCandidates(ctx, db.ListStaleOfflineRuntimeGCCandidatesParams{
+		StaleSeconds: offlineRuntimeTTLSeconds,
+		MaxPerTick:   runtimeGCBatchSize,
+	})
 	if err != nil {
-		slog.Warn("runtime GC: failed to delete stale offline runtimes", "error", err)
-		return
-	}
-	if len(deleted) == 0 {
+		slog.Warn("runtime GC: failed to list stale offline runtimes", "error", err)
 		return
 	}
 
 	gcWorkspaces := make(map[string]bool)
-	for _, row := range deleted {
-		gcWorkspaces[util.UUIDToString(row.WorkspaceID)] = true
+	deleted := 0
+	for _, runtimeID := range candidates {
+		opCtx, cancel := context.WithTimeout(ctx, runtimeGCOperationTimeout)
+		workspaceID, didDelete, err := gcRuntime(opCtx, txStarter, queries, runtimeID)
+		cancel()
+		if err != nil {
+			slog.Warn("runtime GC: failed to retire runtime", "runtime_id", util.UUIDToString(runtimeID), "error", err)
+			continue
+		}
+		if didDelete {
+			deleted++
+			gcWorkspaces[workspaceID] = true
+		}
 	}
-
-	slog.Info("runtime GC: deleted stale offline runtimes", "count", len(deleted), "workspaces", len(gcWorkspaces))
+	if deleted == 0 {
+		return
+	}
+	slog.Info("runtime GC: deleted stale offline runtimes", "count", deleted, "workspaces", len(gcWorkspaces))
 
 	for wsID := range gcWorkspaces {
 		bus.Publish(events.Event{
@@ -253,6 +285,46 @@ func gcRuntimes(ctx context.Context, queries *db.Queries, bus *events.Bus) {
 			},
 		})
 	}
+}
+
+func gcRuntime(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, runtimeID pgtype.UUID) (string, bool, error) {
+	tx, err := txStarter.Begin(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	qtx := queries.WithTx(tx)
+	runtime, err := qtx.LockAgentRuntime(ctx, runtimeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("lock runtime: %w", err)
+	}
+	eligible, err := qtx.IsAgentRuntimeEligibleForGC(ctx, db.IsAgentRuntimeEligibleForGCParams{ID: runtimeID, StaleSeconds: offlineRuntimeTTLSeconds})
+	if err != nil || !eligible {
+		return "", false, err
+	}
+	if pending, err := qtx.CountUndrainedTasksByRuntime(ctx, runtimeID); err != nil {
+		return "", false, fmt.Errorf("count active tasks: %w", err)
+	} else if pending != 0 {
+		return "", false, nil
+	}
+	if _, err := qtx.UnbindTasksFromRuntime(ctx, runtimeID); err != nil {
+		return "", false, fmt.Errorf("unbind task history: %w", err)
+	}
+	if remaining, err := qtx.CountTasksByRuntime(ctx, runtimeID); err != nil {
+		return "", false, fmt.Errorf("verify task history: %w", err)
+	} else if remaining != 0 {
+		return "", false, fmt.Errorf("task history still references runtime: %d", remaining)
+	}
+	if err := qtx.DeleteAgentRuntime(ctx, runtimeID); err != nil {
+		return "", false, fmt.Errorf("delete runtime: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, fmt.Errorf("commit transaction: %w", err)
+	}
+	return util.UUIDToString(runtime.WorkspaceID), true, nil
 }
 
 // sweepStaleTasks fails tasks stuck in dispatched/running for too long,
@@ -268,13 +340,14 @@ func gcRuntimes(ctx context.Context, queries *db.Queries, bus *events.Bus) {
 // in the same tick; this function is a defensive backstop for the residual
 // edge where a runtime row lingers online-with-stale-heartbeat past the
 // wall clock (SILI-4107).
-func sweepStaleTasks(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService, bus *events.Bus) {
+func sweepStaleTasks(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService, bus *events.Bus, reconnectGrace time.Duration) {
 	failedTasks, err := queries.FailStaleTasks(ctx, db.FailStaleTasksParams{
 		DispatchTimeoutSecs: dispatchTimeoutSeconds,
 		RunningTimeoutSecs:  runningTimeoutSeconds,
 		// Reuse the runtime stale window so the running-task backstop
 		// exactly matches what sweepStaleRuntimes considers "not alive".
-		RuntimeStaleSecs: staleThresholdSeconds,
+		RuntimeStaleSecs:          staleThresholdSeconds,
+		RuntimeReconnectGraceSecs: reconnectGrace.Seconds(),
 	})
 	if err != nil {
 		slog.Warn("task sweeper: failed to clean up stale tasks", "error", err)

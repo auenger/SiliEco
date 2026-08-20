@@ -15,6 +15,7 @@ export interface Reaction {
 }
 
 export interface Comment {
+  revision?: string;
   id: string;
   issue_id: string;
   author_type: CommentAuthorType;

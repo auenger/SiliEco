@@ -305,6 +305,13 @@ import {
   EMPTY_LIST_WORKFLOW_VERSIONS_RESPONSE,
   EMPTY_LIST_WORKFLOW_INSTANCES_RESPONSE,
   EMPTY_LIST_WORKFLOW_TASKS_RESPONSE,
+  WorkspaceMCPServerSchema,
+  WorkspaceMCPServerListSchema,
+  AgentMCPAssignmentsSchema,
+  WorkflowStageTranscriptResponseSchema,
+  EMPTY_WORKSPACE_MCP_SERVER_LIST,
+  EMPTY_AGENT_MCP_ASSIGNMENTS,
+  EMPTY_WORKFLOW_STAGE_TRANSCRIPT,
   InboxUnreadSummarySchema,
   EMPTY_INBOX_UNREAD_SUMMARY,
   InboxItemListSchema,
@@ -1051,12 +1058,13 @@ export class ApiClient {
     return this.fetch("/api/assignee-frequency");
   }
 
-  async updateComment(commentId: string, content: string, attachmentIds?: string[], suppressAgentIds?: string[]): Promise<Comment> {
+  async updateComment(commentId: string, content: string, attachmentIds?: string[], suppressAgentIds?: string[], expectedRevision?: string): Promise<Comment> {
     return this.fetch(`/api/comments/${commentId}`, {
       method: "PUT",
       body: JSON.stringify({
         content,
         attachment_ids: attachmentIds,
+		...(expectedRevision ? { expected_revision: expectedRevision } : {}),
         ...(suppressAgentIds?.length ? { suppress_agent_ids: suppressAgentIds } : {}),
       }),
     });
@@ -2136,6 +2144,21 @@ export class ApiClient {
     });
   }
 
+  async previewSkillRefresh(id: string): Promise<import("../types/agent").SkillRefreshPreview> {
+    return this.fetch(`/api/skills/${id}/refresh`);
+  }
+
+  async refreshSkill(id: string): Promise<Skill> {
+    return this.fetch(`/api/skills/${id}/refresh`, { method: "POST" });
+  }
+
+  async bulkRefreshSkills(skillIds: string[]): Promise<{ results: import("../types/agent").BulkSkillRefreshResult[] }> {
+    return this.fetch("/api/skills/refresh", {
+      method: "POST",
+      body: JSON.stringify({ skill_ids: skillIds }),
+    });
+  }
+
   async listAgentSkills(agentId: string): Promise<SkillSummary[]> {
     return this.fetch(`/api/agents/${agentId}/skills`);
   }
@@ -2852,6 +2875,44 @@ export class ApiClient {
       EMPTY_LIST_WORKFLOW_TASKS_RESPONSE,
       { endpoint: "GET /api/workflow-instances/{id}/tasks" },
     );
+  }
+
+  async listWorkflowStageTranscript(instanceId: string, stageId: string, limit = 25, offset = 0): Promise<import("../types/workflow").WorkflowStageTranscriptResponse> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${instanceId}/stages/${stageId}/transcript?limit=${limit}&offset=${offset}`);
+    return parseWithFallback(raw, WorkflowStageTranscriptResponseSchema, EMPTY_WORKFLOW_STAGE_TRANSCRIPT, { endpoint: "GET /api/workflow-instances/{id}/stages/{stageId}/transcript" });
+  }
+
+  async listWorkspaceMCPServers(): Promise<import("../types/mcp").WorkspaceMCPServerList> {
+    const raw = await this.fetch<unknown>("/api/mcp-servers");
+    return parseWithFallback(raw, WorkspaceMCPServerListSchema, EMPTY_WORKSPACE_MCP_SERVER_LIST, { endpoint: "GET /api/mcp-servers" });
+  }
+
+  async createWorkspaceMCPServer(data: import("../types/mcp").WorkspaceMCPServerRequest): Promise<import("../types/mcp").WorkspaceMCPServer> {
+    const raw = await this.fetch<unknown>("/api/mcp-servers", { method: "POST", body: JSON.stringify(data) });
+    const server = parseWithFallback<import("../types/mcp").WorkspaceMCPServer | null>(raw, WorkspaceMCPServerSchema, null, { endpoint: "POST /api/mcp-servers" });
+    if (!server) throw new Error("Invalid MCP server response");
+    return server;
+  }
+
+  async updateWorkspaceMCPServer(id: string, data: import("../types/mcp").WorkspaceMCPServerRequest): Promise<import("../types/mcp").WorkspaceMCPServer> {
+    const raw = await this.fetch<unknown>(`/api/mcp-servers/${id}`, { method: "PUT", body: JSON.stringify(data) });
+    const server = parseWithFallback<import("../types/mcp").WorkspaceMCPServer | null>(raw, WorkspaceMCPServerSchema, null, { endpoint: "PUT /api/mcp-servers/{id}" });
+    if (!server) throw new Error("Invalid MCP server response");
+    return server;
+  }
+
+  async deleteWorkspaceMCPServer(id: string): Promise<void> {
+    await this.fetch(`/api/mcp-servers/${id}`, { method: "DELETE" });
+  }
+
+  async getAgentMCPAssignments(agentId: string): Promise<import("../types/mcp").AgentMCPAssignments> {
+    const raw = await this.fetch<unknown>(`/api/agents/${agentId}/mcp-servers`);
+    return parseWithFallback(raw, AgentMCPAssignmentsSchema, EMPTY_AGENT_MCP_ASSIGNMENTS, { endpoint: "GET /api/agents/{id}/mcp-servers" });
+  }
+
+  async setAgentMCPAssignments(agentId: string, serverIds: string[]): Promise<import("../types/mcp").AgentMCPAssignments> {
+    const raw = await this.fetch<unknown>(`/api/agents/${agentId}/mcp-servers`, { method: "PUT", body: JSON.stringify({ server_ids: serverIds }) });
+    return parseWithFallback(raw, AgentMCPAssignmentsSchema, EMPTY_AGENT_MCP_ASSIGNMENTS, { endpoint: "PUT /api/agents/{id}/mcp-servers" });
   }
 
   async attachWorkflowTask(

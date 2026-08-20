@@ -47,7 +47,9 @@ silieco repo checkout <url> --ref <branch-or-sha>
 
 `runtime update` and `runtime delete` are writes. Starting a runtime update is limited to its owner or a workspace owner/admin; the original initiator may keep polling that specific in-flight request if their admin role changes. `runtime delete` removes a runtime registration; if active agents are still bound, it refuses unless the user explicitly passes `--cascade`, which archives those agents and cancels their queued/running tasks before deleting the runtime. `repo checkout` creates a dedicated branch in the task working directory. Most runtimes use a linked worktree; Linux Codex uses task-local Git metadata so its `workspace-write` sandbox can stage and commit without making the shared `.repos` cache writable.
 
-`repo checkout` requires `SILIECO_DAEMON_PORT`; it is intended to run inside a daemon task. If absent, you are not in the normal agent checkout path. When a project `github_repo` resource has `resource_ref.ref`, `repo checkout <url>` uses that ref by default for the current task; an explicit `repo checkout <url> --ref <branch-or-sha>` overrides it.
+A private runtime is executable only by its runtime owner. Workspace owner/admin status permits inventory administration but does not grant consent to use another member's local credentials or change that runtime's visibility. Ownerless runtimes fail closed for agent binding; public runtimes remain selectable by workspace members.
+
+`repo checkout` requires both `SILIECO_DAEMON_PORT` and the active task's `SILIECO_TOKEN`; it is intended to run inside a daemon task. If either is absent, you are not in the authenticated task checkout path. The local daemon binds that token to the current workspace, task, agent, and workdir and rejects caller-supplied identity or paths outside the active task root. When a project `github_repo` resource has `resource_ref.ref`, `repo checkout <url>` uses that ref by default for the current task; an explicit `repo checkout <url> --ref <branch-or-sha>` overrides it.
 
 ## Debugging an agent that did not run
 

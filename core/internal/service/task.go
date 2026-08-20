@@ -910,7 +910,7 @@ func taskFailureReason(task db.AgentTaskQueue) string {
 
 func taskErrorType(reason string) string {
 	switch reason {
-	case "runtime_offline", "runtime_recovery":
+	case "runtime_offline", "runtime_reconnect_timeout", "runtime_recovery":
 		return "runtime"
 	case "timeout", "codex_semantic_inactivity":
 		return "timeout"
@@ -2893,7 +2893,22 @@ func (s *TaskService) MarkTaskWaitingLocalDirectory(ctx context.Context, taskID 
 // queued chat message could be claimed in the window between the task
 // flipping to 'completed' and chat_session.session_id being refreshed,
 // causing the new task to resume against a stale (or NULL) session.
+type WorktreeDelivery struct {
+	Branch   string
+	BaseSHA  string
+	FinalSHA string
+	Status   string
+}
+
+func worktreeText(value string) pgtype.Text {
+	return pgtype.Text{String: value, Valid: value != ""}
+}
+
 func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string, sessionRolloutMissing bool, retiredSessionID string) (*db.AgentTaskQueue, error) {
+	return s.CompleteTaskWithDelivery(ctx, taskID, result, sessionID, workDir, sessionRolloutMissing, retiredSessionID, WorktreeDelivery{})
+}
+
+func (s *TaskService) CompleteTaskWithDelivery(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string, sessionRolloutMissing bool, retiredSessionID string, delivery WorktreeDelivery) (*db.AgentTaskQueue, error) {
 	var task db.AgentTaskQueue
 	// chatAssistantMsg is the single assistant outcome row written for a chat
 	// task inside the completion transaction below. It is broadcast (chat:done)
@@ -2901,12 +2916,16 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 	var chatAssistantMsg *db.ChatMessage
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t, err := qtx.CompleteAgentTask(ctx, db.CompleteAgentTaskParams{
-			ID:                    taskID,
-			Result:                result,
-			SessionID:             pgtype.Text{String: sessionID, Valid: sessionID != ""},
-			WorkDir:               pgtype.Text{String: workDir, Valid: workDir != ""},
-			SessionRolloutMissing: sessionRolloutMissing,
-			RetiredSessionID:      pgtype.Text{String: retiredSessionID, Valid: retiredSessionID != ""},
+			ID:                     taskID,
+			Result:                 result,
+			SessionID:              pgtype.Text{String: sessionID, Valid: sessionID != ""},
+			WorkDir:                pgtype.Text{String: workDir, Valid: workDir != ""},
+			SessionRolloutMissing:  sessionRolloutMissing,
+			WorktreeBranch:         worktreeText(delivery.Branch),
+			WorktreeBaseSha:        worktreeText(delivery.BaseSHA),
+			WorktreeFinalSha:       worktreeText(delivery.FinalSHA),
+			WorktreeDeliveryStatus: worktreeText(delivery.Status),
+			RetiredSessionID:       pgtype.Text{String: retiredSessionID, Valid: retiredSessionID != ""},
 		})
 		if err != nil {
 			return err
@@ -3252,6 +3271,15 @@ func (s *TaskService) observeChatOutputLocalPath(task db.AgentTaskQueue, body st
 // (via classifyPoisonedError, the timeout / runtime classifier, etc.)
 // will have their value preserved untouched.
 func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, failureReason string, sessionRolloutMissing bool, retiredSessionID string) (*db.AgentTaskQueue, error) {
+	return s.FailTaskWithDelivery(ctx, taskID, errMsg, sessionID, workDir, failureReason, sessionRolloutMissing, retiredSessionID, WorktreeDelivery{})
+}
+
+func (s *TaskService) FailTaskWithDelivery(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, failureReason string, sessionRolloutMissing bool, retiredSessionID string, delivery WorktreeDelivery) (*db.AgentTaskQueue, error) {
+	errMsg = util.SanitizeTextForPostgres(errMsg)
+	sessionID = util.SanitizeTextForPostgres(sessionID)
+	workDir = util.SanitizeTextForPostgres(workDir)
+	failureReason = util.SanitizeTextForPostgres(failureReason)
+	retiredSessionID = util.SanitizeTextForPostgres(retiredSessionID)
 	// SILI-2946: synthesise a refined reason from the error text whenever the
 	// caller didn't supply one. This is the last write-path guard against
 	// "agent_error" coarse rows ending up in agent_task_queue.failure_reason
@@ -3317,13 +3345,17 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	var retried *db.AgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t, err := qtx.FailAgentTask(ctx, db.FailAgentTaskParams{
-			ID:                    taskID,
-			Error:                 pgtype.Text{String: errMsg, Valid: true},
-			FailureReason:         pgtype.Text{String: failureReason, Valid: failureReason != ""},
-			SessionID:             pgtype.Text{String: sessionID, Valid: sessionID != ""},
-			WorkDir:               pgtype.Text{String: workDir, Valid: workDir != ""},
-			SessionRolloutMissing: sessionRolloutMissing,
-			RetiredSessionID:      pgtype.Text{String: retiredSessionID, Valid: retiredSessionID != ""},
+			ID:                     taskID,
+			Error:                  pgtype.Text{String: errMsg, Valid: true},
+			FailureReason:          pgtype.Text{String: failureReason, Valid: failureReason != ""},
+			SessionID:              pgtype.Text{String: sessionID, Valid: sessionID != ""},
+			WorkDir:                pgtype.Text{String: workDir, Valid: workDir != ""},
+			WorktreeBranch:         worktreeText(delivery.Branch),
+			WorktreeBaseSha:        worktreeText(delivery.BaseSHA),
+			WorktreeFinalSha:       worktreeText(delivery.FinalSHA),
+			WorktreeDeliveryStatus: worktreeText(delivery.Status),
+			SessionRolloutMissing:  sessionRolloutMissing,
+			RetiredSessionID:       pgtype.Text{String: retiredSessionID, Valid: retiredSessionID != ""},
 		})
 		if err != nil {
 			return err

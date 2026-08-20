@@ -55,6 +55,9 @@ import type {
   ListWorkflowInstancesResponse,
   ListWorkflowVersionsResponse,
   ListWorkflowTasksResponse,
+  WorkflowStageTranscriptResponse,
+  WorkspaceMCPServerList,
+  AgentMCPAssignments,
 } from "../types";
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
 import type { CreateFeedbackResponse } from "../feedback/types";
@@ -207,6 +210,7 @@ export const LabelSchema = z.object({
   usage_count: z.number().optional().default(0),
   created_at: z.string(),
   updated_at: z.string(),
+  revision: z.string().optional(),
 }).loose();
 
 export const EMPTY_LABEL: Label = {
@@ -667,6 +671,7 @@ export const IssueSchema = z.object({
   stage: z.number().nullable().default(null),
   start_date: z.string().nullable(),
   due_date: z.string().nullable(),
+  revision: z.string().optional(),
   metadata: IssueMetadataSchema,
   // Older backends predate custom properties; default {} so consumers never
   // nil-guard issue.properties.
@@ -718,6 +723,7 @@ export const WorkflowStageSchema = z.object({
   input_spec: z.record(z.string(), z.unknown()).default({}),
   output_spec: z.record(z.string(), z.unknown()).default({}),
   required_skills: z.array(z.string()).default([]),
+  allowed_mcp_server_ids: z.array(z.string()).nullable().optional(),
   gate: z.record(z.string(), z.unknown()).default({ type: "none" }),
   rollback_stage_key: z.string().nullable().default(null),
   created_at: z.string(),
@@ -736,11 +742,78 @@ export const WorkflowInstanceStageSchema = z.object({
   input_spec: z.record(z.string(), z.unknown()).default({}),
   output_spec: z.record(z.string(), z.unknown()).default({}),
   required_skills: z.array(z.string()).default([]),
+  required_skill_revisions: z.record(z.string(), z.string()).default({}),
+  allowed_mcp_server_ids: z.array(z.string()).nullable().optional(),
   gate: z.record(z.string(), z.unknown()).default({ type: "none" }),
   rollback_stage_key: z.string().nullable().default(null),
   created_at: z.string(),
   updated_at: z.string().default(""),
 }).loose();
+
+export const WorkspaceMCPServerSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  name: z.string(),
+  configured: z.boolean().default(false),
+  created_by: z.string().nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const WorkspaceMCPServerListSchema = z.object({
+  servers: z.array(WorkspaceMCPServerSchema).default([]),
+}).loose();
+
+export const EMPTY_WORKSPACE_MCP_SERVER_LIST: WorkspaceMCPServerList = {
+  servers: [],
+};
+
+export const AgentMCPAssignmentsSchema = z.object({
+  server_ids: z.array(z.string()).default([]),
+}).loose();
+
+export const EMPTY_AGENT_MCP_ASSIGNMENTS: AgentMCPAssignments = {
+  server_ids: [],
+};
+
+export const WorkflowStageRunSchema = z.object({
+  id: z.string(),
+  task_id: z.string(),
+  task_title: z.string().default(""),
+  agent_id: z.string(),
+  agent_name: z.string().nullable().default(null),
+  status: z.string(),
+  trigger_summary: z.string().nullable().default(null),
+  trigger_source: z.string().nullable().default(null),
+  trigger_user_id: z.string().nullable().default(null),
+  accountable_user_id: z.string().nullable().default(null),
+  started_at: z.string().nullable().default(null),
+  completed_at: z.string().nullable().default(null),
+  result: z.unknown().optional(),
+  error: z.string().nullable().default(null),
+  failure_reason: z.string().nullable().default(null),
+  execution_manifest: z.record(z.string(), z.unknown()).optional(),
+  created_at: z.string().default(""),
+  messages_path: z.string().default(""),
+  worktree_branch: z.string().nullable().default(null),
+  worktree_base_sha: z.string().nullable().default(null),
+  worktree_final_sha: z.string().nullable().default(null),
+  worktree_delivery_status: z.enum(["committed", "preserved"]).nullable().default(null),
+}).loose();
+
+export const WorkflowStageTranscriptResponseSchema = z.object({
+  runs: z.array(WorkflowStageRunSchema).default([]),
+  total: z.number().default(0),
+  limit: z.number().default(25),
+  offset: z.number().default(0),
+}).loose();
+
+export const EMPTY_WORKFLOW_STAGE_TRANSCRIPT: WorkflowStageTranscriptResponse = {
+  runs: [],
+  total: 0,
+  limit: 25,
+  offset: 0,
+};
 
 export const WorkflowVersionSchema = z.object({
   id: z.string(),

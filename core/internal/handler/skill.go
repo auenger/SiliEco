@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	skillpkg "github.com/silieco-ai/silieco/core/internal/skill"
+	"github.com/silieco-ai/silieco/core/internal/util"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 	"golang.org/x/sync/errgroup"
@@ -35,7 +36,7 @@ import (
 // Name is kept for compatibility with the many call sites; the behaviour
 // is a strict superset of the original.
 func sanitizeNullBytes(s string) string {
-	return strings.ToValidUTF8(strings.ReplaceAll(s, "\x00", ""), "")
+	return util.SanitizeTextForPostgres(s)
 }
 
 // --- Response structs ---
@@ -2258,6 +2259,7 @@ func importFetchErrorResponse(ctx context.Context, err error) (int, string) {
 // config.origin, and creates the skill, routing same-name collisions through
 // the on_conflict strategy.
 func (h *Handler) finishSkillImport(w http.ResponseWriter, r *http.Request, workspaceID string, workspaceUUID, creatorUUID pgtype.UUID, creatorID, strategy string, structuredResult bool, imported *importedSkill) {
+	stampImportedSkillRevision(imported)
 	files := make([]CreateSkillFileRequest, 0, len(imported.files))
 	for _, f := range imported.files {
 		if !validateFilePath(f.path) {

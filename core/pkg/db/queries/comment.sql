@@ -424,6 +424,7 @@ UPDATE comment SET
     source_task_id = sqlc.narg(source_task_id),
     updated_at = now()
 WHERE id = $1
+  AND (sqlc.narg('expected_revision')::timestamptz IS NULL OR updated_at = sqlc.narg('expected_revision'))
 RETURNING *;
 
 -- name: HasAgentCommentedSince :one

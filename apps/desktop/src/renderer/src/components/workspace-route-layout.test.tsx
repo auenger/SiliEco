@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -13,6 +14,8 @@ const state = vi.hoisted(() => ({
   workspaceSeen: true,
   modalRenders: 0,
   modalAriaLabel: "source-backfill-modal-marker",
+  currentSlug: null as string | null,
+  childQuerySlugs: [] as (string | null)[],
 }));
 
 vi.mock("@silieco/core/auth", () => {
@@ -25,7 +28,11 @@ vi.mock("@silieco/core/auth", () => {
 });
 
 vi.mock("@silieco/core/platform", () => ({
-  setCurrentWorkspace: vi.fn(),
+  setCurrentWorkspace: vi.fn((slug: string | null) => {
+    if (state.currentSlug === slug) return;
+    state.currentSlug = slug;
+  }),
+  getCurrentSlug: () => state.currentSlug,
 }));
 
 vi.mock("@silieco/core/workspace", async () => {
@@ -129,6 +136,63 @@ beforeEach(() => {
   state.wsList = [{ id: "ws-1", slug: "acme" }];
   state.workspaceSeen = true;
   state.modalRenders = 0;
+  state.currentSlug = null;
+  state.childQuerySlugs = [];
+});
+
+describe("WorkspaceRouteLayout across a tab swap", () => {
+  function ChildQuery() {
+    useEffect(() => {
+      state.childQuerySlugs.push(state.currentSlug);
+    }, []);
+    return <div data-testid="outlet" />;
+  }
+
+  function TabHost({ slug }: { slug: string }) {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    qc.setQueryData(["workspace-by-slug"], state.workspace);
+    qc.setQueryData(["workspace-list"], state.wsList);
+    return (
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[`/${slug}/issues`]}>
+          <Routes>
+            <Route path=":workspaceSlug/*" element={<WorkspaceRouteLayout />}>
+              <Route path="*" element={<ChildQuery />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  it("keeps the singleton during a same-workspace tab swap", () => {
+    const { rerender } = render(<TabHost key="tab-1" slug="acme" />);
+    rerender(<TabHost key="tab-2" slug="acme" />);
+
+    expect(state.currentSlug).toBe("acme");
+    expect(state.childQuerySlugs).toEqual(["acme", "acme"]);
+  });
+
+  it("adopts a different workspace during a cross-workspace tab swap", () => {
+    const { rerender } = render(<TabHost key="tab-1" slug="acme" />);
+    state.workspace = { id: "ws-2", slug: "globex" };
+    state.wsList = [
+      { id: "ws-1", slug: "acme" },
+      { id: "ws-2", slug: "globex" },
+    ];
+    rerender(<TabHost key="tab-2" slug="globex" />);
+
+    expect(state.currentSlug).toBe("globex");
+    expect(state.childQuerySlugs).toEqual(["acme", "globex"]);
+  });
+
+  it("releases the singleton when the last layout unmounts", () => {
+    const { unmount } = render(<TabHost key="tab-1" slug="acme" />);
+    unmount();
+    expect(state.currentSlug).toBeNull();
+  });
 });
 
 describe("WorkspaceRouteLayout", () => {

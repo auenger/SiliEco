@@ -114,6 +114,7 @@ UPDATE issue SET
     workflow_stage_id = sqlc.narg('workflow_stage_id'),
     updated_at = now()
 WHERE id = $1
+  AND (sqlc.narg('expected_revision')::timestamptz IS NULL OR updated_at = sqlc.narg('expected_revision'))
 RETURNING *;
 
 -- name: UpdateIssueStatus :one

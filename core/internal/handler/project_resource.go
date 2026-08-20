@@ -122,6 +122,7 @@ type localDirectoryRef struct {
 	DaemonID             string `json:"daemon_id"`
 	RepositoryResourceID string `json:"repository_resource_id,omitempty"`
 	Label                string `json:"label,omitempty"`
+	ExecutionMode        string `json:"execution_mode,omitempty"`
 }
 
 func validateLocalDirectoryRef(ref json.RawMessage) (json.RawMessage, error) {
@@ -147,6 +148,13 @@ func validateLocalDirectoryRef(ref json.RawMessage) (json.RawMessage, error) {
 		}
 	}
 	payload.Label = strings.TrimSpace(payload.Label)
+	payload.ExecutionMode = strings.TrimSpace(payload.ExecutionMode)
+	if payload.ExecutionMode == "" {
+		payload.ExecutionMode = "in_place"
+	}
+	if payload.ExecutionMode != "in_place" && payload.ExecutionMode != "worktree" {
+		return nil, errors.New("local_directory: execution_mode must be in_place or worktree")
+	}
 	out, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err

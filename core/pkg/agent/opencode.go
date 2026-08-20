@@ -100,7 +100,7 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	args = append(args, filterCustomArgs(opts.CustomArgs, opencodeBlockedArgs, b.cfg.Logger)...)
 	args = append(args, prompt)
 
-	cmd := exec.CommandContext(runCtx, execPath, args...)
+	cmd := b.cfg.commandAt(execPath).exec(runCtx, args...)
 	hideAgentWindow(cmd)
 	// Run opencode in its own process group so cancellation can reach the
 	// whole tree (opencode plus any tool subprocess it spawns), not just the
@@ -114,7 +114,7 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	// signalled. Returning nil here keeps os/exec from racing us with its own
 	// kill; WaitDelay remains the hard backstop.
 	cmd.Cancel = func() error { return nil }
-	b.cfg.Logger.Info("agent command", "exec", execPath, "args", args)
+	logAgentCommand(b.cfg.Logger, "opencode", cmd)
 	cmd.WaitDelay = 10 * time.Second
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd

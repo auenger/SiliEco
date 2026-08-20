@@ -191,6 +191,7 @@ func TestRunRepoRemoveRejectsMissingRepoWithoutPatch(t *testing.T) {
 
 func TestRunRepoCheckoutForwardsManagedCheckoutMode(t *testing.T) {
 	var body map[string]string
+	var authorization string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/repo/checkout" {
 			http.NotFound(w, r)
@@ -199,6 +200,7 @@ func TestRunRepoCheckoutForwardsManagedCheckoutMode(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode checkout body: %v", err)
 		}
+		authorization = r.Header.Get("Authorization")
 		json.NewEncoder(w).Encode(map[string]string{
 			"path":        "/work/repo",
 			"branch_name": "agent/test/task",
@@ -210,6 +212,7 @@ func TestRunRepoCheckoutForwardsManagedCheckoutMode(t *testing.T) {
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 	t.Setenv("SILIECO_AGENT_NAME", "Test Agent")
 	t.Setenv("SILIECO_TASK_ID", "task-1")
+	t.Setenv("SILIECO_TOKEN", "mat_task-1")
 	t.Setenv("SILIECO_REPO_CHECKOUT_MODE", "isolated")
 
 	previousRef := repoCheckoutRef
@@ -224,5 +227,18 @@ func TestRunRepoCheckoutForwardsManagedCheckoutMode(t *testing.T) {
 	}
 	if got := body["ref"]; got != "release/v2" {
 		t.Fatalf("ref = %q, want release/v2", got)
+	}
+	if authorization != "Bearer mat_task-1" {
+		t.Fatalf("Authorization = %q, want task bearer token", authorization)
+	}
+}
+
+func TestRunRepoCheckoutRequiresTaskToken(t *testing.T) {
+	t.Setenv("SILIECO_DAEMON_PORT", "1")
+	t.Setenv("SILIECO_TOKEN", "")
+
+	err := runRepoCheckout(&cobra.Command{}, []string{"https://github.com/org/repo.git"})
+	if err == nil || !strings.Contains(err.Error(), "SILIECO_TOKEN not set") {
+		t.Fatalf("runRepoCheckout error = %v, want missing task token", err)
 	}
 }

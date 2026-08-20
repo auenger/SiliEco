@@ -325,6 +325,7 @@ type AgentTaskResponse struct {
 	ProjectDescription string                    `json:"project_description,omitempty"` // durable project-level context injected into the brief
 	ProjectResources   []ProjectResourceData     `json:"project_resources,omitempty"`   // resources attached to the project
 	WorkflowStage      *WorkflowStageContextData `json:"workflow_stage,omitempty"`      // claim-time SOP Stage snapshot and mandatory skills
+	ExecutionManifest  json.RawMessage           `json:"execution_manifest,omitempty"`  // immutable, non-secret capability receipt for this run
 	CreatedAt          string                    `json:"created_at"`
 	PriorSessionID     string                    `json:"prior_session_id,omitempty"` // session ID from a previous task on same issue
 	PriorWorkDir       string                    `json:"prior_work_dir,omitempty"`   // work_dir from a previous task on same issue
@@ -335,6 +336,10 @@ type AgentTaskResponse struct {
 	// off the wire for the common (no-gap) case and for old daemons.
 	PriorSessionResumeUnavailable bool   `json:"prior_session_resume_unavailable,omitempty"`
 	WorkDir                       string `json:"work_dir,omitempty"` // local working directory pinned for this task; populated once the daemon reports it
+	WorktreeBranch                string `json:"worktree_branch,omitempty"`
+	WorktreeBaseSHA               string `json:"worktree_base_sha,omitempty"`
+	WorktreeFinalSHA              string `json:"worktree_final_sha,omitempty"`
+	WorktreeDeliveryStatus        string `json:"worktree_delivery_status,omitempty"`
 	// RelativeWorkDir is a privacy-safe display form of WorkDir intended for
 	// the UI. For standard tasks it strips the daemon's workspaces root so
 	// the user sees `<wsUUID>/<taskShort>/workdir`; for local_directory
@@ -638,31 +643,36 @@ func taskToResponse(t db.AgentTaskQueue, workspaceID string) AgentTaskResponse {
 		handoffNote = t.HandoffNote.String
 	}
 	return AgentTaskResponse{
-		ID:                  uuidToString(t.ID),
-		AgentID:             uuidToString(t.AgentID),
-		RuntimeID:           uuidToString(t.RuntimeID),
-		IssueID:             uuidToString(t.IssueID),
-		WorkspaceID:         workspaceID,
-		Status:              t.Status,
-		Priority:            t.Priority,
-		DispatchedAt:        timestampToPtr(t.DispatchedAt),
-		StartedAt:           timestampToPtr(t.StartedAt),
-		CompletedAt:         timestampToPtr(t.CompletedAt),
-		Result:              result,
-		Error:               textToPtr(t.Error),
-		FailureReason:       failureReason,
-		Attempt:             t.Attempt,
-		MaxAttempts:         t.MaxAttempts,
-		ParentTaskID:        uuidToPtr(t.ParentTaskID),
-		IsLeaderTask:        t.IsLeaderTask,
-		CreatedAt:           timestampToString(t.CreatedAt),
-		TriggerCommentID:    uuidToPtr(t.TriggerCommentID),
-		CoalescedCommentIDs: uuidsToStrings(t.CoalescedCommentIds),
-		DeliveredCommentIDs: uuidStringsOrEmpty(t.DeliveredCommentIds),
-		TriggerSummary:      textToPtr(t.TriggerSummary),
-		HandoffNote:         handoffNote,
-		WorkDir:             workDir,
-		RelativeWorkDir:     relativeWorkDir(workDir, workspaceID, uuidToString(t.ID)),
+		ID:                     uuidToString(t.ID),
+		AgentID:                uuidToString(t.AgentID),
+		RuntimeID:              uuidToString(t.RuntimeID),
+		IssueID:                uuidToString(t.IssueID),
+		WorkspaceID:            workspaceID,
+		Status:                 t.Status,
+		Priority:               t.Priority,
+		DispatchedAt:           timestampToPtr(t.DispatchedAt),
+		StartedAt:              timestampToPtr(t.StartedAt),
+		CompletedAt:            timestampToPtr(t.CompletedAt),
+		Result:                 result,
+		Error:                  textToPtr(t.Error),
+		FailureReason:          failureReason,
+		Attempt:                t.Attempt,
+		MaxAttempts:            t.MaxAttempts,
+		ParentTaskID:           uuidToPtr(t.ParentTaskID),
+		IsLeaderTask:           t.IsLeaderTask,
+		CreatedAt:              timestampToString(t.CreatedAt),
+		TriggerCommentID:       uuidToPtr(t.TriggerCommentID),
+		CoalescedCommentIDs:    uuidsToStrings(t.CoalescedCommentIds),
+		DeliveredCommentIDs:    uuidStringsOrEmpty(t.DeliveredCommentIds),
+		TriggerSummary:         textToPtr(t.TriggerSummary),
+		HandoffNote:            handoffNote,
+		WorkDir:                workDir,
+		WorktreeBranch:         t.WorktreeBranch.String,
+		WorktreeBaseSHA:        t.WorktreeBaseSha.String,
+		WorktreeFinalSHA:       t.WorktreeFinalSha.String,
+		WorktreeDeliveryStatus: t.WorktreeDeliveryStatus.String,
+		RelativeWorkDir:        relativeWorkDir(workDir, workspaceID, uuidToString(t.ID)),
+		ExecutionManifest:      json.RawMessage(t.ExecutionManifest),
 		// Surface task source so the UI can distinguish issue-linked tasks
 		// from chat-spawned or autopilot-spawned ones; all three may arrive
 		// with issue_id = "" once a task has no linked issue.
@@ -1086,7 +1096,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canUseRuntimeForAgent(member, runtime) {
-		writeError(w, http.StatusForbidden, "this runtime is private; only its owner or a workspace admin can create agents on it")
+		writeError(w, http.StatusForbidden, "this runtime is private; only its owner can create agents on it")
 		return
 	}
 
@@ -1636,7 +1646,7 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !canUseRuntimeForAgent(member, runtime) {
-			writeError(w, http.StatusForbidden, "this runtime is private; only its owner or a workspace admin can move agents onto it")
+			writeError(w, http.StatusForbidden, "this runtime is private; only its owner can move agents onto it")
 			return
 		}
 		params.RuntimeID = runtime.ID

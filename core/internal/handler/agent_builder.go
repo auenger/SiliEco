@@ -145,7 +145,7 @@ func (h *Handler) CreateAgentBuilderSession(w http.ResponseWriter, r *http.Reque
 // resolveBuilderRuntime loads a runtime the caller is allowed to execute a
 // builder conversation on. Shared by session create and runtime switch so both
 // enforce the same three gates in the same order: it exists in this workspace,
-// this member may use it (private runtimes stay owner/admin-only), and it is
+// this member may use it (private runtimes stay owner-only), and it is
 // online. verb names the attempted action in the offline error so the two call
 // sites read naturally.
 func (h *Handler) resolveBuilderRuntime(w http.ResponseWriter, r *http.Request, workspaceID string, workspaceUUID pgtype.UUID, runtimeID, verb string) (db.AgentRuntime, bool) {
@@ -166,7 +166,7 @@ func (h *Handler) resolveBuilderRuntime(w http.ResponseWriter, r *http.Request, 
 		return db.AgentRuntime{}, false
 	}
 	if !canUseRuntimeForAgent(member, runtime) {
-		writeError(w, http.StatusForbidden, "this runtime is private; only its owner or a workspace admin can use it")
+		writeError(w, http.StatusForbidden, "this runtime is private; only its owner can use it")
 		return db.AgentRuntime{}, false
 	}
 	if runtime.Status != "online" {

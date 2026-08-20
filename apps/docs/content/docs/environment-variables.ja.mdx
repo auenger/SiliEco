@@ -39,6 +39,7 @@ SILIECO_PUBLIC_URL=https://api.silieco.example.com
 | `AUTH_TOKEN_TTL` | `720h`（30 日） | ブラウザ JWT と cookie の有効期間。Go duration または正の整数秒を受け付けます |
 | `LOG_LEVEL` | アプリのデフォルト | ログレベル |
 | `SILIECO_SHUTDOWN_HOLD_DURATION` | `0` | 終了シグナル受信後、グレースフルシャットダウンを開始するまでの待機時間 |
+| `SILIECO_RUNTIME_RECONNECT_GRACE` | `3h` | ローカルランタイムの一時切断中も実行中タスクを保持します。150 秒未満は切り上げられます |
 
 Kubernetes で shutdown hold を設定する場合、`terminationGracePeriodSeconds` は hold と実際のシャットダウンにかかる時間の合計より大きくしてください。
 
@@ -167,7 +168,7 @@ allowlist の正確な判定順序は[ログインとサインアップ](/auth-s
 | Composio | `COMPOSIO_CALLBACK_BASE_URL` | コールバック API アドレス。`SILIECO_PUBLIC_URL` にフォールバック可能 |
 | Composio | `COMPOSIO_STATE_SECRET` | OAuth state の署名シークレット。`JWT_SECRET` から派生可能 |
 | セルフホスト Git | `SILIECO_VCS_INTEGRATION_ENABLED` | Forgejo/Gitea/GitLab 連携のスイッチ。compose ではデフォルトで有効 |
-| セルフホスト Git | `SILIECO_VCS_SECRET_KEY` | base64 エンコードされた 32 バイトの暗号化キー（`openssl rand -base64 32`）。未設定の場合、この機能全体が利用できません |
+| セルフホスト Git とワークスペース MCP カタログ | `SILIECO_VCS_SECRET_KEY` | VCS 認証情報と MCP サーバー設定を暗号化する base64 エンコード済み 32 バイト鍵（`openssl rand -base64 32`）。未設定時は両機能が安全に無効化されます |
 
 `GITHUB_APP_ID` と秘密鍵を設定しなくても、PR の関連付け・ミラー・マージによる done への遷移は通常どおり動きますが、カードに CI とマージ可否のステータスが表示されず、「GitHub から選択」のリポジトリ入口も無効になります。
 

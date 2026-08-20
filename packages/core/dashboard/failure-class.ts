@@ -56,6 +56,7 @@ const REASON_CLASS: Record<string, FailureClass> = {
   // Silieco-side execution substrate: daemon offline / restarted, task never
   // got picked up, runner binary missing or too old.
   runtime_offline: "runtime",
+  runtime_reconnect_timeout: "runtime",
   runtime_recovery: "runtime",
   queued_expired: "runtime",
   "agent_error.runtime_missing_executable": "runtime",
@@ -65,6 +66,7 @@ const REASON_CLASS: Record<string, FailureClass> = {
   // operator response is "check the daemon's link to Silieco", the same as a
   // daemon that went offline — the model provider is not involved.
   skill_bundle_unavailable: "runtime",
+  invalid_task_identity: "runtime",
 
   // The agent process itself produced the failure.
   "agent_error.process_failure": "agent",

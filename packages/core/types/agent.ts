@@ -177,6 +177,7 @@ export type TaskFailureReason =
   | "timeout"
   | "codex_semantic_inactivity"
   | "runtime_offline"
+  | "runtime_reconnect_timeout"
   | "runtime_recovery"
   | "manual";
 
@@ -348,6 +349,10 @@ export interface AgentTask {
    * `relative_work_dir` to avoid leaking the user's home directory.
    */
   work_dir?: string;
+  worktree_branch?: string;
+  worktree_base_sha?: string;
+  worktree_final_sha?: string;
+  worktree_delivery_status?: "committed" | "preserved";
   /**
    * Privacy-safe display form of `work_dir`, derived on the server. For
    * standard tasks the daemon's workspaces root has been stripped off
@@ -756,6 +761,29 @@ export interface SkillSummary {
 export interface Skill extends SkillSummary {
   content: string;
   files: SkillFile[];
+}
+
+export interface SkillRefreshPreview {
+  skill_id: string;
+  source_url: string;
+  current_revision: string;
+  source_revision: string;
+  changed: boolean;
+  current_content: string;
+  source_content: string;
+  files: Array<{
+    path: string;
+    status: "added" | "deleted" | "modified" | "unchanged";
+    current_content: string | null;
+    source_content: string | null;
+  }>;
+}
+
+export interface BulkSkillRefreshResult {
+  skill_id: string;
+  status: "updated" | "failed";
+  skill?: Skill;
+  error?: string;
 }
 
 export interface SkillFile {

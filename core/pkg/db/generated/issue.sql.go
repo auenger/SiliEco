@@ -1385,25 +1385,27 @@ UPDATE issue SET
     workflow_stage_id = $15,
     updated_at = now()
 WHERE id = $1
+  AND ($16::timestamptz IS NULL OR updated_at = $16)
 RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id
 `
 
 type UpdateIssueParams struct {
-	ID                 pgtype.UUID   `json:"id"`
-	Title              pgtype.Text   `json:"title"`
-	Description        pgtype.Text   `json:"description"`
-	Status             pgtype.Text   `json:"status"`
-	Priority           pgtype.Text   `json:"priority"`
-	AssigneeType       pgtype.Text   `json:"assignee_type"`
-	AssigneeID         pgtype.UUID   `json:"assignee_id"`
-	Position           pgtype.Float8 `json:"position"`
-	StartDate          pgtype.Date   `json:"start_date"`
-	DueDate            pgtype.Date   `json:"due_date"`
-	ParentIssueID      pgtype.UUID   `json:"parent_issue_id"`
-	ProjectID          pgtype.UUID   `json:"project_id"`
-	Stage              pgtype.Int4   `json:"stage"`
-	WorkflowInstanceID pgtype.UUID   `json:"workflow_instance_id"`
-	WorkflowStageID    pgtype.UUID   `json:"workflow_stage_id"`
+	ID                 pgtype.UUID        `json:"id"`
+	Title              pgtype.Text        `json:"title"`
+	Description        pgtype.Text        `json:"description"`
+	Status             pgtype.Text        `json:"status"`
+	Priority           pgtype.Text        `json:"priority"`
+	AssigneeType       pgtype.Text        `json:"assignee_type"`
+	AssigneeID         pgtype.UUID        `json:"assignee_id"`
+	Position           pgtype.Float8      `json:"position"`
+	StartDate          pgtype.Date        `json:"start_date"`
+	DueDate            pgtype.Date        `json:"due_date"`
+	ParentIssueID      pgtype.UUID        `json:"parent_issue_id"`
+	ProjectID          pgtype.UUID        `json:"project_id"`
+	Stage              pgtype.Int4        `json:"stage"`
+	WorkflowInstanceID pgtype.UUID        `json:"workflow_instance_id"`
+	WorkflowStageID    pgtype.UUID        `json:"workflow_stage_id"`
+	ExpectedRevision   pgtype.Timestamptz `json:"expected_revision"`
 }
 
 func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue, error) {
@@ -1423,6 +1425,7 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		arg.Stage,
 		arg.WorkflowInstanceID,
 		arg.WorkflowStageID,
+		arg.ExpectedRevision,
 	)
 	var i Issue
 	err := row.Scan(

@@ -487,9 +487,8 @@ func (h *Handler) resolveViewingTZ(r *http.Request) string {
 // Only fields users may legitimately edit are listed; other runtime metadata
 // (provider, daemon_id, status…) flows in from the daemon and is read-only here.
 type UpdateAgentRuntimeRequest struct {
-	// Visibility flips a runtime between "private" (default — only the owner
-	// or workspace admins can bind agents) and "public" (any workspace
-	// member can). Owner / workspace admin only, gated by canEditRuntime.
+	// Visibility flips a runtime between "private" (default — only the runtime
+	// owner can bind agents) and "public" (any workspace member can).
 	Visibility *string `json:"visibility,omitempty"`
 	// CustomName sets or clears a user-facing display override (SILI-4217).
 	// An empty / whitespace-only string clears it (revert to the
@@ -546,6 +545,10 @@ func (h *Handler) UpdateAgentRuntime(w http.ResponseWriter, r *http.Request) {
 		needVisibility bool
 	)
 	if req.Visibility != nil {
+		if !canSetRuntimeVisibility(member, rt) {
+			writeError(w, http.StatusForbidden, "only the runtime owner can change visibility")
+			return
+		}
 		v := *req.Visibility
 		if v != "private" && v != "public" {
 			writeError(w, http.StatusBadRequest, "visibility must be 'private' or 'public'")
@@ -666,18 +669,24 @@ func (h *Handler) runtimeHasLiveProfile(ctx context.Context, rt db.AgentRuntime)
 
 // canUseRuntimeForAgent reports whether a workspace member is allowed to
 // bind a new agent to — or move an existing agent onto — the given runtime.
-// Mirrors canEditRuntime but layers on the runtime's visibility flag so a
-// `public` runtime is usable by anyone in the workspace while a `private`
-// runtime stays bound to its owner. Workspace owners/admins keep an
-// administrative override for both. See migration 083 for the visibility
-// column.
+// A public runtime is usable by anyone in the workspace. A private runtime is
+// usable only by its owner: workspace administration is not consent to run
+// code with another member's local credentials. Ownerless runtimes fail
+// closed because task-scoped authorization cannot be attributed safely.
 func canUseRuntimeForAgent(member db.Member, rt db.AgentRuntime) bool {
-	if roleAllowed(member.Role, "owner", "admin") {
-		return true
+	if !rt.OwnerID.Valid {
+		return false
 	}
 	if rt.Visibility == "public" {
 		return true
 	}
+	return uuidToString(rt.OwnerID) == uuidToString(member.UserID)
+}
+
+// canSetRuntimeVisibility is intentionally narrower than canEditRuntime.
+// Admins may rename or remove runtime inventory, but only the machine owner
+// may consent to sharing its credentials with the workspace.
+func canSetRuntimeVisibility(member db.Member, rt db.AgentRuntime) bool {
 	return rt.OwnerID.Valid && uuidToString(rt.OwnerID) == uuidToString(member.UserID)
 }
 
@@ -801,74 +810,21 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
-	// Pause autopilots pointing at the archived agents BEFORE we delete
-	// them. Migration 096 dropped the autopilot.assignee_id agent FK, so a
-	// hard-delete here would otherwise leave dangling rows that subsequent
-	// scheduler ticks would skip with "assignee agent no longer exists" —
-	// quiet, but burning a run record every tick until an operator notices.
-	// Pausing makes the breakage visible in the autopilot list so the owner
-	// can re-point or delete the row instead. This runs inside the teardown
-	// transaction so a pause that lands but is followed by a failed delete
-	// rolls back with everything else, matching ArchiveAgentsAndDeleteRuntime.
-	archivedAgentIDs, err := qtx.ListArchivedAgentIDsByRuntime(r.Context(), rt.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to enumerate archived agents")
+	// Runtime retirement is a detach operation. Preserve archived agents,
+	// conversations, labels, integrations, and terminal task history.
+	if pending, err := qtx.CountUndrainedTasksByRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify runtime tasks")
+		return
+	} else if pending != 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "runtime still has active tasks", "code": "runtime_delete_not_drained"})
 		return
 	}
-	if len(archivedAgentIDs) > 0 {
-		if err := qtx.PauseAutopilotsByAgentAssignees(r.Context(), archivedAgentIDs); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to pause autopilots")
-			return
-		}
-	}
-
-	// Remove archived squads whose leader is an archived agent on this runtime
-	// so the RESTRICT FK on squad.leader_id won't block the subsequent agent
-	// deletion. Active squads are handled by the 409 guard above instead.
-	if err := qtx.DeleteSquadsByArchivedAgentsOnRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up squads referencing archived agents")
+	if _, err := qtx.UnbindTasksFromRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to preserve task history")
 		return
 	}
-
-	// Remove archived agents so the FK constraint (ON DELETE RESTRICT) won't block deletion.
-	// First drop their invocation targets — agent_invocation_target has no
-	// agent_id FK (SILI-3963), so cleanup is app-layer and MUST precede the
-	// agent hard-delete to avoid orphan rows.
-	if err := qtx.DeleteAgentInvocationTargetsByArchivedRuntimeAgents(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up agent invocation targets")
-		return
-	}
-	// Same app-layer cleanup for channel installations: channel_* has no
-	// workspace/agent FK (SILI-3515 §4), so an archived agent's bot installations
-	// would otherwise survive the hard-delete as orphans and keep occupying their
-	// (channel_type, app_id) routing slots, making those bots un-rebindable (#4810).
-	if err := qtx.DeleteChannelInstallationsByArchivedRuntimeAgents(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up channel installations")
-		return
-	}
-	if err := qtx.DeleteChatPinnedAgentsByArchivedRuntimeAgents(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up chat pins")
-		return
-	}
-	// agent_to_label has no agent_id FK, so clear the runtime's agents' label
-	// links before those agents are hard-deleted below; otherwise they survive
-	// as invisible orphan rows once resource labels are enabled.
-	if err := qtx.DeleteAgentLabelAssignmentsByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up agent label assignments")
-		return
-	}
-	// The agent deletes below cascade away these agents' chat_sessions, and
-	// chat_draft_restore has no FK to follow them (#5219). Prune first.
-	if err := pruneRuntimeAgentChatDraftRestores(r.Context(), qtx, rt.ID, true); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up chat draft restores")
-		return
-	}
-	if err := qtx.DeleteArchivedAgentsByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up archived agents")
-		return
-	}
-	if err := qtx.DeleteSystemAgentsByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up system agents")
+	if _, err := qtx.UnbindAgentsFromRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to preserve agents")
 		return
 	}
 
@@ -1105,47 +1061,25 @@ func (h *Handler) ArchiveAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	// 4. Hard-delete the archived agents so the agent.runtime_id FK
-	//    (ON DELETE RESTRICT) no longer keeps the runtime alive.
-	if err := qtx.DeleteAgentInvocationTargetsByArchivedRuntimeAgents(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up agent invocation targets")
+	// 4. Confirm every runtime-owned task reached a terminal state, then
+	// detach task history and agents. Nothing user-authored is hard-deleted.
+	if pending, err := qtx.CountUndrainedTasksByRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify runtime tasks")
+		return
+	} else if pending != 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "runtime tasks did not drain", "code": "runtime_delete_not_drained"})
 		return
 	}
-	// Same app-layer cleanup for channel installations: channel_* has no
-	// workspace/agent FK (SILI-3515 §4), so an archived agent's bot installations
-	// would otherwise survive the hard-delete as orphans and keep occupying their
-	// (channel_type, app_id) routing slots, making those bots un-rebindable (#4810).
-	if err := qtx.DeleteChannelInstallationsByArchivedRuntimeAgents(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up channel installations")
+	if _, err := qtx.UnbindTasksFromRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to preserve task history")
 		return
 	}
-	if err := qtx.DeleteChatPinnedAgentsByArchivedRuntimeAgents(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up chat pins")
-		return
-	}
-	// agent_to_label has no agent_id FK, so clear the runtime's agents' label
-	// links before those agents are hard-deleted below; otherwise they survive
-	// as invisible orphan rows once resource labels are enabled.
-	if err := qtx.DeleteAgentLabelAssignmentsByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up agent label assignments")
-		return
-	}
-	// The agent deletes below cascade away these agents' chat_sessions, and
-	// chat_draft_restore has no FK to follow them (#5219). Prune first.
-	if err := pruneRuntimeAgentChatDraftRestores(r.Context(), qtx, rt.ID, true); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up chat draft restores")
-		return
-	}
-	if err := qtx.DeleteArchivedAgentsByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up archived agents")
-		return
-	}
-	if err := qtx.DeleteSystemAgentsByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up system agents")
+	if _, err := qtx.UnbindAgentsFromRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to preserve agents")
 		return
 	}
 
-	// 5. Finally delete the runtime row itself.
+	// 5. Finally delete only the runtime row itself.
 	if err := qtx.DeleteAgentRuntime(r.Context(), rt.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
 		return

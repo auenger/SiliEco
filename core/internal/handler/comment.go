@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/silieco-ai/silieco/core/internal/logger"
 	"github.com/silieco-ai/silieco/core/internal/service"
@@ -31,6 +32,7 @@ type CommentResponse struct {
 	ParentID       *string              `json:"parent_id"`
 	CreatedAt      string               `json:"created_at"`
 	UpdatedAt      string               `json:"updated_at"`
+	Revision       string               `json:"revision"`
 	ResolvedAt     *string              `json:"resolved_at"`
 	ResolvedByType *string              `json:"resolved_by_type"`
 	ResolvedByID   *string              `json:"resolved_by_id"`
@@ -97,6 +99,7 @@ func commentToResponse(c db.Comment, reactions []ReactionResponse, attachments [
 		ParentID:       uuidToPtr(c.ParentID),
 		CreatedAt:      timestampToString(c.CreatedAt),
 		UpdatedAt:      timestampToString(c.UpdatedAt),
+		Revision:       timestampToString(c.UpdatedAt),
 		ResolvedAt:     timestampToPtr(c.ResolvedAt),
 		ResolvedByType: textToPtr(c.ResolvedByType),
 		ResolvedByID:   uuidToPtr(c.ResolvedByID),
@@ -2662,8 +2665,18 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Content          string    `json:"content"`
+		ExpectedRevision *string   `json:"expected_revision"`
 		AttachmentIDs    *[]string `json:"attachment_ids"`
 		SuppressAgentIDs []string  `json:"suppress_agent_ids"`
+	}
+	var expectedRevision pgtype.Timestamptz
+	if req.ExpectedRevision != nil {
+		revision, parseErr := time.Parse(time.RFC3339Nano, *req.ExpectedRevision)
+		if parseErr != nil {
+			writeError(w, http.StatusBadRequest, "expected_revision must be an RFC3339 timestamp")
+			return
+		}
+		expectedRevision = pgtype.Timestamptz{Time: revision, Valid: true}
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -2734,11 +2747,19 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	comment, err := h.Queries.UpdateComment(r.Context(), db.UpdateCommentParams{
-		ID:           commentUUID,
-		Content:      req.Content,
-		SourceTaskID: sourceTaskID,
+		ID:               commentUUID,
+		Content:          req.Content,
+		SourceTaskID:     sourceTaskID,
+		ExpectedRevision: expectedRevision,
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && req.ExpectedRevision != nil {
+			current, loadErr := h.Queries.GetCommentInWorkspace(r.Context(), db.GetCommentInWorkspaceParams{ID: commentUUID, WorkspaceID: wsUUID})
+			if loadErr == nil {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "comment changed since it was loaded", "code": "revision_conflict", "current": commentToResponse(current, nil, nil), "attempted": req})
+				return
+			}
+		}
 		slog.Warn("update comment failed", append(logger.RequestAttrs(r), "error", err, "comment_id", commentId)...)
 		if triggerIssue != nil {
 			// Cancellation committed but the edit did not. Restore the complete

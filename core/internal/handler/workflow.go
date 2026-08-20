@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/silieco-ai/silieco/core/internal/logger"
+	"github.com/silieco-ai/silieco/core/internal/service"
 	"github.com/silieco-ai/silieco/core/internal/util"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
@@ -26,16 +27,17 @@ var validWorkflowInstanceStatuses = map[string]bool{
 }
 
 type WorkflowStageInput struct {
-	ID               *string         `json:"id,omitempty"`
-	StableKey        string          `json:"stable_key"`
-	Name             string          `json:"name"`
-	Description      *string         `json:"description"`
-	CompletionRule   json.RawMessage `json:"completion_rule"`
-	InputSpec        json.RawMessage `json:"input_spec"`
-	OutputSpec       json.RawMessage `json:"output_spec"`
-	RequiredSkills   []string        `json:"required_skills"`
-	Gate             json.RawMessage `json:"gate"`
-	RollbackStageKey *string         `json:"rollback_stage_key"`
+	ID                  *string         `json:"id,omitempty"`
+	StableKey           string          `json:"stable_key"`
+	Name                string          `json:"name"`
+	Description         *string         `json:"description"`
+	CompletionRule      json.RawMessage `json:"completion_rule"`
+	InputSpec           json.RawMessage `json:"input_spec"`
+	OutputSpec          json.RawMessage `json:"output_spec"`
+	RequiredSkills      []string        `json:"required_skills"`
+	AllowedMCPServerIDs []string        `json:"allowed_mcp_server_ids"`
+	Gate                json.RawMessage `json:"gate"`
+	RollbackStageKey    *string         `json:"rollback_stage_key"`
 }
 
 type CreateWorkflowRequest struct {
@@ -102,20 +104,21 @@ type WorkflowVersionResponse struct {
 }
 
 type WorkflowStageResponse struct {
-	ID                string          `json:"id"`
-	WorkspaceID       string          `json:"workspace_id"`
-	WorkflowVersionID string          `json:"workflow_version_id"`
-	StableKey         string          `json:"stable_key"`
-	Name              string          `json:"name"`
-	Description       *string         `json:"description"`
-	Position          int32           `json:"position"`
-	CompletionRule    json.RawMessage `json:"completion_rule"`
-	InputSpec         json.RawMessage `json:"input_spec"`
-	OutputSpec        json.RawMessage `json:"output_spec"`
-	RequiredSkills    []string        `json:"required_skills"`
-	Gate              json.RawMessage `json:"gate"`
-	RollbackStageKey  *string         `json:"rollback_stage_key"`
-	CreatedAt         string          `json:"created_at"`
+	ID                  string          `json:"id"`
+	WorkspaceID         string          `json:"workspace_id"`
+	WorkflowVersionID   string          `json:"workflow_version_id"`
+	StableKey           string          `json:"stable_key"`
+	Name                string          `json:"name"`
+	Description         *string         `json:"description"`
+	Position            int32           `json:"position"`
+	CompletionRule      json.RawMessage `json:"completion_rule"`
+	InputSpec           json.RawMessage `json:"input_spec"`
+	OutputSpec          json.RawMessage `json:"output_spec"`
+	RequiredSkills      []string        `json:"required_skills"`
+	AllowedMCPServerIDs []string        `json:"allowed_mcp_server_ids"`
+	Gate                json.RawMessage `json:"gate"`
+	RollbackStageKey    *string         `json:"rollback_stage_key"`
+	CreatedAt           string          `json:"created_at"`
 }
 
 type WorkflowInstanceResponse struct {
@@ -149,22 +152,24 @@ type WorkflowInstanceResponse struct {
 }
 
 type WorkflowInstanceStageResponse struct {
-	ID                 string          `json:"id"`
-	WorkspaceID        string          `json:"workspace_id"`
-	WorkflowInstanceID string          `json:"workflow_instance_id"`
-	SourceStageID      *string         `json:"source_stage_id"`
-	StableKey          string          `json:"stable_key"`
-	Name               string          `json:"name"`
-	Description        *string         `json:"description"`
-	Position           int32           `json:"position"`
-	CompletionRule     json.RawMessage `json:"completion_rule"`
-	InputSpec          json.RawMessage `json:"input_spec"`
-	OutputSpec         json.RawMessage `json:"output_spec"`
-	RequiredSkills     []string        `json:"required_skills"`
-	Gate               json.RawMessage `json:"gate"`
-	RollbackStageKey   *string         `json:"rollback_stage_key"`
-	CreatedAt          string          `json:"created_at"`
-	UpdatedAt          string          `json:"updated_at"`
+	ID                     string            `json:"id"`
+	WorkspaceID            string            `json:"workspace_id"`
+	WorkflowInstanceID     string            `json:"workflow_instance_id"`
+	SourceStageID          *string           `json:"source_stage_id"`
+	StableKey              string            `json:"stable_key"`
+	Name                   string            `json:"name"`
+	Description            *string           `json:"description"`
+	Position               int32             `json:"position"`
+	CompletionRule         json.RawMessage   `json:"completion_rule"`
+	InputSpec              json.RawMessage   `json:"input_spec"`
+	OutputSpec             json.RawMessage   `json:"output_spec"`
+	RequiredSkills         []string          `json:"required_skills"`
+	RequiredSkillRevisions map[string]string `json:"required_skill_revisions"`
+	AllowedMCPServerIDs    []string          `json:"allowed_mcp_server_ids"`
+	Gate                   json.RawMessage   `json:"gate"`
+	RollbackStageKey       *string           `json:"rollback_stage_key"`
+	CreatedAt              string            `json:"created_at"`
+	UpdatedAt              string            `json:"updated_at"`
 }
 
 type WorkflowInstanceChangeResponse struct {
@@ -228,20 +233,21 @@ func workflowStageToResponse(row db.WorkflowStage) WorkflowStageResponse {
 		requiredSkills = []string{}
 	}
 	return WorkflowStageResponse{
-		ID:                uuidToString(row.ID),
-		WorkspaceID:       uuidToString(row.WorkspaceID),
-		WorkflowVersionID: uuidToString(row.WorkflowVersionID),
-		StableKey:         row.StableKey,
-		Name:              row.Name,
-		Description:       textToPtr(row.Description),
-		Position:          row.Position,
-		CompletionRule:    jsonOrEmptyObject(row.CompletionRule),
-		InputSpec:         jsonOrEmptyObject(row.InputSpec),
-		OutputSpec:        jsonOrEmptyObject(row.OutputSpec),
-		RequiredSkills:    requiredSkills,
-		Gate:              jsonOrEmptyObject(row.Gate),
-		RollbackStageKey:  textToPtr(row.RollbackStageKey),
-		CreatedAt:         timestampToString(row.CreatedAt),
+		ID:                  uuidToString(row.ID),
+		WorkspaceID:         uuidToString(row.WorkspaceID),
+		WorkflowVersionID:   uuidToString(row.WorkflowVersionID),
+		StableKey:           row.StableKey,
+		Name:                row.Name,
+		Description:         textToPtr(row.Description),
+		Position:            row.Position,
+		CompletionRule:      jsonOrEmptyObject(row.CompletionRule),
+		InputSpec:           jsonOrEmptyObject(row.InputSpec),
+		OutputSpec:          jsonOrEmptyObject(row.OutputSpec),
+		RequiredSkills:      requiredSkills,
+		AllowedMCPServerIDs: uuidsToStrings(row.AllowedMcpServerIds),
+		Gate:                jsonOrEmptyObject(row.Gate),
+		RollbackStageKey:    textToPtr(row.RollbackStageKey),
+		CreatedAt:           timestampToString(row.CreatedAt),
 	}
 }
 
@@ -272,13 +278,22 @@ func workflowInstanceStageToResponse(row db.WorkflowInstanceStage) WorkflowInsta
 	if requiredSkills == nil {
 		requiredSkills = []string{}
 	}
+	revisions := map[string]string{}
+	var snapshots []service.AgentSkillData
+	if json.Unmarshal(row.RequiredSkillSnapshots, &snapshots) == nil {
+		_, refs := service.BuildAgentSkillBundles(snapshots)
+		for _, ref := range refs {
+			revisions[ref.ID] = ref.Hash
+		}
+	}
 	return WorkflowInstanceStageResponse{
 		ID: uuidToString(row.ID), WorkspaceID: uuidToString(row.WorkspaceID),
 		WorkflowInstanceID: uuidToString(row.WorkflowInstanceID), SourceStageID: uuidToPtr(row.SourceStageID),
 		StableKey: row.StableKey, Name: row.Name, Description: textToPtr(row.Description), Position: row.Position,
 		CompletionRule: jsonOrEmptyObject(row.CompletionRule), InputSpec: jsonOrEmptyObject(row.InputSpec),
-		OutputSpec: jsonOrEmptyObject(row.OutputSpec), RequiredSkills: requiredSkills,
-		Gate: jsonOrEmptyObject(row.Gate), RollbackStageKey: textToPtr(row.RollbackStageKey),
+		OutputSpec: jsonOrEmptyObject(row.OutputSpec), RequiredSkills: requiredSkills, RequiredSkillRevisions: revisions,
+		AllowedMCPServerIDs: uuidsToStrings(row.AllowedMcpServerIds),
+		Gate:                jsonOrEmptyObject(row.Gate), RollbackStageKey: textToPtr(row.RollbackStageKey),
 		CreatedAt: timestampToString(row.CreatedAt), UpdatedAt: timestampToString(row.UpdatedAt),
 	}
 }
@@ -378,6 +393,18 @@ func normalizeWorkflowStages(stages []WorkflowStageInput) ([]WorkflowStageInput,
 				stages[i].RollbackStageKey = &key
 			}
 		}
+		seenMCP := make(map[string]struct{}, len(stages[i].AllowedMCPServerIDs))
+		for j, id := range stages[i].AllowedMCPServerIDs {
+			id = strings.TrimSpace(id)
+			if _, err := util.ParseUUID(id); err != nil {
+				return nil, fmt.Errorf("stages[%d].allowed_mcp_server_ids[%d] is invalid", i, j)
+			}
+			if _, duplicate := seenMCP[id]; duplicate {
+				return nil, fmt.Errorf("stages[%d].allowed_mcp_server_ids contains a duplicate", i)
+			}
+			seenMCP[id] = struct{}{}
+			stages[i].AllowedMCPServerIDs[j] = id
+		}
 	}
 
 	for i, stage := range stages {
@@ -395,6 +422,17 @@ func normalizeWorkflowStages(stages []WorkflowStageInput) ([]WorkflowStageInput,
 	return stages, nil
 }
 
+func parseUUIDArray(ids []string) []pgtype.UUID {
+	if ids == nil {
+		return nil
+	}
+	out := make([]pgtype.UUID, len(ids))
+	for i, id := range ids {
+		out[i] = parseUUID(id)
+	}
+	return out
+}
+
 func createWorkflowStages(ctx context.Context, q *db.Queries, workspaceID, versionID pgtype.UUID, stages []WorkflowStageInput) ([]db.WorkflowStage, error) {
 	rows := make([]db.WorkflowStage, 0, len(stages))
 	for i, stage := range stages {
@@ -407,18 +445,19 @@ func createWorkflowStages(ctx context.Context, q *db.Queries, workspaceID, versi
 			requiredSkills = []string{}
 		}
 		row, err := q.CreateWorkflowStage(ctx, db.CreateWorkflowStageParams{
-			WorkspaceID:       workspaceID,
-			WorkflowVersionID: versionID,
-			StableKey:         stage.StableKey,
-			Name:              stage.Name,
-			Description:       ptrToText(stage.Description),
-			Position:          int32(i),
-			CompletionRule:    completionRule,
-			InputSpec:         inputSpec,
-			OutputSpec:        outputSpec,
-			RequiredSkills:    requiredSkills,
-			Gate:              gate,
-			RollbackStageKey:  ptrToText(stage.RollbackStageKey),
+			WorkspaceID:         workspaceID,
+			WorkflowVersionID:   versionID,
+			StableKey:           stage.StableKey,
+			Name:                stage.Name,
+			Description:         ptrToText(stage.Description),
+			Position:            int32(i),
+			CompletionRule:      completionRule,
+			InputSpec:           inputSpec,
+			OutputSpec:          outputSpec,
+			RequiredSkills:      requiredSkills,
+			Gate:                gate,
+			RollbackStageKey:    ptrToText(stage.RollbackStageKey),
+			AllowedMcpServerIds: parseUUIDArray(stage.AllowedMCPServerIDs),
 		})
 		if err != nil {
 			return nil, err
@@ -1087,13 +1126,23 @@ func (h *Handler) CreateWorkflowInstance(w http.ResponseWriter, r *http.Request)
 	}
 	instanceStages := make([]db.WorkflowInstanceStage, 0, len(templateStages))
 	for _, templateStage := range templateStages {
+		required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), wsUUID, templateStage.RequiredSkills)
+		if len(missing) > 0 {
+			writeError(w, http.StatusConflict, "required SOP skill is unavailable: "+strings.Join(missing, ", "))
+			return
+		}
+		snapshots, marshalErr := json.Marshal(required)
+		if marshalErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to snapshot workflow skills")
+			return
+		}
 		instanceStage, createErr := qtx.CreateWorkflowInstanceStage(r.Context(), db.CreateWorkflowInstanceStageParams{
 			WorkspaceID: wsUUID, WorkflowInstanceID: row.ID, SourceStageID: templateStage.ID,
 			StableKey: templateStage.StableKey, Name: templateStage.Name, Description: templateStage.Description,
 			Position: templateStage.Position, CompletionRule: templateStage.CompletionRule,
 			InputSpec: templateStage.InputSpec, OutputSpec: templateStage.OutputSpec,
-			RequiredSkills: templateStage.RequiredSkills, Gate: templateStage.Gate,
-			RollbackStageKey: templateStage.RollbackStageKey,
+			RequiredSkills: templateStage.RequiredSkills, RequiredSkillSnapshots: snapshots, Gate: templateStage.Gate,
+			RollbackStageKey: templateStage.RollbackStageKey, AllowedMcpServerIds: templateStage.AllowedMcpServerIds,
 		})
 		if createErr != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create workflow instance plan")

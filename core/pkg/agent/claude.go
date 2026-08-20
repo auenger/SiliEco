@@ -71,7 +71,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		}
 	}()
 
-	cmd := exec.CommandContext(runCtx, execPath, args...)
+	cmd := b.cfg.commandAt(execPath).exec(runCtx, args...)
 	hideAgentWindow(cmd)
 	// Run claude in its own process group so cancellation can reach the whole
 	// tree — the claude CLI plus the MCP servers and tool subprocesses it
@@ -88,7 +88,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	// only after the tree has been signalled. Returning nil keeps os/exec from
 	// racing us with its own kill; WaitDelay remains the hard backstop.
 	cmd.Cancel = func() error { return nil }
-	b.cfg.Logger.Info("agent command", "exec", execPath, "args", args)
+	logAgentCommand(b.cfg.Logger, "claude", cmd)
 	cmd.WaitDelay = 10 * time.Second
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd

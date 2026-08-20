@@ -882,7 +882,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		opts.CustomArgs = filterCodexShellEnvConfigOverrides(opts.CustomArgs, b.cfg.Logger)
 	}
 	codexArgs := buildCodexArgs(opts, b.cfg.Logger)
-	cmd := exec.CommandContext(runCtx, execPath, codexArgs...)
+	cmd := b.cfg.commandAt(execPath).exec(runCtx, codexArgs...)
 	hideAgentWindow(cmd)
 	// Run codex in its own process group so a cancel-on-stuck cleanup
 	// reaches the whole tree — the codex Node wrapper plus the native
@@ -908,7 +908,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 	// open pipe held by a grandchild) can't hang cmd.Wait() forever. Matches
 	// the other long-lived backends (claude, copilot, cursor, …).
 	cmd.WaitDelay = codexProcessWaitDelay()
-	b.cfg.Logger.Info("agent command", "exec", execPath, "args", codexArgs)
+	logAgentCommand(b.cfg.Logger, "codex", cmd)
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}

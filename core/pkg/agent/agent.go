@@ -10,8 +10,71 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os/exec"
+	"strings"
 	"time"
 )
+
+const redactedAgentCommandArg = "<redacted>"
+
+// logAgentCommand records enough launch shape to diagnose a broken runtime
+// without copying prompt text, credentials, MCP configuration, or arbitrary
+// custom argument values into daemon logs. Only syntactically safe flag names
+// survive; every positional and flag value is redacted.
+func logAgentCommand(logger *slog.Logger, provider string, cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	args := []string{}
+	if len(cmd.Args) > 1 {
+		args = cmd.Args[1:]
+	}
+	logger.Info("agent command",
+		"provider", provider,
+		"exec", cmd.Path,
+		"args", redactAgentCommandArgs(args),
+		"arg_count", len(args),
+	)
+}
+
+func redactAgentCommandArgs(args []string) []string {
+	redacted := make([]string, len(args))
+	for i, arg := range args {
+		if flag, ok := safeAgentCommandFlagName(arg); ok {
+			redacted[i] = flag
+		} else {
+			redacted[i] = redactedAgentCommandArg
+		}
+	}
+	return redacted
+}
+
+func safeAgentCommandFlagName(arg string) (string, bool) {
+	flag := arg
+	if equals := strings.IndexByte(flag, '='); equals > 0 {
+		flag = flag[:equals]
+	}
+	if len(flag) == 2 && flag[0] == '-' && isASCIIAlpha(flag[1]) {
+		return flag, true
+	}
+	if len(flag) < 3 || len(flag) > 64 || !strings.HasPrefix(flag, "--") || !isASCIIAlpha(flag[2]) {
+		return "", false
+	}
+	for i := 3; i < len(flag); i++ {
+		ch := flag[i]
+		if !isASCIIAlpha(ch) && (ch < '0' || ch > '9') && ch != '.' && ch != '_' && ch != '-' {
+			return "", false
+		}
+	}
+	return flag, true
+}
+
+func isASCIIAlpha(ch byte) bool {
+	return ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z'
+}
 
 // Backend is the unified interface for executing prompts via coding agents.
 type Backend interface {
@@ -207,6 +270,7 @@ type Result struct {
 // Config configures a Backend instance.
 type Config struct {
 	ExecutablePath string            // path to CLI binary (claude, codebuddy, codex, copilot, opencode, openclaw, hermes, pi, cursor, kimi, kiro-cli, agy, qodercli, traecli, grok, qwen)
+	LaunchPrefix   []string          // custom runtime fixed_args inserted immediately after the executable
 	CLIVersion     string            // detected version paired with ExecutablePath; observation only, never used to choose behavior
 	Env            map[string]string // extra environment variables
 	Logger         *slog.Logger
@@ -296,6 +360,7 @@ func New(agentType string, cfg Config) (Backend, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	cfg.LaunchPrefix = FilterLaunchPrefix(agentType, cfg.LaunchPrefix, cfg.Logger)
 
 	switch agentType {
 	case "claude":

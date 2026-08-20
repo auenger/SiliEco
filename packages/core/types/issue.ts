@@ -69,6 +69,7 @@ export interface Issue {
   labels?: Label[];
   created_at: string;
   updated_at: string;
+  revision?: string;
 }
 
 /**

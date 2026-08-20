@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { WorkspaceSlugProvider } from "@silieco/core/paths";
@@ -6,7 +6,7 @@ import {
   workspaceBySlugOptions,
   workspaceListOptions,
 } from "@silieco/core/workspace";
-import { setCurrentWorkspace } from "@silieco/core/platform";
+import { getCurrentSlug, setCurrentWorkspace } from "@silieco/core/platform";
 import { useAuthStore } from "@silieco/core/auth";
 import { useWorkspaceSeen } from "@silieco/views/workspace/use-workspace-seen";
 import { WelcomeAfterOnboarding } from "@silieco/views/workspace/welcome-after-onboarding";
@@ -14,6 +14,12 @@ import { WorkspacePresencePrefetch } from "@silieco/views/layout";
 import { SourceBackfillModal } from "@silieco/views/onboarding";
 import { useTabStore } from "@/stores/tab-store";
 import { useWindowOverlayStore } from "@/stores/window-overlay-store";
+
+// The active layout instance owns the process-wide workspace singleton. Tab
+// swaps mount the successor before cleaning up the previous tree, so identity
+// (rather than slug equality) is required to keep an outgoing same-workspace
+// tab from clearing the singleton after its successor has claimed it.
+let singletonOwner: symbol | null = null;
 
 /**
  * Desktop equivalent of apps/web/app/[workspaceSlug]/layout.tsx.
@@ -34,6 +40,7 @@ import { useWindowOverlayStore } from "@/stores/window-overlay-store";
  */
 export function WorkspaceRouteLayout() {
   const { workspaceSlug } = useParams<{ workspaceSlug: string }>();
+  const [instanceId] = useState(() => Symbol("workspace-route-layout"));
   const user = useAuthStore((s) => s.user);
   const isAuthLoading = useAuthStore((s) => s.isLoading);
   // While a WindowOverlay is open (onboarding, accept-invite, new-workspace),
@@ -66,8 +73,18 @@ export function WorkspaceRouteLayout() {
   // X-Workspace-Slug header and persist namespace follow the active tab.
   // setCurrentWorkspace self-dedupes on slug equality.
   if (workspace && workspaceSlug) {
+    singletonOwner = instanceId;
     setCurrentWorkspace(workspaceSlug, workspace.id);
   }
+
+  useEffect(() => {
+    return () => {
+      if (singletonOwner !== instanceId) return;
+      if (getCurrentSlug() !== workspaceSlug) return;
+      singletonOwner = null;
+      setCurrentWorkspace(null, null);
+    };
+  }, [workspaceSlug, instanceId]);
 
   const hasBeenSeen = useWorkspaceSeen(workspaceSlug, !!workspace);
 

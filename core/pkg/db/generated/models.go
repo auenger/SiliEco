@@ -64,6 +64,13 @@ type AgentInvocationTarget struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type AgentMcpServer struct {
+	AgentID   pgtype.UUID        `json:"agent_id"`
+	ServerID  pgtype.UUID        `json:"server_id"`
+	Enabled   bool               `json:"enabled"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type AgentRuntime struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -149,10 +156,15 @@ type AgentTaskQueue struct {
 	// The row id referenced by trigger_evidence_kind (a comment id, autopilot_run id, rule_version id, source task id, ...). No FK; resolvable per-kind in the app layer (SILI-4302 §2).
 	TriggerEvidenceRefID pgtype.UUID `json:"trigger_evidence_ref_id"`
 	// The one human accountable for this run, for audit / visibility / cost only — NEVER consulted for authorization (that is originator_user_id). Invariant: when originator_user_id IS NOT NULL, this equals it; the two diverge only when originator_user_id IS NULL (autopilot rule_owner / degraded owner_fallback name an accountable human while authorization carries none). No FK, no cascade (SILI-4302 §1/§7). NULL means no accountable human was resolved: a pre-migration row, OR a NEW row whose audit source is not-yet-resolved / unattributed (e.g. run_only autopilot until rule_owner lands) — NOT pre-migration only.
-	AccountableUserID     pgtype.UUID `json:"accountable_user_id"`
-	SessionRolloutMissing bool        `json:"session_rollout_missing"`
-	RetiredSessionID      pgtype.Text `json:"retired_session_id"`
-	TriggerChatMessageID  pgtype.UUID `json:"trigger_chat_message_id"`
+	AccountableUserID      pgtype.UUID `json:"accountable_user_id"`
+	SessionRolloutMissing  bool        `json:"session_rollout_missing"`
+	RetiredSessionID       pgtype.Text `json:"retired_session_id"`
+	TriggerChatMessageID   pgtype.UUID `json:"trigger_chat_message_id"`
+	ExecutionManifest      []byte      `json:"execution_manifest"`
+	WorktreeBranch         pgtype.Text `json:"worktree_branch"`
+	WorktreeBaseSha        pgtype.Text `json:"worktree_base_sha"`
+	WorktreeFinalSha       pgtype.Text `json:"worktree_final_sha"`
+	WorktreeDeliveryStatus pgtype.Text `json:"worktree_delivery_status"`
 }
 
 type AgentToLabel struct {
@@ -1239,39 +1251,42 @@ type WorkflowInstanceChange struct {
 }
 
 type WorkflowInstanceStage struct {
-	ID                 pgtype.UUID        `json:"id"`
-	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
-	WorkflowInstanceID pgtype.UUID        `json:"workflow_instance_id"`
-	SourceStageID      pgtype.UUID        `json:"source_stage_id"`
-	StableKey          string             `json:"stable_key"`
-	Name               string             `json:"name"`
-	Description        pgtype.Text        `json:"description"`
-	Position           int32              `json:"position"`
-	CompletionRule     []byte             `json:"completion_rule"`
-	InputSpec          []byte             `json:"input_spec"`
-	OutputSpec         []byte             `json:"output_spec"`
-	RequiredSkills     []string           `json:"required_skills"`
-	Gate               []byte             `json:"gate"`
-	RollbackStageKey   pgtype.Text        `json:"rollback_stage_key"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ID                     pgtype.UUID        `json:"id"`
+	WorkspaceID            pgtype.UUID        `json:"workspace_id"`
+	WorkflowInstanceID     pgtype.UUID        `json:"workflow_instance_id"`
+	SourceStageID          pgtype.UUID        `json:"source_stage_id"`
+	StableKey              string             `json:"stable_key"`
+	Name                   string             `json:"name"`
+	Description            pgtype.Text        `json:"description"`
+	Position               int32              `json:"position"`
+	CompletionRule         []byte             `json:"completion_rule"`
+	InputSpec              []byte             `json:"input_spec"`
+	OutputSpec             []byte             `json:"output_spec"`
+	RequiredSkills         []string           `json:"required_skills"`
+	Gate                   []byte             `json:"gate"`
+	RollbackStageKey       pgtype.Text        `json:"rollback_stage_key"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	RequiredSkillSnapshots []byte             `json:"required_skill_snapshots"`
+	AllowedMcpServerIds    []pgtype.UUID      `json:"allowed_mcp_server_ids"`
 }
 
 type WorkflowStage struct {
-	ID                pgtype.UUID        `json:"id"`
-	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
-	WorkflowVersionID pgtype.UUID        `json:"workflow_version_id"`
-	StableKey         string             `json:"stable_key"`
-	Name              string             `json:"name"`
-	Description       pgtype.Text        `json:"description"`
-	Position          int32              `json:"position"`
-	CompletionRule    []byte             `json:"completion_rule"`
-	InputSpec         []byte             `json:"input_spec"`
-	OutputSpec        []byte             `json:"output_spec"`
-	RequiredSkills    []string           `json:"required_skills"`
-	Gate              []byte             `json:"gate"`
-	RollbackStageKey  pgtype.Text        `json:"rollback_stage_key"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	ID                  pgtype.UUID        `json:"id"`
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	WorkflowVersionID   pgtype.UUID        `json:"workflow_version_id"`
+	StableKey           string             `json:"stable_key"`
+	Name                string             `json:"name"`
+	Description         pgtype.Text        `json:"description"`
+	Position            int32              `json:"position"`
+	CompletionRule      []byte             `json:"completion_rule"`
+	InputSpec           []byte             `json:"input_spec"`
+	OutputSpec          []byte             `json:"output_spec"`
+	RequiredSkills      []string           `json:"required_skills"`
+	Gate                []byte             `json:"gate"`
+	RollbackStageKey    pgtype.Text        `json:"rollback_stage_key"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	AllowedMcpServerIds []pgtype.UUID      `json:"allowed_mcp_server_ids"`
 }
 
 type WorkflowVersion struct {
@@ -1313,4 +1328,14 @@ type WorkspaceInvitation struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
+}
+
+type WorkspaceMcpServer struct {
+	ID              pgtype.UUID        `json:"id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	Name            string             `json:"name"`
+	ConfigEncrypted string             `json:"config_encrypted"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }

@@ -1,6 +1,9 @@
 package util
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // UnescapeBackslashEscapes decodes the common backslash escape sequences
 // (\n, \r, \t, \\) that LLM agents routinely emit as 4-character literals
@@ -45,4 +48,46 @@ func UnescapeBackslashEscapes(s string) string {
 		b.WriteByte(c)
 	}
 	return b.String()
+}
+
+const sanitizeJSONMaxDepth = 32
+
+// SanitizeTextForPostgres removes embedded NUL bytes and replaces malformed
+// UTF-8 with U+FFFD so externally-produced text is safe for TEXT and JSONB.
+func SanitizeTextForPostgres(s string) string {
+	if !strings.ContainsRune(s, 0) && utf8.ValidString(s) {
+		return s
+	}
+	return strings.ReplaceAll(strings.ToValidUTF8(s, "\uFFFD"), "\x00", "")
+}
+
+// SanitizeJSONForPostgres applies the text sanitizer to every string and
+// object key in a decoded JSON tree. Excessively deep subtrees are dropped to
+// keep this persistence guard bounded.
+func SanitizeJSONForPostgres(v any) any {
+	return sanitizeJSONValue(v, 0)
+}
+
+func sanitizeJSONValue(v any, depth int) any {
+	if depth > sanitizeJSONMaxDepth {
+		return nil
+	}
+	switch value := v.(type) {
+	case string:
+		return SanitizeTextForPostgres(value)
+	case map[string]any:
+		out := make(map[string]any, len(value))
+		for key, item := range value {
+			out[SanitizeTextForPostgres(key)] = sanitizeJSONValue(item, depth+1)
+		}
+		return out
+	case []any:
+		out := make([]any, len(value))
+		for i, item := range value {
+			out[i] = sanitizeJSONValue(item, depth+1)
+		}
+		return out
+	default:
+		return v
+	}
 }

@@ -18,6 +18,7 @@ describe("failureClassOf", () => {
     // SILI-5370: the run never reached the model provider, so this belongs
     // with the substrate failures an operator fixes by checking the daemon.
     expect(failureClassOf("skill_bundle_unavailable")).toBe("runtime");
+    expect(failureClassOf("invalid_task_identity")).toBe("runtime");
     expect(failureClassOf("agent_error.process_failure")).toBe("agent");
   });
 

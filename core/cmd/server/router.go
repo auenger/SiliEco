@@ -1235,6 +1235,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/instances", h.CreateWorkflowInstance)
 				})
 			})
+			r.Route("/api/mcp-servers", func(r chi.Router) {
+				r.Get("/", h.ListWorkspaceMCPServers)
+				r.Post("/", h.CreateWorkspaceMCPServer)
+				r.Put("/{id}", h.UpdateWorkspaceMCPServer)
+				r.Delete("/{id}", h.DeleteWorkspaceMCPServer)
+			})
 			r.Route("/api/workflow-instances", func(r chi.Router) {
 				r.Get("/", h.ListWorkflowInstances)
 				r.Route("/{id}", func(r chi.Router) {
@@ -1243,6 +1249,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/archive", h.ArchiveWorkflowInstance)
 					r.Post("/transition", h.TransitionWorkflowInstance)
 					r.Get("/tasks", h.ListWorkflowTasks)
+					r.Get("/stages/{stageId}/transcript", h.ListWorkflowStageTranscript)
 					r.Put("/tasks/{taskId}", h.AttachWorkflowTask)
 					r.Delete("/tasks/{taskId}", h.DetachWorkflowTask)
 				})
@@ -1347,6 +1354,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Delete("/labels/{labelId}", h.DetachLabelFromAgent)
 					r.Put("/skills/{skillId}/enabled", h.SetAgentSkillEnabled)
 					r.Put("/runtime-skills/enabled", h.SetAgentRuntimeSkillEnabled)
+					r.Get("/mcp-servers", h.ListAgentMCPAssignments)
+					r.Put("/mcp-servers", h.SetAgentMCPAssignments)
 					r.Delete("/skills/{skillId}", h.RemoveAgentSkill)
 					// Dedicated env-management endpoint. Admits the agent
 					// owner or a workspace owner/admin; agent actors are
@@ -1376,8 +1385,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Post("/", h.CreateSkill)
 				r.Get("/search", h.SearchSkills)
 				r.Post("/import", h.ImportSkill)
+				r.Post("/refresh", h.BulkRefreshSkills)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.GetSkill)
+					r.Get("/refresh", h.PreviewSkillRefresh)
+					r.Post("/refresh", h.RefreshSkill)
 					r.Put("/", h.UpdateSkill)
 					r.Delete("/", h.DeleteSkill)
 					r.Get("/labels", h.ListLabelsForSkill)

@@ -24,6 +24,7 @@ export interface WorkflowStage {
   input_spec: WorkflowObject;
   output_spec: WorkflowObject;
   required_skills: string[];
+  allowed_mcp_server_ids?: string[] | null;
   gate: WorkflowObject & { type?: WorkflowGateType };
   rollback_stage_key: string | null;
   created_at: string;
@@ -42,6 +43,8 @@ export interface WorkflowInstanceStage {
   input_spec: WorkflowObject;
   output_spec: WorkflowObject;
   required_skills: string[];
+  required_skill_revisions?: Record<string, string>;
+  allowed_mcp_server_ids?: string[] | null;
   gate: WorkflowObject & { type?: WorkflowGateType };
   rollback_stage_key: string | null;
   created_at: string;
@@ -135,6 +138,7 @@ export interface WorkflowStageInput {
   input_spec?: WorkflowObject;
   output_spec?: WorkflowObject;
   required_skills?: string[];
+  allowed_mcp_server_ids?: string[] | null;
   gate?: WorkflowObject & { type?: WorkflowGateType };
   rollback_stage_key?: string | null;
 }
@@ -198,4 +202,36 @@ export interface ListWorkflowInstancesResponse {
 export interface ListWorkflowTasksResponse {
   tasks: Task[];
   total: number;
+}
+
+export interface WorkflowStageRun {
+  id: string;
+  task_id: string;
+  task_title: string;
+  agent_id: string;
+  agent_name: string | null;
+  status: string;
+  trigger_summary: string | null;
+  trigger_source: string | null;
+  trigger_user_id: string | null;
+  accountable_user_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  result?: unknown;
+  error: string | null;
+  failure_reason: string | null;
+  execution_manifest?: Record<string, unknown>;
+  created_at: string;
+  messages_path: string;
+  worktree_branch: string | null;
+  worktree_base_sha: string | null;
+  worktree_final_sha: string | null;
+  worktree_delivery_status: "committed" | "preserved" | null;
+}
+
+export interface WorkflowStageTranscriptResponse {
+  runs: WorkflowStageRun[];
+  total: number;
+  limit: number;
+  offset: number;
 }

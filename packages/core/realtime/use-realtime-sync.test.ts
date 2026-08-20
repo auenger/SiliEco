@@ -89,6 +89,7 @@ describe("applyChatDoneToCache", () => {
         task_id: taskId,
         created_at: "2026-05-13T05:00:02Z",
         elapsed_ms: 1234,
+        sender_agent_id: null,
         // Additive kind carried on the inline-inserted assistant message so a
         // no_response turn renders without a refetch (SILI-4351); defaults to
         // "message" when the server omits it.
@@ -302,6 +303,7 @@ describe("applyChatCancelFinalizedToCache", () => {
         task_id: taskId,
         created_at: "2026-05-13T05:00:05Z",
         elapsed_ms: 5000,
+        sender_agent_id: null,
         message_kind: "message",
       },
     ]);

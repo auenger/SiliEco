@@ -342,6 +342,10 @@ func runRepoCheckout(cmd *cobra.Command, args []string) error {
 	workspaceID := os.Getenv("SILIECO_WORKSPACE_ID")
 	agentName := os.Getenv("SILIECO_AGENT_NAME")
 	taskID := os.Getenv("SILIECO_TASK_ID")
+	taskToken := os.Getenv("SILIECO_TOKEN")
+	if taskToken == "" {
+		return fmt.Errorf("SILIECO_TOKEN not set (repo checkout requires the active task credential)")
+	}
 
 	// Use current working directory as the checkout target.
 	workDir, err := os.Getwd()
@@ -365,11 +369,18 @@ func runRepoCheckout(cmd *cobra.Command, args []string) error {
 	}
 
 	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Post(
-		fmt.Sprintf("http://127.0.0.1:%s/repo/checkout", daemonPort),
-		"application/json",
-		bytes.NewReader(data),
-	)
+	requestContext := cmd.Context()
+	if requestContext == nil {
+		requestContext = context.Background()
+	}
+	req, err := http.NewRequestWithContext(requestContext, http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%s/repo/checkout", daemonPort), bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create daemon checkout request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+taskToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("connect to daemon: %w", err)
 	}

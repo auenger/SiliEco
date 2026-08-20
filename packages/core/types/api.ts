@@ -25,6 +25,7 @@ export interface CreateIssueRequest {
 }
 
 export interface UpdateIssueRequest {
+  expected_revision?: string;
   title?: string;
   description?: string;
   status?: IssueStatus;

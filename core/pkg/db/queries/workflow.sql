@@ -124,11 +124,11 @@ LIMIT 1;
 INSERT INTO workflow_stage (
     workspace_id, workflow_version_id, stable_key, name, description,
     position, completion_rule, input_spec, output_spec, required_skills,
-    gate, rollback_stage_key
+    gate, rollback_stage_key, allowed_mcp_server_ids
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9, $10,
-    $11, $12
+    $11, $12, $13
 ) RETURNING *;
 
 -- name: ListWorkflowInstances :many
@@ -138,6 +138,30 @@ WHERE workspace_id = $1
   AND (sqlc.narg('project_id')::uuid IS NULL OR project_id = sqlc.narg('project_id'))
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
 ORDER BY updated_at DESC, created_at DESC;
+
+-- name: ListWorkflowStageRuns :many
+SELECT t.id, t.issue_id, i.title AS task_title, t.agent_id, a.name AS agent_name,
+       t.status, t.trigger_summary, t.started_at, t.completed_at, t.result,
+       t.error, t.failure_reason, t.execution_manifest, t.originator_source,
+       t.originator_user_id, t.accountable_user_id, t.created_at,
+       t.worktree_branch, t.worktree_base_sha, t.worktree_final_sha,
+       t.worktree_delivery_status
+FROM agent_task_queue t
+JOIN issue i ON i.id = t.issue_id
+LEFT JOIN agent a ON a.id = t.agent_id
+WHERE i.workspace_id = $1
+  AND i.workflow_instance_id = $2
+  AND i.workflow_stage_id = $3
+ORDER BY t.created_at DESC, t.id DESC
+LIMIT $4 OFFSET $5;
+
+-- name: CountWorkflowStageRuns :one
+SELECT COUNT(*)
+FROM agent_task_queue t
+JOIN issue i ON i.id = t.issue_id
+WHERE i.workspace_id = $1
+  AND i.workflow_instance_id = $2
+  AND i.workflow_stage_id = $3;
 
 -- name: CountIssuesInWorkflowInstance :one
 SELECT count(*)::bigint
@@ -237,11 +261,12 @@ WHERE workflow_instance_id = $1
 INSERT INTO workflow_instance_stage (
     workspace_id, workflow_instance_id, source_stage_id, stable_key, name,
     description, position, completion_rule, input_spec, output_spec,
-    required_skills, gate, rollback_stage_key
+    required_skills, required_skill_snapshots, gate, rollback_stage_key,
+    allowed_mcp_server_ids
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9, $10,
-    $11, $12, $13
+    $11, $12, $13, $14, $15
 ) RETURNING *;
 
 -- name: ShiftWorkflowInstanceStagePositions :exec
@@ -260,8 +285,10 @@ UPDATE workflow_instance_stage SET
     input_spec = $9,
     output_spec = $10,
     required_skills = $11,
-    gate = $12,
-    rollback_stage_key = $13,
+    required_skill_snapshots = $12,
+    gate = $13,
+    rollback_stage_key = $14,
+    allowed_mcp_server_ids = $15,
     updated_at = now()
 WHERE id = $1
   AND workflow_instance_id = $2

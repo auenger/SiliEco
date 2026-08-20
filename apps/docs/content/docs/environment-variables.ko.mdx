@@ -39,6 +39,7 @@ SILIECO_PUBLIC_URL=https://api.silieco.example.com
 | `AUTH_TOKEN_TTL` | `720h`(30일) | 브라우저 JWT와 cookie 유효 기간. Go duration 또는 양의 정수 초 허용 |
 | `LOG_LEVEL` | 앱 기본값 | 로그 수준 |
 | `SILIECO_SHUTDOWN_HOLD_DURATION` | `0` | 종료 신호를 받은 뒤 graceful shutdown을 시작하기 전 대기 시간 |
+| `SILIECO_RUNTIME_RECONNECT_GRACE` | `3h` | 로컬 런타임이 일시적으로 끊겨도 실행 중 작업을 유지합니다. 150초 미만은 상향 조정됩니다 |
 
 Kubernetes에서 shutdown hold를 설정하면 `terminationGracePeriodSeconds`가 hold와 실제 종료에 필요한 시간의 합보다 커야 합니다.
 
@@ -167,7 +168,7 @@ reverse proxy 뒤에 배포한다면 실제 proxy 네트워크를 입력해야 �
 | Composio | `COMPOSIO_CALLBACK_BASE_URL` | callback API 주소. `SILIECO_PUBLIC_URL`로 fallback 가능 |
 | Composio | `COMPOSIO_STATE_SECRET` | OAuth state 서명 키. `JWT_SECRET`에서 파생 가능 |
 | 자체 호스팅 Git | `SILIECO_VCS_INTEGRATION_ENABLED` | Forgejo/Gitea/GitLab 연동 스위치. compose에서는 기본 활성화 |
-| 자체 호스팅 Git | `SILIECO_VCS_SECRET_KEY` | base64로 인코딩한 32바이트 암호화 키(`openssl rand -base64 32`). 없으면 전체 기능을 사용할 수 없음 |
+| 자체 호스팅 Git 및 워크스페이스 MCP 카탈로그 | `SILIECO_VCS_SECRET_KEY` | VCS 자격 증명과 MCP 서버 구성을 암호화하는 base64 인코딩 32바이트 키(`openssl rand -base64 32`). 없으면 두 기능 모두 안전하게 비활성화됨 |
 
 `GITHUB_APP_ID`와 private key를 설정하지 않아도 PR 연결, 미러링, merge 시 done 전환은 정상적으로 작동합니다. 다만 카드에 CI와 merge 가능 상태가 표시되지 않고 "GitHub에서 선택" 저장소 메뉴도 비활성화됩니다.
 

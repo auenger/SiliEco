@@ -53,6 +53,8 @@ export type {
   UpdateAgentEnvRequest,
   Skill,
   SkillSummary,
+  SkillRefreshPreview,
+  BulkSkillRefreshResult,
   AgentSkillSummary,
   DisabledRuntimeSkill,
   SetAgentRuntimeSkillEnabledRequest,
@@ -172,6 +174,8 @@ export type {
   ListWorkflowVersionsResponse,
   ListWorkflowInstancesResponse,
   ListWorkflowTasksResponse,
+  WorkflowStageRun,
+  WorkflowStageTranscriptResponse,
 } from "./workflow";
 export type { PinnedItem, PinnedItemType, CreatePinRequest, ReorderPinsRequest } from "./pin";
 export type {
@@ -277,3 +281,9 @@ export type {
   BillingCheckoutSessionStatus,
   CreateBillingPortalSessionResponse,
 } from "./billing";
+export type {
+  WorkspaceMCPServer,
+  WorkspaceMCPServerRequest,
+  WorkspaceMCPServerList,
+  AgentMCPAssignments,
+} from "./mcp";

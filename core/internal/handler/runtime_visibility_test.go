@@ -13,8 +13,8 @@ import (
 
 // TestCanUseRuntimeForAgent_Pure exercises the pure predicate behind the
 // CreateAgent / UpdateAgent runtime gate. The truth table mirrors the issue
-// (SILI-2062) acceptance criteria: workspace owner / admin can use any
-// runtime, runtime owners can use their own runtime regardless of
+// owner-consent contract: workspace owner / admin cannot use another member's
+// private runtime, runtime owners can use their own runtime regardless of
 // visibility, and any member can use a public runtime; everyone else gets
 // denied for a private runtime owned by someone else.
 func TestCanUseRuntimeForAgent_Pure(t *testing.T) {
@@ -37,9 +37,9 @@ func TestCanUseRuntimeForAgent_Pure(t *testing.T) {
 		rt     db.AgentRuntime
 		want   bool
 	}{
-		// workspace owner / admin override
-		{"workspace owner on private runtime owned by another", otherUserID, "owner", privateRT, true},
-		{"workspace admin on private runtime owned by another", otherUserID, "admin", privateRT, true},
+		// workspace governance does not grant use of private machine credentials
+		{"workspace owner on private runtime owned by another", otherUserID, "owner", privateRT, false},
+		{"workspace admin on private runtime owned by another", otherUserID, "admin", privateRT, false},
 		// runtime owner
 		{"runtime owner on own private runtime", ownerUserID, "member", privateRT, true},
 		{"runtime owner on own public runtime", ownerUserID, "member", publicRT, true},
@@ -367,8 +367,8 @@ func TestUpdateAgentRuntime_InvalidVisibilityReturns400(t *testing.T) {
 }
 
 // TestUpdateAgentRuntime_VisibilityToggle covers the PATCH endpoint:
-// runtime owner / workspace admin can flip private↔public; plain members
-// cannot; an unknown value is rejected with 400.
+// only the runtime owner can flip private↔public; workspace admins and plain
+// members cannot; an unknown value is rejected with 400.
 func TestUpdateAgentRuntime_VisibilityToggle(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -399,9 +399,9 @@ func TestUpdateAgentRuntime_VisibilityToggle(t *testing.T) {
 		}
 	}
 
-	// Workspace owner (testUserID) flips it back.
-	if w := patch(testUserID, "private"); w.Code != http.StatusOK {
-		t.Fatalf("UpdateAgentRuntime as workspace owner → private: expected 200, got %d: %s", w.Code, w.Body.String())
+	// Workspace owner cannot change another member's sharing consent.
+	if w := patch(testUserID, "private"); w.Code != http.StatusForbidden {
+		t.Fatalf("UpdateAgentRuntime as workspace owner → private: expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// Plain member: forbidden, regardless of intent.

@@ -370,7 +370,32 @@ func (c *Client) ReportTaskMessages(ctx context.Context, taskID string, messages
 	}, nil)
 }
 
-func (c *Client) CompleteTask(ctx context.Context, taskID, output, branchName, sessionID, workDir string, sessionRolloutMissing bool, retiredSessionID string) error {
+type TaskWorktreeDelivery struct {
+	Branch   string
+	BaseSHA  string
+	FinalSHA string
+	Status   string
+}
+
+func addTaskWorktreeDelivery(body map[string]any, delivery *TaskWorktreeDelivery) {
+	if delivery == nil {
+		return
+	}
+	if delivery.Branch != "" {
+		body["worktree_branch"] = delivery.Branch
+	}
+	if delivery.BaseSHA != "" {
+		body["worktree_base_sha"] = delivery.BaseSHA
+	}
+	if delivery.FinalSHA != "" {
+		body["worktree_final_sha"] = delivery.FinalSHA
+	}
+	if delivery.Status != "" {
+		body["worktree_delivery_status"] = delivery.Status
+	}
+}
+
+func (c *Client) CompleteTask(ctx context.Context, taskID, output, branchName, sessionID, workDir string, sessionRolloutMissing bool, retiredSessionID string, delivery ...*TaskWorktreeDelivery) error {
 	body := map[string]any{"output": output}
 	if branchName != "" {
 		body["branch_name"] = branchName
@@ -387,6 +412,9 @@ func (c *Client) CompleteTask(ctx context.Context, taskID, output, branchName, s
 	if retiredSessionID != "" {
 		body["retired_session_id"] = retiredSessionID
 	}
+	if len(delivery) > 0 {
+		addTaskWorktreeDelivery(body, delivery[0])
+	}
 	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/complete", taskID), body, nil, defaultTerminalRetrySchedule)
 }
 
@@ -399,7 +427,7 @@ func (c *Client) ReportTaskUsage(ctx context.Context, taskID string, usage []Tas
 	}, nil)
 }
 
-func (c *Client) FailTask(ctx context.Context, taskID, errMsg, sessionID, workDir, failureReason string, sessionRolloutMissing bool, retiredSessionID string) error {
+func (c *Client) FailTask(ctx context.Context, taskID, errMsg, sessionID, workDir, failureReason string, sessionRolloutMissing bool, retiredSessionID string, delivery ...*TaskWorktreeDelivery) error {
 	body := map[string]any{"error": errMsg}
 	if sessionID != "" {
 		body["session_id"] = sessionID
@@ -415,6 +443,9 @@ func (c *Client) FailTask(ctx context.Context, taskID, errMsg, sessionID, workDi
 	}
 	if retiredSessionID != "" {
 		body["retired_session_id"] = retiredSessionID
+	}
+	if len(delivery) > 0 {
+		addTaskWorktreeDelivery(body, delivery[0])
 	}
 	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/fail", taskID), body, nil, defaultTerminalRetrySchedule)
 }

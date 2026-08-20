@@ -4,7 +4,9 @@
 package execenv
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -75,6 +77,10 @@ type PrepareParams struct {
 	// substituted. Used by the local_directory project_resource flow
 	// (SILI-2663). When set, the envRoot/workdir directory is not created.
 	LocalWorkDir string
+	// LocalWorktreeSource creates a task-isolated linked worktree inside RootDir.
+	// It is mutually exclusive with LocalWorkDir and requires a clean Git repository.
+	LocalWorktreeSource string
+	LocalWorktreeBranch string
 	// HermesSourceHome is the shared Hermes home the per-task overlay is seeded
 	// from — resolved by the daemon via execenv.ResolveHermesProfile so it honors
 	// the agent's custom_env HERMES_HOME and any -p/--profile or sticky selection.
@@ -214,7 +220,10 @@ type Environment struct {
 	// outside RootDir (the local_directory flow). Callers that key behavior
 	// on "may I remove WorkDir as scratch?" must check this — for example
 	// the GC loop never deletes the user's directory.
-	LocalDirectory bool
+	LocalDirectory       bool
+	LocalWorktreeBranch  string
+	LocalWorktreeRoot    string
+	LocalWorktreeBaseSHA string
 	// CodexHome is the path to the per-task CODEX_HOME directory (set only for codex provider).
 	CodexHome string
 	// ClaudeSettingsPath is a task-local --settings JSON file that applies
@@ -309,7 +318,7 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 	// envRoot.
 	workDir := filepath.Join(envRoot, "workdir")
 	scratchDirs := []string{filepath.Join(envRoot, "output"), filepath.Join(envRoot, "logs")}
-	if params.LocalWorkDir == "" {
+	if params.LocalWorkDir == "" && params.LocalWorktreeSource == "" {
 		scratchDirs = append(scratchDirs, workDir)
 	} else {
 		workDir = params.LocalWorkDir
@@ -319,12 +328,28 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 			return nil, fmt.Errorf("execenv: create directory %s: %w", dir, err)
 		}
 	}
+	var localWorktreeRoot, localWorktreeBaseSHA string
+	if params.LocalWorktreeSource != "" {
+		if params.LocalWorkDir != "" {
+			return nil, errors.New("execenv: LocalWorkDir and LocalWorktreeSource are mutually exclusive")
+		}
+		worktreeCtx, cancelWorktree := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelWorktree()
+		var err error
+		localWorktreeRoot, workDir, localWorktreeBaseSHA, err = prepareLocalWorktree(worktreeCtx, params.LocalWorktreeSource, filepath.Join(envRoot, "workdir"), params.LocalWorktreeBranch)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	env := &Environment{
-		RootDir:        envRoot,
-		WorkDir:        workDir,
-		LocalDirectory: params.LocalWorkDir != "",
-		logger:         logger,
+		RootDir:              envRoot,
+		WorkDir:              workDir,
+		LocalDirectory:       params.LocalWorkDir != "" || params.LocalWorktreeSource != "",
+		LocalWorktreeBranch:  params.LocalWorktreeBranch,
+		LocalWorktreeRoot:    localWorktreeRoot,
+		LocalWorktreeBaseSHA: localWorktreeBaseSHA,
+		logger:               logger,
 	}
 
 	// Write context files into workdir (skills go to provider-native paths).
@@ -339,20 +364,21 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 		return nil, fmt.Errorf("execenv: write context files: %w", err)
 	}
 
-	// Persist managed-env provenance for non-local issue envs at Prepare time
+	// Persist managed-env provenance for non-local resumable envs at Prepare time
 	// (not on completion, where .gc_meta.json is written). A same-issue
 	// follow-up can be claimed the instant the prior task completes — before
 	// the prior handler writes .gc_meta.json — so reuse eligibility must be
 	// provable from an artifact that exists the moment the env is created. Only
-	// managed (non-local_directory) issue envs get this marker; that is exactly
-	// the set squad-leader reuse targets (SILI-4886). Non-fatal: a write failure
+	// managed (non-local_directory) issue and chat envs get this marker; that is
+	// exactly the set with a durable conversation scope. Non-fatal: a write failure
 	// only costs the next follow-up its session reuse (it falls back to a fresh
 	// session), which must never block dispatching this task.
-	if params.LocalWorkDir == "" && params.Task.IssueID != "" {
+	if params.LocalWorkDir == "" && (params.Task.IssueID != "" || params.Task.ChatSessionID != "") {
 		if err := WriteManagedEnvProvenance(envRoot, ManagedEnvProvenance{
-			WorkspaceID: params.WorkspaceID,
-			IssueID:     params.Task.IssueID,
-			AgentID:     params.Task.AgentID,
+			WorkspaceID:   params.WorkspaceID,
+			IssueID:       params.Task.IssueID,
+			ChatSessionID: params.Task.ChatSessionID,
+			AgentID:       params.Task.AgentID,
 		}); err != nil && logger != nil {
 			logger.Warn("execenv: write managed env provenance failed (non-fatal); a follow-up may start a fresh session", "error", err)
 		}
@@ -369,7 +395,7 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 			return nil, fmt.Errorf("execenv: prepare task home: %w", err)
 		}
 		env.TaskHome = taskHome
-		if err := prepareCodexHomeWithOpts(codexHome, CodexHomeOptions{CodexVersion: params.CodexVersion, IsLocalDirectory: params.LocalWorkDir != "", SessionStoreKey: codexSessionStoreKey(params.Profile, params.Task.AgentID, params.Task.IssueID), WritableRoots: writableRoots, CodexCustomArgs: params.CodexCustomArgs}, logger); err != nil {
+		if err := prepareCodexHomeWithOpts(codexHome, CodexHomeOptions{CodexVersion: params.CodexVersion, IsLocalDirectory: params.LocalWorkDir != "" || params.LocalWorktreeSource != "", SessionStoreKey: codexSessionStoreKey(params.Profile, params.Task.AgentID, params.Task.IssueID), WritableRoots: writableRoots, CodexCustomArgs: params.CodexCustomArgs}, logger); err != nil {
 			return nil, fmt.Errorf("execenv: prepare codex-home: %w", err)
 		}
 		if err := hydrateCodexSkills(codexHome, params.Task.AgentSkills, params.Task.DisabledRuntimeSkills, logger); err != nil {
@@ -803,8 +829,8 @@ const ManagedEnvProvenanceManagedBy = "silieco-daemon-managed-env"
 
 // ManagedEnvProvenance is persisted to .managed_env.json inside the env root at
 // Prepare time (NOT on completion, unlike .gc_meta.json). It records that this
-// env root is a daemon-managed, non-local_directory issue env owned by a
-// specific workspace/issue/agent.
+// env root is a daemon-managed, non-local_directory resumable env owned by a
+// specific workspace, conversation scope, and agent.
 //
 // Its whole reason to exist is timing. A squad-leader follow-up on the same
 // issue can be claimed the instant the prior task completes — the server's
@@ -813,18 +839,19 @@ const ManagedEnvProvenanceManagedBy = "silieco-daemon-managed-env"
 // eligibility off .gc_meta.json therefore raced: the successor read a
 // not-yet-written file and started a fresh session (SILI-4886). This marker is
 // on disk from the moment the env is created, so the successor can prove reuse
-// safety inside that window. It is written ONLY for non-local managed issue
-// envs, so its presence is itself the "safe to reuse, not a user
+// safety inside that window. It is written only for non-local managed issue or
+// chat envs, so its presence is itself the "safe to reuse, not a user
 // local_directory" assertion; see shouldReusePriorWorkdir.
 type ManagedEnvProvenance struct {
-	ManagedBy   string `json:"managed_by"`
-	WorkspaceID string `json:"workspace_id"`
-	IssueID     string `json:"issue_id"`
-	AgentID     string `json:"agent_id"`
+	ManagedBy     string `json:"managed_by"`
+	WorkspaceID   string `json:"workspace_id"`
+	IssueID       string `json:"issue_id,omitempty"`
+	ChatSessionID string `json:"chat_session_id,omitempty"`
+	AgentID       string `json:"agent_id"`
 }
 
 // WriteManagedEnvProvenance persists the reuse-eligibility marker at the env
-// root. Callers must only invoke it for non-local_directory issue envs, since
+// root. Callers must only invoke it for non-local_directory resumable envs, since
 // the file's presence is the non-local assertion. ManagedBy is stamped here so
 // callers cannot forget the discriminator.
 func WriteManagedEnvProvenance(envRoot string, p ManagedEnvProvenance) error {

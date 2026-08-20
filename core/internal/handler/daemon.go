@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/silieco-ai/silieco/core/internal/analytics"
 	"github.com/silieco-ai/silieco/core/internal/auth"
@@ -30,6 +31,7 @@ import (
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 	"github.com/silieco-ai/silieco/core/pkg/redact"
+	"github.com/silieco-ai/silieco/core/pkg/taskfailure"
 )
 
 // ---------------------------------------------------------------------------
@@ -1579,6 +1581,51 @@ type claimBuildFailure struct {
 	message string
 }
 
+// failClaimedTaskBeforeLaunch settles a durable claim-time rejection before
+// the daemon receives it. If settlement fails, release the exact claim so a
+// later attempt can retry instead of leaving it permanently dispatched.
+func (h *Handler) failClaimedTaskBeforeLaunch(
+	ctx context.Context,
+	task *db.AgentTaskQueue,
+	userMessage string,
+	failureReason taskfailure.Reason,
+	outcome string,
+	status int,
+	claimMessage string,
+) *claimBuildFailure {
+	if _, err := h.TaskService.FailTask(ctx, task.ID, userMessage, "", "", failureReason.String(), false, ""); err != nil {
+		slog.Error("task claim: fail rejected task failed; requeueing claim",
+			"task_id", uuidToString(task.ID), "outcome", outcome, "error", err)
+		if _, requeueErr := h.TaskService.RequeueTaskAfterClaimFailure(ctx, *task); requeueErr != nil {
+			slog.Error("task claim: requeue after rejected-task settlement failure failed; stale reclaim will recover it",
+				"task_id", uuidToString(task.ID), "outcome", outcome, "error", requeueErr)
+		}
+		return &claimBuildFailure{
+			outcome: outcome + "_settle",
+			status:  http.StatusInternalServerError,
+			message: "failed to settle a task rejected before launch",
+		}
+	}
+	return &claimBuildFailure{outcome: outcome, status: status, message: claimMessage}
+}
+
+func rerunSourceMatchesTaskScope(task, source db.AgentTaskQueue) bool {
+	if task.AgentID != source.AgentID {
+		return false
+	}
+	if task.IssueID.Valid {
+		return source.IssueID.Valid && task.IssueID == source.IssueID
+	}
+	if task.ChatSessionID.Valid {
+		return source.ChatSessionID.Valid && task.ChatSessionID == source.ChatSessionID
+	}
+	return false
+}
+
+func claimResponseAgentIdentityMatches(resp AgentTaskResponse) bool {
+	return resp.AgentID != "" && resp.Agent != nil && resp.Agent.ID == resp.AgentID
+}
+
 func appendUniqueSkills(existing, added []service.AgentSkillData) []service.AgentSkillData {
 	seen := make(map[string]bool, len(existing))
 	for _, skill := range existing {
@@ -1626,10 +1673,79 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 	deliveredCommentIDs = []pgtype.UUID{}
 	composioMCPEnabled := h.composioMCPAppsEnabled(r.Context())
 	useSkillRefs := requestHasClientCapability(r, protocol.DaemonCapabilitySkillBundlesV1)
+	var workspaceMCPRefs []executionMCPRef
+	defer func() {
+		if failure != nil || resp.Agent == nil {
+			return
+		}
+		seenMCP := make(map[string]bool, len(workspaceMCPRefs))
+		for _, ref := range workspaceMCPRefs {
+			seenMCP[ref.Name] = true
+		}
+		var effective map[string]json.RawMessage
+		if json.Unmarshal(resp.Agent.McpConfig, &effective) == nil {
+			for name := range effective {
+				if !seenMCP[name] {
+					workspaceMCPRefs = append(workspaceMCPRefs, executionMCPRef{Name: name, Source: "agent_or_runtime"})
+				}
+			}
+		}
+		manifest := map[string]any{"version": 1, "mcp_servers": workspaceMCPRefs}
+		if len(resp.Agent.SkillRefs) > 0 {
+			manifest["skills"] = resp.Agent.SkillRefs
+		} else {
+			_, refs := service.BuildAgentSkillBundles(resp.Agent.Skills)
+			manifest["skills"] = refs
+		}
+		raw, err := json.Marshal(manifest)
+		if err != nil {
+			if _, requeueErr := h.TaskService.RequeueTaskAfterClaimFailure(r.Context(), *task); requeueErr != nil {
+				slog.Error("daemon claim: requeue after execution manifest build failure failed", "task_id", uuidToString(task.ID), "error", requeueErr)
+			}
+			failure = &claimBuildFailure{outcome: "error_execution_manifest", status: http.StatusInternalServerError, message: "failed to build execution manifest"}
+			return
+		}
+		if len(task.ExecutionManifest) == 0 {
+			if err := h.Queries.SetTaskExecutionManifest(r.Context(), db.SetTaskExecutionManifestParams{ID: task.ID, ExecutionManifest: raw}); err != nil {
+				slog.Error("daemon claim: persist execution manifest failed; refusing dispatch", "task_id", uuidToString(task.ID), "error", err)
+				if _, requeueErr := h.TaskService.RequeueTaskAfterClaimFailure(r.Context(), *task); requeueErr != nil {
+					slog.Error("daemon claim: requeue after execution manifest persistence failure failed", "task_id", uuidToString(task.ID), "error", requeueErr)
+				}
+				failure = &claimBuildFailure{outcome: "error_execution_manifest", status: http.StatusInternalServerError, message: "failed to persist execution manifest"}
+				return
+			} else {
+				task.ExecutionManifest = raw
+			}
+		}
+		resp.ExecutionManifest = json.RawMessage(task.ExecutionManifest)
+	}()
 	if composioMCPEnabled {
 		resp.ConnectedApps = parseRuntimeConnectedAppsForClaim(task.RuntimeConnectedApps, task.ID)
 	}
-	if agent, err := h.Queries.GetAgent(r.Context(), task.AgentID); err == nil {
+	agent, agentErr := h.Queries.GetAgent(r.Context(), task.AgentID)
+	if agentErr != nil {
+		if errors.Is(agentErr, pgx.ErrNoRows) {
+			slog.Error("daemon claim: task agent no longer exists; refusing dispatch",
+				"task_id", uuidToString(task.ID), "agent_id", uuidToString(task.AgentID))
+			return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(
+				r.Context(), task,
+				"Task identity is invalid: the assigned agent no longer exists.",
+				taskfailure.ReasonInvalidTaskIdentity,
+				"error_invalid_task_identity", http.StatusConflict, "task agent no longer exists",
+			)
+		}
+		slog.Error("daemon claim: load task agent failed; requeueing claim",
+			"task_id", uuidToString(task.ID), "agent_id", uuidToString(task.AgentID), "error", agentErr)
+		if _, requeueErr := h.TaskService.RequeueTaskAfterClaimFailure(r.Context(), *task); requeueErr != nil {
+			slog.Error("daemon claim: requeue after agent load failure failed; stale reclaim will recover it",
+				"task_id", uuidToString(task.ID), "error", requeueErr)
+		}
+		return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, &claimBuildFailure{
+			outcome: "error_load_task_agent",
+			status:  http.StatusInternalServerError,
+			message: "failed to load task agent",
+		}
+	} else {
 		var customEnv map[string]string
 		if agent.CustomEnv != nil {
 			if err := json.Unmarshal(agent.CustomEnv, &customEnv); err != nil {
@@ -1642,9 +1758,24 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 				slog.Warn("failed to unmarshal agent custom_args", "agent_id", uuidToString(agent.ID), "error", err)
 			}
 		}
-		var mcpConfig json.RawMessage
+		workspaceMCP, refs, mcpErr := h.resolveWorkspaceMCPForTask(r.Context(), *task, parseUUID(runtimeWorkspaceID))
+		if mcpErr != nil {
+			return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(
+				r.Context(), task, "SOP MCP permissions are invalid: "+mcpErr.Error(),
+				taskfailure.ReasonInvalidTaskIdentity, "error_mcp_permissions", http.StatusConflict, "invalid MCP permission manifest",
+			)
+		}
+		workspaceMCPRefs = refs
+		var mcpConfig json.RawMessage = workspaceMCP
 		if agent.McpConfig != nil {
-			mcpConfig = json.RawMessage(agent.McpConfig)
+			if merged, err := mergeMCPOverlay(mcpConfig, json.RawMessage(agent.McpConfig)); err != nil {
+				return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(
+					r.Context(), task, "Agent MCP configuration is invalid.", taskfailure.ReasonInvalidTaskIdentity,
+					"error_mcp_config", http.StatusConflict, "invalid agent MCP configuration",
+				)
+			} else {
+				mcpConfig = merged
+			}
 		}
 		// Layer the per-task overlay (set at enqueue from the initiator
 		// user's active integrations — currently Composio) on top of the
@@ -1692,6 +1823,20 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			skills = append(skills, builtinSkills...)
 			resp.Agent.Skills = skills
 		}
+	}
+	if !claimResponseAgentIdentityMatches(resp) {
+		responseAgentID := ""
+		if resp.Agent != nil {
+			responseAgentID = resp.Agent.ID
+		}
+		slog.Error("daemon claim: response agent identity mismatch; refusing dispatch",
+			"task_id", uuidToString(task.ID), "task_agent_id", resp.AgentID, "response_agent_id", responseAgentID)
+		return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(
+			r.Context(), task,
+			"Task identity is invalid: the task and response agent disagree.",
+			taskfailure.ReasonInvalidTaskIdentity,
+			"error_invalid_task_identity", http.StatusConflict, "task response agent identity mismatch",
+		)
 	}
 
 	// Resolve the runtime owner's profile description so the daemon can
@@ -1830,7 +1975,15 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 						outcome: "error_workflow_stage", status: http.StatusConflict, message: "task SOP stage no longer exists",
 					}
 				}
-				required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), issue.WorkspaceID, stage.RequiredSkills)
+				var required []service.AgentSkillData
+				var missing []string
+				if len(stage.RequiredSkillSnapshots) > 0 && string(stage.RequiredSkillSnapshots) != "[]" {
+					if err := json.Unmarshal(stage.RequiredSkillSnapshots, &required); err != nil {
+						missing = append(missing, "invalid stage skill snapshot")
+					}
+				} else {
+					required, missing = h.TaskService.ResolveRequiredSkills(r.Context(), issue.WorkspaceID, stage.RequiredSkills)
+				}
 				if len(missing) > 0 {
 					_, _ = h.TaskService.CancelTask(r.Context(), task.ID)
 					slog.Warn("daemon claim blocked by missing SOP required skill",
@@ -2102,7 +2255,7 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			// directory. PriorWorkDir is offered regardless of runtime (a shared
 			// mount may still resolve it); only the per-cwd session is
 			// runtime-gated.
-			if src, err := h.Queries.GetAgentTask(r.Context(), task.RerunOfTaskID); err == nil {
+			if src, err := h.Queries.GetAgentTask(r.Context(), task.RerunOfTaskID); err == nil && rerunSourceMatchesTaskScope(*task, src) {
 				if src.WorkDir.Valid {
 					resp.PriorWorkDir = src.WorkDir.String
 				}
@@ -2116,6 +2269,16 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 				if src.SessionRolloutMissing {
 					resp.PriorSessionResumeUnavailable = true
 				}
+			} else if err == nil {
+				slog.Warn("daemon claim: rerun source belongs to another agent or scope; starting fresh",
+					"task_id", uuidToString(task.ID),
+					"task_agent_id", uuidToString(task.AgentID),
+					"task_issue_id", uuidToString(task.IssueID),
+					"source_task_id", uuidToString(src.ID),
+					"source_agent_id", uuidToString(src.AgentID),
+					"source_issue_id", uuidToString(src.IssueID),
+				)
+				resp.PriorSessionResumeUnavailable = true
 			}
 		} else if !task.ForceFreshSession {
 			// Non-rerun follow-up on the same issue: resume the most recent
@@ -2833,7 +2996,15 @@ func (h *Handler) ResolveTaskSkillBundles(w http.ResponseWriter, r *http.Request
 			if stage, err := h.Queries.GetWorkflowInstanceStage(r.Context(), db.GetWorkflowInstanceStageParams{
 				ID: issue.WorkflowStageID, WorkflowInstanceID: issue.WorkflowInstanceID, WorkspaceID: issue.WorkspaceID,
 			}); err == nil {
-				required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), issue.WorkspaceID, stage.RequiredSkills)
+				var required []service.AgentSkillData
+				var missing []string
+				if len(stage.RequiredSkillSnapshots) > 0 && string(stage.RequiredSkillSnapshots) != "[]" {
+					if err := json.Unmarshal(stage.RequiredSkillSnapshots, &required); err != nil {
+						missing = append(missing, "invalid stage skill snapshot")
+					}
+				} else {
+					required, missing = h.TaskService.ResolveRequiredSkills(r.Context(), issue.WorkspaceID, stage.RequiredSkills)
+				}
 				if len(missing) > 0 {
 					writeError(w, http.StatusConflict, "required SOP skill is unavailable: "+strings.Join(missing, ", "))
 					return
@@ -3129,10 +3300,14 @@ func (h *Handler) ReportTaskProgress(w http.ResponseWriter, r *http.Request) {
 
 // CompleteTask marks a running task as completed.
 type TaskCompleteRequest struct {
-	PRURL     string `json:"pr_url"`
-	Output    string `json:"output"`
-	SessionID string `json:"session_id"` // Claude session ID for future resumption
-	WorkDir   string `json:"work_dir"`   // working directory used during execution
+	PRURL                  string `json:"pr_url"`
+	Output                 string `json:"output"`
+	SessionID              string `json:"session_id"` // Claude session ID for future resumption
+	WorkDir                string `json:"work_dir"`   // working directory used during execution
+	WorktreeBranch         string `json:"worktree_branch,omitempty"`
+	WorktreeBaseSHA        string `json:"worktree_base_sha,omitempty"`
+	WorktreeFinalSHA       string `json:"worktree_final_sha,omitempty"`
+	WorktreeDeliveryStatus string `json:"worktree_delivery_status,omitempty"`
 	// SessionRolloutMissing: the daemon withheld this task's Codex session
 	// because its rollout was missing (SILI-5305). Clear the resume pointer and
 	// flag the continuity gap for the next claim.
@@ -3142,6 +3317,65 @@ type TaskCompleteRequest struct {
 	// to report" — this says "never hand this id to a later run". Older
 	// daemons omit it, which is exactly the pre-fix behaviour.
 	RetiredSessionID string `json:"retired_session_id,omitempty"`
+}
+
+func sanitizeTaskCompleteRequest(req *TaskCompleteRequest) {
+	req.PRURL = util.SanitizeTextForPostgres(req.PRURL)
+	req.Output = util.SanitizeTextForPostgres(req.Output)
+	req.SessionID = util.SanitizeTextForPostgres(req.SessionID)
+	req.WorkDir = util.SanitizeTextForPostgres(req.WorkDir)
+	req.WorktreeBranch = util.SanitizeTextForPostgres(req.WorktreeBranch)
+	req.WorktreeBaseSHA = util.SanitizeTextForPostgres(req.WorktreeBaseSHA)
+	req.WorktreeFinalSHA = util.SanitizeTextForPostgres(req.WorktreeFinalSHA)
+	req.WorktreeDeliveryStatus = util.SanitizeTextForPostgres(req.WorktreeDeliveryStatus)
+	req.RetiredSessionID = util.SanitizeTextForPostgres(req.RetiredSessionID)
+}
+
+func sanitizeTaskFailRequest(req *TaskFailRequest) {
+	req.Error = util.SanitizeTextForPostgres(req.Error)
+	req.SessionID = util.SanitizeTextForPostgres(req.SessionID)
+	req.WorkDir = util.SanitizeTextForPostgres(req.WorkDir)
+	req.WorktreeBranch = util.SanitizeTextForPostgres(req.WorktreeBranch)
+	req.WorktreeBaseSHA = util.SanitizeTextForPostgres(req.WorktreeBaseSHA)
+	req.WorktreeFinalSHA = util.SanitizeTextForPostgres(req.WorktreeFinalSHA)
+	req.WorktreeDeliveryStatus = util.SanitizeTextForPostgres(req.WorktreeDeliveryStatus)
+	req.FailureReason = util.SanitizeTextForPostgres(req.FailureReason)
+	req.RetiredSessionID = util.SanitizeTextForPostgres(req.RetiredSessionID)
+}
+
+func validGitSHA(value string) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, ch := range value {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateWorktreeDelivery(branch, baseSHA, finalSHA, status string) error {
+	if len(branch) > 255 || strings.ContainsAny(branch, "\x00\r\n") {
+		return errors.New("invalid worktree branch")
+	}
+	if !validGitSHA(baseSHA) || !validGitSHA(finalSHA) {
+		return errors.New("invalid worktree commit SHA")
+	}
+	if status != "" && status != "committed" && status != "preserved" {
+		return errors.New("invalid worktree delivery status")
+	}
+	if status != "" && branch == "" {
+		return errors.New("worktree branch is required when delivery status is set")
+	}
+	return nil
+}
+
+func requestWorktreeDelivery(branch, baseSHA, finalSHA, status string) service.WorktreeDelivery {
+	return service.WorktreeDelivery{Branch: branch, BaseSHA: baseSHA, FinalSHA: finalSHA, Status: status}
 }
 
 func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
@@ -3158,13 +3392,19 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	sanitizeTaskCompleteRequest(&req)
+	if err := validateWorktreeDelivery(req.WorktreeBranch, req.WorktreeBaseSHA, req.WorktreeFinalSHA, req.WorktreeDeliveryStatus); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	result, _ := json.Marshal(req)
 	// SILI-5305: SessionRolloutMissing is applied inside CompleteTask's terminal
 	// transaction (force session_id NULL + flag the row), so an auto-retry the
 	// same commit creates and wakes can never observe the withheld pointer or a
 	// missing continuity-gap flag.
-	task, err := h.TaskService.CompleteTask(r.Context(), parseUUID(taskID), result, req.SessionID, req.WorkDir, req.SessionRolloutMissing, req.RetiredSessionID)
+	task, err := h.TaskService.CompleteTaskWithDelivery(r.Context(), parseUUID(taskID), result, req.SessionID, req.WorkDir, req.SessionRolloutMissing, req.RetiredSessionID,
+		requestWorktreeDelivery(req.WorktreeBranch, req.WorktreeBaseSHA, req.WorktreeFinalSHA, req.WorktreeDeliveryStatus))
 	if err != nil {
 		// A CompleteTask error is an infrastructure failure (transaction /
 		// assistant-outcome write), not a bad request: an already-finalized
@@ -3714,7 +3954,6 @@ func (h *Handler) ReportTaskUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
 	// Provider is lowercased on write so client-side pricing lookups tolerate
 	// case drift. An empty provider (an older daemon that omits the field) is
 	// stamped from the task's runtime, so generic model ids like `auto` still
@@ -3789,10 +4028,14 @@ func (h *Handler) GetTaskStatus(w http.ResponseWriter, r *http.Request) {
 
 // FailTask marks a running task as failed.
 type TaskFailRequest struct {
-	Error         string `json:"error"`
-	SessionID     string `json:"session_id,omitempty"`
-	WorkDir       string `json:"work_dir,omitempty"`
-	FailureReason string `json:"failure_reason,omitempty"`
+	Error                  string `json:"error"`
+	SessionID              string `json:"session_id,omitempty"`
+	WorkDir                string `json:"work_dir,omitempty"`
+	FailureReason          string `json:"failure_reason,omitempty"`
+	WorktreeBranch         string `json:"worktree_branch,omitempty"`
+	WorktreeBaseSHA        string `json:"worktree_base_sha,omitempty"`
+	WorktreeFinalSHA       string `json:"worktree_final_sha,omitempty"`
+	WorktreeDeliveryStatus string `json:"worktree_delivery_status,omitempty"`
 	// SessionRolloutMissing: the daemon withheld this task's Codex session
 	// because its rollout was missing (SILI-5305). Clear the resume pointer and
 	// flag the continuity gap for the next claim.
@@ -3818,13 +4061,19 @@ func (h *Handler) FailTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	sanitizeTaskFailRequest(&req)
+	if err := validateWorktreeDelivery(req.WorktreeBranch, req.WorktreeBaseSHA, req.WorktreeFinalSHA, req.WorktreeDeliveryStatus); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// SILI-5305: SessionRolloutMissing is applied inside FailTask's terminal
 	// transaction — forcing session_id NULL (overriding the COALESCE that would
 	// keep a stale mid-flight pin) and flagging the row in the same commit that
 	// creates and wakes the auto-retry, so the retry can never claim the withheld
 	// pointer or miss the continuity gap.
-	task, err := h.TaskService.FailTask(r.Context(), parseUUID(taskID), req.Error, req.SessionID, req.WorkDir, req.FailureReason, req.SessionRolloutMissing, req.RetiredSessionID)
+	task, err := h.TaskService.FailTaskWithDelivery(r.Context(), parseUUID(taskID), req.Error, req.SessionID, req.WorkDir, req.FailureReason, req.SessionRolloutMissing, req.RetiredSessionID,
+		requestWorktreeDelivery(req.WorktreeBranch, req.WorktreeBaseSHA, req.WorktreeFinalSHA, req.WorktreeDeliveryStatus))
 	if err != nil {
 		// A FailTask error is an infrastructure failure (the terminal
 		// transaction that also clears the withheld session, writes the
@@ -3904,6 +4153,15 @@ func (h *Handler) ReportTaskMessages(w http.ResponseWriter, r *http.Request) {
 		msg.Content = redact.Text(msg.Content)
 		msg.Output = redact.Text(msg.Output)
 		msg.Input = redact.InputMap(msg.Input)
+		msg.Type = util.SanitizeTextForPostgres(msg.Type)
+		msg.Tool = util.SanitizeTextForPostgres(msg.Tool)
+		msg.Content = util.SanitizeTextForPostgres(msg.Content)
+		msg.Output = util.SanitizeTextForPostgres(msg.Output)
+		if msg.Input != nil {
+			if cleaned, ok := util.SanitizeJSONForPostgres(msg.Input).(map[string]any); ok {
+				msg.Input = cleaned
+			}
+		}
 
 		var inputJSON []byte
 		if msg.Input != nil {

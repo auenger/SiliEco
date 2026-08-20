@@ -39,6 +39,7 @@ Do not use the default `JWT_SECRET` in production, and do not set `SILIECO_DEV_V
 | `AUTH_TOKEN_TTL` | `720h` (30 days) | Lifetime of browser JWTs and cookies; accepts a Go duration or a positive integer of seconds |
 | `LOG_LEVEL` | application default | Log level |
 | `SILIECO_SHUTDOWN_HOLD_DURATION` | `0` | How long to wait after a termination signal before graceful shutdown begins |
+| `SILIECO_RUNTIME_RECONNECT_GRACE` | `3h` | Preserve in-flight tasks while a local runtime is temporarily disconnected; values below 150 seconds are clamped |
 
 When setting a shutdown hold on Kubernetes, `terminationGracePeriodSeconds` must exceed the hold plus the time the actual shutdown needs.
 
@@ -167,7 +168,7 @@ The `RATE_LIMIT_*` variables above only take effect once `REDIS_URL` is set; wit
 | Composio | `COMPOSIO_CALLBACK_BASE_URL` | Callback API URL; can fall back to `SILIECO_PUBLIC_URL` |
 | Composio | `COMPOSIO_STATE_SECRET` | OAuth state signing secret; can be derived from `JWT_SECRET` |
 | Self-hosted Git | `SILIECO_VCS_INTEGRATION_ENABLED` | Forgejo/Gitea/GitLab integration switch; enabled by default in compose |
-| Self-hosted Git | `SILIECO_VCS_SECRET_KEY` | Base64-encoded 32-byte encryption key (`openssl rand -base64 32`); the feature is entirely unavailable without it |
+| Self-hosted Git and workspace MCP catalog | `SILIECO_VCS_SECRET_KEY` | Base64-encoded 32-byte encryption key (`openssl rand -base64 32`) used for stored VCS credentials and MCP server configurations; both features fail closed when it is missing |
 
 Without `GITHUB_APP_ID` and the private key, PRs still link, mirror, and trigger merge-to-done normally, but cards show no CI or mergeability status, and the "pick from GitHub" repository entry is disabled.
 

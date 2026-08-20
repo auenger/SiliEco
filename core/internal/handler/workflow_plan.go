@@ -106,7 +106,8 @@ func instanceStageInput(stage db.WorkflowInstanceStage) WorkflowStageInput {
 		ID: &id, StableKey: stage.StableKey, Name: stage.Name, Description: textToPtr(stage.Description),
 		CompletionRule: jsonOrEmptyObject(stage.CompletionRule), InputSpec: jsonOrEmptyObject(stage.InputSpec),
 		OutputSpec: jsonOrEmptyObject(stage.OutputSpec), RequiredSkills: stage.RequiredSkills,
-		Gate: jsonOrEmptyObject(stage.Gate), RollbackStageKey: textToPtr(stage.RollbackStageKey),
+		AllowedMCPServerIDs: uuidsToStrings(stage.AllowedMcpServerIds),
+		Gate:                jsonOrEmptyObject(stage.Gate), RollbackStageKey: textToPtr(stage.RollbackStageKey),
 	}
 }
 
@@ -315,14 +316,24 @@ func (h *Handler) UpdateWorkflowInstancePlan(w http.ResponseWriter, r *http.Requ
 		if requiredSkills == nil {
 			requiredSkills = []string{}
 		}
+		required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), wsUUID, requiredSkills)
+		if len(missing) > 0 {
+			writeError(w, http.StatusConflict, "required SOP skill is unavailable: "+strings.Join(missing, ", "))
+			return
+		}
+		snapshots, marshalErr := json.Marshal(required)
+		if marshalErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to snapshot workflow skills")
+			return
+		}
 		var updated db.WorkflowInstanceStage
 		if stage.ID == nil || strings.TrimSpace(*stage.ID) == "" {
 			updated, err = qtx.CreateWorkflowInstanceStage(r.Context(), db.CreateWorkflowInstanceStageParams{
 				WorkspaceID: wsUUID, WorkflowInstanceID: instanceID, SourceStageID: pgtype.UUID{},
 				StableKey: stage.StableKey, Name: stage.Name, Description: ptrToText(stage.Description),
 				Position: int32(position), CompletionRule: completionRule, InputSpec: inputSpec,
-				OutputSpec: outputSpec, RequiredSkills: requiredSkills, Gate: gate,
-				RollbackStageKey: ptrToText(stage.RollbackStageKey),
+				OutputSpec: outputSpec, RequiredSkills: requiredSkills, RequiredSkillSnapshots: snapshots, Gate: gate,
+				RollbackStageKey: ptrToText(stage.RollbackStageKey), AllowedMcpServerIds: parseUUIDArray(stage.AllowedMCPServerIDs),
 			})
 		} else {
 			old := existingByID[*stage.ID]
@@ -330,8 +341,8 @@ func (h *Handler) UpdateWorkflowInstancePlan(w http.ResponseWriter, r *http.Requ
 				ID: old.ID, WorkflowInstanceID: instanceID, WorkspaceID: wsUUID,
 				StableKey: stage.StableKey, Name: stage.Name, Description: ptrToText(stage.Description),
 				Position: int32(position), CompletionRule: completionRule, InputSpec: inputSpec,
-				OutputSpec: outputSpec, RequiredSkills: requiredSkills, Gate: gate,
-				RollbackStageKey: ptrToText(stage.RollbackStageKey),
+				OutputSpec: outputSpec, RequiredSkills: requiredSkills, RequiredSkillSnapshots: snapshots, Gate: gate,
+				RollbackStageKey: ptrToText(stage.RollbackStageKey), AllowedMcpServerIds: parseUUIDArray(stage.AllowedMCPServerIDs),
 			})
 		}
 		if err != nil {

@@ -227,18 +227,29 @@ WHERE status = 'online'
 RETURNING id, workspace_id, owner_id, daemon_id, provider;
 
 -- name: FailTasksForOfflineRuntimes :many
--- Marks dispatched/running/waiting_local_directory tasks as failed when
--- their runtime is offline. This cleans up orphaned tasks after a daemon
--- crash or network partition.
-UPDATE agent_task_queue
-SET status = 'failed', completed_at = now(), error = 'runtime went offline',
-    failure_reason = 'runtime_offline',
+-- Marks in-flight tasks failed only after a runtime has remained disconnected
+-- for the configured reconnect grace. A short network partition leaves the
+-- task owned by the same attempt and allows its daemon to finish normally.
+WITH victims AS (
+  SELECT task.id
+  FROM agent_task_queue task
+  JOIN agent_runtime runtime ON runtime.id = task.runtime_id
+  WHERE task.status IN ('dispatched', 'running', 'waiting_local_directory')
+    AND runtime.status = 'offline'
+    AND COALESCE(runtime.last_seen_at, runtime.updated_at) <
+        now() - make_interval(secs => @reconnect_grace_secs::double precision)
+  ORDER BY COALESCE(runtime.last_seen_at, runtime.updated_at), task.created_at
+  LIMIT @max_per_tick::int
+  FOR UPDATE OF task SKIP LOCKED
+)
+UPDATE agent_task_queue AS task
+SET status = 'failed', completed_at = now(), error = 'runtime did not reconnect within the configured grace period',
+    failure_reason = 'runtime_reconnect_timeout',
     wait_reason = NULL
-WHERE status IN ('dispatched', 'running', 'waiting_local_directory')
-  AND runtime_id IN (
-    SELECT id FROM agent_runtime WHERE status = 'offline'
-  )
-RETURNING *;
+FROM victims
+WHERE task.id = victims.id
+  AND task.status IN ('dispatched', 'running', 'waiting_local_directory')
+RETURNING task.*;
 
 -- name: ListAgentRuntimesByOwner :many
 SELECT * FROM agent_runtime
@@ -280,6 +291,24 @@ RETURNING *;
 
 -- name: DeleteAgentRuntime :exec
 DELETE FROM agent_runtime WHERE id = $1;
+
+-- name: UnbindAgentsFromRuntime :execrows
+-- Keeps agent configuration and all dependent history while retiring a runtime.
+UPDATE agent SET runtime_id = NULL WHERE runtime_id = $1;
+
+-- name: UnbindTasksFromRuntime :execrows
+-- Active tasks must be drained first; terminal history is detached explicitly
+-- so the legacy runtime FK cascade cannot remove it.
+UPDATE agent_task_queue
+SET runtime_id = NULL
+WHERE runtime_id = $1 AND completed_at IS NOT NULL;
+
+-- name: CountTasksByRuntime :one
+SELECT count(*) FROM agent_task_queue WHERE runtime_id = $1;
+
+-- name: CountUndrainedTasksByRuntime :one
+SELECT count(*) FROM agent_task_queue
+WHERE runtime_id = $1 AND completed_at IS NULL;
 
 -- name: DeleteSystemAgentsByRuntime :exec
 -- System agents are invisible execution infrastructure (for example the Agent
@@ -376,12 +405,25 @@ UPDATE agent_runtime
 SET legacy_daemon_id = COALESCE(legacy_daemon_id, $2)
 WHERE id = $1;
 
--- name: DeleteStaleOfflineRuntimes :many
--- Deletes runtimes that have been offline for longer than the TTL and have
--- no agents bound (active or archived). The FK constraint on agent.runtime_id
--- is ON DELETE RESTRICT, so we must exclude all agent references.
-DELETE FROM agent_runtime
+-- name: ListStaleOfflineRuntimeGCCandidates :many
+-- Candidate discovery is bounded; correctness is rechecked transactionally.
+SELECT id FROM agent_runtime
 WHERE status = 'offline'
   AND last_seen_at < now() - make_interval(secs => @stale_seconds::double precision)
   AND id NOT IN (SELECT DISTINCT runtime_id FROM agent)
-RETURNING id, workspace_id;
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_task_queue
+    WHERE agent_task_queue.runtime_id = agent_runtime.id
+      AND completed_at IS NULL
+  )
+ORDER BY last_seen_at ASC, id ASC
+LIMIT @max_per_tick::int;
+
+-- name: IsAgentRuntimeEligibleForGC :one
+SELECT EXISTS (
+  SELECT 1 FROM agent_runtime
+  WHERE agent_runtime.id = @id
+    AND status = 'offline'
+    AND last_seen_at < now() - make_interval(secs => @stale_seconds::double precision)
+    AND NOT EXISTS (SELECT 1 FROM agent WHERE agent.runtime_id = agent_runtime.id)
+) AS eligible;

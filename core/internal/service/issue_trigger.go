@@ -32,10 +32,16 @@ const (
 //
 // IsSelfLoop reports whether promoting this issue out of backlog would be the
 // calling agent re-triggering its own running task. Only the status source
-// consults it; create and assign never do. A nil func means "not a self-loop".
+// consults it. A nil func means "not a self-loop".
+//
+// SuppressActiveSelfAssignment reports whether a direct agent assignment is a
+// task-scoped agent claiming the same (issue, agent) pair while that pair
+// already has non-terminal work. The ownership write still succeeds; only the
+// duplicate enqueue is suppressed.
 type IssueTriggerProbe struct {
-	CanAccessAgent func(agent db.Agent) bool
-	IsSelfLoop     func() bool
+	CanAccessAgent               func(agent db.Agent) bool
+	IsSelfLoop                   func() bool
+	SuppressActiveSelfAssignment func(agentID pgtype.UUID) bool
 }
 
 // IssueTriggerInput describes one prospective issue write in its post-write
@@ -123,6 +129,10 @@ func (s *IssueService) WillEnqueueRun(ctx context.Context, in IssueTriggerInput,
 		if !canAccess(agent) {
 			return IssueRunTrigger{}, false
 		}
+		if source == RunSourceAssign && !in.IsCreate && probe.SuppressActiveSelfAssignment != nil &&
+			probe.SuppressActiveSelfAssignment(issue.AssigneeID) {
+			return IssueRunTrigger{}, false
+		}
 		if source == RunSourceStatus && s.hasPendingRun(ctx, issue.ID, issue.AssigneeID) {
 			return IssueRunTrigger{}, false
 		}
@@ -134,6 +144,8 @@ func (s *IssueService) WillEnqueueRun(ctx context.Context, in IssueTriggerInput,
 		}, true
 
 	case "squad":
+		// Direct self-assignment suppression does not apply to squads: assigning
+		// a squad changes execution context even when the actor is its leader.
 		squad, err := s.Queries.GetSquadInWorkspace(ctx, db.GetSquadInWorkspaceParams{
 			ID:          issue.AssigneeID,
 			WorkspaceID: issue.WorkspaceID,

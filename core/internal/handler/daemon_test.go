@@ -3145,6 +3145,50 @@ func TestCompleteTask_AssignmentTriggered_DoesNotSuppressTrivialDoneOutput(t *te
 	}
 }
 
+func TestClaimResponseAgentIdentityMatches(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		resp AgentTaskResponse
+		want bool
+	}{
+		{name: "matching", resp: AgentTaskResponse{AgentID: "agent-a", Agent: &TaskAgentData{ID: "agent-a"}}, want: true},
+		{name: "mismatched", resp: AgentTaskResponse{AgentID: "agent-a", Agent: &TaskAgentData{ID: "agent-b"}}},
+		{name: "missing top-level identity", resp: AgentTaskResponse{Agent: &TaskAgentData{ID: "agent-a"}}},
+		{name: "missing response agent", resp: AgentTaskResponse{AgentID: "agent-a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claimResponseAgentIdentityMatches(tc.resp); got != tc.want {
+				t.Fatalf("claimResponseAgentIdentityMatches() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRerunSourceMatchesTaskScope(t *testing.T) {
+	t.Parallel()
+
+	agentA := parseUUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	agentB := parseUUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	issueA := parseUUID("11111111-1111-1111-1111-111111111111")
+	issueB := parseUUID("22222222-2222-2222-2222-222222222222")
+	chatA := parseUUID("33333333-3333-3333-3333-333333333333")
+
+	if !rerunSourceMatchesTaskScope(db.AgentTaskQueue{AgentID: agentA, IssueID: issueA}, db.AgentTaskQueue{AgentID: agentA, IssueID: issueA}) {
+		t.Fatal("matching issue scope was rejected")
+	}
+	if rerunSourceMatchesTaskScope(db.AgentTaskQueue{AgentID: agentA, IssueID: issueA}, db.AgentTaskQueue{AgentID: agentB, IssueID: issueA}) {
+		t.Fatal("cross-agent issue scope was accepted")
+	}
+	if rerunSourceMatchesTaskScope(db.AgentTaskQueue{AgentID: agentA, IssueID: issueA}, db.AgentTaskQueue{AgentID: agentA, IssueID: issueB}) {
+		t.Fatal("cross-issue scope was accepted")
+	}
+	if !rerunSourceMatchesTaskScope(db.AgentTaskQueue{AgentID: agentA, ChatSessionID: chatA}, db.AgentTaskQueue{AgentID: agentA, ChatSessionID: chatA}) {
+		t.Fatal("matching chat scope was rejected")
+	}
+}
+
 type claimRuntimeGuardTask struct {
 	PriorSessionID           string   `json:"prior_session_id"`
 	PriorWorkDir             string   `json:"prior_work_dir"`

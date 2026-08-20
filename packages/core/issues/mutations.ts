@@ -35,6 +35,7 @@ import {
   pruneDeletedIssueFromParentChildrenCaches,
 } from "./delete-cache";
 import { useWorkspaceId } from "../hooks";
+import { revisionConflictBody, useRevisionConflictStore } from "../revisions";
 import { useRecentContextStore } from "../chat/recent-context-store";
 import { useRecentIssuesStore } from "./stores";
 import type { GroupedIssuesResponse, InboxItem, Issue, IssueAssigneeGroup, IssueReaction, IssueStatus } from "../types";
@@ -246,7 +247,8 @@ export function useUpdateIssue() {
   const wsId = useWorkspaceId();
   return useMutation({
     mutationFn: ({ id, move_intent: moveIntent, ...data }: UpdateIssueMutationInput) => {
-      if (!moveIntent) return api.updateIssue(id, data);
+      const current = qc.getQueryData<Issue>(issueKeys.detail(wsId, id));
+      if (!moveIntent) return api.updateIssue(id, { ...data, ...(current?.revision ? { expected_revision: current.revision } : {}) });
       const { position: _optimisticPosition, ...target } = data;
       return api.moveIssue(id, { ...target, ...moveIntent });
     },
@@ -324,7 +326,7 @@ export function useUpdateIssue() {
       }
       return { change, prevChildren, parentId, id };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, vars, ctx) => {
       if (ctx) {
         rollbackIssueChange(qc, wsId, ctx.id, ctx.change);
       }
@@ -333,6 +335,22 @@ export function useUpdateIssue() {
           issueKeys.children(wsId, ctx.parentId),
           ctx.prevChildren,
         );
+      }
+      const conflict = revisionConflictBody(err);
+      if (conflict && !vars.move_intent) {
+        const { id, move_intent: _moveIntent, ...attemptedUpdate } = vars;
+        const revision = typeof conflict.current.revision === "string" ? conflict.current.revision : undefined;
+        useRevisionConflictStore.getState().open({
+          kind: "issue",
+          current: conflict.current,
+          attempted: conflict.attempted,
+          retry: async () => {
+            const updated = await api.updateIssue(id, { ...attemptedUpdate, ...(revision ? { expected_revision: revision } : {}) });
+            qc.setQueryData(issueKeys.detail(wsId, id), updated);
+            return updated;
+          },
+          refresh: () => qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, id) }),
+        });
       }
     },
     onSuccess: (serverIssue, vars) => {
@@ -890,7 +908,11 @@ export function useUpdateComment(issueId: string) {
       content: string;
       attachmentIds: string[];
       suppressAgentIds?: string[];
-    }) => api.updateComment(commentId, content, attachmentIds, suppressAgentIds),
+    }) => {
+      const current = qc.getQueryData<TimelineCache>(issueKeys.timeline(issueId))?.find((entry) => entry.id === commentId);
+      const expectedRevision = current && "revision" in current && typeof current.revision === "string" ? current.revision : undefined;
+      return api.updateComment(commentId, content, attachmentIds, suppressAgentIds, expectedRevision);
+    },
     onMutate: async ({ commentId, content, attachmentIds }) => {
       await qc.cancelQueries({ queryKey: issueKeys.timeline(issueId) });
       const prev = qc.getQueryData<TimelineCache>(issueKeys.timeline(issueId));
@@ -904,9 +926,20 @@ export function useUpdateComment(issueId: string) {
       );
       return { prev };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, vars, ctx) => {
       if (ctx?.prev !== undefined) {
         qc.setQueryData(issueKeys.timeline(issueId), ctx.prev);
+      }
+      const conflict = revisionConflictBody(err);
+      if (conflict) {
+        const revision = typeof conflict.current.revision === "string" ? conflict.current.revision : undefined;
+        useRevisionConflictStore.getState().open({
+          kind: "comment",
+          current: conflict.current,
+          attempted: conflict.attempted,
+          retry: () => api.updateComment(vars.commentId, vars.content, vars.attachmentIds, vars.suppressAgentIds, revision),
+          refresh: () => qc.invalidateQueries({ queryKey: issueKeys.timeline(issueId) }),
+        });
       }
     },
     onSettled: () => {

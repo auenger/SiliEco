@@ -80,6 +80,7 @@ export interface LocalDirectoryResourceRef {
   /** Parent github_repo project resource for this machine-local checkout. */
   repository_resource_id?: string;
   label?: string;
+  execution_mode?: "in_place" | "worktree";
 }
 
 export type ProjectResourceRef =

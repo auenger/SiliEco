@@ -28,6 +28,7 @@ type localDirectoryRef struct {
 	DaemonID             string `json:"daemon_id"`
 	RepositoryResourceID string `json:"repository_resource_id"`
 	Label                string `json:"label,omitempty"`
+	ExecutionMode        string `json:"execution_mode,omitempty"`
 }
 
 type projectGithubRepoRef struct {
@@ -108,6 +109,13 @@ func findLocalDirectoryAssignment(resources []ProjectResourceData, daemonID stri
 			continue
 		}
 		ref.RepositoryResourceID = strings.TrimSpace(ref.RepositoryResourceID)
+		ref.ExecutionMode = strings.TrimSpace(ref.ExecutionMode)
+		if ref.ExecutionMode == "" {
+			ref.ExecutionMode = "in_place"
+		}
+		if ref.ExecutionMode != "in_place" && ref.ExecutionMode != "worktree" {
+			return nil, fmt.Errorf("local_directory: unsupported execution_mode %q", ref.ExecutionMode)
+		}
 		legacy := ref.RepositoryResourceID == ""
 		if !legacy && ref.RepositoryResourceID != primaryRepositoryID {
 			continue

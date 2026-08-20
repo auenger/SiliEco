@@ -1104,7 +1104,6 @@ func TestKiroLoadIncludesMcpServersFromConfig(t *testing.T) {
 	}
 }
 
-
 // TestIsKiroOversizedHistoryImage pins the detector for the GH #5975 shape: a
 // resumed conversation whose history replays an image exceeding the provider's
 // max pixel dimensions, rejected at session/prompt as a -32603 that names the
