@@ -13,6 +13,12 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import type { Agent, AgentRuntime } from "@silieco/core/types";
 import { ApiError } from "@silieco/core/api";
+import { useWorkspaceId } from "@silieco/core/hooks";
+import {
+  agentMCPAssignmentsOptions,
+  useSetAgentMCPAssignments,
+  workspaceMCPServersOptions,
+} from "@silieco/core/mcp";
 import {
   runtimeCapabilitiesOptions,
   runtimeDisplayLabel,
@@ -29,6 +35,7 @@ import {
 } from "@silieco/ui/components/ui/alert-dialog";
 import { Badge } from "@silieco/ui/components/ui/badge";
 import { Button } from "@silieco/ui/components/ui/button";
+import { Checkbox } from "@silieco/ui/components/ui/checkbox";
 import { toast } from "sonner";
 import { useT } from "../../../i18n";
 import {
@@ -44,13 +51,20 @@ export function McpConfigTab({
   runtime,
   onSave,
   onDirtyChange,
+  canEdit = true,
 }: {
   agent: Agent;
   runtime: AgentRuntime | null;
   onSave: (updates: { mcp_config: unknown | null }) => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  canEdit?: boolean;
 }) {
   const { t } = useT("agents");
+  const workspaceId = useWorkspaceId();
+  const workspaceCatalog = useQuery(workspaceMCPServersOptions(workspaceId));
+  const workspaceAssignments = useQuery(agentMCPAssignmentsOptions(workspaceId, agent.id));
+  const setWorkspaceAssignments = useSetAgentMCPAssignments(agent.id);
+  const [assignedServerIds, setAssignedServerIds] = useState<string[]>([]);
   const runtimeId =
     runtime?.runtime_mode === "local" && runtime.status === "online"
       ? runtime.id
@@ -74,6 +88,9 @@ export function McpConfigTab({
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => onDirtyChange?.(false), [onDirtyChange]);
+  useEffect(() => {
+    setAssignedServerIds(workspaceAssignments.data?.server_ids ?? []);
+  }, [workspaceAssignments.data?.server_ids]);
 
   const openAddDialog = () => {
     setEditingServer(null);
@@ -148,7 +165,7 @@ export function McpConfigTab({
               {t(($) => $.tab_body.mcp_config.managed_hint)}
             </p>
           </div>
-          {!redacted && (
+          {!redacted && canEdit && (
             <Button size="sm" variant="outline" onClick={openAddDialog}>
               <Plus aria-hidden="true" />
               {t(($) => $.tab_body.mcp_config.add_action)}
@@ -175,13 +192,73 @@ export function McpConfigTab({
           <McpServerList
             servers={managedServers}
             disabledLabel={t(($) => $.tab_body.mcp_config.agent_disabled_badge)}
-            onEdit={openEditDialog}
-            onDelete={setDeletingServer}
+            onEdit={canEdit ? openEditDialog : undefined}
+            onDelete={canEdit ? setDeletingServer : undefined}
             editLabel={t(($) => $.tab_body.mcp_config.edit_aria)}
             deleteLabel={t(($) => $.tab_body.mcp_config.delete_aria)}
           />
         ) : (
           <McpNotice text={t(($) => $.tab_body.mcp_config.managed_empty)} />
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-body font-medium">
+            {t(($) => $.tab_body.mcp_config.workspace_title)}
+          </h3>
+          <p className="mt-1 max-w-2xl text-caption leading-5 text-muted-foreground">
+            {t(($) => $.tab_body.mcp_config.workspace_hint)}
+          </p>
+        </div>
+        {(workspaceCatalog.data?.servers.length ?? 0) === 0 ? (
+          <McpNotice text={t(($) => $.tab_body.mcp_config.workspace_empty)} />
+        ) : (
+          <div className="rounded-lg border bg-surface-raised/40">
+            <ul className="divide-y">
+              {(workspaceCatalog.data?.servers ?? []).map((server) => {
+                const checked = assignedServerIds.includes(server.id);
+                return (
+                  <li key={server.id} className="flex items-center gap-3 px-3 py-2.5">
+                    <Checkbox
+                      checked={checked}
+                      disabled={!canEdit || setWorkspaceAssignments.isPending}
+                      aria-label={t(($) => $.tab_body.mcp_config.workspace_toggle_aria, { name: server.name })}
+                      onCheckedChange={(next) =>
+                        setAssignedServerIds((current) =>
+                          next === true
+                            ? [...new Set([...current, server.id])]
+                            : current.filter((id) => id !== server.id),
+                        )
+                      }
+                    />
+                    <Server className="size-4 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-body font-medium">{server.name}</span>
+                    <Badge variant="outline">{t(($) => $.tab_body.mcp_config.workspace_encrypted_badge)}</Badge>
+                  </li>
+                );
+              })}
+            </ul>
+            {canEdit && (
+              <div className="flex justify-end border-t px-3 py-2.5">
+                <Button
+                  size="sm"
+                  disabled={setWorkspaceAssignments.isPending || JSON.stringify([...assignedServerIds].sort()) === JSON.stringify([...(workspaceAssignments.data?.server_ids ?? [])].sort())}
+                  onClick={async () => {
+                    try {
+                      await setWorkspaceAssignments.mutateAsync(assignedServerIds);
+                      toast.success(t(($) => $.tab_body.mcp_config.workspace_saved_toast));
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : t(($) => $.tab_body.mcp_config.workspace_save_failed_toast));
+                    }
+                  }}
+                >
+                  {setWorkspaceAssignments.isPending && <Loader2 className="size-3.5 animate-spin" />}
+                  {t(($) => $.tab_body.mcp_config.workspace_save_action)}
+                </Button>
+              </div>
+            )}
+          </div>
         )}
       </section>
 
@@ -255,7 +332,7 @@ export function McpConfigTab({
         )}
       </section>
 
-      {!redacted && (
+      {!redacted && canEdit && (
         <McpServerDialog
           open={editorOpen}
           server={editingServer}

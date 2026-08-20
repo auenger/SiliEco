@@ -11,6 +11,7 @@ import { useConfigStore, useFeatureEnabled } from "@silieco/core/config";
 import { COMPOSIO_MCP_APPS_FLAG } from "@silieco/core/feature-flags";
 import { useT } from "../../i18n";
 import { SettingsSection, SettingsTab } from "./settings-layout";
+import { WorkspaceMCPSection } from "./workspace-mcp-tab";
 
 // Integrations is the umbrella tab for third-party platform connections.
 // GitHub has its own top-level tab (see github-tab.tsx); everything else
@@ -40,6 +41,9 @@ export function IntegrationsTab() {
 
   return (
     <SettingsTab title={t(($) => $.page.tabs.integrations)}>
+      <SettingsSection title={t(($) => $.mcp.section_title)}>
+        <WorkspaceMCPSection />
+      </SettingsSection>
       <SettingsSection title={t(($) => $.lark.section_title)}>
         <LarkTab />
       </SettingsSection>

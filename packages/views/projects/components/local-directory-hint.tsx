@@ -52,7 +52,7 @@ export function LocalDirectoryHint({
     .filter(
       (r): r is ProjectResource & { resource_ref: LocalDirectoryResourceRef } =>
         r.resource_type === "local_directory" &&
-        r.resource_ref.daemon_id === daemon.daemonId,
+        (r.resource_ref as LocalDirectoryResourceRef).daemon_id === daemon.daemonId,
     );
   const repositoryMatches = primaryRepositoryId
     ? localDirectories.filter(

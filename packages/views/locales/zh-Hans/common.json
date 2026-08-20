@@ -68,6 +68,19 @@
     "error_not_member": "你登录的 Silieco 账号不是当前工作区成员。",
     "error_unknown": "出现未知错误。请稍后再试，如反复失败请联系工作区管理员。"
   },
+  "revision_conflict": {
+    "title": "你编辑期间内容发生了变化",
+    "description": "请比较服务端当前版本和你的修改。你可以复制自己的内容、采用服务端版本，或明确确认覆盖。",
+    "server_version": "服务端当前版本",
+    "your_version": "你的修改",
+    "copy_mine": "复制我的修改",
+    "copied": "你的修改已复制",
+    "copy_failed": "无法复制你的修改",
+    "reload": "采用服务端版本",
+    "overwrite": "用我的修改覆盖",
+    "overwrite_success": "你的修改已保存",
+    "overwrite_failed": "无法覆盖更新后的版本"
+  },
   "expandable_description": {
     "expand": "查看详情",
     "collapse": "收起"

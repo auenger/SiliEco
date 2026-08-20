@@ -95,7 +95,7 @@ function workflowRun(
         status: taskStatus,
       },
     ],
-  } as WorkflowInstance;
+  } as unknown as WorkflowInstance;
 }
 
 function renderControl(instance: WorkflowInstance) {

@@ -326,6 +326,7 @@ export function isRuntimeUsableForUser(
   r: RuntimeDevice,
   currentUserId: string | null,
 ): boolean {
+  if (!r.owner_id) return false;
   if (!currentUserId) return true;
   if (r.owner_id === currentUserId) return true;
   return r.visibility === "public";

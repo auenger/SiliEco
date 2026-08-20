@@ -233,6 +233,15 @@ describe("RuntimeDetail visibility section", () => {
     expect(screen.queryByText("Private")).not.toBeInTheDocument();
   });
 
+  it("keeps another member's runtime visibility read-only for workspace admins", () => {
+    mockQueryData.members = [
+      { user_id: "user-me", role: "admin", name: "Me" },
+    ];
+    renderDetail(makeRuntime({ owner_id: "someone-else", visibility: "private" }));
+    expect(screen.getByText("Private")).toBeInTheDocument();
+    expect(screen.queryByText("Public")).not.toBeInTheDocument();
+  });
+
   // SILI-3352: an owner viewing an online local (self-healing) runtime
   // used to see a disabled Delete button with only a hover tooltip
   // explaining why. The new contract: the button is always clickable

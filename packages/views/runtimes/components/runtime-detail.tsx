@@ -200,7 +200,7 @@ export function RuntimeDetail({
             />
             <DiagnosticsCard
               runtime={runtime}
-              canEdit={!!canEditRuntime}
+              canEdit={!!isRuntimeOwner}
               canDelete={!!canDelete}
               onDelete={() => setDeleteOpen(true)}
             />
@@ -545,8 +545,8 @@ function VisibilityReadout({ runtime }: { runtime: AgentRuntime }) {
   );
 }
 
-// VisibilityEditor lets the runtime owner (or workspace admin) flip
-// public↔private. The PATCH endpoint also re-checks; this is a UI gate, not
+// VisibilityEditor lets only the runtime owner flip public↔private. The PATCH
+// endpoint also re-checks; this is a UI gate, not
 // a security boundary. Per-choice description text lives in the hover
 // tooltip so the two buttons stay a tight icon+label pair instead of the
 // previous two-line block that competed with the surrounding cards.

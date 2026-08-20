@@ -7,6 +7,7 @@ import {
   Loader2,
   MoreHorizontal,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
   X,
@@ -589,12 +590,33 @@ export function SkillBatchToolbar({
   onClear: () => void;
 }) {
   const { t } = useT("skills");
+  const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
+	const [deleteOpen, setDeleteOpen] = useState(false);
+	const [refreshing, setRefreshing] = useState(false);
 
   if (rows.length === 0) return null;
 
   const allDeletable = rows.every((r) => r.canEdit);
+  const refreshable = rows.filter((row) => row.canEdit && ["github", "skills_sh", "clawhub"].includes(row.originType));
+
+  const refreshSelected = async () => {
+    setRefreshing(true);
+    try {
+      const response = await api.bulkRefreshSkills(refreshable.map((row) => row.skill.id));
+      const failed = response.results.filter((result) => result.status === "failed").length;
+      await queryClient.invalidateQueries({ queryKey: workspaceKeys.skills(ctx.wsId) });
+      if (failed > 0) {
+        toast.warning(t(($) => $.refresh.bulk_partial, { updated: response.results.length - failed, failed }));
+      } else {
+        toast.success(t(($) => $.refresh.bulk_success, { count: response.results.length }));
+      }
+    } catch {
+      toast.error(t(($) => $.refresh.bulk_failed));
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const deleteButton = (
     <Button
@@ -636,6 +658,11 @@ export function SkillBatchToolbar({
         <Button variant="ghost" size="sm" onClick={() => setAddOpen(true)}>
           <Plus className="mr-1 size-3.5" />
           {t(($) => $.actions.add_to_agent)}
+        </Button>
+
+        <Button variant="ghost" size="sm" disabled={refreshable.length === 0 || refreshing} onClick={refreshSelected}>
+          <RefreshCw className={cn("mr-1 size-3.5", refreshing && "animate-spin")} />
+          {t(($) => $.refresh.action)}
         </Button>
 
         {allDeletable ? (

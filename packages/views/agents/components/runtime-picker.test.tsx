@@ -18,7 +18,7 @@ vi.mock("../../runtimes/components/provider-logo", () => ({
   ProviderLogo: () => null,
 }));
 
-import { RuntimePicker } from "./runtime-picker";
+import { RuntimePicker, isRuntimeUsableForUser } from "./runtime-picker";
 
 const TEST_RESOURCES = {
   en: { common: enCommon, agents: enAgents, issues: enIssues },
@@ -80,6 +80,15 @@ function trigger(container: HTMLElement): HTMLButtonElement {
 describe("RuntimePicker (creation studio)", () => {
   beforeEach(() => cleanup());
   afterEach(() => cleanup());
+
+  it("fails closed for an ownerless runtime", () => {
+    expect(
+      isRuntimeUsableForUser(
+        makeRuntime({ owner_id: null, visibility: "public" }),
+        ME,
+      ),
+    ).toBe(false);
+  });
 
   it("opens the runtime list on click", () => {
     const { container } = renderPicker();

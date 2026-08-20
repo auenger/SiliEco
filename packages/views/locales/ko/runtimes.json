@@ -119,7 +119,7 @@
       "public": "공개"
     },
     "visibility_hint": {
-      "private": "본인과 워크스페이스 관리자만 이 런타임에 에이전트를 만들 수 있습니다.",
+      "private": "런타임 소유자만 이 런타임에 에이전트를 만들 수 있습니다.",
       "public": "워크스페이스 멤버라면 누구나 이 런타임에 에이전트를 만들 수 있습니다."
     },
     "visibility_toast_updated": "공개 범위를 {{visibility}}(으)로 설정했습니다",

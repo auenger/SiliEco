@@ -323,6 +323,26 @@
     "conflict_missing_resolution": "Choose how to resolve this conflict.",
     "conflict_name_still_exists": "That name already exists. Choose another name or skip."
   },
+  "refresh": {
+    "action": "Refresh source",
+    "bulk_success": "{{count}} skills updated",
+    "bulk_partial": "{{updated}} updated, {{failed}} failed",
+    "bulk_failed": "Failed to refresh selected skills",
+    "check_source": "Check source",
+    "title": "Review skill source update",
+    "changed_description": "The source differs from the current skill. Review both versions before updating.",
+    "unchanged_description": "This skill already matches its source.",
+    "current_skill_md": "Current SKILL.md",
+    "source_skill_md": "Source SKILL.md",
+    "file_changes": "File changes",
+    "missing": "(missing)",
+    "cancel": "Cancel",
+    "updating": "Updating…",
+    "update_source": "Update from source",
+    "check_failed": "Unable to check the skill source",
+    "update_success": "Skill updated from source",
+    "update_failed": "Unable to refresh skill"
+  },
   "file_tree": {
     "no_files": "No files",
     "actions": {

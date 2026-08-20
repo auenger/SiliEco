@@ -9,6 +9,7 @@ import { DashboardGuard } from "./dashboard-guard";
 import { NavigationProgress } from "./navigation-progress";
 import { WorkspacePresencePrefetch } from "./workspace-presence-prefetch";
 import { GlobalShortcuts } from "./global-shortcuts";
+import { RevisionConflictDialog } from "./revision-conflict-dialog";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -43,6 +44,7 @@ export function DashboardLayout({
           {children}
           <ModalRegistry />
           <SourceBackfillModal />
+          <RevisionConflictDialog />
           {extra}
         </SidebarInset>
       </SidebarProvider>

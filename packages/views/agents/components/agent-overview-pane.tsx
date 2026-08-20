@@ -427,6 +427,7 @@ export function AgentOverviewPane({
                       runtime={runtime}
                       onSave={(updates) => onUpdate(agent.id, updates)}
                       onDirtyChange={setActiveDirty}
+                      canEdit={canEdit}
                     />
                   )}
                   {effectiveView === "composio_mcp" && (

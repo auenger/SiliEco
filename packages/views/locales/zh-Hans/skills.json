@@ -311,6 +311,26 @@
     "conflict_missing_resolution": "请选择如何处理这个冲突。",
     "conflict_name_still_exists": "这个名称仍然已存在。请换一个名称或跳过。"
   },
+  "refresh": {
+    "action": "刷新来源",
+    "bulk_success": "已更新 {{count}} 个 Skills",
+    "bulk_partial": "已更新 {{updated}} 个，{{failed}} 个失败",
+    "bulk_failed": "刷新所选 Skills 失败",
+    "check_source": "检查来源",
+    "title": "检查 Skill 来源更新",
+    "changed_description": "来源内容与当前 Skill 不同，请在更新前检查两个版本。",
+    "unchanged_description": "当前 Skill 已与来源一致。",
+    "current_skill_md": "当前 SKILL.md",
+    "source_skill_md": "来源 SKILL.md",
+    "file_changes": "文件变更",
+    "missing": "（不存在）",
+    "cancel": "取消",
+    "updating": "正在更新…",
+    "update_source": "从来源更新",
+    "check_failed": "无法检查 Skill 来源",
+    "update_success": "已从来源更新 Skill",
+    "update_failed": "无法刷新 Skill"
+  },
   "file_tree": {
     "no_files": "无文件",
     "actions": {

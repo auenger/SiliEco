@@ -311,6 +311,26 @@
     "conflict_missing_resolution": "この競合の処理方法を選択してください。",
     "conflict_name_still_exists": "その名前はすでに存在します。別の名前を選択するか、スキップしてください。"
   },
+  "refresh": {
+    "action": "ソースを更新",
+    "bulk_success": "{{count}} 個の Skills を更新しました",
+    "bulk_partial": "{{updated}} 個を更新、{{failed}} 個が失敗しました",
+    "bulk_failed": "選択した Skills の更新に失敗しました",
+    "check_source": "ソースを確認",
+    "title": "Skill ソース更新を確認",
+    "changed_description": "ソースが現在の Skill と異なります。更新前に両方のバージョンを確認してください。",
+    "unchanged_description": "この Skill はすでにソースと一致しています。",
+    "current_skill_md": "現在の SKILL.md",
+    "source_skill_md": "ソースの SKILL.md",
+    "file_changes": "ファイル変更",
+    "missing": "（なし）",
+    "cancel": "キャンセル",
+    "updating": "更新中…",
+    "update_source": "ソースから更新",
+    "check_failed": "Skill ソースを確認できませんでした",
+    "update_success": "Skill をソースから更新しました",
+    "update_failed": "Skill を更新できませんでした"
+  },
   "file_tree": {
     "no_files": "ファイルなし",
     "actions": {

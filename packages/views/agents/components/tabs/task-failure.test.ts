@@ -20,6 +20,9 @@ describe("failureReasonLabel", () => {
       "Context window exceeded",
     );
     expect(failureReasonLabel("queued_expired")).toBe("Expired in queue");
+    expect(failureReasonLabel("invalid_task_identity")).toBe(
+      "Task identity validation failed",
+    );
   });
 
   it("still labels the pre-SILI-1949 coarse reasons on historical rows", () => {

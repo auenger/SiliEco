@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useWorkspaceId } from "@silieco/core/hooks";
+import { workspaceMCPServersOptions } from "@silieco/core/mcp";
 import { useWorkspacePaths } from "@silieco/core/paths";
 import type {
   Agent,
@@ -100,6 +101,7 @@ import {
   PropertyPicker,
 } from "../../issues/components/pickers/property-picker";
 import { WorkflowRunPlanDialog } from "./workflow-run-plan-dialog";
+import { StageMCPSelector } from "./stage-mcp-selector";
 
 type StageStatus = string;
 type CanonicalStageStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "blocked";
@@ -115,6 +117,7 @@ interface SopStageDraft {
   input: string;
   output: string;
   skills: string[];
+  allowedMcpServerIds: string[] | null;
   gateEnabled: boolean;
   deciderType: DeciderType;
   decider: string;
@@ -147,6 +150,7 @@ function stage(
     input,
     output,
     skills: skills.split(",").map((value) => value.trim()).filter(Boolean),
+    allowedMcpServerIds: null,
     gateEnabled: gate.gateEnabled ?? false,
     deciderType: gate.deciderType ?? "human",
     decider: gate.decider ?? "",
@@ -536,6 +540,15 @@ function StageSkillSelector({
     );
   };
 
+  const originLabel = (skill: SkillSummary) => {
+    const origin = skill.config.origin;
+    if (!origin || typeof origin !== "object" || Array.isArray(origin)) return null;
+    const data = origin as Record<string, unknown>;
+    const source = typeof data.type === "string" ? data.type : null;
+    const revision = typeof data.revision === "string" ? data.revision.slice(0, 8) : null;
+    return [source, revision].filter(Boolean).join(" · ") || null;
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
@@ -565,12 +578,16 @@ function StageSkillSelector({
           <div className="flex flex-wrap gap-1.5">
             {skills
               .filter((skill) => selectedIds.has(skill.id))
-              .map((skill) => (
-                <Badge key={skill.id} variant="secondary" className="gap-1.5">
-                  <FileCheck2 className="size-3" />
-                  {skill.name}
-                </Badge>
-              ))}
+              .map((skill) => {
+                const origin = originLabel(skill);
+                return (
+                  <Badge key={skill.id} variant="secondary" className="gap-1.5">
+                    <FileCheck2 className="size-3" />
+                    {skill.name}
+                    {origin && <span className="font-mono text-micro text-muted-foreground">{origin}</span>}
+                  </Badge>
+                );
+              })}
             {unresolved.map((ref) => (
               <Badge key={ref} variant="outline" className="gap-1.5">
                 {ref}
@@ -598,6 +615,9 @@ function StageSkillSelector({
             />
           </div>
         )}
+        <p className="mt-2 text-micro text-muted-foreground">
+          {t(($) => $.designer.skill_snapshot_hint)}
+        </p>
       </div>
     </div>
   );
@@ -759,6 +779,7 @@ function stagesFromWorkflow(workflow: Workflow): SopStageDraft[] {
       input: objectString(inputSpec, "default_artifact"),
       output: objectString(outputSpec, "default_artifact"),
       skills: [...item.required_skills],
+      allowedMcpServerIds: item.allowed_mcp_server_ids ?? null,
       gateEnabled: gateType !== undefined && gateType !== "none",
       deciderType:
         deciderType === "self_agent" || deciderType === "agent"
@@ -798,6 +819,7 @@ export function ProjectSopDesigner({
   const { data: workspaceSkills = [], isLoading: skillsLoading } = useQuery(
     skillListOptions(workspaceId),
   );
+  const { data: workspaceMCP } = useQuery(workspaceMCPServersOptions(workspaceId));
   const { data: members = [] } = useQuery(memberListOptions(workspaceId));
   const { data: agents = [] } = useQuery(agentListOptions(workspaceId));
   const createWorkflow = useCreateWorkflow();
@@ -929,6 +951,7 @@ export function ProjectSopDesigner({
           input_spec: item.input.trim() ? { default_artifact: item.input.trim() } : {},
           output_spec: item.output.trim() ? { default_artifact: item.output.trim() } : {},
           required_skills: normalizeSkillRefs(item.skills, workspaceSkills),
+          allowed_mcp_server_ids: item.allowedMcpServerIds,
           gate: {
             type: resolvedGateType(item),
             decider_type: item.deciderType,
@@ -1914,6 +1937,12 @@ export function ProjectSopDesigner({
                         selectedRefs={item.skills}
                         loading={skillsLoading}
                         onChange={(skills) => updateStage(item.id, { skills })}
+                      />
+
+                      <StageMCPSelector
+                        servers={workspaceMCP?.servers ?? []}
+                        selectedIds={item.allowedMcpServerIds}
+                        onChange={(allowedMcpServerIds) => updateStage(item.id, { allowedMcpServerIds })}
                       />
 
                       <div

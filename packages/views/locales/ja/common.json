@@ -68,6 +68,19 @@
     "error_not_member": "サインインしている Silieco アカウントはこのワークスペースのメンバーではありません。",
     "error_unknown": "問題が発生しました。もう一度試し、それでも解決しない場合はワークスペース管理者にお問い合わせください。"
   },
+  "revision_conflict": {
+    "title": "編集中に内容が変更されました",
+    "description": "現在のサーバー版と編集内容を比較してください。編集内容のコピー、サーバー版の採用、または明示的な上書きができます。",
+    "server_version": "現在のサーバー版",
+    "your_version": "自分の編集",
+    "copy_mine": "編集内容をコピー",
+    "copied": "編集内容をコピーしました",
+    "copy_failed": "編集内容をコピーできませんでした",
+    "reload": "サーバー版を使用",
+    "overwrite": "自分の編集で上書き",
+    "overwrite_success": "編集内容を保存しました",
+    "overwrite_failed": "新しい版を上書きできませんでした"
+  },
   "expandable_description": {
     "expand": "詳細を表示",
     "collapse": "折りたたむ"

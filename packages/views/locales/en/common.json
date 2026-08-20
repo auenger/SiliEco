@@ -68,6 +68,19 @@
     "error_not_member": "You're signed in to a Silieco account that isn't a member of this workspace.",
     "error_unknown": "Something went wrong. Try again, and if the problem persists, contact the workspace admin."
   },
+  "revision_conflict": {
+    "title": "This content changed while you were editing",
+    "description": "Compare the current server version with your edit. You can copy your text, reload the server version, or explicitly overwrite it.",
+    "server_version": "Current server version",
+    "your_version": "Your edit",
+    "copy_mine": "Copy my edit",
+    "copied": "Your edit was copied",
+    "copy_failed": "Could not copy your edit",
+    "reload": "Use server version",
+    "overwrite": "Overwrite with my edit",
+    "overwrite_success": "Your edit was saved",
+    "overwrite_failed": "Could not overwrite the newer version"
+  },
   "expandable_description": {
     "expand": "Show more",
     "collapse": "Show less"

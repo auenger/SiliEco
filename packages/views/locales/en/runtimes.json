@@ -124,7 +124,7 @@
       "public": "Public"
     },
     "visibility_hint": {
-      "private": "Only you and workspace admins can create agents on this runtime.",
+      "private": "Only the runtime owner can create agents on this runtime.",
       "public": "Any workspace member can create agents on this runtime."
     },
     "visibility_toast_updated": "Visibility set to {{visibility}}",

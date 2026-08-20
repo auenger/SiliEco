@@ -56,7 +56,7 @@ function AttachmentCardChrome({
       {uploading ? (
         <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
       ) : (
-        <span className="min-w-7 shrink-0 rounded bg-background px-1 py-0.5 text-center font-mono text-[9px] font-semibold leading-none text-muted-foreground" aria-hidden="true">
+        <span className="min-w-7 shrink-0 rounded bg-background px-1 py-0.5 text-center font-mono text-micro font-semibold leading-none text-muted-foreground" aria-hidden="true">
           {extension || "FILE"}
         </span>
       )}

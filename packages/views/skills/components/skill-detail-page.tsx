@@ -10,6 +10,7 @@ import {
   Loader2,
   Lock,
   Plus,
+  RotateCw,
   Save,
   Sparkles,
   Trash2,
@@ -22,6 +23,7 @@ import type {
   MemberWithUser,
   Skill,
   SkillFile,
+  SkillRefreshPreview,
   UpdateSkillRequest,
 } from "@silieco/core/types";
 import { toast } from "sonner";
@@ -678,6 +680,9 @@ export function SkillDetailPage({ skillId }: { skillId: string }) {
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<DraftFile[]>([]);
   const [selectedPath, setSelectedPath] = useState(SKILL_MD);
+	const [refreshPreview, setRefreshPreview] = useState<SkillRefreshPreview | null>(null);
+	const [refreshOpen, setRefreshOpen] = useState(false);
+	const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -883,6 +888,37 @@ export function SkillDetailPage({ skillId }: { skillId: string }) {
     }
   };
 
+  const handlePreviewRefresh = async () => {
+    if (!skill) return;
+    setRefreshing(true);
+    try {
+      setRefreshPreview(await api.previewSkillRefresh(skill.id));
+      setRefreshOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t(($) => $.refresh.check_failed));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleConfirmRefresh = async () => {
+    if (!skill) return;
+    setRefreshing(true);
+    try {
+      const updated = await api.refreshSkill(skill.id);
+      qc.setQueryData(skillDetailOptions(wsId, skill.id).queryKey, updated);
+      seedFromSkill(updated);
+      setRefreshOpen(false);
+      setRefreshPreview(null);
+      qc.invalidateQueries({ queryKey: workspaceKeys.skills(wsId), exact: true });
+      toast.success(t(($) => $.refresh.update_success));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t(($) => $.refresh.update_failed));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const handleAddFile = (path: string) => {
     setFiles((prev) => [...prev, { path, content: "" }]);
     setSelectedPath(path);
@@ -1003,6 +1039,12 @@ export function SkillDetailPage({ skillId }: { skillId: string }) {
               <UserPlus className="h-3 w-3" />
               {t(($) => $.actions.add_to_agent)}
             </Button>
+            {canEdit && origin && origin.type !== "manual" && origin.type !== "runtime_local" && (
+              <Button variant="outline" size="xs" onClick={handlePreviewRefresh} disabled={refreshing}>
+                <RotateCw className={cn("h-3 w-3", refreshing && "animate-spin")} />
+                {t(($) => $.refresh.check_source)}
+              </Button>
+            )}
             {canEdit && (
               <Tooltip>
                 <TooltipTrigger
@@ -1024,6 +1066,43 @@ export function SkillDetailPage({ skillId }: { skillId: string }) {
           </>
         }
       />
+
+		<Dialog open={refreshOpen} onOpenChange={(open) => !refreshing && setRefreshOpen(open)}>
+			<DialogContent className="max-w-4xl">
+				<DialogHeader>
+					<DialogTitle>{t(($) => $.refresh.title)}</DialogTitle>
+					<DialogDescription>
+						{refreshPreview?.changed ? t(($) => $.refresh.changed_description) : t(($) => $.refresh.unchanged_description)}
+					</DialogDescription>
+				</DialogHeader>
+				{refreshPreview && (
+					<div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+						<div className="grid min-h-72 gap-3 md:grid-cols-2">
+							<div className="flex min-w-0 flex-col gap-1"><span className="text-caption font-medium">{t(($) => $.refresh.current_skill_md)}</span><Textarea readOnly value={refreshPreview.current_content} className="min-h-64 font-mono text-caption" /></div>
+							<div className="flex min-w-0 flex-col gap-1"><span className="text-caption font-medium">{t(($) => $.refresh.source_skill_md)}</span><Textarea readOnly value={refreshPreview.source_content} className="min-h-64 font-mono text-caption" /></div>
+						</div>
+						<div className="rounded-lg border p-3">
+							<p className="mb-2 text-caption font-medium">{t(($) => $.refresh.file_changes)}</p>
+							<div className="space-y-1">
+								{refreshPreview.files.map((file) => (
+									<details key={file.path} className="rounded-md bg-muted/40 px-2 py-1.5" open={file.status !== "unchanged"}>
+										<summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-caption">
+											<code className="truncate">{file.path}</code>
+											<span className={cn("shrink-0 rounded px-1.5 py-0.5 uppercase", file.status === "unchanged" ? "text-muted-foreground" : "bg-brand/10 text-brand")}>{file.status}</span>
+										</summary>
+										{file.status !== "unchanged" && <div className="mt-2 grid gap-2 md:grid-cols-2"><pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-caption">{file.current_content ?? t(($) => $.refresh.missing)}</pre><pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-caption">{file.source_content ?? t(($) => $.refresh.missing)}</pre></div>}
+									</details>
+								))}
+							</div>
+						</div>
+					</div>
+				)}
+				<DialogFooter>
+					<Button variant="ghost" onClick={() => setRefreshOpen(false)} disabled={refreshing}>{t(($) => $.refresh.cancel)}</Button>
+					<Button onClick={handleConfirmRefresh} disabled={refreshing || !refreshPreview?.changed}>{refreshing ? t(($) => $.refresh.updating) : t(($) => $.refresh.update_source)}</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 
       {!canEdit && (
         <div className="px-4 pt-3 sm:px-6">

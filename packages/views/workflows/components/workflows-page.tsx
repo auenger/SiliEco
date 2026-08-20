@@ -28,6 +28,7 @@ import {
   GripVertical,
   Plus,
   Route,
+  ScrollText,
   ShieldCheck,
   Sparkles,
   Users,
@@ -48,6 +49,7 @@ import type {
   WorkflowInstance,
   WorkflowStage,
 } from "@silieco/core/types";
+import type { AgentTask } from "@silieco/core/types/agent";
 import {
   useAttachWorkflowTask,
   useCreateWorkflow,
@@ -68,9 +70,11 @@ import {
   SelectValue,
 } from "@silieco/ui/components/ui/select";
 import { Textarea } from "@silieco/ui/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@silieco/ui/components/ui/dialog";
 import { cn } from "@silieco/ui/lib/utils";
 import { AppLink, useNavigation } from "../../navigation";
 import { ActorAvatar } from "../../common/actor-avatar";
+import { TranscriptButton } from "../../common/task-transcript";
 import { PriorityIcon } from "../../issues/components/priority-icon";
 import { StatusIcon } from "../../issues/components/status-icon";
 import { useT } from "../../i18n";
@@ -213,10 +217,10 @@ function WorkflowTaskCard({ task }: { task: Issue }) {
                 </span>
               )}
             </span>
-          </div>
-        </div>
-      </div>
-    </article>
+			</div>
+		  </div>
+		</div>
+	</article>
   );
 }
 
@@ -226,12 +230,14 @@ function WorkflowBoardColumn({
   caption,
   tasks,
   active,
+  onTranscript,
 }: {
   id: string;
   title: string;
   caption?: string;
   tasks: Issue[];
   active?: boolean;
+  onTranscript?: () => void;
 }) {
   const { t } = useT("workflows");
   const { setNodeRef, isOver } = useDroppable({ id });
@@ -257,9 +263,10 @@ function WorkflowBoardColumn({
             </p>
           )}
         </div>
-        <span className="shrink-0 rounded-full bg-background px-1.5 py-0.5 text-micro font-medium tabular-nums text-muted-foreground">
-          {tasks.length}
-        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          {onTranscript && <Button type="button" variant="ghost" size="icon-sm" aria-label="Open stage transcript" onClick={onTranscript}><ScrollText className="size-3.5" /></Button>}
+          <span className="rounded-full bg-background px-1.5 py-0.5 text-micro font-medium tabular-nums text-muted-foreground">{tasks.length}</span>
+        </div>
       </header>
       <div className="relative min-h-[200px] flex-1 rounded-lg">
         <div
@@ -292,12 +299,24 @@ export function WorkflowBoard({
   const { t } = useT("workflows");
   const { t: tIssues } = useT("issues");
   const workspaceId = useWorkspaceId();
+  const { getActorName } = useActorName();
   const queryClient = useQueryClient();
   const attachTask = useAttachWorkflowTask();
   const tasks = useMemo(() => instance.tasks ?? [], [instance.tasks]);
   const stages = useMemo(() => instance.stages ?? [], [instance.stages]);
   const [statusFilter, setStatusFilter] =
     useState<TaskStatusFilter>(ALL_TASK_STATUSES);
+  const [transcriptStageId, setTranscriptStageId] = useState<string | null>(null);
+  const [transcriptOffset, setTranscriptOffset] = useState(0);
+  const transcriptStage = stages.find((stage) => stage.id === transcriptStageId);
+  const transcriptDecisions = (instance.decisions ?? []).filter(
+    (decision) => decision.from_stage_id === transcriptStageId,
+  );
+  const transcriptQuery = useQuery({
+    queryKey: ["workflow-stage-transcript", workspaceId, instance.id, transcriptStageId, transcriptOffset],
+    queryFn: () => api.listWorkflowStageTranscript(instance.id, transcriptStageId!, 25, transcriptOffset),
+    enabled: Boolean(transcriptStageId),
+  });
   const sortedTasks = useMemo(
     () => sortWorkflowTasksByLifecycle(tasks),
     [tasks],
@@ -438,6 +457,7 @@ export function WorkflowBoard({
                     (task) => task.workflow_stage_id === stage.id,
                   )}
                   active={instance.current_stage_id === stage.id}
+                  onTranscript={() => setTranscriptStageId(stage.id)}
                 />
               ))
             : WORKFLOW_TASK_STATUSES.filter(
@@ -453,6 +473,52 @@ export function WorkflowBoard({
                 />
               ))}
         </div>
+        <Dialog open={Boolean(transcriptStageId)} onOpenChange={(open) => { if (!open) { setTranscriptStageId(null); setTranscriptOffset(0); } }}>
+          <DialogContent className="max-h-[80vh] max-w-3xl overflow-y-auto">
+            <DialogHeader><DialogTitle>{t(($) => $.transcript.title, { stage: transcriptStage?.name ?? "Stage" })}</DialogTitle><DialogDescription>{t(($) => $.transcript.description)}</DialogDescription></DialogHeader>
+            <div className="space-y-2">
+              {transcriptDecisions.length > 0 && (
+                <div className="rounded-lg border border-brand/20 bg-brand/5 p-3">
+                  <p className="text-caption font-medium">{t(($) => $.transcript.approval_events)}</p>
+                  <div className="mt-2 space-y-2">
+                    {transcriptDecisions.map((decision) => (
+                      <div key={decision.id} className="flex items-start justify-between gap-3 text-caption">
+                        <div>
+                          <span className="font-medium">{decision.outcome === "approved" ? t(($) => $.transcript.approved) : t(($) => $.transcript.rejected)}</span>
+                          <span className="text-muted-foreground"> · {getActorName(decision.actor_type, decision.actor_id)}</span>
+                          {decision.note && <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{decision.note}</p>}
+                        </div>
+                        <time className="shrink-0 text-muted-foreground">{decision.created_at}</time>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {transcriptQuery.isLoading && <p className="text-body text-muted-foreground">{t(($) => $.transcript.loading)}</p>}
+              {transcriptQuery.isError && <p className="text-body text-destructive">{t(($) => $.transcript.failed)}</p>}
+              {transcriptQuery.data?.runs.map((run) => (
+                <div key={run.id} className="rounded-lg border p-3 text-body">
+                  <div className="flex items-center justify-between gap-3"><span className="font-medium">{run.task_title}</span><div className="flex items-center gap-2"><Badge variant="outline">{run.status}</Badge><TranscriptButton task={{ id: run.id, agent_id: run.agent_id, runtime_id: "", issue_id: run.task_id, status: run.status as AgentTask["status"], priority: 0, dispatched_at: null, started_at: run.started_at, completed_at: run.completed_at, result: run.result, error: run.error, failure_reason: run.failure_reason as AgentTask["failure_reason"], created_at: run.created_at, trigger_summary: run.trigger_summary ?? undefined, worktree_branch: run.worktree_branch ?? undefined, worktree_base_sha: run.worktree_base_sha ?? undefined, worktree_final_sha: run.worktree_final_sha ?? undefined, worktree_delivery_status: run.worktree_delivery_status ?? undefined }} agentName={run.agent_name ?? run.agent_id} isLive={run.status === "running" || run.status === "dispatched"} title={t(($) => $.transcript.open_run)} /></div></div>
+                  <p className="mt-1 text-caption text-muted-foreground">{run.agent_name ?? run.agent_id} · {run.started_at ?? run.created_at}</p>
+                  {run.worktree_branch && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-caption">
+                      <Badge variant={run.worktree_delivery_status === "committed" ? "secondary" : "outline"}>
+                        {run.worktree_delivery_status === "committed" ? t(($) => $.transcript.worktree_committed) : t(($) => $.transcript.worktree_preserved)}
+                      </Badge>
+                      <code className="rounded bg-muted px-1.5 py-0.5">{run.worktree_branch}</code>
+                      {run.worktree_final_sha && <code className="text-muted-foreground">{run.worktree_final_sha.slice(0, 12)}</code>}
+                    </div>
+                  )}
+                  {run.trigger_summary && <p className="mt-2 whitespace-pre-wrap">{run.trigger_summary}</p>}
+                  {run.error && <p className="mt-2 text-destructive">{run.error}</p>}
+                  {run.execution_manifest && <details className="mt-2"><summary className="cursor-pointer text-caption text-muted-foreground">{t(($) => $.transcript.execution_manifest)}</summary><pre className="mt-1 overflow-x-auto rounded bg-muted p-2 text-caption">{JSON.stringify(run.execution_manifest, null, 2)}</pre></details>}
+                </div>
+              ))}
+              {transcriptQuery.data && transcriptQuery.data.runs.length === 0 && <p className="py-8 text-center text-body text-muted-foreground">{t(($) => $.transcript.empty)}</p>}
+              {transcriptQuery.data && transcriptQuery.data.total > 25 && <div className="flex items-center justify-between border-t pt-3"><Button variant="outline" size="sm" disabled={transcriptOffset === 0} onClick={() => setTranscriptOffset(Math.max(0, transcriptOffset - 25))}>{t(($) => $.transcript.previous)}</Button><span className="text-caption text-muted-foreground">{t(($) => $.transcript.page, { current: Math.floor(transcriptOffset / 25) + 1, total: Math.ceil(transcriptQuery.data.total / 25) })}</span><Button variant="outline" size="sm" disabled={transcriptOffset + 25 >= transcriptQuery.data.total} onClick={() => setTranscriptOffset(transcriptOffset + 25)}>{t(($) => $.transcript.next)}</Button></div>}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </DndContext>
   );

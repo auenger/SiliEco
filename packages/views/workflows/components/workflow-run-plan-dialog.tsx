@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useWorkspaceId } from "@silieco/core/hooks";
+import { workspaceMCPServersOptions } from "@silieco/core/mcp";
 import type {
   Agent,
   MemberWithUser,
@@ -65,6 +66,7 @@ import {
 import { Textarea } from "@silieco/ui/components/ui/textarea";
 import { cn } from "@silieco/ui/lib/utils";
 import { useT } from "../../i18n";
+import { StageMCPSelector } from "./stage-mcp-selector";
 
 interface RunStageDraft {
   id?: string;
@@ -74,6 +76,7 @@ interface RunStageDraft {
   input: string;
   output: string;
   skills: string;
+  allowedMcpServerIds: string[] | null;
   gate: WorkflowObject & { type?: WorkflowGateType };
   completionRule: WorkflowObject;
   inputSpec: WorkflowObject;
@@ -97,6 +100,7 @@ function stageDraft(stage: WorkflowInstanceStage, skills: readonly SkillSummary[
     skills: stage.required_skills
       .map((ref) => skills.find((skill) => skill.id === ref)?.name ?? ref)
       .join(", "),
+    allowedMcpServerIds: stage.allowed_mcp_server_ids ?? null,
     gate: { ...stage.gate },
     completionRule: { ...stage.completion_rule },
     inputSpec: { ...stage.input_spec },
@@ -140,6 +144,7 @@ export function WorkflowRunPlanDialog({
     workflowInstanceOptions(workspaceId, open ? instanceId : ""),
   );
   const { data: workspaceSkills = [] } = useQuery(skillListOptions(workspaceId));
+  const { data: workspaceMCP } = useQuery(workspaceMCPServersOptions(workspaceId));
   const { data: members = [] } = useQuery(memberListOptions(workspaceId));
   const { data: agents = [] } = useQuery(agentListOptions(workspaceId));
   const updatePlan = useUpdateWorkflowInstancePlan();
@@ -284,6 +289,7 @@ export function WorkflowRunPlanDialog({
         input: "",
         output: "",
         skills: "",
+        allowedMcpServerIds: null,
         gate: { type: "none" },
         completionRule: { type: "all_tasks_terminal" },
         inputSpec: {},
@@ -327,6 +333,7 @@ export function WorkflowRunPlanDialog({
               ? { ...stage.outputSpec, default_artifact: stage.output.trim() }
               : withoutKey(stage.outputSpec, "default_artifact"),
             required_skills: skillRefs(stage.skills, workspaceSkills),
+            allowed_mcp_server_ids: stage.allowedMcpServerIds,
             gate: stage.gate,
             rollback_stage_key:
               stage.gate.type !== "none" && index > 0
@@ -649,6 +656,14 @@ export function WorkflowRunPlanDialog({
                               disabled={isPast}
                               value={stage.description}
                               onChange={(event) => updateStage(index, { description: event.target.value })}
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <StageMCPSelector
+                              servers={workspaceMCP?.servers ?? []}
+                              selectedIds={stage.allowedMcpServerIds}
+                              disabled={isPast}
+                              onChange={(allowedMcpServerIds) => updateStage(index, { allowedMcpServerIds })}
                             />
                           </div>
                         </div>

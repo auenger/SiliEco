@@ -311,6 +311,26 @@
     "conflict_missing_resolution": "이 충돌을 처리할 방법을 선택하세요.",
     "conflict_name_still_exists": "해당 이름이 이미 있습니다. 다른 이름을 선택하거나 건너뛰세요."
   },
+  "refresh": {
+    "action": "소스 새로고침",
+    "bulk_success": "Skills {{count}}개를 업데이트했습니다",
+    "bulk_partial": "{{updated}}개 업데이트, {{failed}}개 실패",
+    "bulk_failed": "선택한 Skills를 새로고치지 못했습니다",
+    "check_source": "소스 확인",
+    "title": "Skill 소스 업데이트 검토",
+    "changed_description": "소스가 현재 Skill과 다릅니다. 업데이트 전에 두 버전을 검토하세요.",
+    "unchanged_description": "이 Skill은 이미 소스와 일치합니다.",
+    "current_skill_md": "현재 SKILL.md",
+    "source_skill_md": "소스 SKILL.md",
+    "file_changes": "파일 변경",
+    "missing": "(없음)",
+    "cancel": "취소",
+    "updating": "업데이트 중…",
+    "update_source": "소스에서 업데이트",
+    "check_failed": "Skill 소스를 확인할 수 없습니다",
+    "update_success": "소스에서 Skill을 업데이트했습니다",
+    "update_failed": "Skill을 새로고칠 수 없습니다"
+  },
   "file_tree": {
     "no_files": "파일 없음",
     "actions": {
