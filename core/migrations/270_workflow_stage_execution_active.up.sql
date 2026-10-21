@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY workflow_stage_execution_active_uidx ON workflow_stage_execution (workspace_id, workflow_instance_id) WHERE status IN ('pending', 'queued', 'running', 'awaiting_review', 'blocked');

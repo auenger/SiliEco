@@ -1,0 +1,52 @@
+import { test, expect } from "@playwright/test";
+import { createTestApi } from "./helpers";
+
+test("member submits an improvement proposal without publishing the skill", async ({page}, testInfo) => {
+  test.setTimeout(300000);
+  test.skip(!process.env.DATABASE_URL, "Fixture cleanup requires acceptance database");
+  const api = await createTestApi(); let skillId = "";
+  try {
+    const skill = await api.createSkillCandidateFixture(`proposal-browser-${Date.now()}`); skillId = skill.id;
+    const baseline = await api.createSkillRevisionFixture(skillId, "# Baseline instructions");
+    const candidate = await api.createSkillRevisionFixture(skillId, "# Candidate with verification step");
+    const token = api.getToken(); if (!token) throw new Error("Missing login");
+    await page.addInitScript((token) => {localStorage.setItem("silieco_token", token);localStorage.setItem("silieco:chat:isOpen", "false");}, token);
+    await page.setViewportSize({width: 1440, height: 1000});
+    await page.goto(`/${api.getWorkspaceSlug()}/skills/${skillId}?view=proposals`, {waitUntil: "domcontentloaded"});
+    await page.getByRole("tab", {name: "Improvement proposals", exact: true}).click();
+    await expect(page.getByText("No improvement proposals yet.")).toBeVisible();
+    await page.getByRole("button", {name: "Create proposal", exact: true}).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("combobox", {name: "Baseline revision"}).click();
+    await page.getByRole("option", {name: new RegExp(baseline.revision_hash.slice(7, 23))}).click();
+    await dialog.getByRole("combobox", {name: "Candidate revision"}).click();
+    await page.getByRole("option", {name: new RegExp(candidate.revision_hash.slice(7, 23))}).click();
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await dialog.getByLabel("Reason for the change").fill("A report omitted the verification step");
+    await dialog.getByLabel("Improvement hypothesis").fill("Explicit verification instructions reduce omissions");
+    await dialog.getByLabel("Applicable scope").fill("Report-producing stages");
+    await dialog.locator("fieldset").evaluate((el) => {el.scrollTop = 0;});
+    await expect.poll(async () => (await dialog.boundingBox())!.width).toBe(896);
+    await page.screenshot({path: testInfo.outputPath("proposal-desktop.png"), animations: "disabled"});
+    await page.setViewportSize({width: 390, height: 844});
+    await expect.poll(async () => (await dialog.boundingBox())!.width).toBeLessThanOrEqual(358);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({path: testInfo.outputPath("proposal-mobile.png"), animations: "disabled"});
+    await page.setViewportSize({width: 1440, height: 1000});
+    const response = page.waitForResponse((r) => r.url().endsWith(`/api/skills/${skillId}/proposals`) && r.request().method() === "POST");
+    await dialog.getByRole("button", {name: "Submit proposal", exact: true}).click();
+    const saved = await response;
+    expect(saved.status(), await saved.text()).toBe(201);
+    expect(saved.request().postDataJSON()).toMatchObject({baseline_revision_id: baseline.id, candidate_revision_id: candidate.id, category: "human_correction", reason: "A report omitted the verification step"});
+    await expect(dialog.getByRole("heading", {name: "View proposal"})).toBeVisible();
+    await expect(dialog.getByText("Manual feedback; no execution evidence attached.", {exact: true})).toBeVisible();
+    await expect(dialog.getByText("# Candidate with verification step", {exact: true})).toBeVisible();
+    await expect.poll(async () => (await dialog.boundingBox())!.width).toBe(896);
+    await page.screenshot({path: testInfo.outputPath("proposal-detail-desktop.png"), animations: "disabled"});
+    expect((await api.readSkillCandidateFixture(skillId)).content).toBe("# Saved baseline");
+    await dialog.getByRole("button", {name: "Close", exact: true}).first().click();
+    await page.reload({waitUntil: "domcontentloaded"});
+    await page.getByRole("button", {name: "View proposal", exact: true}).click();
+    await expect(page.getByRole("dialog").getByText("A report omitted the verification step", {exact: true})).toBeVisible();
+  } finally {if (skillId) await api.deleteSkillCandidateFixture(skillId);await api.cleanup();}
+});

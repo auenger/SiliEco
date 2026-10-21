@@ -994,23 +994,113 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, trig
 }
 
 func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID) (db.AgentTaskQueue, error) {
+	// Resolve attribution and external overlays before holding a DB connection.
+	prepared, err := s.prepareIssueTaskWithCommentPlan(ctx, issue, triggerCommentID, coalescedCommentIDs, forceFreshSession, handoffNote, actorUserID, rerunOfTaskID)
+	if err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+
+	task, err := s.insertPreparedIssueTask(ctx, issue, prepared)
+	if err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+	slog.Info("task enqueued", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(issue.AssigneeID), "force_fresh_session", forceFreshSession)
+	// Publish before waking the daemon so dispatch cannot precede queued.
+	s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
+	s.NotifyTaskEnqueued(ctx, task)
+	return task, nil
+}
+
+// insertPreparedIssueTask serializes unbound issue calls with Run mutations.
+// Preparation must finish before entering this transaction; explicit mention
+// targets need not be the issue assignee. Callers publish only after commit.
+func (s *TaskService) insertPreparedIssueTask(ctx context.Context, issue db.Issue, prepared db.CreateAgentTaskParams) (db.AgentTaskQueue, error) {
+	return s.insertIssueCall(ctx, issue, prepared.AgentID, prepared.RuntimeID, func(q *db.Queries, current db.Issue) (db.AgentTaskQueue, error) {
+		prepared.Priority = priorityToInt(current.Priority)
+		return q.CreateAgentTask(ctx, prepared)
+	})
+}
+
+// insertIssueCall keeps queued and deferred calls under the same Run protocol.
+// The callback must use the provided transaction and perform no external reads.
+func (s *TaskService) insertIssueCall(ctx context.Context, issue db.Issue, agentID, runtimeID pgtype.UUID, insert func(*db.Queries, db.Issue) (db.AgentTaskQueue, error)) (db.AgentTaskQueue, error) {
+	tx, err := s.TxStarter.Begin(ctx)
+	if err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := s.Queries.WithTx(tx)
+	current, runs, err := LockIssueWorkflowMutation(ctx, q, issue.WorkspaceID, issue.ID, pgtype.UUID{})
+	if err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+	if current.WorkflowInstanceID != issue.WorkflowInstanceID || current.WorkflowStageID != issue.WorkflowStageID || current.AssigneeID != issue.AssigneeID || current.AssigneeType != issue.AssigneeType {
+		return db.AgentTaskQueue{}, ErrWorkflowExecutionConflict
+	}
+	for _, run := range runs {
+		if run.ArchivedAt.Valid || run.Status == "completed" || run.Status == "cancelled" {
+			return db.AgentTaskQueue{}, ErrWorkflowExecutionConflict
+		}
+	}
+	if current.WorkflowInstanceID.Valid {
+		stage, err := q.GetWorkflowInstanceStage(ctx, db.GetWorkflowInstanceStageParams{ID: current.WorkflowStageID, WorkflowInstanceID: current.WorkflowInstanceID, WorkspaceID: current.WorkspaceID})
+		if err != nil {
+			return db.AgentTaskQueue{}, err
+		}
+		if stage.ExecutionMode != "manual" || current.Status == "done" || current.Status == "cancelled" || current.Status == "backlog" {
+			return db.AgentTaskQueue{}, ErrWorkflowExecutionConflict
+		}
+	}
+	issue = current
+	agent, err := q.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{ID: agentID, WorkspaceID: issue.WorkspaceID})
+	if err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+	if agent.ArchivedAt.Valid || agent.RuntimeID != runtimeID {
+		return db.AgentTaskQueue{}, ErrWorkflowExecutionConflict
+	}
+	task, err := insert(q, current)
+	if err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+	return task, nil
+}
+
+// createIssueTaskWithCommentPlan inserts through the caller's transaction when
+// provided. It performs no enqueue notification; callers notify after commit.
+func (s *TaskService) createIssueTaskWithCommentPlan(ctx context.Context, queries *db.Queries, issue db.Issue, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID) (db.AgentTaskQueue, error) {
+	params, err := s.prepareIssueTaskWithCommentPlan(ctx, issue, triggerCommentID, coalescedCommentIDs, forceFreshSession, handoffNote, actorUserID, rerunOfTaskID)
+	if err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+	task, err := queries.CreateAgentTask(ctx, params)
+	if err != nil {
+		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
+	}
+	return task, nil
+}
+
+func (s *TaskService) prepareIssueTaskWithCommentPlan(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID) (db.CreateAgentTaskParams, error) {
 	if !issue.AssigneeID.Valid {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "issue has no assignee")
-		return db.AgentTaskQueue{}, fmt.Errorf("issue has no assignee")
+		return db.CreateAgentTaskParams{}, fmt.Errorf("issue has no assignee")
 	}
 
 	agent, err := s.Queries.GetAgent(ctx, issue.AssigneeID)
 	if err != nil {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
-		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		return db.CreateAgentTaskParams{}, fmt.Errorf("load agent: %w", err)
 	}
 	if agent.ArchivedAt.Valid {
 		slog.Debug("task enqueue skipped: agent is archived", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agent.ID))
-		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.CreateAgentTaskParams{}, fmt.Errorf("agent is archived")
 	}
 	if !agent.RuntimeID.Valid {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "agent has no runtime")
-		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
+		return db.CreateAgentTaskParams{}, fmt.Errorf("agent has no runtime")
 	}
 
 	// The issue assignee reacting to an agent-authored comment is a
@@ -1024,12 +1114,12 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue
 	attr, err = s.applyAttributionFallback(ctx, attr, agent)
 	if err != nil {
 		slog.Warn("task enqueue refused: attribution fail-closed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(issue.AssigneeID))
-		return db.AgentTaskQueue{}, err
+		return db.CreateAgentTaskParams{}, err
 	}
 	originatorUserID := attr.UserID
 	runtimeMCPOverlay := s.buildRuntimeMCPOverlay(ctx, originatorUserID, agent)
 	attrSource, attrDelegatedFrom, attrEvidenceKind, attrEvidenceRef := attributionCreateParams(attr)
-	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
+	return db.CreateAgentTaskParams{
 		AgentID:              issue.AssigneeID,
 		RuntimeID:            agent.RuntimeID,
 		IssueID:              issue.ID,
@@ -1052,27 +1142,7 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue
 		// Stamp the reviewed head so dedup can distinguish this run's target
 		// from a later request against a new HEAD (TEN-356).
 		HeadSha: headShaText(s.ResolveIssueReviewSHA(ctx, issue.ID)),
-	})
-	if err != nil {
-		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
-		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
-	}
-
-	slog.Info("task enqueued",
-		"task_id", util.UUIDToString(task.ID),
-		"issue_id", util.UUIDToString(issue.ID),
-		"agent_id", util.UUIDToString(issue.AssigneeID),
-		"force_fresh_session", forceFreshSession,
-	)
-	// Order matters: broadcast first, notify daemon second. notifyTaskAvailable
-	// kicks an in-process channel that the daemon picks up over HTTP and
-	// claims; the claim path then emits its own task:dispatch. Doing the
-	// queued broadcast afterwards risks the dispatch event reaching clients
-	// before the queued one (rare but unsafe-by-construction). Publishing
-	// in the desired observe-order makes correctness independent of timing.
-	s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
-	s.NotifyTaskEnqueued(ctx, task)
-	return task, nil
+	}, nil
 }
 
 // EnqueueTaskForMention creates a queued task for a mentioned agent on an issue.
@@ -1146,7 +1216,7 @@ func (s *TaskService) enqueueMentionTaskWithCommentPlan(ctx context.Context, iss
 	originatorUserID := attr.UserID
 	runtimeMCPOverlay := s.buildRuntimeMCPOverlay(ctx, originatorUserID, agent)
 	attrSource, attrDelegatedFrom, attrEvidenceKind, attrEvidenceRef := attributionCreateParams(attr)
-	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
+	task, err := s.insertPreparedIssueTask(ctx, issue, db.CreateAgentTaskParams{
 		AgentID:              agentID,
 		RuntimeID:            agent.RuntimeID,
 		IssueID:              issue.ID,
@@ -1227,7 +1297,7 @@ func (s *TaskService) EnqueueDeferredAssigneeFallback(ctx context.Context, issue
 	}
 	attrSource, attrDelegatedFrom, attrEvidenceKind, attrEvidenceRef := attributionCreateParams(attr)
 	isLeader := squadID.Valid
-	task, err := s.Queries.CreateDeferredAgentTask(ctx, db.CreateDeferredAgentTaskParams{
+	prepared := db.CreateDeferredAgentTaskParams{
 		AgentID:              agentID,
 		RuntimeID:            agent.RuntimeID,
 		IssueID:              issue.ID,
@@ -1244,6 +1314,10 @@ func (s *TaskService) EnqueueDeferredAssigneeFallback(ctx context.Context, issue
 		DelegatedFromTaskID:  attrDelegatedFrom,
 		TriggerEvidenceKind:  attrEvidenceKind,
 		TriggerEvidenceRefID: attrEvidenceRef,
+	}
+	task, err := s.insertIssueCall(ctx, issue, agentID, agent.RuntimeID, func(q *db.Queries, current db.Issue) (db.AgentTaskQueue, error) {
+		prepared.Priority = priorityToInt(current.Priority)
+		return q.CreateDeferredAgentTask(ctx, prepared)
 	})
 	if err != nil {
 		slog.Error("deferred fallback enqueue failed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
@@ -2359,7 +2433,13 @@ func (s *TaskService) ClaimTask(ctx context.Context, agentID pgtype.UUID) (*db.A
 		return nil, err
 	}
 	if claimed == nil {
-		return nil, nil
+		claimed, err = s.claimNextWorkflowReview(ctx, agentID)
+		if err != nil {
+			return nil, err
+		}
+		if claimed == nil {
+			return nil, nil
+		}
 	}
 
 	slog.Info("task claimed", "task_id", util.UUIDToString(claimed.ID), "agent_id", util.UUIDToString(agentID))
@@ -2516,6 +2596,12 @@ func (s *TaskService) FinalizeTaskClaim(
 ) ([]pgtype.UUID, error) {
 	receipt := task.DeliveredCommentIds
 	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		if task.WorkflowReviewRequestID.Valid {
+			workflow := WorkflowExecutionService{Queries: s.Queries, TxStarter: s.TxStarter}
+			if err := workflow.validateReviewCallInTx(ctx, qtx, task); err != nil {
+				return err
+			}
+		}
 		if _, err := qtx.CreateTaskToken(ctx, token); err != nil {
 			return fmt.Errorf("create task token: %w", err)
 		}
@@ -2790,7 +2876,7 @@ func (s *TaskService) maybeLogClaimSlow(agentID pgtype.UUID, outcome string, sta
 // StartTask transitions a dispatched task to running.
 // Issue status is NOT changed here — the agent manages it via the CLI.
 func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.AgentTaskQueue, error) {
-	task, err := s.Queries.StartAgentTask(ctx, taskID)
+	task, err := s.startTaskWithReviewValidation(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("start task: %w", err)
 	}
@@ -3309,6 +3395,7 @@ func (s *TaskService) FailTaskWithDelivery(ctx context.Context, taskID pgtype.UU
 	// common agent_error path skips this work entirely.
 	var (
 		wantRetry        bool
+		retryParent      db.AgentTaskQueue
 		retryOverlay     runtimeMCPOverlayData
 		retryFireAt      pgtype.Timestamptz
 		retryMaxAttempts pgtype.Int4
@@ -3317,16 +3404,19 @@ func (s *TaskService) FailTaskWithDelivery(ctx context.Context, taskID pgtype.UU
 		if parent, perr := s.Queries.GetAgentTask(ctx, taskID); perr != nil {
 			slog.Warn("fail task auto-retry: load parent failed",
 				"task_id", util.UUIDToString(taskID), "error", perr)
-		} else if retryEligible(failureReason, parent) {
+		} else if ceiling, delay, policyErr := taskRetrySettings(ctx, s.Queries, parent, failureReason); policyErr != nil {
+			slog.Warn("fail task auto-retry: invalid frozen policy", "task_id", util.UUIDToString(taskID), "error", policyErr)
+		} else if retryEligibleWithCeiling(failureReason, parent, ceiling) {
 			wantRetry = true
+			retryParent = parent
 			// Persist the reason-aware effective budget into the child so the
 			// retry chain self-describes (e.g. provider_network → max_attempts=3),
 			// rather than leaking a contradictory attempt=N/max_attempts=2 row.
-			retryMaxAttempts = pgtype.Int4{Int32: retryAttemptCeiling(failureReason, parent.MaxAttempts), Valid: true}
+			retryMaxAttempts = pgtype.Int4{Int32: ceiling, Valid: true}
 			// Defer this attempt when the reason's schedule calls for a backoff
 			// (provider_network's final attempt waits ~5s); a zero delay leaves
 			// fire_at NULL so the child is created immediately-claimable.
-			if delay := retryDelayForAttempt(failureReason, parent.Attempt); delay > 0 {
+			if delay > 0 {
 				retryFireAt = pgtype.Timestamptz{Time: time.Now().Add(delay), Valid: true}
 			}
 			if agent, aerr := s.Queries.GetAgent(ctx, parent.AgentID); aerr != nil {
@@ -3344,6 +3434,11 @@ func (s *TaskService) FailTaskWithDelivery(ctx context.Context, taskID pgtype.UU
 	var task db.AgentTaskQueue
 	var retried *db.AgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		if wantRetry {
+			if err := lockWorkflowTaskRetry(ctx, qtx, retryParent); err != nil {
+				return err
+			}
+		}
 		t, err := qtx.FailAgentTask(ctx, db.FailAgentTaskParams{
 			ID:                     taskID,
 			Error:                  pgtype.Text{String: errMsg, Valid: true},
@@ -3436,10 +3531,12 @@ func (s *TaskService) FailTaskWithDelivery(ctx context.Context, taskID pgtype.UU
 				RuntimeMcpOverlay:    retryOverlay.Overlay,
 				RuntimeConnectedApps: retryOverlay.ConnectedApps,
 			})
-			if cerr != nil {
+			if cerr == nil {
+				retried = &child
+			} else if !errors.Is(cerr, pgx.ErrNoRows) || (!t.WorkflowStageExecutionID.Valid && !t.WorkflowReviewRequestID.Valid && !t.IssueID.Valid) {
 				return fmt.Errorf("create retry task: %w", cerr)
 			}
-			retried = &child
+			// An ineligible SOP retry must not roll back the failed call.
 		}
 		return nil
 	}); err != nil {
@@ -3497,7 +3594,9 @@ func (s *TaskService) FailTaskWithDelivery(ctx context.Context, taskID pgtype.UU
 	// the new task will surface its own status to the user, and we don't
 	// want to spam the issue with "task timed out" messages on every
 	// daemon hiccup.
-	if errMsg != "" && task.IssueID.Valid && retried == nil {
+	// Reviewer failures stay on the call: touching the delivery issue would
+	// change its evidence hash and accidentally trigger another review request.
+	if errMsg != "" && task.IssueID.Valid && retried == nil && !task.WorkflowReviewRequestID.Valid {
 		s.createAgentComment(ctx, task.IssueID, task.AgentID, redact.Text(errMsg), "system", task.TriggerCommentID, task.ID)
 	}
 
@@ -3660,9 +3759,14 @@ func ResumeUnsafeFailure(failureReason, errorText string) bool {
 // FailTask's in-transaction retry and the orphan sweeper's MaybeRetryFailedTask
 // so both agree on which failures re-run.
 func retryEligible(failureReason string, t db.AgentTaskQueue) bool {
+	return retryEligibleWithCeiling(failureReason, t, retryAttemptCeiling(failureReason, t.MaxAttempts))
+}
+
+func retryEligibleWithCeiling(failureReason string, t db.AgentTaskQueue, ceiling int32) bool {
 	return retryableReasons[failureReason] &&
-		t.Attempt < retryAttemptCeiling(failureReason, t.MaxAttempts) &&
+		t.Attempt < ceiling &&
 		!t.AutopilotRunID.Valid &&
+		!t.WorkflowReviewRequestID.Valid &&
 		(t.IssueID.Valid || t.ChatSessionID.Valid)
 }
 
@@ -3674,6 +3778,8 @@ func retryEligible(failureReason string, t db.AgentTaskQueue) bool {
 // the agent can resume the conversation when the backend supports it. Returns
 // the new task, or nil when no retry was created.
 //
+// Review calls are excluded: their recovery must rebind review evidence and
+// cannot use the ordinary task clone.
 // Autopilot tasks are NOT auto-retried here; the autopilot scheduler owns
 // its own re-run cadence and we don't want to double-fire it.
 func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.AgentTaskQueue) (*db.AgentTaskQueue, error) {
@@ -3687,24 +3793,25 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.AgentT
 	if !retryableReasons[reason] {
 		return nil, nil
 	}
-	// Use the reason-aware ceiling, not the raw max_attempts column, so an
-	// orphaned provider_network task recovered on its 2nd attempt is still
-	// allowed its deferred 3rd attempt (retryAttemptCeiling raises the ceiling
-	// to 3). Kept in sync with retryEligible below, which applies the same
-	// ceiling to the primary FailTask path.
-	if parent.Attempt >= retryAttemptCeiling(reason, parent.MaxAttempts) {
+	ceiling, delay, policyErr := taskRetrySettings(ctx, s.Queries, parent, reason)
+	if policyErr != nil {
+		return nil, policyErr
+	}
+	// Both failure callbacks and sweepers honor the immutable SOP policy.
+	// Calls without a custom policy retain the reason-specific task defaults.
+	if parent.Attempt >= ceiling {
 		slog.Info("task auto-retry skipped: budget exhausted",
 			"task_id", util.UUIDToString(parent.ID),
 			"attempt", parent.Attempt,
 			"max_attempts", parent.MaxAttempts,
-			"ceiling", retryAttemptCeiling(reason, parent.MaxAttempts),
+			"ceiling", ceiling,
 		)
 		return nil, nil
 	}
 	// Autopilot has its own retry semantics (don't double-trigger) and a task
 	// with no issue/chat link has nowhere to report its retry — retryEligible
 	// covers both, keeping this sweeper path in sync with FailTask's in-tx retry.
-	if !retryEligible(reason, parent) {
+	if !retryEligibleWithCeiling(reason, parent, ceiling) {
 		return nil, nil
 	}
 
@@ -3727,16 +3834,27 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.AgentT
 	// NULL for an immediate child), and write the reason-aware ceiling into the
 	// child's max_attempts so the retry chain stays self-consistent.
 	var retryFireAt pgtype.Timestamptz
-	if delay := retryDelayForAttempt(reason, parent.Attempt); delay > 0 {
+	if delay > 0 {
 		retryFireAt = pgtype.Timestamptz{Time: time.Now().Add(delay), Valid: true}
 	}
-	child, err := s.Queries.CreateRetryTask(ctx, db.CreateRetryTaskParams{
-		ID:                   parent.ID,
-		FireAt:               retryFireAt,
-		MaxAttempts:          pgtype.Int4{Int32: retryAttemptCeiling(reason, parent.MaxAttempts), Valid: true},
-		RuntimeMcpOverlay:    runtimeMCPOverlay.Overlay,
-		RuntimeConnectedApps: runtimeMCPOverlay.ConnectedApps,
+	var child db.AgentTaskQueue
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		if err := lockWorkflowTaskRetry(ctx, qtx, parent); err != nil {
+			return err
+		}
+		var err error
+		child, err = qtx.CreateRetryTask(ctx, db.CreateRetryTaskParams{
+			ID:                   parent.ID,
+			FireAt:               retryFireAt,
+			MaxAttempts:          pgtype.Int4{Int32: ceiling, Valid: true},
+			RuntimeMcpOverlay:    runtimeMCPOverlay.Overlay,
+			RuntimeConnectedApps: runtimeMCPOverlay.ConnectedApps,
+		})
+		return err
 	})
+	if errors.Is(err, pgx.ErrNoRows) && (parent.WorkflowStageExecutionID.Valid || parent.IssueID.Valid) {
+		return nil, nil
+	}
 	if err != nil {
 		slog.Warn("task auto-retry failed",
 			"parent_task_id", util.UUIDToString(parent.ID),
@@ -4052,11 +4170,8 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 							"error", checkErr,
 						)
 					} else if !hasActive {
-						updatedIssue, updateErr := s.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
-							ID:          t.IssueID,
-							Status:      "todo",
-							WorkspaceID: issue.WorkspaceID,
-						})
+						workflowSvc := WorkflowExecutionService{Queries: s.Queries, TxStarter: s.TxStarter}
+						updatedIssue, updateErr := workflowSvc.UpdateIssueStatusWithWorkflowLock(ctx, issue, "todo")
 						if updateErr != nil {
 							slog.Warn("handle failed tasks: reset stuck issue failed",
 								"issue_id", issueKey,

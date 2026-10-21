@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY workflow_review_recovery_source_idx ON workflow_review_recovery (workspace_id, failed_task_id);

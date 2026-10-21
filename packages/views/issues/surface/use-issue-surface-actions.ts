@@ -9,6 +9,7 @@ import {
   useUpdateIssue,
 } from "@silieco/core/issues/mutations";
 import { useModalStore } from "@silieco/core/modals";
+import { isRevisionConflictError } from "@silieco/core/revisions";
 import {
   type IssueSurfaceActions,
   type IssueSurfaceMutationOptions,
@@ -60,12 +61,12 @@ export function useIssueSurfaceActions({
         {
           onSuccess: () => options?.onSuccess?.(),
           onError: (err) => {
-            toast.error(
-              err instanceof Error && err.message
-                ? err.message
-                : (options?.errorMessage ??
-                    t(($) => $.detail.toast_move_issue_failed)),
-            );
+            if (!isRevisionConflictError(err)) {
+              toast.error(
+                options?.errorMessage ??
+                  t(($) => $.detail.toast_move_issue_failed),
+              );
+            }
             options?.onError?.(err);
           },
           onSettled: () => options?.onSettled?.(),
@@ -89,12 +90,8 @@ export function useIssueSurfaceActions({
           move_intent: { before_id, after_id },
         },
         {
-          onError: (err) => {
-            toast.error(
-              err instanceof Error && err.message
-                ? err.message
-                : t(($) => $.detail.toast_move_issue_failed),
-            );
+          onError: () => {
+            toast.error(t(($) => $.detail.toast_move_issue_failed));
           },
           onSettled,
         },

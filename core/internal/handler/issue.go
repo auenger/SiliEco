@@ -46,9 +46,10 @@ type IssueResponse struct {
 	ProjectID     *string `json:"project_id"`
 	// Workflow fields are independent from task status. Both are null for a
 	// plain Task, preserving the existing straight-line lifecycle.
-	WorkflowInstanceID *string `json:"workflow_instance_id"`
-	WorkflowStageID    *string `json:"workflow_stage_id"`
-	Position           float64 `json:"position"`
+	WorkflowInstanceID            *string `json:"workflow_instance_id"`
+	WorkflowStageID               *string `json:"workflow_stage_id"`
+	WorkflowInvalidatedByReworkID *string `json:"workflow_invalidated_by_rework_id"`
+	Position                      float64 `json:"position"`
 	// Stage groups sub-issues under the same parent into ordered barrier
 	// groups (null = unstaged). See issue_child_done.go for how a closed
 	// stage gates the child-done -> parent wake.
@@ -96,31 +97,32 @@ func validateIssueEnum(w http.ResponseWriter, field, value string, allowed []str
 func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:                 uuidToString(i.ID),
-		WorkspaceID:        uuidToString(i.WorkspaceID),
-		Number:             i.Number,
-		Identifier:         identifier,
-		Title:              i.Title,
-		Description:        textToPtr(i.Description),
-		Status:             i.Status,
-		Priority:           i.Priority,
-		AssigneeType:       textToPtr(i.AssigneeType),
-		AssigneeID:         uuidToPtr(i.AssigneeID),
-		CreatorType:        i.CreatorType,
-		CreatorID:          uuidToString(i.CreatorID),
-		ParentIssueID:      uuidToPtr(i.ParentIssueID),
-		ProjectID:          uuidToPtr(i.ProjectID),
-		WorkflowInstanceID: uuidToPtr(i.WorkflowInstanceID),
-		WorkflowStageID:    uuidToPtr(i.WorkflowStageID),
-		Revision:           timestampToString(i.UpdatedAt),
-		Position:           i.Position,
-		Stage:              int4ToPtr(i.Stage),
-		StartDate:          dateToPtr(i.StartDate),
-		DueDate:            dateToPtr(i.DueDate),
-		CreatedAt:          timestampToString(i.CreatedAt),
-		UpdatedAt:          timestampToString(i.UpdatedAt),
-		Metadata:           parseIssueMetadata(i.Metadata),
-		Properties:         parseIssueProperties(i.Properties),
+		ID:                            uuidToString(i.ID),
+		WorkspaceID:                   uuidToString(i.WorkspaceID),
+		Number:                        i.Number,
+		Identifier:                    identifier,
+		Title:                         i.Title,
+		Description:                   textToPtr(i.Description),
+		Status:                        i.Status,
+		Priority:                      i.Priority,
+		AssigneeType:                  textToPtr(i.AssigneeType),
+		AssigneeID:                    uuidToPtr(i.AssigneeID),
+		CreatorType:                   i.CreatorType,
+		CreatorID:                     uuidToString(i.CreatorID),
+		ParentIssueID:                 uuidToPtr(i.ParentIssueID),
+		ProjectID:                     uuidToPtr(i.ProjectID),
+		WorkflowInstanceID:            uuidToPtr(i.WorkflowInstanceID),
+		WorkflowStageID:               uuidToPtr(i.WorkflowStageID),
+		WorkflowInvalidatedByReworkID: uuidToPtr(i.WorkflowInvalidatedByReworkID),
+		Revision:                      revisionTimestampToString(i.UpdatedAt),
+		Position:                      i.Position,
+		Stage:                         int4ToPtr(i.Stage),
+		StartDate:                     dateToPtr(i.StartDate),
+		DueDate:                       dateToPtr(i.DueDate),
+		CreatedAt:                     timestampToString(i.CreatedAt),
+		UpdatedAt:                     timestampToString(i.UpdatedAt),
+		Metadata:                      parseIssueMetadata(i.Metadata),
+		Properties:                    parseIssueProperties(i.Properties),
 	}
 }
 
@@ -128,30 +130,31 @@ func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueResponse {
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:                 uuidToString(i.ID),
-		WorkspaceID:        uuidToString(i.WorkspaceID),
-		Number:             i.Number,
-		Identifier:         identifier,
-		Title:              i.Title,
-		Description:        textToPtr(i.Description),
-		Status:             i.Status,
-		Priority:           i.Priority,
-		AssigneeType:       textToPtr(i.AssigneeType),
-		AssigneeID:         uuidToPtr(i.AssigneeID),
-		CreatorType:        i.CreatorType,
-		CreatorID:          uuidToString(i.CreatorID),
-		ParentIssueID:      uuidToPtr(i.ParentIssueID),
-		ProjectID:          uuidToPtr(i.ProjectID),
-		WorkflowInstanceID: uuidToPtr(i.WorkflowInstanceID),
-		WorkflowStageID:    uuidToPtr(i.WorkflowStageID),
-		Position:           i.Position,
-		Stage:              int4ToPtr(i.Stage),
-		StartDate:          dateToPtr(i.StartDate),
-		DueDate:            dateToPtr(i.DueDate),
-		CreatedAt:          timestampToString(i.CreatedAt),
-		UpdatedAt:          timestampToString(i.UpdatedAt),
-		Metadata:           parseIssueMetadata(i.Metadata),
-		Properties:         parseIssueProperties(i.Properties),
+		ID:                            uuidToString(i.ID),
+		WorkspaceID:                   uuidToString(i.WorkspaceID),
+		Number:                        i.Number,
+		Identifier:                    identifier,
+		Title:                         i.Title,
+		Description:                   textToPtr(i.Description),
+		Status:                        i.Status,
+		Priority:                      i.Priority,
+		AssigneeType:                  textToPtr(i.AssigneeType),
+		AssigneeID:                    uuidToPtr(i.AssigneeID),
+		CreatorType:                   i.CreatorType,
+		CreatorID:                     uuidToString(i.CreatorID),
+		ParentIssueID:                 uuidToPtr(i.ParentIssueID),
+		ProjectID:                     uuidToPtr(i.ProjectID),
+		WorkflowInstanceID:            uuidToPtr(i.WorkflowInstanceID),
+		WorkflowStageID:               uuidToPtr(i.WorkflowStageID),
+		WorkflowInvalidatedByReworkID: uuidToPtr(i.WorkflowInvalidatedByReworkID),
+		Position:                      i.Position,
+		Stage:                         int4ToPtr(i.Stage),
+		StartDate:                     dateToPtr(i.StartDate),
+		DueDate:                       dateToPtr(i.DueDate),
+		CreatedAt:                     timestampToString(i.CreatedAt),
+		UpdatedAt:                     timestampToString(i.UpdatedAt),
+		Metadata:                      parseIssueMetadata(i.Metadata),
+		Properties:                    parseIssueProperties(i.Properties),
 	}
 }
 
@@ -191,30 +194,31 @@ func (h *Handler) labelsByIssue(ctx context.Context, wsUUID pgtype.UUID, issueID
 func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueResponse {
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:                 uuidToString(i.ID),
-		WorkspaceID:        uuidToString(i.WorkspaceID),
-		Number:             i.Number,
-		Identifier:         identifier,
-		Title:              i.Title,
-		Description:        textToPtr(i.Description),
-		Status:             i.Status,
-		Priority:           i.Priority,
-		AssigneeType:       textToPtr(i.AssigneeType),
-		AssigneeID:         uuidToPtr(i.AssigneeID),
-		CreatorType:        i.CreatorType,
-		CreatorID:          uuidToString(i.CreatorID),
-		ParentIssueID:      uuidToPtr(i.ParentIssueID),
-		ProjectID:          uuidToPtr(i.ProjectID),
-		WorkflowInstanceID: uuidToPtr(i.WorkflowInstanceID),
-		WorkflowStageID:    uuidToPtr(i.WorkflowStageID),
-		Position:           i.Position,
-		Stage:              int4ToPtr(i.Stage),
-		StartDate:          dateToPtr(i.StartDate),
-		DueDate:            dateToPtr(i.DueDate),
-		CreatedAt:          timestampToString(i.CreatedAt),
-		UpdatedAt:          timestampToString(i.UpdatedAt),
-		Metadata:           parseIssueMetadata(i.Metadata),
-		Properties:         parseIssueProperties(i.Properties),
+		ID:                            uuidToString(i.ID),
+		WorkspaceID:                   uuidToString(i.WorkspaceID),
+		Number:                        i.Number,
+		Identifier:                    identifier,
+		Title:                         i.Title,
+		Description:                   textToPtr(i.Description),
+		Status:                        i.Status,
+		Priority:                      i.Priority,
+		AssigneeType:                  textToPtr(i.AssigneeType),
+		AssigneeID:                    uuidToPtr(i.AssigneeID),
+		CreatorType:                   i.CreatorType,
+		CreatorID:                     uuidToString(i.CreatorID),
+		ParentIssueID:                 uuidToPtr(i.ParentIssueID),
+		ProjectID:                     uuidToPtr(i.ProjectID),
+		WorkflowInstanceID:            uuidToPtr(i.WorkflowInstanceID),
+		WorkflowStageID:               uuidToPtr(i.WorkflowStageID),
+		WorkflowInvalidatedByReworkID: uuidToPtr(i.WorkflowInvalidatedByReworkID),
+		Position:                      i.Position,
+		Stage:                         int4ToPtr(i.Stage),
+		StartDate:                     dateToPtr(i.StartDate),
+		DueDate:                       dateToPtr(i.DueDate),
+		CreatedAt:                     timestampToString(i.CreatedAt),
+		UpdatedAt:                     timestampToString(i.UpdatedAt),
+		Metadata:                      parseIssueMetadata(i.Metadata),
+		Properties:                    parseIssueProperties(i.Properties),
 	}
 }
 
@@ -613,7 +617,7 @@ func buildSearchQuery(phrase string, terms []string, queryNum int, hasNum bool, 
 	query := fmt.Sprintf(`SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
 		i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
 		i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position,
-		i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id,
+		i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_instance_id, i.workflow_stage_id, i.workflow_invalidated_by_rework_id,
 		COUNT(*) OVER() AS total_count,
 		%s AS match_source,
 		%s AS matched_comment_content
@@ -700,6 +704,9 @@ func (h *Handler) SearchIssues(w http.ResponseWriter, r *http.Request) {
 				&sr.issue.UpdatedAt,
 				&sr.issue.Number,
 				&sr.issue.ProjectID,
+				&sr.issue.WorkflowInstanceID,
+				&sr.issue.WorkflowStageID,
+				&sr.issue.WorkflowInvalidatedByReworkID,
 				&sr.totalCount,
 				&sr.matchSource,
 				&sr.matchedCommentContent,
@@ -1201,7 +1208,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 
 	query := fmt.Sprintf(`SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.metadata, i.stage, i.properties
+       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.metadata, i.stage, i.properties, i.workflow_instance_id, i.workflow_stage_id, i.workflow_invalidated_by_rework_id
 FROM issue i
 WHERE %s
 ORDER BY %s
@@ -1240,6 +1247,9 @@ LIMIT %s OFFSET %s`, whereSql, orderBy, limitRef, offsetRef)
 			&row.Metadata,
 			&row.Stage,
 			&row.Properties,
+			&row.WorkflowInstanceID,
+			&row.WorkflowStageID,
+			&row.WorkflowInvalidatedByReworkID,
 		); err != nil {
 			slog.Warn("ListIssues scan failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to list issues")
@@ -1763,7 +1773,7 @@ WITH ranked AS (
 		i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
 		i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
 		i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at,
-		i.number, i.project_id, i.metadata, i.stage, i.properties,
+		i.number, i.project_id, i.metadata, i.stage, i.properties, i.workflow_instance_id, i.workflow_stage_id, i.workflow_invalidated_by_rework_id,
 		COUNT(*) OVER (PARTITION BY i.assignee_type, i.assignee_id) AS group_total,
 		ROW_NUMBER() OVER (
 			PARTITION BY i.assignee_type, i.assignee_id
@@ -1776,7 +1786,7 @@ SELECT
 	id, workspace_id, title, description, status, priority,
 	assignee_type, assignee_id, creator_type, creator_id,
 	parent_issue_id, position, start_date, due_date, created_at, updated_at,
-	number, project_id, metadata, stage, properties, group_total
+	number, project_id, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_invalidated_by_rework_id, group_total
 FROM ranked
 WHERE rn > %s AND rn <= %s + %s
 ORDER BY
@@ -1823,6 +1833,9 @@ ORDER BY
 			&row.Metadata,
 			&row.Stage,
 			&row.Properties,
+			&row.WorkflowInstanceID,
+			&row.WorkflowStageID,
+			&row.WorkflowInvalidatedByReworkID,
 			&row.GroupTotal,
 		); err != nil {
 			slog.Warn("ListGroupedIssues scan failed", "error", err)
@@ -3089,12 +3102,28 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issue, err := h.Queries.UpdateIssue(r.Context(), params)
+	workflowSvc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
+	issue, err := workflowSvc.UpdateIssueWithWorkflowLock(r.Context(), prevIssue, params)
 	if err != nil {
+		if errors.Is(err, service.ErrWorkflowExecutionConflict) {
+			slog.Warn("task update workflow conflict", append(
+				logger.RequestAttrs(r),
+				"issue_id", id,
+				"error", err,
+			)...)
+			writeError(w, http.StatusConflict, "issue or workflow changed; reload before updating")
+			return
+		}
 		if errors.Is(err, pgx.ErrNoRows) && req.ExpectedRevision != nil {
 			current, loadErr := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{ID: prevIssue.ID, WorkspaceID: prevIssue.WorkspaceID})
 			if loadErr == nil {
-				writeJSON(w, http.StatusConflict, map[string]any{"error": "issue changed since it was loaded", "code": "revision_conflict", "current": issueToResponse(current, h.getIssuePrefix(r.Context(), current.WorkspaceID)), "attempted": req})
+				slog.Warn("issue revision conflict", append(
+					logger.RequestAttrs(r),
+					"issue_id", id,
+					"expected_revision", *req.ExpectedRevision,
+					"current_revision", revisionTimestampToString(current.UpdatedAt),
+				)...)
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "task changed since it was loaded", "code": "revision_conflict", "current": issueToResponse(current, h.getIssuePrefix(r.Context(), current.WorkspaceID)), "attempted": req})
 				return
 			}
 		}
@@ -3384,47 +3413,19 @@ func (h *Handler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
-	// Fail any linked autopilot runs before delete (ON DELETE SET NULL clears issue_id).
-	h.Queries.FailAutopilotRunsByIssue(r.Context(), issue.ID)
-
-	tx, err := h.TxStarter.Begin(r.Context())
+	workflowSvc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
+	deletion, err := workflowSvc.DeleteIssueWithWorkflowLock(r.Context(), issue.WorkspaceID, issue.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start delete transaction")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	qtx := h.Queries.WithTx(tx)
-	if err := qtx.DeleteAttachmentReferencesByTarget(r.Context(), db.DeleteAttachmentReferencesByTargetParams{
-		WorkspaceID: issue.WorkspaceID, TargetType: "issue", TargetID: issue.ID,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to remove attachment references")
-		return
-	}
-	if _, err := qtx.DetachReferencedAttachmentsFromIssue(r.Context(), db.DetachReferencedAttachmentsFromIssueParams{
-		WorkspaceID: issue.WorkspaceID, IssueID: issue.ID,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to preserve referenced attachments")
-		return
-	}
-	// Referenced files were detached above, so only unreferenced objects are
-	// collected for physical deletion after the database transaction commits.
-	attachmentURLs, _ := qtx.ListAttachmentURLsByIssueOrComments(r.Context(), issue.ID)
-
-	err = qtx.DeleteIssue(r.Context(), db.DeleteIssueParams{
-		ID:          issue.ID,
-		WorkspaceID: issue.WorkspaceID,
-	})
-	if err != nil {
+		if errors.Is(err, service.ErrWorkflowExecutionConflict) {
+			writeError(w, http.StatusConflict, "issue or workflow changed, or Run is closed")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to delete issue")
 		return
 	}
-	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to commit issue delete")
-		return
-	}
-
-	h.deleteS3Objects(r.Context(), attachmentURLs)
+	issue = deletion.Issue
+	h.TaskService.BroadcastCancelledTasks(r.Context(), deletion.CancelledTasks)
+	h.deleteS3Objects(r.Context(), deletion.AttachmentURLs)
 	userID := requestUserID(r)
 	actorType, actorID := h.resolveActor(r, userID, uuidToString(issue.WorkspaceID))
 	// Always emit the resolved UUID — frontend caches key by UUID, so an
@@ -3675,7 +3676,8 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		issue, err := h.Queries.UpdateIssue(r.Context(), params)
+		workflowSvc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
+		issue, err := workflowSvc.UpdateIssueWithWorkflowLock(r.Context(), prevIssue, params)
 		if err != nil {
 			slog.Warn("batch update issue failed", "issue_id", issueID, "error", err)
 			continue
@@ -3786,41 +3788,15 @@ func (h *Handler) BatchDeleteIssues(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
-		h.Queries.FailAutopilotRunsByIssue(r.Context(), issue.ID)
-
-		tx, err := h.TxStarter.Begin(r.Context())
+		workflowSvc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
+		deletion, err := workflowSvc.DeleteIssueWithWorkflowLock(r.Context(), issue.WorkspaceID, issue.ID)
 		if err != nil {
-			continue
-		}
-		qtx := h.Queries.WithTx(tx)
-		if err := qtx.DeleteAttachmentReferencesByTarget(r.Context(), db.DeleteAttachmentReferencesByTargetParams{
-			WorkspaceID: issue.WorkspaceID, TargetType: "issue", TargetID: issue.ID,
-		}); err != nil {
-			tx.Rollback(r.Context())
-			continue
-		}
-		if _, err := qtx.DetachReferencedAttachmentsFromIssue(r.Context(), db.DetachReferencedAttachmentsFromIssueParams{
-			WorkspaceID: issue.WorkspaceID, IssueID: issue.ID,
-		}); err != nil {
-			tx.Rollback(r.Context())
-			continue
-		}
-		attachmentURLs, _ := qtx.ListAttachmentURLsByIssueOrComments(r.Context(), issue.ID)
-
-		if err := qtx.DeleteIssue(r.Context(), db.DeleteIssueParams{
-			ID:          issue.ID,
-			WorkspaceID: issue.WorkspaceID,
-		}); err != nil {
-			tx.Rollback(r.Context())
 			slog.Warn("batch delete issue failed", "issue_id", issueID, "error", err)
 			continue
 		}
-		if err := tx.Commit(r.Context()); err != nil {
-			continue
-		}
-
-		h.deleteS3Objects(r.Context(), attachmentURLs)
+		issue = deletion.Issue
+		h.TaskService.BroadcastCancelledTasks(r.Context(), deletion.CancelledTasks)
+		h.deleteS3Objects(r.Context(), deletion.AttachmentURLs)
 
 		// Always emit the resolved UUID — frontend caches key by UUID.
 		actorType, actorID := h.resolveActor(r, userID, workspaceID)

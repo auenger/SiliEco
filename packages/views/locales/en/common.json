@@ -71,6 +71,8 @@
   "revision_conflict": {
     "title": "This content changed while you were editing",
     "description": "Compare the current server version with your edit. You can copy your text, reload the server version, or explicitly overwrite it.",
+    "task_title": "This task changed while you were editing",
+    "task_description": "Another update reached this task before yours. Compare both versions, then use the server version or explicitly overwrite it with your changes.",
     "server_version": "Current server version",
     "your_version": "Your edit",
     "copy_mine": "Copy my edit",

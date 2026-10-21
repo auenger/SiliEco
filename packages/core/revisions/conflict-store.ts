@@ -33,3 +33,7 @@ export function revisionConflictBody(error: unknown): {
     attempted: body.attempted as Record<string, unknown>,
   };
 }
+
+export function isRevisionConflictError(error: unknown): boolean {
+  return revisionConflictBody(error) !== null;
+}

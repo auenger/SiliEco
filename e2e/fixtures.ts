@@ -51,6 +51,8 @@ export class TestApiClient {
   private workspaceId: string | null = null;
   private email: string | null = null;
   private createdIssueIds: string[] = [];
+  private createdWorkflowIds: string[] = [];
+  private createdProjectIds: string[] = [];
   private seededIssueIds: string[] = [];
 
   async login(email: string, name: string) {
@@ -316,8 +318,47 @@ export class TestApiClient {
     return res.json();
   }
 
+  async createManualWorkflowRun(name: string, rollback = false): Promise<{workflowId: string; projectId: string; runId: string; stateToken: string}> {
+    const projectResponse = await this.authedFetch("/api/projects", {method:"POST", body:JSON.stringify({title:name})});
+    if (!projectResponse.ok) throw new Error(`Create test project: ${projectResponse.status} ${await projectResponse.text()}`);
+    const project = await projectResponse.json();
+    this.createdProjectIds.push(project.id);
+    const workflowResponse = await this.authedFetch("/api/workflows", {method:"POST", body:JSON.stringify({name, publish:true, stages:rollback ? [{name:"Build",execution_mode:"manual",gate:{type:"none"}},{name:"Review",execution_mode:"manual",gate:{type:"human"},rollback_stage_key:"stage_1"}] : [{name:"Delivery",execution_mode:"manual",gate:{type:"none"}}]})});
+    if (!workflowResponse.ok) throw new Error(`Create test SOP: ${workflowResponse.status} ${await workflowResponse.text()}`);
+    const workflow = await workflowResponse.json();
+    this.trackCreatedWorkflow(workflow.id);
+    const runResponse = await this.authedFetch(`/api/workflows/${workflow.id}/instances`, {method:"POST", body:JSON.stringify({title:name,project_id:project.id,start:true})});
+    if (!runResponse.ok) throw new Error(`Create test Run: ${runResponse.status} ${await runResponse.text()}`);
+    const run = await runResponse.json();
+    return {workflowId:workflow.id,projectId:project.id,runId:run.id,stateToken:run.state_token};
+  }
+
+  async getWorkflowRun(runId: string) {
+    const response = await this.authedFetch(`/api/workflow-instances/${runId}`);
+    if (!response.ok) throw new Error(`Read test Run: ${response.status}`);
+    return response.json();
+  }
+
+  async transitionWorkflowRun(runId: string, stateToken: string, outcome: "approved" | "rejected") {
+    return this.authedFetch(`/api/workflow-instances/${runId}/transition`, {method:"POST", body:JSON.stringify({expected_state_token:stateToken,outcome,note:"Browser state-precondition regression"})});
+  }
+
   /** Clean up all issues created during this test. */
+  trackCreatedWorkflow(id: string) {
+    this.createdWorkflowIds.push(id);
+  }
+
   async cleanup() {
+    for (const id of this.createdWorkflowIds) {
+      const response = await this.authedFetch(`/api/workflows/${id}`, {method: "DELETE"});
+      if (!response.ok && response.status !== 404) throw new Error(`Failed to archive test SOP: ${response.status}`);
+    }
+    this.createdWorkflowIds = [];
+    for (const id of this.createdProjectIds) {
+      const response = await this.authedFetch(`/api/projects/${id}`, {method:"DELETE"});
+      if (!response.ok && response.status !== 404) throw new Error(`Delete test project: ${response.status}`);
+    }
+    this.createdProjectIds = [];
     if (this.seededIssueIds.length > 0 && this.workspaceId) {
       const client = new pg.Client(DATABASE_URL);
       await client.connect();
@@ -339,6 +380,40 @@ export class TestApiClient {
       }
     }
     this.createdIssueIds = [];
+  }
+
+  async createSkillCandidateFixture(name: string) {
+    const response = await this.authedFetch("/api/skills", {method: "POST", body: JSON.stringify({name, content: "# Saved baseline", files: [{path: "references/example.md", content: "Saved supporting file"}]})});
+    if (!response.ok) throw new Error(`Create test skill: ${response.status}`);
+    return response.json() as Promise<{id: string; content: string}>;
+  }
+
+  async createSkillRevisionFixture(id: string, content: string) {
+    const response = await this.authedFetch(`/api/skills/${id}/revisions`, {method: "POST", body: JSON.stringify({content})});
+    if (!response.ok) throw new Error(`Create test revision: ${response.status}`);
+    return response.json() as Promise<{id: string; revision_hash: string}>;
+  }
+
+  async readSkillCandidateFixture(id: string) {
+    const response = await this.authedFetch(`/api/skills/${id}`);
+    if (!response.ok) throw new Error(`Read test skill: ${response.status}`);
+    return response.json() as Promise<{id: string; content: string}>;
+  }
+
+  async deleteSkillCandidateFixture(id: string) {
+    const client = new pg.Client(DATABASE_URL);
+    await client.connect();
+    try {
+      await client.query("DELETE FROM skill_improvement_proposal WHERE workspace_id = $1 AND skill_id = $2", [this.workspaceId, id]);
+      await client.query("DELETE FROM skill_revision WHERE workspace_id = $1 AND source_kind = 'workspace' AND source_id = $2", [this.workspaceId, id]);
+    } finally { await client.end(); }
+    const response = await this.authedFetch(`/api/skills/${id}`, {method: "DELETE"});
+    if (!response.ok && response.status !== 404) throw new Error(`Delete test skill: ${response.status}`);
+  }
+
+  getWorkspaceSlug() {
+    if (!this.workspaceSlug) throw new Error("Test workspace is not selected");
+    return this.workspaceSlug;
   }
 
   getToken() {

@@ -124,11 +124,11 @@ LIMIT 1;
 INSERT INTO workflow_stage (
     workspace_id, workflow_version_id, stable_key, name, description,
     position, completion_rule, input_spec, output_spec, required_skills,
-    gate, rollback_stage_key, allowed_mcp_server_ids
+    gate, rollback_stage_key, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9, $10,
-    $11, $12, $13
+    $11, $12, $13, COALESCE(sqlc.narg('execution_mode')::text, 'manual'), sqlc.narg('executor_id'), COALESCE(sqlc.narg('input_bindings')::jsonb, '{}'::jsonb), COALESCE(sqlc.narg('rework_policy')::jsonb, '{}'::jsonb), COALESCE(sqlc.narg('retry_policy')::jsonb, '{}'::jsonb)
 ) RETURNING *;
 
 -- name: ListWorkflowInstances :many
@@ -149,9 +149,10 @@ SELECT t.id, t.issue_id, i.title AS task_title, t.agent_id, a.name AS agent_name
 FROM agent_task_queue t
 JOIN issue i ON i.id = t.issue_id
 LEFT JOIN agent a ON a.id = t.agent_id
+LEFT JOIN workflow_stage_execution e ON e.id = t.workflow_stage_execution_id AND e.workspace_id = i.workspace_id
 WHERE i.workspace_id = $1
-  AND i.workflow_instance_id = $2
-  AND i.workflow_stage_id = $3
+  AND ((t.workflow_stage_execution_id IS NOT NULL AND e.workflow_instance_id = $2 AND e.workflow_stage_id = $3)
+    OR (t.workflow_stage_execution_id IS NULL AND i.workflow_instance_id = $2 AND i.workflow_stage_id = $3))
 ORDER BY t.created_at DESC, t.id DESC
 LIMIT $4 OFFSET $5;
 
@@ -159,9 +160,10 @@ LIMIT $4 OFFSET $5;
 SELECT COUNT(*)
 FROM agent_task_queue t
 JOIN issue i ON i.id = t.issue_id
+LEFT JOIN workflow_stage_execution e ON e.id = t.workflow_stage_execution_id AND e.workspace_id = i.workspace_id
 WHERE i.workspace_id = $1
-  AND i.workflow_instance_id = $2
-  AND i.workflow_stage_id = $3;
+  AND ((t.workflow_stage_execution_id IS NOT NULL AND e.workflow_instance_id = $2 AND e.workflow_stage_id = $3)
+    OR (t.workflow_stage_execution_id IS NULL AND i.workflow_instance_id = $2 AND i.workflow_stage_id = $3));
 
 -- name: CountIssuesInWorkflowInstance :one
 SELECT count(*)::bigint
@@ -191,11 +193,11 @@ FOR UPDATE;
 -- name: CreateWorkflowInstance :one
 INSERT INTO workflow_instance (
     workspace_id, workflow_id, workflow_version_id, title, description,
-    status, current_stage_id, project_id, created_by, started_at
+    status, current_stage_id, project_id, created_by, started_at, inputs
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9,
-    CASE WHEN $6 = 'active' THEN now() ELSE NULL END
+    CASE WHEN $6 = 'active' THEN now() ELSE NULL END, COALESCE(sqlc.narg('inputs')::jsonb, '{}'::jsonb)
 ) RETURNING *;
 
 -- name: UpdateWorkflowInstanceState :one
@@ -262,11 +264,11 @@ INSERT INTO workflow_instance_stage (
     workspace_id, workflow_instance_id, source_stage_id, stable_key, name,
     description, position, completion_rule, input_spec, output_spec,
     required_skills, required_skill_snapshots, gate, rollback_stage_key,
-    allowed_mcp_server_ids
+    allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15
+    $11, $12, $13, $14, $15, COALESCE(sqlc.narg('execution_mode')::text, 'manual'), sqlc.narg('executor_id'), COALESCE(sqlc.narg('input_bindings')::jsonb, '{}'::jsonb), COALESCE(sqlc.narg('rework_policy')::jsonb, '{}'::jsonb), COALESCE(sqlc.narg('retry_policy')::jsonb, '{}'::jsonb)
 ) RETURNING *;
 
 -- name: ShiftWorkflowInstanceStagePositions :exec
@@ -289,6 +291,11 @@ UPDATE workflow_instance_stage SET
     gate = $13,
     rollback_stage_key = $14,
     allowed_mcp_server_ids = $15,
+    execution_mode = COALESCE(sqlc.narg('execution_mode')::text, 'manual'),
+    executor_id = sqlc.narg('executor_id'),
+    input_bindings = COALESCE(sqlc.narg('input_bindings')::jsonb, '{}'::jsonb),
+    rework_policy = COALESCE(sqlc.narg('rework_policy')::jsonb, '{}'::jsonb),
+    retry_policy = COALESCE(sqlc.narg('retry_policy')::jsonb, '{}'::jsonb),
     updated_at = now()
 WHERE id = $1
   AND workflow_instance_id = $2
@@ -339,28 +346,29 @@ ORDER BY workflow_stage_id, position ASC, created_at ASC;
 UPDATE issue SET
     workflow_instance_id = $3,
     workflow_stage_id = $4,
+    workflow_stage_execution_id = CASE WHEN issue.workflow_instance_id=$3 AND issue.workflow_stage_id=$4 THEN issue.workflow_stage_execution_id ELSE (SELECT e.id FROM workflow_stage_execution e WHERE e.workspace_id=$2 AND e.workflow_instance_id=$3 AND e.workflow_stage_id=$4 ORDER BY e.attempt DESC LIMIT 1) END,
     project_id = $5,
     updated_at = now()
-WHERE id = $1 AND workspace_id = $2
-RETURNING *;
+WHERE issue.id = $1 AND issue.workspace_id = $2
+RETURNING issue.*;
 
 -- name: DetachIssueFromWorkflow :one
 UPDATE issue SET
     workflow_instance_id = NULL,
     workflow_stage_id = NULL,
+    workflow_stage_execution_id = NULL,
     updated_at = now()
 WHERE id = $1
   AND workspace_id = $2
   AND workflow_instance_id = $3
-RETURNING *;
+RETURNING issue.*;
 
--- name: CountOpenIssuesInWorkflowStage :one
-SELECT count(*)::bigint
-FROM issue
-WHERE workspace_id = $1
-  AND workflow_instance_id = $2
-  AND workflow_stage_id = $3
-  AND status NOT IN ('done', 'cancelled');
+-- name: LockWorkflowStageIssues :many
+-- The transition transaction rechecks delivery after acquiring the Run lock.
+SELECT id, status FROM issue
+WHERE workspace_id=$1 AND workflow_instance_id=$2 AND workflow_stage_id=$3
+AND workflow_invalidated_by_rework_id IS NULL
+ORDER BY id FOR UPDATE;
 
 -- name: CountIssuesByWorkflowStage :many
 SELECT workflow_stage_id, count(*)::bigint AS task_count

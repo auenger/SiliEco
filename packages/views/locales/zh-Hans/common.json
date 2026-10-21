@@ -71,6 +71,8 @@
   "revision_conflict": {
     "title": "你编辑期间内容发生了变化",
     "description": "请比较服务端当前版本和你的修改。你可以复制自己的内容、采用服务端版本，或明确确认覆盖。",
+    "task_title": "你编辑期间，这个 task 已被更新",
+    "task_description": "其他修改先一步保存到了这个 task。请比较两个版本，然后采用服务端版本，或明确用你的修改覆盖。",
     "server_version": "服务端当前版本",
     "your_version": "你的修改",
     "copy_mine": "复制我的修改",

@@ -160,7 +160,6 @@ func RequestLogger(next http.Handler) http.Handler {
 				attrs = append(attrs, "client_os", os)
 			}
 		}
-
 		switch {
 		case status >= 500:
 			slog.Error("http request", attrs...)

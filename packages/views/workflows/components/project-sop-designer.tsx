@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { workflowOperationDialogClassName } from "./workflow-dialog";
+import { StageExecutionFields, validReworkPolicyDraft, validRetryPolicyDraft } from "./stage-execution-fields";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -108,6 +110,16 @@ type CanonicalStageStatus = "backlog" | "todo" | "in_progress" | "in_review" | "
 type DeciderType = "human" | "self_agent" | "agent";
 type EvaluationMode = "on_task_change" | "manual" | "scheduled";
 interface SopStageDraft {
+  executionMode?: string;
+  executorId?: string | null;
+  inputSpec?: Record<string, unknown>;
+  inputBindings?: Record<string, unknown>;
+  stableKey?: string;
+  rollbackStageKey?: string | null;
+  outputSpec?: Record<string, unknown>;
+  reworkPolicy?: Record<string, unknown>;
+  retryPolicy?: Record<string, unknown>;
+  completionRule?: Record<string, unknown>;
   id: string;
   name: string;
   description: string;
@@ -160,6 +172,108 @@ function stage(
 }
 
 export const SOP_TEMPLATES: SopTemplate[] = [
+  {
+    id: "thermal-simulation-poc",
+    name: "散热仿真 POC（Mock）",
+    description: "用内置 skill 和确定性 Mock Runner 演练需求提取、模型预检、基线失败、候选确认、复算与报告交付。",
+    source: "preset",
+    stages: [
+      {
+        ...stage(
+          "散热需求提取",
+          "当前 Task / 用户说明 / 已上传的规格书、表格、图片或模型文件",
+          "requirements-draft.json + missing-information.md",
+          "silieco-thermal-requirements",
+        ),
+        description: "从附件和上下文提取工况、目标温度、关键器件、功耗与约束；不确定信息保留来源和待确认项。",
+      },
+      {
+        ...stage(
+          "需求与验收确认",
+          "requirements-draft.json + missing-information.md + 用户补充信息",
+          "requirements-snapshot.json + acceptance-profile.json",
+          "silieco-thermal-requirements-review",
+          {
+            statuses: ["todo", "in_review", "done", "blocked"],
+            gateEnabled: true,
+            deciderType: "human",
+            requireHuman: true,
+          },
+        ),
+        description: "冻结带单位和来源的需求快照；最高温度目标、工况和关键器件未确认时必须阻止后续仿真。",
+      },
+      {
+        ...stage(
+          "模型预检（Mock）",
+          "已上传模型文件 + requirements-snapshot.json",
+          "model-validation.json（VALID 或 INVALID）",
+          "silieco-thermal-model-precheck, silieco-thermal-mock-runner",
+          { statuses: ["todo", "in_progress", "in_review", "done", "blocked"] },
+        ),
+        description: "只验证文件可读性、扩展名、哈希和 POC 元数据；明确声明未启动 AEDT，也不把 Mock 预检当成真实模型校验。",
+      },
+      {
+        ...stage(
+          "基线仿真（Mock）",
+          "requirements-snapshot.json + acceptance-profile.json + model-validation.json",
+          "baseline-job.json + baseline-result.json",
+          "silieco-thermal-baseline, silieco-thermal-mock-runner",
+          { statuses: ["todo", "in_progress", "in_review", "done", "blocked"] },
+        ),
+        description: "模拟 MCP accepted/running/succeeded 状态，并确定性生成一组未达标的基线指标以演练完整 FAIL 分支。",
+      },
+      {
+        ...stage(
+          "结果判定与候选方案",
+          "requirements-snapshot.json + acceptance-profile.json + baseline-result.json",
+          "baseline-verdict.json + candidates.json",
+          "silieco-thermal-result-review, silieco-thermal-mock-runner",
+          { statuses: ["todo", "in_progress", "in_review", "done", "blocked"] },
+        ),
+        description: "用确定性规则生成 PASS/FAIL/INVALID/DIVERGED 判定；Mock 基线 FAIL 时给出受限候选方案，不由 skill 自行实施。",
+      },
+      {
+        ...stage(
+          "候选方案确认",
+          "baseline-verdict.json + candidates.json",
+          "approved-candidate.json 或 rejection.json",
+          "silieco-thermal-candidate-review",
+          {
+            statuses: ["todo", "in_review", "done", "blocked"],
+            gateEnabled: true,
+            deciderType: "human",
+            requireHuman: true,
+          },
+        ),
+        description: "工程师选择一个候选方案或全部驳回；没有结构化批准记录时禁止进入候选仿真。",
+      },
+      {
+        ...stage(
+          "候选仿真（Mock）",
+          "candidates.json + approved-candidate.json + baseline-result.json + requirements-snapshot.json + model-validation.json",
+          "candidate-job.json + candidate-result.json + candidate-verdict.json",
+          "silieco-thermal-candidate-simulation, silieco-thermal-mock-runner",
+          { statuses: ["todo", "in_progress", "in_review", "done", "blocked"] },
+        ),
+        description: "仅对已批准候选方案执行 Mock 复算，保留基线对比、热判定和回退建议。",
+      },
+      {
+        ...stage(
+          "报告交付",
+          "全部需求快照、模型预检、基线与候选结果、判定和批准记录",
+          "thermal-poc-report.md + artifact-index.json",
+          "silieco-thermal-report, silieco-thermal-mock-runner",
+          {
+            statuses: ["todo", "in_review", "done", "blocked"],
+            gateEnabled: true,
+            deciderType: "human",
+            requireHuman: true,
+          },
+        ),
+        description: "生成清楚区分执行成功与热设计判定的 POC 报告，并经人工 Gate 完成交付。",
+      },
+    ],
+  },
   {
     id: "feature-development",
     name: "Feature 研发工作流",
@@ -359,10 +473,12 @@ function blankSopTemplate(): SopTemplate {
 
 let stageSequence = 0;
 function cloneStages(template: SopTemplate) {
-  return template.stages.map((item) => ({
+  return template.stages.map((item, index) => ({
     ...item,
     statuses: [...item.statuses],
     id: `sop-stage-${++stageSequence}`,
+    stableKey: `stage_${index + 1}`,
+    rollbackStageKey: index > 0 ? `stage_${index}` : null,
   }));
 }
 function resolvedGateType(item: SopStageDraft): WorkflowGateType {
@@ -754,6 +870,13 @@ function GateActorPicker({
   );
 }
 
+function updateArtifactDescription(spec: Record<string, unknown> | undefined, value: string) {
+  const updated = { ...spec };
+  if (value.trim()) updated.default_artifact = value.trim();
+  else delete updated.default_artifact;
+  return updated;
+}
+
 function stagesFromWorkflow(workflow: Workflow): SopStageDraft[] {
   return (workflow.current_version?.stages ?? []).map((item) => {
     const completionRule = item.completion_rule ?? {};
@@ -766,6 +889,14 @@ function stagesFromWorkflow(workflow: Workflow): SopStageDraft[] {
     const deciderType = gate.decider_type;
     return {
       id: `sop-stage-${++stageSequence}`,
+      executionMode: item.execution_mode ?? "manual",
+      executorId: item.executor_id ?? null,
+      inputSpec: { ...inputSpec },
+      inputBindings: { ...item.input_bindings },
+      stableKey: item.stable_key,
+      rollbackStageKey: item.rollback_stage_key ?? null,
+      outputSpec: { ...outputSpec },
+      completionRule: { ...completionRule }, reworkPolicy:{...item.rework_policy}, retryPolicy:{...item.retry_policy},
       name: item.name,
       description: item.description ?? "",
       statuses: Array.isArray(allowedStatuses)
@@ -831,6 +962,14 @@ export function ProjectSopDesigner({
     name: string;
   }>();
   const [runName, setRunName] = useState("");
+  const [runInputsText, setRunInputsText] = useState("{}");
+  const startingRun = useRef(false);
+  const runInputs = useMemo(() => {
+    try {
+      const parsed: unknown = JSON.parse(runInputsText);
+      return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+    } catch { return null; }
+  }, [runInputsText]);
   const [runToArchive, setRunToArchive] = useState<WorkflowInstance>();
   const [runToAdjust, setRunToAdjust] = useState<WorkflowInstance>();
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>();
@@ -853,6 +992,7 @@ export function ProjectSopDesigner({
   );
   const activeRuns = runs.filter((run) => !run.archived_at);
   const archivedRuns = runs.filter((run) => Boolean(run.archived_at));
+  const invalidRollback = stages.some((stage) => !validReworkPolicyDraft(stage.reworkPolicy) || !validRetryPolicyDraft(stage.retryPolicy)) || stages.some((item, index) => item.rollbackStageKey && !stages.slice(0, index).some((previous) => previous.stableKey === item.rollbackStageKey));
   const invalidGateCount = stages.filter(
     (stage) => !gateIsConfigured(stage, members, agents),
   ).length;
@@ -914,6 +1054,9 @@ export function ProjectSopDesigner({
     });
   const addStage = () => {
     const item = cloneStages(blankSopTemplate())[0]!;
+    let number = 1;
+    while (stages.some((candidate) => candidate.stableKey === `stage_${number}`)) number++;
+    item.stableKey = `stage_${number}`;
     setStages((current) => [...current, item]);
     setExpanded((current) => new Set(current).add(item.id));
   };
@@ -927,7 +1070,16 @@ export function ProjectSopDesigner({
   };
   const publish = () => {
     const validStages = stages.filter((item) => item.name.trim());
-    if (!name.trim() || validStages.length === 0 || invalidGateCount > 0) return;
+    if (!name.trim() || validStages.length === 0 || invalidRollback || invalidGateCount > 0 || validStages.some((stage) => stage.executionMode === "agent" && !agents.some((agent) => agent.id === stage.executorId && !agent.archived_at))) return;
+    const reservedKeys = new Set(validStages.flatMap((item) => item.stableKey ? [item.stableKey] : []));
+    const stageKeys = validStages.map((item, index) => {
+      if (item.stableKey) return item.stableKey;
+      let number = index + 1;
+      while (reservedKeys.has(`stage_${number}`)) number++;
+      const key = `stage_${number}`;
+      reservedKeys.add(key);
+      return key;
+    });
     createWorkflow.mutate(
       {
         ...(editingScope === "project" && projectId
@@ -937,10 +1089,13 @@ export function ProjectSopDesigner({
         description: description.trim() || null,
         publish: true,
         stages: validStages.map((item, index) => ({
-          stable_key: `stage_${index + 1}`,
+          stable_key: stageKeys[index]!,
           name: item.name.trim(),
           description: item.description.trim() || null,
-          completion_rule: {
+          execution_mode: item.executionMode ?? "manual",
+          executor_id: item.executorId ?? null,
+          rework_policy: item.reworkPolicy ?? {}, retry_policy: item.retryPolicy ?? {},
+          completion_rule: item.executionMode === "agent" ? (item.completionRule ?? {type:"validated_result"}) : {
             type: "all_tasks_terminal",
             evaluation_mode: item.evaluationMode,
             ...(item.evaluationMode === "scheduled" && item.schedule.trim()
@@ -948,8 +1103,9 @@ export function ProjectSopDesigner({
               : {}),
             allowed_task_statuses: item.statuses,
           },
-          input_spec: item.input.trim() ? { default_artifact: item.input.trim() } : {},
-          output_spec: item.output.trim() ? { default_artifact: item.output.trim() } : {},
+          input_bindings: item.inputBindings ?? {},
+          input_spec: updateArtifactDescription(item.inputSpec, item.input),
+          output_spec: updateArtifactDescription(item.outputSpec, item.output),
           required_skills: normalizeSkillRefs(item.skills, workspaceSkills),
           allowed_mcp_server_ids: item.allowedMcpServerIds,
           gate: {
@@ -965,7 +1121,7 @@ export function ProjectSopDesigner({
                   ? item.humanDecider.trim() || null
                   : null,
           },
-          rollback_stage_key: item.gateEnabled && index > 0 ? `stage_${index}` : null,
+          rollback_stage_key: item.rollbackStageKey ?? null,
         })),
       },
       {
@@ -982,6 +1138,7 @@ export function ProjectSopDesigner({
     if (!projectId) return;
     const sequence =
       runs.filter((run) => run.workflow_id === workflowId).length + 1;
+    setRunInputsText("{}");
     setWorkflowToStart({ id: workflowId, name: workflowName });
     setRunName(
       t(($) => $.designer.run_default_name, {
@@ -992,7 +1149,8 @@ export function ProjectSopDesigner({
   };
   const startWorkflow = () => {
     const title = runName.trim();
-    if (!workflowToStart || !title || !projectId) return;
+    if (!workflowToStart || !title || !projectId || !runInputs || startingRun.current || createInstance.isPending) return;
+    startingRun.current = true;
     setStartingWorkflowId(workflowToStart.id);
     createInstance.mutate(
       {
@@ -1000,6 +1158,7 @@ export function ProjectSopDesigner({
         data: {
           title,
           project_id: projectId,
+          inputs: runInputs,
           start: true,
         },
       },
@@ -1015,7 +1174,7 @@ export function ProjectSopDesigner({
               ? error.message
               : t(($) => $.designer.run_failed),
           ),
-        onSettled: () => setStartingWorkflowId(undefined),
+        onSettled: () => { startingRun.current = false; setStartingWorkflowId(undefined); },
       },
     );
   };
@@ -1590,7 +1749,7 @@ export function ProjectSopDesigner({
             setRunName("");
           }}
         >
-          <DialogContent>
+          <DialogContent className={workflowOperationDialogClassName}>
             <DialogHeader>
               <DialogTitle>{t(($) => $.designer.run_dialog_title)}</DialogTitle>
               <DialogDescription>
@@ -1604,6 +1763,7 @@ export function ProjectSopDesigner({
               <Input
                 autoFocus
                 value={runName}
+                disabled={createInstance.isPending}
                 placeholder={t(($) => $.designer.run_name_placeholder)}
                 onChange={(event) => setRunName(event.target.value)}
                 onKeyDown={(event) => {
@@ -1614,7 +1774,13 @@ export function ProjectSopDesigner({
                 }}
               />
             </label>
-            <DialogFooter>
+            <label className="space-y-1.5 text-caption font-medium">
+              <span>{t(($) => $.execution_config.run_inputs)}</span>
+              <Textarea className="min-h-32 font-mono" value={runInputsText} disabled={createInstance.isPending} onChange={(event) => setRunInputsText(event.target.value)} />
+              <span className="block text-micro font-normal text-muted-foreground">{t(($) => $.execution_config.run_inputs_hint)}</span>
+            </label>
+            {!runInputs && <p role="alert" className="text-caption text-destructive">{t(($) => $.input_recovery.invalid)}</p>}
+            <DialogFooter className="border-t pt-4">
               <Button
                 variant="outline"
                 disabled={createInstance.isPending}
@@ -1626,7 +1792,7 @@ export function ProjectSopDesigner({
                 {t(($) => $.designer.cancel_run)}
               </Button>
               <Button
-                disabled={createInstance.isPending || !runName.trim()}
+                disabled={createInstance.isPending || !runName.trim() || !runInputs}
                 onClick={startWorkflow}
               >
                 {createInstance.isPending ? (
@@ -1708,7 +1874,8 @@ export function ProjectSopDesigner({
             createWorkflow.isPending ||
             !name.trim() ||
             !stages.some((item) => item.name.trim()) ||
-            invalidGateCount > 0
+            stages.some((item) => item.name.trim() && item.executionMode === "agent" && !agents.some((agent) => agent.id === item.executorId && !agent.archived_at)) ||
+            invalidRollback || invalidGateCount > 0
           }
           onClick={publish}
         >
@@ -1718,7 +1885,7 @@ export function ProjectSopDesigner({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-5 py-5">
+        <div className="mx-auto w-full max-w-4xl px-5 py-5">
           <div className="space-y-3">
             <label className="block space-y-1.5 text-caption font-medium">
               <span>{t(($) => $.create.name)}</span>
@@ -1800,6 +1967,7 @@ export function ProjectSopDesigner({
 
                   {open && (
                     <div className="space-y-4 border-t border-border/70 bg-background/70 px-3 py-3">
+                      <StageExecutionFields value={item} rollbackStages={stages.slice(0, index).filter((stage) => stage.stableKey).map((stage) => ({stableKey: stage.stableKey!, name: stage.name}))} precedingStages={stages.slice(0, index).filter((stage) => stage.executionMode === "agent" && stage.stableKey).map((stage) => ({stableKey: stage.stableKey!, name: stage.name}))} agents={agents} disabled={createWorkflow.isPending} onChange={(patch) => updateStage(item.id, patch)} />
                       <label className="block space-y-1.5 text-caption font-medium">
                         <span>{t(($) => $.designer.stage_description)}</span>
                         <Textarea
@@ -1814,6 +1982,7 @@ export function ProjectSopDesigner({
                         />
                       </label>
 
+                      {item.executionMode !== "agent" && <>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <label className="space-y-1.5 text-caption font-medium">
                           <span>{t(($) => $.designer.evaluation_label)}</span>
@@ -1910,6 +2079,8 @@ export function ProjectSopDesigner({
                           <Input className="h-7 w-36 text-caption" placeholder={t(($) => $.designer.custom_status)} onKeyDown={(event) => addCustomStatus(event, item)} />
                         </div>
                       </div>
+
+                      </>}
 
                       <div className="grid gap-4 lg:grid-cols-2">
                         <ArtifactMarkdownEditor

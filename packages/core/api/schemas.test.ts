@@ -43,6 +43,9 @@ import {
   WorkflowInstanceSchema,
   WorkflowStageTranscriptResponseSchema,
   WorkflowSchema,
+  WorkflowHumanReviewSchema,
+  WorkflowGateDecisionSchema,
+  WorkflowStageSchema,
   WorkspaceMCPServerListSchema,
 } from "./schemas";
 import { parseWithFallback } from "./schema";
@@ -150,6 +153,12 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
     });
     expect(parsed.issues[0]?.workflow_instance_id).toBeNull();
     expect(parsed.issues[0]?.workflow_stage_id).toBeNull();
+    expect(parsed.issues[0]?.workflow_invalidated_by_rework_id).toBeNull();
+  });
+
+  it.each(["old-execution", 0, {}, ""])("keeps invalidation evidence from becoming active work: %j", (marker) => {
+    const parsed = ListIssuesResponseSchema.parse({issues: [{...baseIssue, workflow_invalidated_by_rework_id:marker}], total:1});
+    expect(parsed.issues[0]?.workflow_invalidated_by_rework_id).not.toBeNull();
   });
 
   it("accepts a primitive metadata KV map", () => {
@@ -306,6 +315,14 @@ describe("Workflow schemas", () => {
     rollback_stage_key: null,
     created_at: "2026-01-01T00:00:00Z",
   };
+
+  it("preserves execution settings and handles absent or malformed fields", () => {
+    expect(WorkflowStageSchema.parse(stage)).toMatchObject({execution_mode:"manual",executor_id:null,input_bindings:{}});
+    expect(WorkflowStageSchema.parse({...stage,input_bindings:[]}).input_bindings).toEqual({schema_version:"invalid"});
+    expect(WorkflowStageSchema.parse({...stage,execution_mode:"agent",executor_id:"agent-1"})).toMatchObject({execution_mode:"agent",executor_id:"agent-1"});
+    expect(WorkflowStageSchema.parse({...stage,execution_mode:"future_mode"}).execution_mode).toBe("future_mode");
+    expect(WorkflowStageSchema.parse({...stage,execution_mode:7,executor_id:[] })).toMatchObject({execution_mode:"unknown",executor_id:null});
+  });
 
   it("parses a published SOP with immutable stages", () => {
     const parsed = WorkflowSchema.parse({
@@ -1336,4 +1353,54 @@ describe("RuntimeModelListRequestSchema", () => {
       "keep me",
     );
   });
+});
+
+
+describe("workflow human review compatibility", () => {
+  it("does not turn malformed review evidence into a usable approval token", () => {
+    const parsed = WorkflowHumanReviewSchema.parse({ execution_id: "e", result_revision: -1, basis_hash: "bad", issues: [], calls: [] });
+    expect(parsed).toMatchObject({result_revision: 0, basis_hash: "", issues: [], calls: []});
+    expect(WorkflowHumanReviewSchema.safeParse({ execution_id: "e", result_revision: 1, basis_hash: "a".repeat(64), issues: {}, calls: [] }).success).toBe(false);
+  });
+  it("preserves future review steps and defaults older decision identities", () => {
+    const legacy = { id: "d", workflow_instance_id: "r", from_stage_id: "s", outcome: "approved", actor_type: "member", actor_id: "u", created_at: "now" };
+    expect(WorkflowGateDecisionSchema.parse(legacy)).toMatchObject({execution_id:null,result_revision:null,review_step:null,basis_hash:null,invalidated_by_rework_id:null});
+    expect(WorkflowGateDecisionSchema.parse({...legacy,invalidated_by_rework_id:{}}).invalidated_by_rework_id).toBe("unknown");
+    expect(WorkflowGateDecisionSchema.parse({...legacy,review_step:"future",result_revision:{}})).toMatchObject({review_step:"future",result_revision:null});
+  });
+});
+
+
+describe("workflow execution input diagnostics", () => {
+  it("preserves diagnostics and tolerates missing or malformed values", async () => {
+    const {WorkflowExecutionListSchema} = await import("./schemas");
+    const base = {id:"execution",stage_id:"stage",attempt:1,plan_revision:1,executor_id:"agent",status:"blocked",result_revision:0};
+    const rows = WorkflowExecutionListSchema.parse([
+      {...base,failure_code:"input_unavailable",failure_detail:"missing source"},
+      {...base,failure_code:{bad:true},failure_detail:42},base,
+    ]);
+    expect(rows[0]?.failure_detail).toBe("missing source");
+    expect(rows[0]?.failure_code).toBe("input_unavailable");
+    expect(rows[1]?.failure_code).toBeNull();
+    expect(rows[1]?.failure_detail).toBeNull();
+    expect(rows[2]?.failure_detail).toBeNull();
+  });
+});
+
+
+it.each([undefined, null, 123, {}, "bad-token"])("fails closed for malformed manual review state %j", (state_token) => {
+  const run = WorkflowInstanceSchema.parse({...EMPTY_WORKFLOW_INSTANCE, state_token});
+  expect(run.state_token).toBeNull();
+});
+
+it("preserves an opaque manual review state token", () => {
+  const state_token = "a".repeat(64);
+  expect(WorkflowInstanceSchema.parse({...EMPTY_WORKFLOW_INSTANCE, state_token}).state_token).toBe(state_token);
+});
+
+
+it("preserves manual rework history without an agent execution", () => {
+ const rework={id:"rework-1",source_stage_id:"review",target_stage_id:"build",source_execution_id:null,plan_revision:1,actor_type:"member",actor_id:"user-1",reason:"Review rejected",created_at:"2026-09-09T00:00:00Z"};
+ expect(WorkflowInstanceSchema.parse({...EMPTY_WORKFLOW_INSTANCE,reworks:[rework]}).reworks).toEqual([rework]);
+ expect(WorkflowInstanceSchema.parse({...EMPTY_WORKFLOW_INSTANCE,reworks:[{...rework,actor_type:123}]}).reworks).toEqual([]);
 });

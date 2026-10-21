@@ -82,22 +82,17 @@ import {
   useResourceLabelsEnabled,
 } from "../../labels/resource-label-picker";
 
+import { SkillProposalsTab } from "./skill-proposals-tab";
+import { SkillRevisionsTab } from "./skill-revisions-tab";
+
 const SKILL_MD = "SKILL.md";
 
 type DraftFile = { id?: string; path: string; content: string };
 
-/**
- * Two tabs, not three. A skill has no settings axis to speak of:
- * `UpdateSkillRequest` carries only name / description / content / config /
- * files, and edit rights are derived (creator or workspace admin) with no
- * writable counterpart — so a Settings tab would hold a delete button and a
- * read-only sentence. Delete lives in the header instead, matching the agent
- * detail page where Archive sits in the header.
- */
-type DetailView = "overview" | "files";
+type DetailView = "overview" | "files" | "revisions" | "proposals";
 
 function isDetailView(value: string | null): value is DetailView {
-  return value === "overview" || value === "files";
+  return value === "overview" || value === "files" || value === "revisions" || value === "proposals";
 }
 
 // ---------------------------------------------------------------------------
@@ -1011,6 +1006,8 @@ export function SkillDetailPage({ skillId }: { skillId: string }) {
       id: "files",
       label: t(($) => $.detail.tabs.files, { count: totalFileCount(skill) }),
     },
+    { id: "revisions", label: t(($) => $.revisions.title) },
+    { id: "proposals", label: t(($) => $.proposals.title) },
   ];
 
   return (
@@ -1182,7 +1179,11 @@ export function SkillDetailPage({ skillId }: { skillId: string }) {
           activeView === "files" && "md:overflow-hidden",
         )}
       >
-        {activeView === "overview" ? (
+        {activeView === "proposals" ? (
+          <SkillProposalsTab key={`${wsId}:${skill.id}`} workspaceId={wsId} skillId={skill.id} canEdit={canEdit} />
+        ) : activeView === "revisions" ? (
+          <SkillRevisionsTab key={`${wsId}:${skill.id}`} workspaceId={wsId} skill={skill} canEdit={canEdit} />
+        ) : activeView === "overview" ? (
           <OverviewTab
             skill={skill}
             name={name}

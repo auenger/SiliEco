@@ -106,6 +106,16 @@ func TestDateToPtr_NullIsNil(t *testing.T) {
 	}
 }
 
+func TestRevisionTimestampToStringPreservesSubsecondPrecision(t *testing.T) {
+	revision := pgtype.Timestamptz{
+		Time:  time.Date(2026, 9, 20, 17, 0, 57, 438921000, time.UTC),
+		Valid: true,
+	}
+	if got, want := RevisionTimestampToString(revision), "2026-09-20T17:00:57.438921Z"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 // Guard against a localtime regression: DateToPtr must emit the stored calendar
 // day regardless of the host process timezone.
 func TestDateToPtr_StableAcrossTimezone(t *testing.T) {

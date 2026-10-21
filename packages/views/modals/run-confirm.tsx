@@ -16,6 +16,7 @@ import { Textarea } from "@silieco/ui/components/ui/textarea";
 import { Spinner } from "@silieco/ui/components/ui/spinner";
 import type { IssueAssigneeType, UpdateIssueRequest } from "@silieco/core/types";
 import { useUpdateIssue, useBatchUpdateIssues } from "@silieco/core/issues/mutations";
+import { isRevisionConflictError } from "@silieco/core/revisions";
 import { useActorName } from "@silieco/core/workspace/hooks";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { agentListOptions, squadListOptions } from "@silieco/core/workspace/queries";
@@ -159,7 +160,9 @@ export function RunConfirmModal({
       }
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error && err.message ? err.message : t(($) => $.run_confirm.toast_failed));
+      if (!isRevisionConflictError(err)) {
+        toast.error(t(($) => $.run_confirm.toast_failed));
+      }
       setPendingAction(null);
     }
   };

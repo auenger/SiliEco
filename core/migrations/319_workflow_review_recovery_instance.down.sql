@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY workflow_review_recovery_instance_idx;

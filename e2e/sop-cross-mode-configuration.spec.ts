@@ -1,0 +1,43 @@
+import {test,expect} from "@playwright/test";
+import {execFile} from "node:child_process";
+import {promisify} from "node:util";
+import {createTestApi} from "./helpers";
+const execute=promisify(execFile);
+test("SOP form publishes an agent stage with a manual rollback target",async({page},testInfo)=>{
+ test.setTimeout(300000);test.skip(!process.env.DATABASE_URL,"Controlled agent fixture requires acceptance database");
+ const api=await createTestApi();let runId="";
+ const fixture=(mode:string)=>execute("go",["test","./internal/service","-run","^TestWorkflowReviewBrowserFixture$","-count=1"],{cwd:"core",env:{...process.env,SILIECO_REVIEW_BROWSER_RUN:runId,SILIECO_REVIEW_BROWSER_MODE:mode},timeout:120000});
+ try {
+  const run=await api.createManualWorkflowRun(`Review recovery browser ${Date.now()}`);runId=run.runId;await fixture("seed");
+  const token=api.getToken();if(!token)throw new Error("Missing login");
+  await page.addInitScript(token=>{localStorage.setItem("silieco_token",token);localStorage.setItem("silieco:chat:isOpen","false");},token);
+  await page.setViewportSize({width:1440,height:1000});
+  await page.goto(`/${api.getWorkspaceSlug()}/workflows`,{waitUntil:"domcontentloaded"});
+  await page.getByRole("button",{name:/空白 SOP/}).click();
+  await page.getByLabel("SOP name",{exact:true}).fill(`Cross-mode configuration ${Date.now()}`);
+  await page.getByPlaceholder("Stage name",{exact:true}).fill("Manual input");
+  await page.getByRole("button",{name:"Add Stage",exact:true}).click();
+  await page.getByPlaceholder("Stage name",{exact:true}).nth(1).fill("Build");
+  await page.getByRole("radio",{name:/^Agent/}).nth(1).check();
+  await page.getByRole("combobox",{name:"Execution agent",exact:true}).click();
+  await page.getByRole("option",{name:`review-browser-${runId}`,exact:true}).click();
+  const rollback=page.getByRole("combobox",{name:"Rework rollback target",exact:true}).nth(1);
+  await rollback.click();await page.getByRole("option",{name:"Manual input",exact:true}).click();
+  await expect(rollback).toContainText("Manual input");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await page.getByRole("spinbutton",{name:"Maximum reworks",exact:true}).nth(1).fill("2");
+  await page.getByRole("spinbutton",{name:"Maximum attempts",exact:true}).nth(1).fill("2");
+  await page.getByRole("spinbutton",{name:"Call timeout (seconds)",exact:true}).nth(1).fill("300");
+  await page.getByRole("spinbutton",{name:"Initial retry delay (seconds)",exact:true}).nth(1).fill("5");
+  await page.getByRole("spinbutton",{name:"Delay multiplier",exact:true}).nth(1).fill("2");
+  await page.getByRole("spinbutton",{name:"Maximum retry delay (seconds)",exact:true}).nth(1).fill("60");
+  await page.getByRole("spinbutton",{name:"Maximum attempts",exact:true}).nth(1).scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath("cross-mode-configuration-desktop.png"),fullPage:true,animations:"disabled"});
+  await page.setViewportSize({width:390,height:844});await page.getByRole("spinbutton",{name:"Maximum attempts",exact:true}).nth(1).scrollIntoViewIfNeeded();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath("cross-mode-configuration-mobile.png"),fullPage:true,animations:"disabled"});
+  const response=page.waitForResponse(r=>r.url().endsWith("/api/workflows")&&r.request().method()==="POST");
+  await page.getByRole("button",{name:"Publish SOP",exact:true}).click();const saved=await response;
+  expect(saved.status(),await saved.text()).toBe(201);const result=await saved.json();api.trackCreatedWorkflow(result.id);
+  const body=saved.request().postDataJSON();expect(body.stages[0].execution_mode).toBe("manual");expect(body.stages[1]).toMatchObject({execution_mode:"agent",rework_policy:{max_reworks:2},retry_policy:{max_attempts:2,timeout_seconds:300,backoff_seconds:5,backoff_multiplier:2,max_backoff_seconds:60},rollback_stage_key:body.stages[0].stable_key});
+ }finally{try{if(runId)await fixture("cleanup");}finally{await api.cleanup();}}
+});

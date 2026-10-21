@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -97,6 +98,13 @@ func (h *Handler) decorateWorkflowInstanceResponse(
 	resp.SourceVersion = version.Version
 	resp.CanEdit = (instance.Status == "active" || instance.Status == "waiting") &&
 		!instance.ArchivedAt.Valid && h.canManageWorkflowInstance(r, userID, instance.ProjectID)
+	if resp.CanEdit {
+		executions, err := h.Queries.ListWorkflowStageExecutions(ctx, db.ListWorkflowStageExecutionsParams{WorkspaceID: workspaceID, WorkflowInstanceID: instance.ID})
+		if err != nil {
+			return err
+		}
+		resp.CanEdit = len(executions) == 0
+	}
 	return nil
 }
 
@@ -104,7 +112,8 @@ func instanceStageInput(stage db.WorkflowInstanceStage) WorkflowStageInput {
 	id := uuidToString(stage.ID)
 	return WorkflowStageInput{
 		ID: &id, StableKey: stage.StableKey, Name: stage.Name, Description: textToPtr(stage.Description),
-		CompletionRule: jsonOrEmptyObject(stage.CompletionRule), InputSpec: jsonOrEmptyObject(stage.InputSpec),
+		ExecutionMode: stage.ExecutionMode, ExecutorID: uuidToPtr(stage.ExecutorID),
+		CompletionRule: jsonOrEmptyObject(stage.CompletionRule), ReworkPolicy: jsonOrEmptyObject(stage.ReworkPolicy), RetryPolicy: jsonOrEmptyObject(stage.RetryPolicy), InputSpec: jsonOrEmptyObject(stage.InputSpec), InputBindings: jsonOrEmptyObject(stage.InputBindings),
 		OutputSpec: jsonOrEmptyObject(stage.OutputSpec), RequiredSkills: stage.RequiredSkills,
 		AllowedMCPServerIDs: uuidsToStrings(stage.AllowedMcpServerIds),
 		Gate:                jsonOrEmptyObject(stage.Gate), RollbackStageKey: textToPtr(stage.RollbackStageKey),
@@ -181,6 +190,19 @@ func (h *Handler) UpdateWorkflowInstancePlan(w http.ResponseWriter, r *http.Requ
 	}
 	if instance.Revision != req.ExpectedRevision {
 		writeError(w, http.StatusConflict, "this SOP run changed elsewhere; reload it before saving")
+		return
+	}
+	executions, err := qtx.ListWorkflowStageExecutions(r.Context(), db.ListWorkflowStageExecutionsParams{WorkspaceID: wsUUID, WorkflowInstanceID: instanceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load stage executions")
+		return
+	}
+	if len(executions) > 0 {
+		writeError(w, http.StatusConflict, "executed SOP plans require explicit rework before modification")
+		return
+	}
+	if err := validateWorkflowStageExecutors(r.Context(), qtx, wsUUID, normalized); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	existing, err := qtx.ListWorkflowInstanceStages(r.Context(), db.ListWorkflowInstanceStagesParams{
@@ -310,28 +332,41 @@ func (h *Handler) UpdateWorkflowInstancePlan(w http.ResponseWriter, r *http.Requ
 	for position, stage := range normalized {
 		completionRule, _ := normalizeObject(stage.CompletionRule, `{"type":"all_tasks_terminal"}`)
 		inputSpec, _ := normalizeObject(stage.InputSpec, `{}`)
+		inputBindings, _ := normalizeObject(stage.InputBindings, `{}`)
 		outputSpec, _ := normalizeObject(stage.OutputSpec, `{}`)
 		gate, _ := normalizeObject(stage.Gate, `{"type":"none"}`)
 		requiredSkills := stage.RequiredSkills
 		if requiredSkills == nil {
 			requiredSkills = []string{}
 		}
-		required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), wsUUID, requiredSkills)
-		if len(missing) > 0 {
-			writeError(w, http.StatusConflict, "required SOP skill is unavailable: "+strings.Join(missing, ", "))
-			return
+		var snapshots []byte
+		var previous db.WorkflowInstanceStage
+		if stage.ID != nil {
+			previous = existingByID[*stage.ID]
 		}
-		snapshots, marshalErr := json.Marshal(required)
-		if marshalErr != nil {
-			writeError(w, http.StatusInternalServerError, "failed to snapshot workflow skills")
-			return
+		if previous.ID.Valid && slices.Equal(previous.RequiredSkills, requiredSkills) {
+			// Editing plan metadata must not hot-update pinned skill content.
+			snapshots = previous.RequiredSkillSnapshots
+		} else {
+			required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), wsUUID, requiredSkills)
+			if len(missing) > 0 {
+				writeError(w, http.StatusConflict, "required SOP skill is unavailable: "+strings.Join(missing, ", "))
+				return
+			}
+			var marshalErr error
+			snapshots, marshalErr = json.Marshal(required)
+			if marshalErr != nil {
+				writeError(w, http.StatusInternalServerError, "failed to snapshot workflow skills")
+				return
+			}
 		}
 		var updated db.WorkflowInstanceStage
 		if stage.ID == nil || strings.TrimSpace(*stage.ID) == "" {
 			updated, err = qtx.CreateWorkflowInstanceStage(r.Context(), db.CreateWorkflowInstanceStageParams{
 				WorkspaceID: wsUUID, WorkflowInstanceID: instanceID, SourceStageID: pgtype.UUID{},
 				StableKey: stage.StableKey, Name: stage.Name, Description: ptrToText(stage.Description),
-				Position: int32(position), CompletionRule: completionRule, InputSpec: inputSpec,
+				ExecutionMode: pgtype.Text{String: stage.ExecutionMode, Valid: true}, ExecutorID: workflowExecutorUUID(stage),
+				Position: int32(position), CompletionRule: completionRule, ReworkPolicy: stage.ReworkPolicy, RetryPolicy: stage.RetryPolicy, InputSpec: inputSpec, InputBindings: inputBindings,
 				OutputSpec: outputSpec, RequiredSkills: requiredSkills, RequiredSkillSnapshots: snapshots, Gate: gate,
 				RollbackStageKey: ptrToText(stage.RollbackStageKey), AllowedMcpServerIds: parseUUIDArray(stage.AllowedMCPServerIDs),
 			})
@@ -340,7 +375,8 @@ func (h *Handler) UpdateWorkflowInstancePlan(w http.ResponseWriter, r *http.Requ
 			updated, err = qtx.UpdateWorkflowInstanceStage(r.Context(), db.UpdateWorkflowInstanceStageParams{
 				ID: old.ID, WorkflowInstanceID: instanceID, WorkspaceID: wsUUID,
 				StableKey: stage.StableKey, Name: stage.Name, Description: ptrToText(stage.Description),
-				Position: int32(position), CompletionRule: completionRule, InputSpec: inputSpec,
+				ExecutionMode: pgtype.Text{String: stage.ExecutionMode, Valid: true}, ExecutorID: workflowExecutorUUID(stage),
+				Position: int32(position), CompletionRule: completionRule, ReworkPolicy: stage.ReworkPolicy, RetryPolicy: stage.RetryPolicy, InputSpec: inputSpec, InputBindings: inputBindings,
 				OutputSpec: outputSpec, RequiredSkills: requiredSkills, RequiredSkillSnapshots: snapshots, Gate: gate,
 				RollbackStageKey: ptrToText(stage.RollbackStageKey), AllowedMcpServerIds: parseUUIDArray(stage.AllowedMCPServerIDs),
 			})

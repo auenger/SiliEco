@@ -120,7 +120,7 @@ UPDATE issue
 SET properties = properties - $1::text,
     updated_at = now()
 WHERE id = $2::uuid AND workspace_id = $3::uuid
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id
 `
 
 type DeleteIssuePropertyValueParams struct {
@@ -161,6 +161,8 @@ func (q *Queries) DeleteIssuePropertyValue(ctx context.Context, arg DeleteIssueP
 		&i.Properties,
 		&i.WorkflowInstanceID,
 		&i.WorkflowStageID,
+		&i.WorkflowStageExecutionID,
+		&i.WorkflowInvalidatedByReworkID,
 	)
 	return i, err
 }
@@ -268,7 +270,7 @@ UPDATE issue
 SET properties = jsonb_set(properties, ARRAY[$1::text], $2::jsonb, true),
     updated_at = now()
 WHERE id = $3::uuid AND workspace_id = $4::uuid
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id
 `
 
 type SetIssuePropertyValueParams struct {
@@ -317,6 +319,8 @@ func (q *Queries) SetIssuePropertyValue(ctx context.Context, arg SetIssuePropert
 		&i.Properties,
 		&i.WorkflowInstanceID,
 		&i.WorkflowStageID,
+		&i.WorkflowStageExecutionID,
+		&i.WorkflowInvalidatedByReworkID,
 	)
 	return i, err
 }

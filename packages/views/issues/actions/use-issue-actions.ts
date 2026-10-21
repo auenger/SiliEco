@@ -8,6 +8,7 @@ import { useAuthStore } from "@silieco/core/auth";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { useWorkspacePaths } from "@silieco/core/paths";
 import { useModalStore } from "@silieco/core/modals";
+import { isRevisionConflictError } from "@silieco/core/revisions";
 import { useUpdateIssue } from "@silieco/core/issues/mutations";
 import { pinListOptions, useCreatePin, useDeletePin } from "@silieco/core/pins";
 import { copyText } from "@silieco/ui/lib/clipboard";
@@ -97,12 +98,11 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
         updateIssue.mutate(
           { id: issueId, ...updates },
           {
-            onError: (err) =>
-              toast.error(
-                err instanceof Error && err.message
-                  ? err.message
-                  : t(($) => $.detail.update_failed),
-              ),
+            onError: (err) => {
+              if (!isRevisionConflictError(err)) {
+                toast.error(t(($) => $.detail.update_failed));
+              }
+            },
           },
         );
       }
@@ -192,12 +192,11 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
         {
           onSuccess: () =>
             toast.success(t(($) => $.actions.remove_parent_issue_success)),
-          onError: (err) =>
-            toast.error(
-              err instanceof Error && err.message
-                ? err.message
-                : t(($) => $.detail.update_failed),
-            ),
+          onError: (err) => {
+            if (!isRevisionConflictError(err)) {
+              toast.error(t(($) => $.detail.update_failed));
+            }
+          },
         },
       );
     }

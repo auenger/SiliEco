@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { WSClient } from "../api/ws-client";
 import { defaultStorage } from "../platform/storage";
+import { workflowKeys } from "../workflows/queries";
 import { issueKeys } from "../issues/queries";
 import { workspaceWorkingAgentsKeys } from "../agents/queries";
 import { workspaceKeys } from "../workspace/queries";
@@ -213,6 +214,19 @@ describe("useRealtimeSync — Table server membership invalidation", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("refreshes issues and the Run when workflow rework arrives over WebSocket", () => {
+    vi.useFakeTimers();
+    const ws = createMockWs();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    renderHook(() => useRealtimeSync(ws, stores), {wrapper:createWrapper(qc)});
+    const onAny = vi.mocked(ws.onAny).mock.calls[0]?.[0];
+    onAny!({type:"workflow_instance:updated",payload:{}} as never);
+    vi.advanceTimersByTime(100);
+    expect(invalidate).toHaveBeenCalledWith({queryKey:workflowKeys.all("ws-1")});
+    expect(invalidate).toHaveBeenCalledWith({queryKey:issueKeys.all("ws-1")});
+    expect(invalidate).not.toHaveBeenCalledWith({queryKey:issueKeys.all("other")});
   });
 
   it("invalidates Table queries after a task lifecycle event", () => {

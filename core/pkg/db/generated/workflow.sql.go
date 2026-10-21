@@ -50,7 +50,7 @@ UPDATE workflow_instance SET
 WHERE id = $1
   AND workspace_id = $2
   AND archived_at IS NULL
-RETURNING id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision
+RETURNING id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision, inputs
 `
 
 type ArchiveWorkflowInstanceParams struct {
@@ -80,6 +80,7 @@ func (q *Queries) ArchiveWorkflowInstance(ctx context.Context, arg ArchiveWorkfl
 		&i.ArchivedAt,
 		&i.ArchivedBy,
 		&i.Revision,
+		&i.Inputs,
 	)
 	return i, err
 }
@@ -88,10 +89,11 @@ const attachIssueToWorkflowStage = `-- name: AttachIssueToWorkflowStage :one
 UPDATE issue SET
     workflow_instance_id = $3,
     workflow_stage_id = $4,
+    workflow_stage_execution_id = CASE WHEN issue.workflow_instance_id=$3 AND issue.workflow_stage_id=$4 THEN issue.workflow_stage_execution_id ELSE (SELECT e.id FROM workflow_stage_execution e WHERE e.workspace_id=$2 AND e.workflow_instance_id=$3 AND e.workflow_stage_id=$4 ORDER BY e.attempt DESC LIMIT 1) END,
     project_id = $5,
     updated_at = now()
-WHERE id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id
+WHERE issue.id = $1 AND issue.workspace_id = $2
+RETURNING issue.id, issue.workspace_id, issue.title, issue.description, issue.status, issue.priority, issue.assignee_type, issue.assignee_id, issue.creator_type, issue.creator_id, issue.parent_issue_id, issue.acceptance_criteria, issue.context_refs, issue.position, issue.due_date, issue.created_at, issue.updated_at, issue.number, issue.project_id, issue.origin_type, issue.origin_id, issue.first_executed_at, issue.start_date, issue.metadata, issue.stage, issue.properties, issue.workflow_instance_id, issue.workflow_stage_id, issue.workflow_stage_execution_id, issue.workflow_invalidated_by_rework_id
 `
 
 type AttachIssueToWorkflowStageParams struct {
@@ -140,6 +142,8 @@ func (q *Queries) AttachIssueToWorkflowStage(ctx context.Context, arg AttachIssu
 		&i.Properties,
 		&i.WorkflowInstanceID,
 		&i.WorkflowStageID,
+		&i.WorkflowStageExecutionID,
+		&i.WorkflowInvalidatedByReworkID,
 	)
 	return i, err
 }
@@ -201,28 +205,6 @@ func (q *Queries) CountIssuesInWorkflowInstance(ctx context.Context, arg CountIs
 	return column_1, err
 }
 
-const countOpenIssuesInWorkflowStage = `-- name: CountOpenIssuesInWorkflowStage :one
-SELECT count(*)::bigint
-FROM issue
-WHERE workspace_id = $1
-  AND workflow_instance_id = $2
-  AND workflow_stage_id = $3
-  AND status NOT IN ('done', 'cancelled')
-`
-
-type CountOpenIssuesInWorkflowStageParams struct {
-	WorkspaceID        pgtype.UUID `json:"workspace_id"`
-	WorkflowInstanceID pgtype.UUID `json:"workflow_instance_id"`
-	WorkflowStageID    pgtype.UUID `json:"workflow_stage_id"`
-}
-
-func (q *Queries) CountOpenIssuesInWorkflowStage(ctx context.Context, arg CountOpenIssuesInWorkflowStageParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countOpenIssuesInWorkflowStage, arg.WorkspaceID, arg.WorkflowInstanceID, arg.WorkflowStageID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const countWorkflowInstances = `-- name: CountWorkflowInstances :one
 SELECT COUNT(*) FROM workflow_instance
 WHERE workflow_id = $1 AND workspace_id = $2
@@ -244,9 +226,10 @@ const countWorkflowStageRuns = `-- name: CountWorkflowStageRuns :one
 SELECT COUNT(*)
 FROM agent_task_queue t
 JOIN issue i ON i.id = t.issue_id
+LEFT JOIN workflow_stage_execution e ON e.id = t.workflow_stage_execution_id AND e.workspace_id = i.workspace_id
 WHERE i.workspace_id = $1
-  AND i.workflow_instance_id = $2
-  AND i.workflow_stage_id = $3
+  AND ((t.workflow_stage_execution_id IS NOT NULL AND e.workflow_instance_id = $2 AND e.workflow_stage_id = $3)
+    OR (t.workflow_stage_execution_id IS NULL AND i.workflow_instance_id = $2 AND i.workflow_stage_id = $3))
 `
 
 type CountWorkflowStageRunsParams struct {
@@ -311,7 +294,7 @@ INSERT INTO workflow_gate_decision (
 ) VALUES (
     $1, $2, $3, $4,
     $5, $6, $7, $8
-) RETURNING id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at
+) RETURNING id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_task_id, invalidated_by_rework_id
 `
 
 type CreateWorkflowGateDecisionParams struct {
@@ -348,6 +331,13 @@ func (q *Queries) CreateWorkflowGateDecision(ctx context.Context, arg CreateWork
 		&i.ActorID,
 		&i.Note,
 		&i.CreatedAt,
+		&i.ExecutionID,
+		&i.ResultRevision,
+		&i.ReviewStep,
+		&i.BasisHash,
+		&i.BasisSnapshot,
+		&i.ReviewTaskID,
+		&i.InvalidatedByReworkID,
 	)
 	return i, err
 }
@@ -355,12 +345,12 @@ func (q *Queries) CreateWorkflowGateDecision(ctx context.Context, arg CreateWork
 const createWorkflowInstance = `-- name: CreateWorkflowInstance :one
 INSERT INTO workflow_instance (
     workspace_id, workflow_id, workflow_version_id, title, description,
-    status, current_stage_id, project_id, created_by, started_at
+    status, current_stage_id, project_id, created_by, started_at, inputs
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9,
-    CASE WHEN $6 = 'active' THEN now() ELSE NULL END
-) RETURNING id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision
+    CASE WHEN $6 = 'active' THEN now() ELSE NULL END, COALESCE($10::jsonb, '{}'::jsonb)
+) RETURNING id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision, inputs
 `
 
 type CreateWorkflowInstanceParams struct {
@@ -373,6 +363,7 @@ type CreateWorkflowInstanceParams struct {
 	CurrentStageID    pgtype.UUID `json:"current_stage_id"`
 	ProjectID         pgtype.UUID `json:"project_id"`
 	CreatedBy         pgtype.UUID `json:"created_by"`
+	Inputs            []byte      `json:"inputs"`
 }
 
 func (q *Queries) CreateWorkflowInstance(ctx context.Context, arg CreateWorkflowInstanceParams) (WorkflowInstance, error) {
@@ -386,6 +377,7 @@ func (q *Queries) CreateWorkflowInstance(ctx context.Context, arg CreateWorkflow
 		arg.CurrentStageID,
 		arg.ProjectID,
 		arg.CreatedBy,
+		arg.Inputs,
 	)
 	var i WorkflowInstance
 	err := row.Scan(
@@ -406,6 +398,7 @@ func (q *Queries) CreateWorkflowInstance(ctx context.Context, arg CreateWorkflow
 		&i.ArchivedAt,
 		&i.ArchivedBy,
 		&i.Revision,
+		&i.Inputs,
 	)
 	return i, err
 }
@@ -460,12 +453,12 @@ INSERT INTO workflow_instance_stage (
     workspace_id, workflow_instance_id, source_stage_id, stable_key, name,
     description, position, completion_rule, input_spec, output_spec,
     required_skills, required_skill_snapshots, gate, rollback_stage_key,
-    allowed_mcp_server_ids
+    allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15
-) RETURNING id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids
+    $11, $12, $13, $14, $15, COALESCE($16::text, 'manual'), $17, COALESCE($18::jsonb, '{}'::jsonb), COALESCE($19::jsonb, '{}'::jsonb), COALESCE($20::jsonb, '{}'::jsonb)
+) RETURNING id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy
 `
 
 type CreateWorkflowInstanceStageParams struct {
@@ -484,6 +477,11 @@ type CreateWorkflowInstanceStageParams struct {
 	Gate                   []byte        `json:"gate"`
 	RollbackStageKey       pgtype.Text   `json:"rollback_stage_key"`
 	AllowedMcpServerIds    []pgtype.UUID `json:"allowed_mcp_server_ids"`
+	ExecutionMode          pgtype.Text   `json:"execution_mode"`
+	ExecutorID             pgtype.UUID   `json:"executor_id"`
+	InputBindings          []byte        `json:"input_bindings"`
+	ReworkPolicy           []byte        `json:"rework_policy"`
+	RetryPolicy            []byte        `json:"retry_policy"`
 }
 
 func (q *Queries) CreateWorkflowInstanceStage(ctx context.Context, arg CreateWorkflowInstanceStageParams) (WorkflowInstanceStage, error) {
@@ -503,6 +501,11 @@ func (q *Queries) CreateWorkflowInstanceStage(ctx context.Context, arg CreateWor
 		arg.Gate,
 		arg.RollbackStageKey,
 		arg.AllowedMcpServerIds,
+		arg.ExecutionMode,
+		arg.ExecutorID,
+		arg.InputBindings,
+		arg.ReworkPolicy,
+		arg.RetryPolicy,
 	)
 	var i WorkflowInstanceStage
 	err := row.Scan(
@@ -524,6 +527,11 @@ func (q *Queries) CreateWorkflowInstanceStage(ctx context.Context, arg CreateWor
 		&i.UpdatedAt,
 		&i.RequiredSkillSnapshots,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
@@ -532,12 +540,12 @@ const createWorkflowStage = `-- name: CreateWorkflowStage :one
 INSERT INTO workflow_stage (
     workspace_id, workflow_version_id, stable_key, name, description,
     position, completion_rule, input_spec, output_spec, required_skills,
-    gate, rollback_stage_key, allowed_mcp_server_ids
+    gate, rollback_stage_key, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9, $10,
-    $11, $12, $13
-) RETURNING id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids
+    $11, $12, $13, COALESCE($14::text, 'manual'), $15, COALESCE($16::jsonb, '{}'::jsonb), COALESCE($17::jsonb, '{}'::jsonb), COALESCE($18::jsonb, '{}'::jsonb)
+) RETURNING id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy
 `
 
 type CreateWorkflowStageParams struct {
@@ -554,6 +562,11 @@ type CreateWorkflowStageParams struct {
 	Gate                []byte        `json:"gate"`
 	RollbackStageKey    pgtype.Text   `json:"rollback_stage_key"`
 	AllowedMcpServerIds []pgtype.UUID `json:"allowed_mcp_server_ids"`
+	ExecutionMode       pgtype.Text   `json:"execution_mode"`
+	ExecutorID          pgtype.UUID   `json:"executor_id"`
+	InputBindings       []byte        `json:"input_bindings"`
+	ReworkPolicy        []byte        `json:"rework_policy"`
+	RetryPolicy         []byte        `json:"retry_policy"`
 }
 
 func (q *Queries) CreateWorkflowStage(ctx context.Context, arg CreateWorkflowStageParams) (WorkflowStage, error) {
@@ -571,6 +584,11 @@ func (q *Queries) CreateWorkflowStage(ctx context.Context, arg CreateWorkflowSta
 		arg.Gate,
 		arg.RollbackStageKey,
 		arg.AllowedMcpServerIds,
+		arg.ExecutionMode,
+		arg.ExecutorID,
+		arg.InputBindings,
+		arg.ReworkPolicy,
+		arg.RetryPolicy,
 	)
 	var i WorkflowStage
 	err := row.Scan(
@@ -589,6 +607,11 @@ func (q *Queries) CreateWorkflowStage(ctx context.Context, arg CreateWorkflowSta
 		&i.RollbackStageKey,
 		&i.CreatedAt,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
@@ -656,11 +679,12 @@ const detachIssueFromWorkflow = `-- name: DetachIssueFromWorkflow :one
 UPDATE issue SET
     workflow_instance_id = NULL,
     workflow_stage_id = NULL,
+    workflow_stage_execution_id = NULL,
     updated_at = now()
 WHERE id = $1
   AND workspace_id = $2
   AND workflow_instance_id = $3
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id
+RETURNING issue.id, issue.workspace_id, issue.title, issue.description, issue.status, issue.priority, issue.assignee_type, issue.assignee_id, issue.creator_type, issue.creator_id, issue.parent_issue_id, issue.acceptance_criteria, issue.context_refs, issue.position, issue.due_date, issue.created_at, issue.updated_at, issue.number, issue.project_id, issue.origin_type, issue.origin_id, issue.first_executed_at, issue.start_date, issue.metadata, issue.stage, issue.properties, issue.workflow_instance_id, issue.workflow_stage_id, issue.workflow_stage_execution_id, issue.workflow_invalidated_by_rework_id
 `
 
 type DetachIssueFromWorkflowParams struct {
@@ -701,12 +725,14 @@ func (q *Queries) DetachIssueFromWorkflow(ctx context.Context, arg DetachIssueFr
 		&i.Properties,
 		&i.WorkflowInstanceID,
 		&i.WorkflowStageID,
+		&i.WorkflowStageExecutionID,
+		&i.WorkflowInvalidatedByReworkID,
 	)
 	return i, err
 }
 
 const getFirstWorkflowInstanceStage = `-- name: GetFirstWorkflowInstanceStage :one
-SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids FROM workflow_instance_stage
+SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_instance_stage
 WHERE workflow_instance_id = $1 AND workspace_id = $2
 ORDER BY position ASC
 LIMIT 1
@@ -739,12 +765,17 @@ func (q *Queries) GetFirstWorkflowInstanceStage(ctx context.Context, arg GetFirs
 		&i.UpdatedAt,
 		&i.RequiredSkillSnapshots,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
 
 const getFirstWorkflowStage = `-- name: GetFirstWorkflowStage :one
-SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids FROM workflow_stage
+SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_stage
 WHERE workflow_version_id = $1 AND workspace_id = $2
 ORDER BY position ASC
 LIMIT 1
@@ -774,12 +805,17 @@ func (q *Queries) GetFirstWorkflowStage(ctx context.Context, arg GetFirstWorkflo
 		&i.RollbackStageKey,
 		&i.CreatedAt,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
 
 const getNextWorkflowInstanceStage = `-- name: GetNextWorkflowInstanceStage :one
-SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids FROM workflow_instance_stage
+SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_instance_stage
 WHERE workflow_instance_id = $1
   AND workspace_id = $2
   AND position > $3
@@ -815,12 +851,17 @@ func (q *Queries) GetNextWorkflowInstanceStage(ctx context.Context, arg GetNextW
 		&i.UpdatedAt,
 		&i.RequiredSkillSnapshots,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
 
 const getNextWorkflowStage = `-- name: GetNextWorkflowStage :one
-SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids FROM workflow_stage
+SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_stage
 WHERE workflow_version_id = $1
   AND workspace_id = $2
   AND position > $3
@@ -853,6 +894,11 @@ func (q *Queries) GetNextWorkflowStage(ctx context.Context, arg GetNextWorkflowS
 		&i.RollbackStageKey,
 		&i.CreatedAt,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
@@ -886,7 +932,7 @@ func (q *Queries) GetWorkflowInWorkspace(ctx context.Context, arg GetWorkflowInW
 }
 
 const getWorkflowInstanceInWorkspace = `-- name: GetWorkflowInstanceInWorkspace :one
-SELECT id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision FROM workflow_instance
+SELECT id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision, inputs FROM workflow_instance
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -916,12 +962,13 @@ func (q *Queries) GetWorkflowInstanceInWorkspace(ctx context.Context, arg GetWor
 		&i.ArchivedAt,
 		&i.ArchivedBy,
 		&i.Revision,
+		&i.Inputs,
 	)
 	return i, err
 }
 
 const getWorkflowInstanceStage = `-- name: GetWorkflowInstanceStage :one
-SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids FROM workflow_instance_stage
+SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_instance_stage
 WHERE id = $1
   AND workflow_instance_id = $2
   AND workspace_id = $3
@@ -955,12 +1002,17 @@ func (q *Queries) GetWorkflowInstanceStage(ctx context.Context, arg GetWorkflowI
 		&i.UpdatedAt,
 		&i.RequiredSkillSnapshots,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
 
 const getWorkflowInstanceStageByStableKey = `-- name: GetWorkflowInstanceStageByStableKey :one
-SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids FROM workflow_instance_stage
+SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_instance_stage
 WHERE workflow_instance_id = $1
   AND workspace_id = $2
   AND stable_key = $3
@@ -994,12 +1046,17 @@ func (q *Queries) GetWorkflowInstanceStageByStableKey(ctx context.Context, arg G
 		&i.UpdatedAt,
 		&i.RequiredSkillSnapshots,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
 
 const getWorkflowStageByStableKey = `-- name: GetWorkflowStageByStableKey :one
-SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids FROM workflow_stage
+SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_stage
 WHERE workflow_version_id = $1
   AND workspace_id = $2
   AND stable_key = $3
@@ -1030,12 +1087,17 @@ func (q *Queries) GetWorkflowStageByStableKey(ctx context.Context, arg GetWorkfl
 		&i.RollbackStageKey,
 		&i.CreatedAt,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
 
 const getWorkflowStageInVersion = `-- name: GetWorkflowStageInVersion :one
-SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids FROM workflow_stage
+SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_stage
 WHERE id = $1
   AND workflow_version_id = $2
   AND workspace_id = $3
@@ -1066,6 +1128,11 @@ func (q *Queries) GetWorkflowStageInVersion(ctx context.Context, arg GetWorkflow
 		&i.RollbackStageKey,
 		&i.CreatedAt,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
@@ -1098,7 +1165,7 @@ func (q *Queries) GetWorkflowVersionInWorkspace(ctx context.Context, arg GetWork
 }
 
 const listIssuesForWorkflowInstance = `-- name: ListIssuesForWorkflowInstance :many
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id FROM issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id FROM issue
 WHERE workspace_id = $1
   AND workflow_instance_id = $2
 ORDER BY workflow_stage_id, position ASC, created_at ASC
@@ -1147,6 +1214,8 @@ func (q *Queries) ListIssuesForWorkflowInstance(ctx context.Context, arg ListIss
 			&i.Properties,
 			&i.WorkflowInstanceID,
 			&i.WorkflowStageID,
+			&i.WorkflowStageExecutionID,
+			&i.WorkflowInvalidatedByReworkID,
 		); err != nil {
 			return nil, err
 		}
@@ -1159,7 +1228,7 @@ func (q *Queries) ListIssuesForWorkflowInstance(ctx context.Context, arg ListIss
 }
 
 const listWorkflowGateDecisions = `-- name: ListWorkflowGateDecisions :many
-SELECT id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at FROM workflow_gate_decision
+SELECT id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_task_id, invalidated_by_rework_id FROM workflow_gate_decision
 WHERE workflow_instance_id = $1 AND workspace_id = $2
 ORDER BY created_at DESC
 `
@@ -1189,6 +1258,13 @@ func (q *Queries) ListWorkflowGateDecisions(ctx context.Context, arg ListWorkflo
 			&i.ActorID,
 			&i.Note,
 			&i.CreatedAt,
+			&i.ExecutionID,
+			&i.ResultRevision,
+			&i.ReviewStep,
+			&i.BasisHash,
+			&i.BasisSnapshot,
+			&i.ReviewTaskID,
+			&i.InvalidatedByReworkID,
 		); err != nil {
 			return nil, err
 		}
@@ -1242,7 +1318,7 @@ func (q *Queries) ListWorkflowInstanceChanges(ctx context.Context, arg ListWorkf
 }
 
 const listWorkflowInstanceStages = `-- name: ListWorkflowInstanceStages :many
-SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids FROM workflow_instance_stage
+SELECT id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_instance_stage
 WHERE workflow_instance_id = $1 AND workspace_id = $2
 ORDER BY position ASC
 `
@@ -1280,6 +1356,11 @@ func (q *Queries) ListWorkflowInstanceStages(ctx context.Context, arg ListWorkfl
 			&i.UpdatedAt,
 			&i.RequiredSkillSnapshots,
 			&i.AllowedMcpServerIds,
+			&i.ExecutionMode,
+			&i.ExecutorID,
+			&i.InputBindings,
+			&i.ReworkPolicy,
+			&i.RetryPolicy,
 		); err != nil {
 			return nil, err
 		}
@@ -1292,7 +1373,7 @@ func (q *Queries) ListWorkflowInstanceStages(ctx context.Context, arg ListWorkfl
 }
 
 const listWorkflowInstances = `-- name: ListWorkflowInstances :many
-SELECT id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision FROM workflow_instance
+SELECT id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision, inputs FROM workflow_instance
 WHERE workspace_id = $1
   AND ($2::uuid IS NULL OR workflow_id = $2)
   AND ($3::uuid IS NULL OR project_id = $3)
@@ -1339,6 +1420,7 @@ func (q *Queries) ListWorkflowInstances(ctx context.Context, arg ListWorkflowIns
 			&i.ArchivedAt,
 			&i.ArchivedBy,
 			&i.Revision,
+			&i.Inputs,
 		); err != nil {
 			return nil, err
 		}
@@ -1360,9 +1442,10 @@ SELECT t.id, t.issue_id, i.title AS task_title, t.agent_id, a.name AS agent_name
 FROM agent_task_queue t
 JOIN issue i ON i.id = t.issue_id
 LEFT JOIN agent a ON a.id = t.agent_id
+LEFT JOIN workflow_stage_execution e ON e.id = t.workflow_stage_execution_id AND e.workspace_id = i.workspace_id
 WHERE i.workspace_id = $1
-  AND i.workflow_instance_id = $2
-  AND i.workflow_stage_id = $3
+  AND ((t.workflow_stage_execution_id IS NOT NULL AND e.workflow_instance_id = $2 AND e.workflow_stage_id = $3)
+    OR (t.workflow_stage_execution_id IS NULL AND i.workflow_instance_id = $2 AND i.workflow_stage_id = $3))
 ORDER BY t.created_at DESC, t.id DESC
 LIMIT $4 OFFSET $5
 `
@@ -1448,7 +1531,7 @@ func (q *Queries) ListWorkflowStageRuns(ctx context.Context, arg ListWorkflowSta
 }
 
 const listWorkflowStages = `-- name: ListWorkflowStages :many
-SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids FROM workflow_stage
+SELECT id, workspace_id, workflow_version_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy FROM workflow_stage
 WHERE workflow_version_id = $1 AND workspace_id = $2
 ORDER BY position ASC
 `
@@ -1483,6 +1566,11 @@ func (q *Queries) ListWorkflowStages(ctx context.Context, arg ListWorkflowStages
 			&i.RollbackStageKey,
 			&i.CreatedAt,
 			&i.AllowedMcpServerIds,
+			&i.ExecutionMode,
+			&i.ExecutorID,
+			&i.InputBindings,
+			&i.ReworkPolicy,
+			&i.RetryPolicy,
 		); err != nil {
 			return nil, err
 		}
@@ -1613,7 +1701,7 @@ func (q *Queries) LockWorkflowForVersion(ctx context.Context, arg LockWorkflowFo
 }
 
 const lockWorkflowInstanceInWorkspace = `-- name: LockWorkflowInstanceInWorkspace :one
-SELECT id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision FROM workflow_instance
+SELECT id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision, inputs FROM workflow_instance
 WHERE id = $1 AND workspace_id = $2
 FOR UPDATE
 `
@@ -1644,8 +1732,48 @@ func (q *Queries) LockWorkflowInstanceInWorkspace(ctx context.Context, arg LockW
 		&i.ArchivedAt,
 		&i.ArchivedBy,
 		&i.Revision,
+		&i.Inputs,
 	)
 	return i, err
+}
+
+const lockWorkflowStageIssues = `-- name: LockWorkflowStageIssues :many
+SELECT id, status FROM issue
+WHERE workspace_id=$1 AND workflow_instance_id=$2 AND workflow_stage_id=$3
+AND workflow_invalidated_by_rework_id IS NULL
+ORDER BY id FOR UPDATE
+`
+
+type LockWorkflowStageIssuesParams struct {
+	WorkspaceID        pgtype.UUID `json:"workspace_id"`
+	WorkflowInstanceID pgtype.UUID `json:"workflow_instance_id"`
+	WorkflowStageID    pgtype.UUID `json:"workflow_stage_id"`
+}
+
+type LockWorkflowStageIssuesRow struct {
+	ID     pgtype.UUID `json:"id"`
+	Status string      `json:"status"`
+}
+
+// The transition transaction rechecks delivery after acquiring the Run lock.
+func (q *Queries) LockWorkflowStageIssues(ctx context.Context, arg LockWorkflowStageIssuesParams) ([]LockWorkflowStageIssuesRow, error) {
+	rows, err := q.db.Query(ctx, lockWorkflowStageIssues, arg.WorkspaceID, arg.WorkflowInstanceID, arg.WorkflowStageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LockWorkflowStageIssuesRow{}
+	for rows.Next() {
+		var i LockWorkflowStageIssuesRow
+		if err := rows.Scan(&i.ID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const nextWorkflowVersionNumber = `-- name: NextWorkflowVersionNumber :one
@@ -1781,7 +1909,7 @@ UPDATE workflow_instance SET
 WHERE id = $1
   AND workspace_id = $2
   AND revision = $5
-RETURNING id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision
+RETURNING id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision, inputs
 `
 
 type UpdateWorkflowInstancePlanMetadataParams struct {
@@ -1819,6 +1947,7 @@ func (q *Queries) UpdateWorkflowInstancePlanMetadata(ctx context.Context, arg Up
 		&i.ArchivedAt,
 		&i.ArchivedBy,
 		&i.Revision,
+		&i.Inputs,
 	)
 	return i, err
 }
@@ -1837,11 +1966,16 @@ UPDATE workflow_instance_stage SET
     gate = $13,
     rollback_stage_key = $14,
     allowed_mcp_server_ids = $15,
+    execution_mode = COALESCE($16::text, 'manual'),
+    executor_id = $17,
+    input_bindings = COALESCE($18::jsonb, '{}'::jsonb),
+    rework_policy = COALESCE($19::jsonb, '{}'::jsonb),
+    retry_policy = COALESCE($20::jsonb, '{}'::jsonb),
     updated_at = now()
 WHERE id = $1
   AND workflow_instance_id = $2
   AND workspace_id = $3
-RETURNING id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids
+RETURNING id, workspace_id, workflow_instance_id, source_stage_id, stable_key, name, description, position, completion_rule, input_spec, output_spec, required_skills, gate, rollback_stage_key, created_at, updated_at, required_skill_snapshots, allowed_mcp_server_ids, execution_mode, executor_id, input_bindings, rework_policy, retry_policy
 `
 
 type UpdateWorkflowInstanceStageParams struct {
@@ -1860,6 +1994,11 @@ type UpdateWorkflowInstanceStageParams struct {
 	Gate                   []byte        `json:"gate"`
 	RollbackStageKey       pgtype.Text   `json:"rollback_stage_key"`
 	AllowedMcpServerIds    []pgtype.UUID `json:"allowed_mcp_server_ids"`
+	ExecutionMode          pgtype.Text   `json:"execution_mode"`
+	ExecutorID             pgtype.UUID   `json:"executor_id"`
+	InputBindings          []byte        `json:"input_bindings"`
+	ReworkPolicy           []byte        `json:"rework_policy"`
+	RetryPolicy            []byte        `json:"retry_policy"`
 }
 
 func (q *Queries) UpdateWorkflowInstanceStage(ctx context.Context, arg UpdateWorkflowInstanceStageParams) (WorkflowInstanceStage, error) {
@@ -1879,6 +2018,11 @@ func (q *Queries) UpdateWorkflowInstanceStage(ctx context.Context, arg UpdateWor
 		arg.Gate,
 		arg.RollbackStageKey,
 		arg.AllowedMcpServerIds,
+		arg.ExecutionMode,
+		arg.ExecutorID,
+		arg.InputBindings,
+		arg.ReworkPolicy,
+		arg.RetryPolicy,
 	)
 	var i WorkflowInstanceStage
 	err := row.Scan(
@@ -1900,6 +2044,11 @@ func (q *Queries) UpdateWorkflowInstanceStage(ctx context.Context, arg UpdateWor
 		&i.UpdatedAt,
 		&i.RequiredSkillSnapshots,
 		&i.AllowedMcpServerIds,
+		&i.ExecutionMode,
+		&i.ExecutorID,
+		&i.InputBindings,
+		&i.ReworkPolicy,
+		&i.RetryPolicy,
 	)
 	return i, err
 }
@@ -1919,7 +2068,7 @@ UPDATE workflow_instance SET
     END,
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision
+RETURNING id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision, inputs
 `
 
 type UpdateWorkflowInstanceStateParams struct {
@@ -1955,6 +2104,7 @@ func (q *Queries) UpdateWorkflowInstanceState(ctx context.Context, arg UpdateWor
 		&i.ArchivedAt,
 		&i.ArchivedBy,
 		&i.Revision,
+		&i.Inputs,
 	)
 	return i, err
 }

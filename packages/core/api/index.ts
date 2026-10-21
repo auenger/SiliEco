@@ -43,3 +43,7 @@ export const api = new Proxy({} as ApiClientType, {
     return typeof value === "function" ? value.bind(_api) : value;
   },
 });
+
+export type {SkillRevision,SkillRevisionSummary,SkillRevisionPage,CreateSkillRevisionInput} from "./skill-revision-schema";
+
+export type { SkillImprovementProposal, SkillImprovementProposalPage, SkillProposalCategory, CreateSkillImprovementProposalInput } from "./skill-proposal-schema";

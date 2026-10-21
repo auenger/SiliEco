@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY workflow_artifact_revision_result_idx ON workflow_artifact_revision (workspace_id, result_id);

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY skill_improvement_proposal_identity ON skill_improvement_proposal(id);

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY skill_revision_content_idx ON skill_revision(workspace_id,source_kind,source_id,revision_hash);

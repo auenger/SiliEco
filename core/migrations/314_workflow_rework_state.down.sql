@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY workflow_rework_state_idx;

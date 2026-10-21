@@ -8,6 +8,7 @@ import {
   childIssuesOptions,
 } from "@silieco/core/issues/queries";
 import { useUpdateIssue } from "@silieco/core/issues/mutations";
+import { isRevisionConflictError } from "@silieco/core/revisions";
 import { IssuePickerModal } from "./issue-picker-modal";
 import { useT } from "../i18n";
 
@@ -51,12 +52,11 @@ export function AddChildIssueModal({
         updateIssue.mutate(
           { id: selected.id, parent_issue_id: issueId },
           {
-            onError: (err) =>
-              toast.error(
-                err instanceof Error && err.message
-                  ? err.message
-                  : t(($) => $.add_child.toast_failed),
-              ),
+            onError: (err) => {
+              if (!isRevisionConflictError(err)) {
+                toast.error(t(($) => $.add_child.toast_failed));
+              }
+            },
           },
         );
         toast.success(t(($) => $.add_child.toast_success, { identifier: selected.identifier }));

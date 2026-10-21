@@ -51,6 +51,7 @@ export interface Issue {
   /** Optional SOP execution coordinates; null keeps the plain Task lifecycle. */
   workflow_instance_id?: string | null;
   workflow_stage_id?: string | null;
+  workflow_invalidated_by_rework_id?: string | null;
   position: number;
   // Ordered barrier group among sibling sub-issues (null = unstaged). The
   // parent assignee is notified/woken only when every sub-issue in a stage

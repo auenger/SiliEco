@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api";
-import { revisionConflictBody, useRevisionConflictStore } from "./conflict-store";
+import {
+  isRevisionConflictError,
+  revisionConflictBody,
+  useRevisionConflictStore,
+} from "./conflict-store";
 
 describe("revision conflicts", () => {
   beforeEach(() => useRevisionConflictStore.getState().close());
@@ -17,6 +21,8 @@ describe("revision conflicts", () => {
     });
     expect(revisionConflictBody(new ApiError("bad", 409, "Conflict", {}))).toBeNull();
     expect(revisionConflictBody(new Error("offline"))).toBeNull();
+    expect(isRevisionConflictError(error)).toBe(true);
+    expect(isRevisionConflictError(new Error("offline"))).toBe(false);
   });
 
   it("stores explicit retry and refresh actions", async () => {

@@ -665,6 +665,7 @@ export const IssueSchema = z.object({
   // therefore degrade to a plain Task rather than invalidating the response.
   workflow_instance_id: z.string().nullable().default(null),
   workflow_stage_id: z.string().nullable().default(null),
+  workflow_invalidated_by_rework_id: z.string().min(1).nullable().default(null).catch("unknown"),
   position: z.number(),
   // Older backends predate `stage`; default to null so a missing field parses
   // cleanly into the non-optional Issue.stage (number | null).
@@ -712,6 +713,8 @@ export const EMPTY_LIST_ISSUES_RESPONSE: ListIssuesResponse = {
 };
 
 export const WorkflowStageSchema = z.object({
+  execution_mode: z.string().default("manual").catch("unknown"),
+  executor_id: z.string().nullable().default(null).catch(null),
   id: z.string(),
   workspace_id: z.string(),
   workflow_version_id: z.string(),
@@ -719,8 +722,11 @@ export const WorkflowStageSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   position: z.number(),
+  retry_policy: z.object({max_attempts:z.number().int().min(1).max(10).optional(),timeout_seconds:z.number().int().min(1).max(86400).optional(),backoff_seconds:z.number().int().min(0).max(3600).optional(),backoff_multiplier:z.number().int().min(1).max(10).optional(),max_backoff_seconds:z.number().int().min(0).max(3600).optional()}).loose().optional(),
+  rework_policy: z.object({max_reworks:z.number().int().min(0).max(100).optional()}).loose().optional(),
   completion_rule: z.record(z.string(), z.unknown()).default({}),
   input_spec: z.record(z.string(), z.unknown()).default({}),
+  input_bindings: z.record(z.string(), z.unknown()).default({}).catch({ schema_version: "invalid" }),
   output_spec: z.record(z.string(), z.unknown()).default({}),
   required_skills: z.array(z.string()).default([]),
   allowed_mcp_server_ids: z.array(z.string()).nullable().optional(),
@@ -730,6 +736,8 @@ export const WorkflowStageSchema = z.object({
 }).loose();
 
 export const WorkflowInstanceStageSchema = z.object({
+  execution_mode: z.string().default("manual").catch("unknown"),
+  executor_id: z.string().nullable().default(null).catch(null),
   id: z.string(),
   workspace_id: z.string(),
   workflow_instance_id: z.string().default(""),
@@ -738,8 +746,11 @@ export const WorkflowInstanceStageSchema = z.object({
   name: z.string(),
   description: z.string().nullable().default(null),
   position: z.number(),
+  retry_policy: z.object({max_attempts:z.number().int().min(1).max(10).optional(),timeout_seconds:z.number().int().min(1).max(86400).optional(),backoff_seconds:z.number().int().min(0).max(3600).optional(),backoff_multiplier:z.number().int().min(1).max(10).optional(),max_backoff_seconds:z.number().int().min(0).max(3600).optional()}).loose().optional(),
+  rework_policy: z.object({max_reworks:z.number().int().min(0).max(100).optional()}).loose().optional(),
   completion_rule: z.record(z.string(), z.unknown()).default({}),
   input_spec: z.record(z.string(), z.unknown()).default({}),
+  input_bindings: z.record(z.string(), z.unknown()).default({}).catch({ schema_version: "invalid" }),
   output_spec: z.record(z.string(), z.unknown()).default({}),
   required_skills: z.array(z.string()).default([]),
   required_skill_revisions: z.record(z.string(), z.string()).default({}),
@@ -841,7 +852,24 @@ export const WorkflowSchema = z.object({
   updated_at: z.string(),
 }).loose();
 
+export const WorkflowHumanReviewSchema = z.object({
+  execution_id: z.string(),
+  result_revision: z.number().int().positive().catch(0),
+  basis_hash: z.string().regex(/^[0-9a-f]{64}$/).catch(""),
+  issues: z.array(z.object({
+    id: z.string(), title: z.string(), status: z.string(), updated_at: z.string(),
+  }).loose()),
+  calls: z.array(z.object({
+    id: z.string(), issue_id: z.string().nullable().default(null), agent_id: z.string(), status: z.string(),
+  }).loose()),
+}).loose();
+
 export const WorkflowGateDecisionSchema = z.object({
+  invalidated_by_rework_id: z.string().min(1).nullable().default(null).catch("unknown"),
+  execution_id: z.string().nullable().default(null).catch(null),
+  result_revision: z.number().int().positive().nullable().default(null).catch(null),
+  review_step: z.string().nullable().default(null).catch(null),
+  basis_hash: z.string().nullable().default(null).catch(null),
   id: z.string(),
   workflow_instance_id: z.string(),
   from_stage_id: z.string(),
@@ -853,7 +881,15 @@ export const WorkflowGateDecisionSchema = z.object({
   created_at: z.string(),
 }).loose();
 
+export const WorkflowReworkSchema = z.object({
+ id:z.string().min(1), source_stage_id:z.string().min(1),target_stage_id:z.string().min(1),
+ source_execution_id:z.string().nullable().default(null),plan_revision:z.number().int().positive(),
+ actor_type:z.enum(["member","agent"]),actor_id:z.string().min(1),reason:z.string(),created_at:z.string(),
+});
+
 export const WorkflowInstanceSchema = z.object({
+  reworks:z.array(WorkflowReworkSchema).default([]).catch([]),
+  inputs: z.record(z.string(), z.unknown()).default({}).catch({}),
   id: z.string(),
   workspace_id: z.string(),
   workflow_id: z.string(),
@@ -864,6 +900,7 @@ export const WorkflowInstanceSchema = z.object({
   can_edit: z.boolean().default(false),
   source_version: z.number().default(0),
   status: z.string(),
+  state_token: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null).catch(null),
   current_stage_id: z.string().nullable().default(null),
   current_stage_name: z.string().nullable().default(null),
   current_stage_index: z.number().nullable().default(null),
@@ -2268,3 +2305,64 @@ export const MALFORMED_RUNTIME_MODEL_LIST_REQUEST: RuntimeModelListRequest = {
   created_at: "",
   updated_at: "",
 };
+
+
+export const WorkflowExecutionListSchema = z.array(z.object({
+  failure_code: z.string().nullable().catch(null), failure_detail: z.string().nullable().catch(null),
+  id: z.string(), stage_id: z.string(), attempt: z.number().int().positive(),
+  plan_revision: z.number().int().positive(), executor_id: z.string(),
+  main_issue_id: z.string().nullable().default(null), main_task_id: z.string().nullable().default(null),
+  status: z.string().catch("unknown"), result_revision: z.number().int().nonnegative().catch(0),
+}).loose());
+
+export const WorkflowResultSchema = z.object({
+  id: z.string(), execution_id: z.string(), revision: z.number().int().positive(),
+  data: z.unknown().refine((value) => value !== undefined),
+  artifacts: z.array(z.object({
+    id: z.string(), artifact_id: z.string(), revision: z.number().int().positive(),
+    name: z.string(), media_type: z.string(), size_bytes: z.number().nonnegative(), checksum: z.string(),
+  }).loose()),
+}).loose();
+
+
+export const WorkflowInputRecoverySchema = z.object({
+  execution_id: z.string(), instance_id: z.string(),
+  attempt: z.number().int().positive(), status: z.literal("pending"),
+}).loose();
+
+export const WorkflowExecutionReworkSchema = z.union([
+ z.object({
+  rework_id: z.string().min(1).optional(),
+  execution_id: z.string().min(1), source_execution_id: z.string().min(1),
+  instance_id: z.string().min(1), stage_id: z.string().min(1),
+  attempt: z.number().int().positive(),
+  status: z.enum(["pending", "queued", "running", "awaiting_review", "succeeded", "blocked", "failed", "cancelled"]),
+ }).loose(),
+ z.object({
+  rework_id: z.string().min(1), execution_id: z.null(), attempt: z.null(),
+  source_execution_id: z.string().min(1), instance_id: z.string().min(1), stage_id: z.string().min(1),
+  status: z.literal("awaiting_work"),
+ }).loose(),
+]);
+
+export const WorkflowAgentReviewStatusSchema = z.object({
+  execution_id: z.string().uuid(),
+  phase: z.string(),
+  request_id: z.string().uuid().nullable(),
+  reviewer_id: z.string().uuid().nullable(),
+  result_revision: z.number().int().nonnegative(),
+  basis_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  call: z.object({
+    id: z.string().uuid(), status: z.string(), failure_reason: z.string().nullable(),
+    attempt: z.number().int().positive(), max_attempts: z.number().int().positive(),
+  }).loose().nullable(),
+  can_recover: z.boolean().catch(false),
+  recovery_attempts: z.number().int().min(0).max(3).catch(0),
+  retry_at: z.string().nullable(),
+}).loose();
+
+export const WorkflowAgentReviewRecoverySchema = z.object({
+  recovery_id: z.string().uuid(), instance_id: z.string().uuid(), execution_id: z.string().uuid(),
+  request_id: z.string().uuid(), failed_task_id: z.string().uuid(), task_id: z.string().uuid(),
+  allowed_attempts: z.number().int().min(1).max(3), max_attempts: z.number().int().positive(),
+}).loose();

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { workflowOperationDialogClassName } from "./workflow-dialog";
+import { useRef, useState } from "react";
 import {
   CheckCircle2,
   CircleAlert,
@@ -13,6 +14,7 @@ import { useAuthStore } from "@silieco/core/auth";
 import type { WorkflowInstance } from "@silieco/core/types";
 import { useTransitionWorkflowInstance } from "@silieco/core/workflows";
 import { Badge } from "@silieco/ui/components/ui/badge";
+import { Checkbox } from "@silieco/ui/components/ui/checkbox";
 import { Button } from "@silieco/ui/components/ui/button";
 import {
   Dialog,
@@ -26,11 +28,19 @@ import { Textarea } from "@silieco/ui/components/ui/textarea";
 import { cn } from "@silieco/ui/lib/utils";
 import { useT } from "../../i18n";
 
+import { ExecutionReviewControl } from "./execution-review-control";
+
 function objectString(value: Record<string, unknown>, key: string) {
   return typeof value[key] === "string" ? (value[key] as string) : "";
 }
 
-export function StageReviewControl({
+export function StageReviewControl({instance}: {instance: WorkflowInstance}) {
+  const stage = instance.stages?.find((item) => item.id === instance.current_stage_id);
+  if (stage?.execution_mode && stage.execution_mode !== "manual") return <ExecutionReviewControl key={instance.id} instance={instance} />;
+  return <ManualStageReviewControl instance={instance} />;
+}
+
+function ManualStageReviewControl({
   instance,
 }: {
   instance: WorkflowInstance;
@@ -40,6 +50,13 @@ export function StageReviewControl({
   const transitionInstance = useTransitionWorkflowInstance();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
+  const [reviewStateToken, setReviewStateToken] = useState<string | null>(null);
+  const [reviewFailed, setReviewFailed] = useState(false);
+  const [rollbackConfirmed, setRollbackConfirmed] = useState(false);
+  const noteTooLong = new TextEncoder().encode(reviewNote.trim()).length > 4000;
+  const submitted = useRef(false);
+  const stateChanged = !reviewStateToken || reviewStateToken !== instance.state_token;
+  const decisionLocked = stateChanged || reviewFailed || noteTooLong || transitionInstance.isPending;
   const currentStage = instance.stages?.find(
     (stage) => stage.id === instance.current_stage_id,
   );
@@ -67,10 +84,10 @@ export function StageReviewControl({
   }
 
   const currentStageTasks = (instance.tasks ?? []).filter(
-    (task) => task.workflow_stage_id === currentStage.id,
+    (task) => task.workflow_stage_id === currentStage.id && task.workflow_invalidated_by_rework_id == null,
   );
   const openTaskCount = currentStageTasks.filter(
-    (task) => task.status !== "done" && task.status !== "cancelled",
+    (task) => task.status !== "done",
   ).length;
   const gate = currentStage.gate ?? {};
   const currentGateType = objectString(gate, "type") || "none";
@@ -83,14 +100,21 @@ export function StageReviewControl({
   const rollbackStage = instance.stages?.find(
     (stage) => stage.stable_key === currentStage.rollback_stage_key,
   );
+  const reworkLimit=currentStage.rework_policy?.max_reworks;
+  const reworkCount=(instance.reworks ?? []).filter(record=>record.source_stage_id===currentStage.id).length;
+  const reworkLimitReached=typeof reworkLimit === "number" && reworkCount >= reworkLimit;
   const isFinalStage =
     instance.stages?.[instance.stages.length - 1]?.id === currentStage.id;
 
   const submitStageDecision = (outcome: "approved" | "rejected") => {
+    if (decisionLocked || submitted.current || !canReview || !reviewStateToken) return;
+    if (outcome === "rejected" && (!rollbackStage || reworkLimitReached || !rollbackConfirmed || !reviewNote.trim())) return;
+    submitted.current = true;
     transitionInstance.mutate(
       {
         instanceId: instance.id,
         data: {
+          expected_state_token: reviewStateToken,
           outcome,
           note: reviewNote.trim() || null,
           ...(outcome === "rejected" && rollbackStage
@@ -108,12 +132,14 @@ export function StageReviewControl({
           setReviewOpen(false);
           setReviewNote("");
         },
-        onError: (error) =>
+        onError: (error) => {
+          setReviewFailed(true);
           toast.error(
             error instanceof Error
               ? error.message
               : t(($) => $.stage_review.failed),
-          ),
+          );
+        },
       },
     );
   };
@@ -149,7 +175,13 @@ export function StageReviewControl({
             variant={openTaskCount > 0 ? "outline" : "secondary"}
             disabled={!canReview}
             title={canReview ? undefined : t(($) => $.stage_review.waiting_human)}
-            onClick={() => setReviewOpen(true)}
+            onClick={() => {
+              setReviewStateToken(instance.state_token ?? null);
+              setReviewFailed(false);
+              setRollbackConfirmed(false);
+              submitted.current = false;
+              setReviewOpen(true);
+            }}
           >
             <ShieldCheck className="size-3.5" />
             {canReview
@@ -167,7 +199,7 @@ export function StageReviewControl({
           if (!open) setReviewNote("");
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className={workflowOperationDialogClassName}>
           <DialogHeader>
             <DialogTitle>{t(($) => $.stage_review.title)}</DialogTitle>
             <DialogDescription>
@@ -176,6 +208,11 @@ export function StageReviewControl({
           </DialogHeader>
 
           <div className="space-y-3">
+            {(stateChanged || reviewFailed) && (
+              <p role="alert" className="text-caption text-destructive">
+                {t(($) => $.stage_review.changed)}
+              </p>
+            )}
             <div
               className={cn(
                 "flex items-start gap-3 rounded-lg border px-3 py-3",
@@ -210,6 +247,7 @@ export function StageReviewControl({
               <span>{t(($) => $.stage_review.note)}</span>
               <Textarea
                 rows={4}
+                disabled={stateChanged || reviewFailed || transitionInstance.isPending}
                 value={reviewNote}
                 placeholder={t(($) => $.stage_review.note_placeholder)}
                 onChange={(event) => setReviewNote(event.target.value)}
@@ -217,10 +255,22 @@ export function StageReviewControl({
             </label>
           </div>
 
-          <DialogFooter className="sm:justify-between">
+          {reworkLimitReached && <p role="status" className="text-caption text-muted-foreground">{t(($) => $.rework.limit_reached,{count:reworkCount,limit:reworkLimit})}</p>}
+          {rollbackStage && (
+            <div className="space-y-2 rounded-lg border border-border bg-muted/25 p-3 text-caption">
+              <p>{t(($) => $.stage_review.rollback_impact, {stage:rollbackStage.name})}</p>
+              <p className="text-muted-foreground">{(instance.stages ?? []).filter((stage) => stage.position >= rollbackStage.position).map((stage) => stage.name).join(" → ")}</p>
+              <label className="flex items-start gap-2">
+                <Checkbox checked={rollbackConfirmed} onCheckedChange={(checked) => setRollbackConfirmed(checked === true)} disabled={decisionLocked} />
+                <span>{t(($) => $.stage_review.rollback_confirm)}</span>
+              </label>
+            </div>
+          )}
+          {noteTooLong && <p role="alert" className="text-caption text-destructive">{t(($) => $.stage_review.note_limit)}</p>}
+          <DialogFooter className="border-t pt-4">
             <Button
               variant="outline"
-              disabled={!rollbackStage || transitionInstance.isPending}
+              disabled={reworkLimitReached || !rollbackStage || !canReview || decisionLocked || !rollbackConfirmed || !reviewNote.trim()}
               onClick={() => submitStageDecision("rejected")}
             >
               {transitionInstance.isPending ? (
@@ -235,7 +285,7 @@ export function StageReviewControl({
                 : t(($) => $.stage_review.no_rollback)}
             </Button>
             <Button
-              disabled={openTaskCount > 0 || transitionInstance.isPending}
+              disabled={openTaskCount > 0 || !canReview || decisionLocked}
               onClick={() => submitStageDecision("approved")}
             >
               {transitionInstance.isPending ? (

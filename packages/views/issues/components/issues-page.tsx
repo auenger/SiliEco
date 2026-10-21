@@ -1,6 +1,7 @@
 "use client";
 
-import { ListTodo } from "lucide-react";
+import { ListTodo, Plus } from "lucide-react";
+import { useModalStore } from "@silieco/core/modals";
 import type {
   Issue,
   IssueTableFacetSpec,
@@ -9,6 +10,7 @@ import type {
 import { useIssuesScopeStore } from "@silieco/core/issues/stores/issues-scope-store";
 import { useViewStore } from "@silieco/core/issues/stores/view-store-context";
 import { PageHeader } from "../../layout/page-header";
+import { Button } from "@silieco/ui/components/ui/button";
 import { useT } from "../../i18n";
 import { IssueSurface } from "../surface/issue-surface";
 import { IssuesHeader } from "./issues-header";
@@ -51,6 +53,14 @@ export function IssuesPage() {
       <PageHeader className="gap-2">
         <ListTodo className="h-4 w-4 text-muted-foreground" />
         <h1 className="text-body font-medium">{t(($) => $.page.breadcrumb_title)}</h1>
+        <Button
+          size="sm"
+          className="ml-auto"
+          onClick={() => useModalStore.getState().open("create-issue", {})}
+        >
+          <Plus className="size-3.5" />
+          {t(($) => $.page.create_task)}
+        </Button>
       </PageHeader>
 
       <IssueSurface

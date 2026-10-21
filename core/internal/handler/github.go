@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/silieco-ai/silieco/core/internal/service"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1715,11 +1716,8 @@ func (h *Handler) lookupIssueByIdentifier(ctx context.Context, workspaceID pgtyp
 }
 
 func (h *Handler) advanceIssueToDone(ctx context.Context, issue db.Issue, workspaceID string) {
-	updated, err := h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
-		ID:          issue.ID,
-		Status:      "done",
-		WorkspaceID: issue.WorkspaceID,
-	})
+	workflowSvc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
+	updated, err := workflowSvc.UpdateIssueStatusWithWorkflowLock(ctx, issue, "done")
 	if err != nil {
 		slog.Warn("github: advance issue to done failed", "err", err)
 		return

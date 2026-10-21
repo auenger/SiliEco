@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@silieco/core/i18n/react";
 import type { WorkflowInstance } from "@silieco/core/types";
@@ -23,9 +23,10 @@ vi.mock("@silieco/core/workflows", () => ({
 
 function workflowRun(
   gate: Record<string, unknown>,
-  taskStatus: "done" | "in_progress" = "done",
+  taskStatus: "done" | "in_progress" | "cancelled" = "done",
 ): WorkflowInstance {
   return {
+    state_token: "a".repeat(64),
     id: "run-1",
     workspace_id: "workspace-1",
     workflow_id: "workflow-1",
@@ -118,12 +119,14 @@ describe("StageReviewControl", () => {
     fireEvent.change(screen.getByLabelText("Review note"), {
       target: { value: "Missing release evidence" },
     });
+    fireEvent.click(screen.getByRole("checkbox", {name:"I understand that affected work must be completed and reviewed again."}));
     fireEvent.click(screen.getByRole("button", { name: "Return to Build" }));
 
     expect(transitionInstance).toHaveBeenCalledWith(
       {
         instanceId: "run-1",
         data: {
+          expected_state_token: "a".repeat(64),
           outcome: "rejected",
           note: "Missing release evidence",
           target_stage_id: "stage-build",
@@ -136,14 +139,14 @@ describe("StageReviewControl", () => {
     );
   });
 
-  it("keeps approval disabled until every Task in the Stage is terminal", () => {
+  it.each(["in_progress", "cancelled"] as const)("keeps approval disabled for %s required Tasks", (status) => {
     renderControl(
-      workflowRun({ type: "human", decider: "member-1" }, "in_progress"),
+      workflowRun({ type: "human", decider: "member-1" }, status),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Review Stage" }));
 
-    expect(screen.getByText("1 Tasks are still open")).toBeInTheDocument();
+    expect(screen.getByText("1 required Tasks are not completed")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Approve and complete this run" }),
     ).toBeDisabled();
@@ -178,4 +181,59 @@ describe("StageReviewControl", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
   });
+});
+
+it("does not count invalidated manual work in the new completion barrier", () => {
+  const instance = workflowRun({type:"human",decider:"member-1"}, "in_progress");
+  instance.tasks![0]!.workflow_invalidated_by_rework_id = "old-execution";
+  renderControl(instance);
+  fireEvent.click(screen.getByRole("button", {name:"Review Stage"}));
+  expect(screen.getByRole("button", {name:"Approve and complete this run"})).toBeEnabled();
+});
+
+
+beforeEach(() => transitionInstance.mockReset());
+
+it("blocks a stale review after the Run returns to the same Stage", () => {
+  const instance = workflowRun({type:"human", decider:"member-1"});
+  const view = renderControl(instance);
+  fireEvent.click(screen.getByRole("button", {name:"Review Stage"}));
+  view.rerender(<I18nProvider locale="en" resources={{en:{workflows:enWorkflows}}}><StageReviewControl instance={{...instance,state_token:"b".repeat(64)}} /></I18nProvider>);
+  expect(screen.getByRole("alert")).toHaveTextContent("The Run changed");
+  expect(screen.getByRole("button", {name:"Approve and complete this run"})).toBeDisabled();
+  expect(screen.getByRole("button", {name:"Return to Build"})).toBeDisabled();
+  expect(transitionInstance).not.toHaveBeenCalled();
+});
+
+it("does not submit twice before pending state renders and locks uncertain decisions", () => {
+  renderControl(workflowRun({type:"human",decider:"member-1"}));
+  fireEvent.click(screen.getByRole("button", {name:"Review Stage"}));
+  const approve = screen.getByRole("button", {name:"Approve and complete this run"});
+  fireEvent.click(approve);
+  fireEvent.click(approve);
+  expect(transitionInstance).toHaveBeenCalledTimes(1);
+  act(() => transitionInstance.mock.calls[0]![1].onError(new Error("Conflict")));
+  expect(approve).toBeDisabled();
+  expect(screen.getByRole("button", {name:"Return to Build"})).toBeDisabled();
+});
+
+it("requires a valid state token from the backend", () => {
+  renderControl({...workflowRun({type:"human",decider:"member-1"}),state_token:null});
+  fireEvent.click(screen.getByRole("button", {name:"Review Stage"}));
+  expect(screen.getByRole("button", {name:"Approve and complete this run"})).toBeDisabled();
+});
+
+
+it("requires a reason and impact acknowledgement before returning", () => {
+  renderControl(workflowRun({type:"human",decider:"member-1"}));
+  fireEvent.click(screen.getByRole("button",{name:"Review Stage"}));
+  const rollback=screen.getByRole("button",{name:"Return to Build"});
+  expect(rollback).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Review note"),{target:{value:"New evidence required"}});
+  expect(rollback).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox",{name:"I understand that affected work must be completed and reviewed again."}));
+  expect(rollback).toBeEnabled();
+  fireEvent.change(screen.getByLabelText("Review note"),{target:{value:"界".repeat(1400)}});
+  expect(rollback).toBeDisabled();
+  expect(screen.getByLabelText("Review note")).toBeEnabled();
 });

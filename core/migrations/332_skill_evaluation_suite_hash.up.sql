@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY skill_evaluation_suite_hash ON skill_evaluation_suite(workspace_id,skill_id,suite_hash);

@@ -403,17 +403,36 @@ WHERE id = $1 AND issue_id IS NULL;
 -- attempt=3, max_attempts=3 rather than leaking attempt=3, max_attempts=2 to the
 -- task API (SILI-4910). The Go retryAttemptCeiling already refuses to raise a
 -- disabled (max_attempts<=1) task, so this only ever widens, never revives.
+WITH eligible_execution AS MATERIALIZED (
+    SELECT execution.id, gen_random_uuid() AS retry_id
+    FROM workflow_stage_execution execution
+    JOIN agent_task_queue parent ON parent.workflow_stage_execution_id=execution.id
+    JOIN workflow_instance instance ON instance.id=execution.workflow_instance_id AND instance.workspace_id=execution.workspace_id
+    WHERE parent.id=$1 AND parent.status='failed'
+      AND execution.main_task_id=parent.id AND execution.main_issue_id=parent.issue_id
+      AND execution.executor_id=parent.agent_id AND execution.status IN ('queued','running','awaiting_review')
+      AND instance.status='active' AND instance.archived_at IS NULL
+      AND instance.current_stage_id=execution.workflow_stage_id AND instance.revision=execution.plan_revision
+    FOR UPDATE OF execution FOR SHARE OF instance
+), advanced AS (
+    UPDATE workflow_stage_execution execution
+    SET main_task_id=eligible_execution.retry_id, status='queued', updated_at=now()
+    FROM eligible_execution
+    WHERE execution.id=eligible_execution.id AND execution.main_task_id=$1
+    RETURNING execution.id, eligible_execution.retry_id
+)
 INSERT INTO agent_task_queue (
-    agent_id, runtime_id, issue_id, chat_session_id, autopilot_run_id,
+    id, agent_id, runtime_id, issue_id, chat_session_id, autopilot_run_id,
     status, priority, trigger_comment_id, coalesced_comment_ids, trigger_summary, context,
     session_id, work_dir,
     attempt, max_attempts, parent_task_id, force_fresh_session, is_leader_task,
     squad_id, originator_user_id, accountable_user_id, runtime_mcp_overlay, runtime_connected_apps,
     originator_source, delegated_from_task_id, rule_version_id,
     trigger_evidence_kind, trigger_evidence_ref_id, retry_of_task_id,
-    chat_input_task_id, fire_at
+    chat_input_task_id, fire_at, workflow_stage_execution_id
 )
 SELECT
+    COALESCE((SELECT retry_id FROM advanced WHERE advanced.id=p.workflow_stage_execution_id),gen_random_uuid()),
     p.agent_id, p.runtime_id, p.issue_id, p.chat_session_id, p.autopilot_run_id,
     CASE WHEN sqlc.narg(fire_at)::timestamptz IS NOT NULL THEN 'deferred' ELSE 'queued' END,
     CASE WHEN p.chat_session_id IS NOT NULL THEN GREATEST(p.priority, 3) ELSE p.priority END,
@@ -430,9 +449,12 @@ SELECT
     sqlc.narg(runtime_connected_apps),
     p.originator_source, p.delegated_from_task_id, p.rule_version_id,
     p.trigger_evidence_kind, p.trigger_evidence_ref_id, p.id,
-    p.chat_input_task_id, sqlc.narg(fire_at)
+    p.chat_input_task_id, sqlc.narg(fire_at), p.workflow_stage_execution_id
 FROM agent_task_queue p
 WHERE p.id = $1
+  AND p.workflow_review_request_id IS NULL
+  AND (p.issue_id IS NULL OR EXISTS (SELECT 1 FROM issue retry_issue WHERE retry_issue.id=p.issue_id AND retry_issue.workflow_invalidated_by_rework_id IS NULL FOR SHARE OF retry_issue))
+  AND (p.workflow_stage_execution_id IS NULL OR p.workflow_stage_execution_id IN (SELECT id FROM advanced))
 RETURNING *;
 
 -- name: CancelAgentTasksByIssue :many
@@ -522,6 +544,54 @@ SET status = 'dispatched',
 WHERE id = (
     SELECT atq.id FROM agent_task_queue atq
     WHERE atq.agent_id = $1 AND atq.status = 'queued'
+      AND (
+          (atq.workflow_stage_execution_id IS NULL AND atq.workflow_review_request_id IS NULL AND (
+              atq.issue_id IS NULL OR EXISTS (
+                  SELECT 1 FROM issue manual_issue
+                  WHERE manual_issue.id=atq.issue_id AND manual_issue.workflow_instance_id IS NULL
+              ) OR EXISTS (
+                  SELECT 1 FROM issue manual_issue
+                  JOIN workflow_instance manual_run ON manual_run.id=manual_issue.workflow_instance_id
+                    AND manual_run.workspace_id=manual_issue.workspace_id
+                  JOIN agent claim_agent ON claim_agent.id=atq.agent_id AND claim_agent.workspace_id=manual_run.workspace_id
+                  JOIN workflow_instance_stage manual_stage ON manual_stage.id=manual_issue.workflow_stage_id
+                    AND manual_stage.workflow_instance_id=manual_run.id AND manual_stage.workspace_id=manual_run.workspace_id
+                  WHERE manual_issue.id=atq.issue_id AND manual_run.status='active'
+                    AND manual_run.archived_at IS NULL AND manual_run.current_stage_id=manual_stage.id
+                    AND manual_stage.execution_mode='manual'
+                    AND manual_issue.workflow_invalidated_by_rework_id IS NULL
+                    AND manual_issue.status NOT IN ('backlog','done','cancelled')
+                  FOR SHARE OF manual_run
+              )
+          )) OR EXISTS (
+              SELECT 1 FROM workflow_stage_execution AS execution
+              JOIN workflow_instance AS instance
+                ON instance.id = execution.workflow_instance_id
+               AND instance.workspace_id = execution.workspace_id
+              JOIN issue AS issue ON issue.id = atq.issue_id AND issue.workspace_id = execution.workspace_id
+              JOIN agent AS executor ON executor.id = atq.agent_id AND executor.workspace_id = execution.workspace_id
+              JOIN member AS initiator ON initiator.user_id = instance.created_by AND initiator.workspace_id = instance.workspace_id
+              WHERE execution.id = atq.workflow_stage_execution_id
+                AND execution.executor_id = atq.agent_id AND execution.main_issue_id = atq.issue_id
+                AND execution.status IN ('queued', 'running')
+                AND instance.status = 'active' AND instance.archived_at IS NULL
+                AND instance.current_stage_id = execution.workflow_stage_id
+                AND instance.revision = execution.plan_revision
+                AND issue.workflow_instance_id = instance.id AND issue.workflow_stage_id = execution.workflow_stage_id
+                AND issue.status NOT IN ('backlog', 'done', 'cancelled')
+                AND executor.archived_at IS NULL
+                AND (executor.owner_id = instance.created_by OR (
+                    executor.permission_mode = 'public_to' AND EXISTS (
+                        SELECT 1 FROM agent_invocation_target AS target
+                        WHERE target.agent_id = executor.id AND (
+                            target.target_type = 'workspace' OR
+                            (target.target_type = 'member' AND target.target_id = instance.created_by)
+                        )
+                    )
+                ))
+              FOR SHARE OF instance
+          )
+      )
       AND NOT EXISTS (
           SELECT 1 FROM agent_task_queue active
           WHERE active.agent_id = atq.agent_id

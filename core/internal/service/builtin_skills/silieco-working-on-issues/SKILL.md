@@ -329,3 +329,94 @@ contract above: the `pull-requests` CLI and route, the PR response field list,
 notify, the stage column / `stageBarrierClosed` barrier and the `--stage` /
 `issue children` CLI, and the metadata CLI. Re-derive before depending on an
 exact line.
+
+
+## SOP execution and results
+
+For SOP stage work, read [SOP execution and results](references/sop-execution.md)
+for preflight, versioned submission, artifact retrieval, readiness, retries and
+Run mutation rules. Use the execution's current main call when submitting a
+result; readiness is diagnostic and does not authorize advancing the stage.
+Automatic stages require execution-bound dispatch or technical retry. Ordinary,
+mention and deferred fallback calls validate Run/stage membership transactionally.
+
+Human approval through the execution decision API atomically accepts and advances
+the Run. Missing next-stage input preserves a blocked execution without dispatch;
+database failures roll back approval. See the SOP execution reference.
+Frozen `none` gates are checked by the server acceptance worker; completing a
+call alone is insufficient without valid delivery and all required work done.
+Input-blocked Runs support member correction with an expected-old-input check;
+see [input bindings](references/sop-input-bindings.md) before using the API or
+`workflow correct-inputs` command.
+Agent/hybrid gates freeze their reviewer identity at execution creation; `@self`
+means that execution’s executor. The review worker dispatches bound reviewer
+calls and retries eligible technical failures without reusing an old approval.
+Agent review endpoints require the bound reviewer call identity; ordinary member
+or executor calls cannot submit a reviewer decision. See the SOP reference.
+
+For a bound SOP reviewer call, use `silieco workflow agent-review` and
+`silieco workflow agent-decision` with its exact request, result revision and
+evidence hash. Read the result and artifacts first. Preserve call credentials;
+see [SOP execution](references/sop-execution.md) for commands and acceptance rules.
+
+SOP and Run editors share execution, contract and input-binding controls. Contract
+drafts apply locally before publishing or saving the parent plan; existing
+executions retain their frozen configuration. Rework targets use stable stage
+keys, and a removed or reordered dependency must be repaired explicitly.
+
+Rework also invalidates affected manual-stage issues and gate decisions. Their
+original status, outcome and content remain historical. Do not edit, retry or
+create child work under an invalidated issue; create work for the fresh stage
+attempt. The Run transcript retains the invalidated history separately.
+
+Manual stage transition requires the exact `state_token` from the reviewed Run
+as `expected_state_token`. A changed Run requires reopening review. Never fetch
+a replacement token and automatically resubmit an approval.
+
+Manual rejection to a configured earlier stage now creates a rework record,
+invalidates affected issue/approval history and cancels calls transactionally.
+An agent target receives a fresh business attempt and dispatch intent. Supply a
+nonempty rollback reason and review the impact; do not reuse old delivery.
+
+Failed SOP reviewer calls have a member-only diagnostic and explicit Run-initiator recovery flow; see [SOP execution](references/sop-execution.md#explicit-recovery-of-failed-reviewer-calls). Agents must not invoke that recovery endpoint or reuse a previous call's decision.
+
+
+Agent-stage rework may return to its configured earlier manual stage; a manual target has no agent execution identity. See the SOP execution reference for the response contract.
+
+A completed SOP reviewer call without a decision may be explicitly recovered by the Run initiator; a completed call with an approved or rejected decision may not. Recovery never rewrites the historical process status.
+
+
+SOP creation and Run plan configuration allow an agent stage to select an earlier manual stage as its rollback target. Rollback targets and accepted agent-result input sources are separate lists.
+
+
+Stage `rework_policy.max_reworks` limits rework initiations per source stage in one Run (0–100; zero disables rework, omission leaves no configured cap). Agent execution uses its frozen policy. Replaying the same request does not consume another initiation. See the SOP execution reference.
+
+
+Stage `retry_policy` is validated and preserved in template, Run and execution snapshots. Execution-task failure callbacks and background retries enforce frozen attempt limits and backoff. Initial execution tasks also record the frozen attempt budget. Review calls also use frozen retry budgets and backoff; explicit manual recovery retains its separately granted calls. Explicit call timeouts now run from started_at and enter the existing failure/retry path. Shared SOP and Run-plan forms expose retry counts, call timeout and bounded backoff, with validation before saving.
+
+
+Initial execution retry budget: `workflow_dispatch.go` parses the frozen policy before creating work; `BindWorkflowExecutionTask` in `core/pkg/db/queries/workflow_execution.sql` stores the explicit maximum atomically with the execution binding. Omitted limits retain task defaults. `TestWorkflowDispatchUsesFrozenInitialRetryBudget` covers disabled retry and a larger explicit budget after live configuration changes.
+
+
+Deadline enforcement: `core/internal/service/workflow_deadline.go` scans running execution and reviewer calls every two seconds, reads the frozen timeout, and finalizes expired calls with failure reason `timeout`. Queue waiting does not consume this limit; retries start a new call deadline. `core/internal/daemon/daemon.go` (`shouldInterruptAgent` / `watchTaskCancellation`) already stops local execution on terminal server state and discards late output. The scan does not alter calls without an explicit timeout.
+
+
+Retry configuration UI: `packages/views/workflows/components/stage-retry-fields.tsx` defines equal-width responsive controls and integer/dependency validation. `stage-execution-fields.tsx` shares them between the SOP designer and Run plan form; both parents reject invalid policy before save. Clearing the initial delay also clears its multiplier and cap.
+
+
+Run plan edits preserve an existing stage’s `required_skill_snapshots` when its selected skill references are unchanged. Changing a title, output setting or another stage must not refresh pinned skill content from the latest builtin/workspace version. `core/internal/handler/workflow_plan.go` enforces this; `TestWorkflowInstancePlanCanAdjustCurrentAndEmptyFutureStages` verifies an earlier skill revision survives a plan edit. Existing execution-based plan restrictions remain in place pending revision compatibility work.
+
+
+Workspace skill candidates: members with existing skill-management permission may POST `/api/skills/{id}/revisions` with content, files, compatible_contracts and tool_dependencies. Source identity, author and hashes are derived by the server; extra identity/hash fields are rejected. This member endpoint does not accept agent/task identity headers. GET `/api/skills/{id}/revisions/{revisionId}` requires workspace membership and verifies the revision belongs to that source skill. Creating a candidate neither edits the live skill nor publishes it. Evidence: `core/internal/handler/skill_revision.go`, `core/internal/service/skill_revision.go`, `core/cmd/server/router.go` and `packages/core/api/skill-revision-schema.ts`. Evaluation/publication flows and agent proposal authority are still pending.
+
+
+GET `/api/skills/{id}/revisions` returns summaries with `next_cursor`. Pass that UUID as `cursor` for older revisions; optional `page_size` is 1–100 (default 25). Both the list and cursor must belong to the source skill/workspace. Summaries omit bundle content; use revision detail to read it. Ordering uses creation time and UUID, so new inserts do not shift older cursor pages. Evidence: `ListSkillRevisionSummaries` and `GetSkillRevisionCursorInWorkspace` in `core/pkg/db/queries/skill_revision.sql`, listing index migration 325, and the shared client page schema.
+
+
+The shared skill detail page exposes a Versions tab with cursor pagination, immutable revision detail, and candidate creation for existing skill editors. The candidate form starts from saved content and supporting files, accepts contract references and explicit tool versions, and submits through workspace-bound React Query mutations without automatic retry or live-skill writes. Creation and inspection dialogs share the responsive 4xl width. Sources: `packages/views/skills/components/skill-revisions-tab.tsx`, `packages/core/skills/revisions.ts`; UI coverage: `skill-revisions-tab.test.tsx`. Evaluation, publication and agent proposal authority remain separate pending work.
+
+
+Workspace skill improvement proposals use POST `/api/skills/{id}/proposals` with `request_id`, distinct `baseline_revision_id` and `candidate_revision_id`, `category`, `reason`, `hypothesis`, and `applicable_scope`. Optional `source_execution_id` and `source_result_revision` identify evidence; a result revision requires an execution. The server resolves provenance and author, checks both revisions belong to the skill/workspace, and rejects supplied evidence/author fields. Categories are `skill_instruction`, `insufficient_input`, `tool_failure`, `contract_issue`, `model_capability`, `human_correction`, and `positive_example`. This endpoint currently requires a member with skill-management permission and rejects agent/task identity headers. An identical author/request replay returns the existing proposal; reusing the request ID with different content returns 409. GET `/api/skills/{id}/proposals/{proposalId}` and GET `/api/skills/{id}/proposals` are workspace-member reads; list pagination uses `cursor` and `page_size` (1–100, default 25). A proposal records analysis only; it neither publishes a skill nor approves an action or stage. Sources: `core/internal/handler/skill_improvement_proposal.go`, `core/internal/service/skill_improvement_proposal.go`, `packages/core/api/skill-proposal-schema.ts`, and `packages/core/skills/proposals.ts`. API boundary coverage: `TestSkillImprovementProposalHTTPBoundariesAndPagination`.
+
+
+The shared skill detail page exposes Improvement proposals with list/detail views and a member creation form. Select distinct baseline/candidate revisions, compare their pinned content, classify feedback, and enter reason/hypothesis/scope. Optional execution/result references are verified by the API. Ambiguous submissions lock the submitted fields and reuse the same request ID and payload on retry; definitive 400/403/404 rejections allow correction. Form/detail dialogs share responsive 4xl sizing with the Versions flow. Evidence: `packages/views/skills/components/skill-proposals-tab.tsx`, its colocated tests, and `e2e/skill-proposals.spec.ts`. Run-origin selection links, evaluation and publication review are still separate pending work.

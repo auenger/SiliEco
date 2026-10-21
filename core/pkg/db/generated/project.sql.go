@@ -15,6 +15,8 @@ const clearProjectWorkflowTasks = `-- name: ClearProjectWorkflowTasks :exec
 UPDATE issue SET
     workflow_instance_id = NULL,
     workflow_stage_id = NULL,
+    workflow_stage_execution_id = NULL,
+    workflow_invalidated_by_rework_id = NULL,
     updated_at = now()
 WHERE project_id = $1
   AND workspace_id = $2
@@ -112,6 +114,16 @@ func (q *Queries) DeleteProject(ctx context.Context, arg DeleteProjectParams) er
 }
 
 const deleteProjectWorkflowGateDecisions = `-- name: DeleteProjectWorkflowGateDecisions :exec
+WITH cleared_review_recoveries AS (
+ DELETE FROM workflow_review_recovery WHERE workspace_id=$1
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=$2 AND workspace_id=$1)
+), cleared_reworks AS (
+ DELETE FROM workflow_rework WHERE workspace_id=$1
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=$2 AND workspace_id=$1)
+), cleared_requests AS (
+ DELETE FROM workflow_review_request WHERE workspace_id=$1
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=$2 AND workspace_id=$1)
+)
 DELETE FROM workflow_gate_decision AS decision
 WHERE decision.workspace_id = $1
   AND workflow_instance_id IN (

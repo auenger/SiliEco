@@ -1,0 +1,28 @@
+{
+  "schema_version": "silieco.stage/v1",
+  "data": {
+    "type": "object",
+    "required": ["case_name", "solver", "target_tmax_c", "observed_tmax_c", "verdict", "sources"],
+    "properties": {
+      "case_name": {"type": "string"},
+      "solver": {"type": "string", "enum": ["mock-thermal-poc-v1"]},
+      "target_tmax_c": {"type": "number", "minimum": -273.15},
+      "observed_tmax_c": {"type": "number", "minimum": -273.15},
+      "verdict": {"type": "string", "enum": ["pass", "fail"]},
+      "sources": {
+        "type": "array", "min_items": 1,
+        "items": {
+          "type": "object", "required": ["artifact_id", "revision"],
+          "properties": {
+            "artifact_id": {"type": "string"},
+            "revision": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    }
+  },
+  "artifacts": [
+    {"name": "report", "kind": "report", "media_type": "text/markdown", "schema_version": "thermal.report/v1", "required": true},
+    {"name": "results", "kind": "data", "media_type": "application/json", "schema_version": "thermal.result/v1", "required": true}
+  ]
+}

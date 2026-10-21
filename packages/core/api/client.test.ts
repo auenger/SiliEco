@@ -1593,3 +1593,98 @@ describe("ApiClient model discovery response schema", () => {
     expect(result.status).toBe("completed");
   });
 });
+
+
+describe("ApiClient workflow human review", () => {
+  it("returns null for malformed review and decision responses", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify({ wrong: true }), {status: 200})));
+    const client = new ApiClient("https://api.example.test");
+    expect(await client.getWorkflowHumanReview("r", "e")).toBeNull();
+    expect(await client.recordWorkflowHumanDecision("r", "e", {expected_result_revision: 1, expected_basis_hash: "a".repeat(64), outcome: "approved"})).toBeNull();
+  });
+  it("sends the reviewed evidence without supplying an actor identity", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({id:"d",workflow_instance_id:"r",from_stage_id:"s",outcome:"approved",actor_type:"member",actor_id:"u",created_at:"now",execution_id:"e",result_revision:1,review_step:"human",basis_hash:"a".repeat(64)}), {status:200}));
+    vi.stubGlobal("fetch", fetch);
+    const data = {expected_result_revision:1,expected_basis_hash:"a".repeat(64),outcome:"approved" as const};
+    const result = await new ApiClient("https://api.example.test").recordWorkflowHumanDecision("r","e",data);
+    expect(result).toMatchObject({execution_id:"e",result_revision:1,review_step:"human"});
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://api.example.test/api/workflow-instances/r/executions/e/decisions");
+    expect(JSON.parse(fetch.mock.calls[0]?.[1].body)).toEqual(data);
+  });
+});
+
+describe("ApiClient execution delivery responses", () => {
+  it("rejects malformed artifacts instead of displaying an empty manifest", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({id:"r",execution_id:"e",revision:1,data:{ok:true},artifacts:{}}),{status:200})));
+    expect(await new ApiClient("https://api.example.test").getWorkflowResult("r","e",1)).toBeNull();
+  });
+  it("defaults malformed execution lists to an empty list", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({unexpected:true}),{status:200})));
+    expect(await new ApiClient("https://api.example.test").listWorkflowExecutions("r")).toEqual([]);
+  });
+  it("uses an authenticated identity-built artifact route", async () => {
+    const fetch=vi.fn().mockResolvedValue(new Response("frozen bytes",{status:200}));
+    vi.stubGlobal("fetch",fetch);
+    const client=new ApiClient("https://api.example.test");
+    const blob=await client.getWorkflowArtifactBlob("r","e",3,"a");
+    expect(await blob.text()).toBe("frozen bytes");
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://api.example.test/api/workflow-instances/r/executions/e/results/3/artifacts/a");
+  });
+});
+
+
+describe("ApiClient input recovery", () => {
+  it("sends exact old and corrected inputs and validates response identity", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({execution_id:"e",instance_id:"r",attempt:1,status:"pending"}),{status:200}));
+    vi.stubGlobal("fetch",fetch);
+    const body = {expected_inputs:{},inputs:{goal:"new"}};
+    expect(await new ApiClient("https://api.example.test").correctWorkflowExecutionInputs("r","e",body)).toMatchObject({execution_id:"e",status:"pending"});
+    expect(JSON.parse(fetch.mock.calls[0]?.[1].body)).toEqual(body);
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://api.example.test/api/workflow-instances/r/executions/e/inputs");
+  });
+  it.each([{execution_id:"other",instance_id:"r",attempt:1,status:"pending"},{execution_id:"e",instance_id:"r",attempt:1,status:"blocked"},{unexpected:true}])("rejects uncertain recovery responses",async (response) => {
+    vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify(response),{status:200})));
+    expect(await new ApiClient("https://api.example.test").correctWorkflowExecutionInputs("r","e",{expected_inputs:{},inputs:{}})).toBeNull();
+  });
+});
+
+
+describe("ApiClient execution rework", () => {
+  const body = {expected_revision:1,target_stage_id:"stage",reason:"Revise requirements"};
+  const response = {execution_id:"new",source_execution_id:"old",instance_id:"run",stage_id:"stage",attempt:2,status:"pending"};
+  it("sends the reviewed source and target without an actor override", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(response),{status:200}));
+    vi.stubGlobal("fetch",fetch);
+    expect(await new ApiClient("https://api.example.test").reworkWorkflowExecution("run","old",body)).toEqual(response);
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://api.example.test/api/workflow-instances/run/executions/old/rework");
+    expect(JSON.parse(fetch.mock.calls[0]?.[1].body)).toEqual(body);
+  });
+  it.each([
+    {...response,source_execution_id:"other"}, {...response,instance_id:"other"},
+    {...response,stage_id:"other"}, {...response,execution_id:"old"},
+    {...response,attempt:0}, {...response,status:"unknown"}, {unexpected:true},
+  ])("rejects unrelated or malformed responses",async (value) => {
+    vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify(value),{status:200})));
+    expect(await new ApiClient("https://api.example.test").reworkWorkflowExecution("run","old",body)).toBeNull();
+  });
+});
+
+describe("ApiClient review recovery", () => {
+  const id="11111111-1111-4111-8111-111111111111";
+  const newId="22222222-2222-4222-8222-222222222222";
+  const body={failed_task_id:id,expected_result_revision:2,expected_basis_hash:"a".repeat(64),reason:"Network restored"};
+  const recovery={recovery_id:newId,instance_id:id,execution_id:id,request_id:id,failed_task_id:id,task_id:newId,allowed_attempts:3,max_attempts:6};
+  it("posts the exact reviewed call and parses the audit result",async()=>{
+    const request=vi.fn().mockResolvedValue(new Response(JSON.stringify(recovery),{status:200}));vi.stubGlobal("fetch",request);
+    await expect(new ApiClient("https://api.example.test").recoverWorkflowAgentReview(id,id,id,body)).resolves.toEqual(recovery);
+    expect(request).toHaveBeenCalledWith(`https://api.example.test/api/workflow-instances/${id}/executions/${id}/reviews/${id}/recover`,expect.objectContaining({method:"POST",body:JSON.stringify(body)}));
+  });
+  it.each([{}, {...recovery,task_id:id}, {...recovery,request_id:newId}, {...recovery,allowed_attempts:4}])("rejects malformed or unrelated recovery responses",async response=>{
+    vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify(response),{status:200})));
+    await expect(new ApiClient("https://api.example.test").recoverWorkflowAgentReview(id,id,id,body)).resolves.toBeNull();
+  });
+  it.each([{}, {execution_id:newId,phase:"failed",request_id:id,reviewer_id:id,result_revision:2,basis_hash:"a".repeat(64),call:null,can_recover:true,recovery_attempts:3,retry_at:null}])("rejects malformed or unrelated review status",async response=>{
+    vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify(response),{status:200})));
+    await expect(new ApiClient("https://api.example.test").getWorkflowAgentReviewStatus(id,id)).resolves.toBeNull();
+  });
+});

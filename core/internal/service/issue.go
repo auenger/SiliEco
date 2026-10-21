@@ -207,10 +207,10 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 	// foreign workspace.
 	projectID := p.ProjectID
 	if p.ParentIssueID.Valid {
-		parent, err := qtx.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{
-			ID:          p.ParentIssueID,
-			WorkspaceID: p.WorkspaceID,
-		})
+		parent, _, err := LockIssueWorkflowMutation(ctx, qtx, p.WorkspaceID, p.ParentIssueID, p.WorkflowInstanceID)
+		if errors.Is(err, ErrWorkflowExecutionConflict) {
+			return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
+		}
 		if err != nil || !parent.ID.Valid {
 			return IssueCreateResult{}, ErrParentIssueNotFound
 		}
@@ -239,10 +239,9 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 		if !projectID.Valid {
 			return IssueCreateResult{}, ErrWorkflowProjectRequired
 		}
-		instance, err := qtx.GetWorkflowInstanceInWorkspace(ctx, db.GetWorkflowInstanceInWorkspaceParams{
-			ID:          workflowInstanceID,
-			WorkspaceID: p.WorkspaceID,
-		})
+		// Serialize insertion with stage transitions before allocating an issue
+		// number or creating any dependent records.
+		instance, err := lockWorkflowExecutionRun(ctx, qtx, p.WorkspaceID, workflowInstanceID)
 		if err != nil || instance.ArchivedAt.Valid || instance.Status == "completed" || instance.Status == "cancelled" {
 			return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
 		}
@@ -261,6 +260,10 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 		}); err != nil {
 			return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
 		}
+	}
+
+	if err := ensureWorkflowStageMutable(ctx, qtx, p.WorkspaceID, workflowInstanceID, workflowStageID); err != nil {
+		return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
 	}
 
 	// Validate labels before we increment the issue counter so a stale or

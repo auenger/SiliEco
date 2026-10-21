@@ -6,7 +6,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
-import { setApiInstance } from "../api";
+import { ApiError, setApiInstance } from "../api";
 import type { ApiClient } from "../api/client";
 import {
   useBatchUpdateIssues,
@@ -590,6 +590,55 @@ describe("useUpdateIssue — optimistic move keeps every bucketed board in sync"
 
     expect(inboxStatus("issue-1")).toBe("done");
     expect(inboxStatus("issue-2")).toBe("todo");
+  });
+
+  it("retries a stale assignee update once against the latest revision", async () => {
+    qc.setQueryData(
+      issueKeys.detail(WS_ID, "issue-1"),
+      makeIssue(1, { revision: "old-revision" }),
+    );
+    updateIssue
+      .mockRejectedValueOnce(
+        new ApiError("conflict", 409, "Conflict", {
+          code: "revision_conflict",
+          current: { revision: "latest-revision" },
+          attempted: {
+            expected_revision: "old-revision",
+            assignee_type: "agent",
+            assignee_id: "agent-1",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeIssue(1, {
+          revision: "saved-revision",
+          assignee_type: "agent",
+          assignee_id: "agent-1",
+        }),
+      );
+
+    const { result } = renderHook(() => useUpdateIssue(), {
+      wrapper: createWrapper(qc),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        id: "issue-1",
+        assignee_type: "agent",
+        assignee_id: "agent-1",
+      });
+    });
+
+    expect(updateIssue).toHaveBeenNthCalledWith(1, "issue-1", {
+      assignee_type: "agent",
+      assignee_id: "agent-1",
+      expected_revision: "old-revision",
+    });
+    expect(updateIssue).toHaveBeenNthCalledWith(2, "issue-1", {
+      assignee_type: "agent",
+      assignee_id: "agent-1",
+      expected_revision: "latest-revision",
+    });
   });
 
   it("rolls both caches back when the request fails", async () => {

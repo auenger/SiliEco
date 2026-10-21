@@ -1,0 +1,2 @@
+ALTER TABLE workflow_gate_decision DROP COLUMN invalidated_by_execution_id;
+ALTER TABLE issue DROP COLUMN workflow_invalidated_by_execution_id;

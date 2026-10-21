@@ -58,11 +58,23 @@ DELETE FROM project WHERE id = $1 AND workspace_id = $2;
 UPDATE issue SET
     workflow_instance_id = NULL,
     workflow_stage_id = NULL,
+    workflow_stage_execution_id = NULL,
+    workflow_invalidated_by_rework_id = NULL,
     updated_at = now()
 WHERE project_id = sqlc.arg('project_id')
   AND workspace_id = sqlc.arg('workspace_id');
 
 -- name: DeleteProjectWorkflowGateDecisions :exec
+WITH cleared_review_recoveries AS (
+ DELETE FROM workflow_review_recovery WHERE workspace_id=sqlc.arg('workspace_id')
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=sqlc.arg('project_id') AND workspace_id=sqlc.arg('workspace_id'))
+), cleared_reworks AS (
+ DELETE FROM workflow_rework WHERE workspace_id=sqlc.arg('workspace_id')
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=sqlc.arg('project_id') AND workspace_id=sqlc.arg('workspace_id'))
+), cleared_requests AS (
+ DELETE FROM workflow_review_request WHERE workspace_id=sqlc.arg('workspace_id')
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=sqlc.arg('project_id') AND workspace_id=sqlc.arg('workspace_id'))
+)
 DELETE FROM workflow_gate_decision AS decision
 WHERE decision.workspace_id = sqlc.arg('workspace_id')
   AND workflow_instance_id IN (

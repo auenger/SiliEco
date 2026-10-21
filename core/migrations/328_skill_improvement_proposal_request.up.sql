@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY skill_improvement_proposal_request ON skill_improvement_proposal(workspace_id,created_by,request_id);

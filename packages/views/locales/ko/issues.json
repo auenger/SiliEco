@@ -2,6 +2,7 @@
   "page": {
     "breadcrumb_title": "Task",
     "breadcrumb_workspace_fallback": "워크스페이스",
+    "create_task": "task 만들기",
     "empty_title": "아직 Task가 없습니다",
     "empty_hint": "Task를 만들어 시작하세요.",
     "move_failed": "Task를 이동하지 못했습니다"

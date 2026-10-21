@@ -196,6 +196,42 @@ cleared_vcs_connections AS (
 cleared_client_usage_workspace AS (
     UPDATE client_usage_daily SET workspace_id = NULL WHERE workspace_id = $1
 ),
+cleared_workflow_artifact_uploads AS (
+    UPDATE workflow_artifact_upload SET status='deleting', expires_at=now() WHERE workspace_id=$1
+),
+cleared_workflow_artifact_revisions AS (
+    DELETE FROM workflow_artifact_revision WHERE workspace_id=$1
+),
+cleared_workflow_artifacts AS (
+    DELETE FROM workflow_artifact WHERE workspace_id=$1
+),
+cleared_workflow_results AS (
+    DELETE FROM workflow_execution_result WHERE workspace_id=$1
+),
+cleared_workflow_execution_actions AS (
+    DELETE FROM workflow_execution_action WHERE workspace_id = $1
+),
+cleared_workflow_stage_executions AS (
+    DELETE FROM workflow_stage_execution WHERE workspace_id = $1
+),
+cleared_workflow_review_requests AS (
+ DELETE FROM workflow_review_request WHERE workspace_id=$1
+),
+cleared_workflow_review_recoveries AS (
+ DELETE FROM workflow_review_recovery WHERE workspace_id=$1
+),
+cleared_skill_evaluation_suites AS (
+    DELETE FROM skill_evaluation_suite WHERE workspace_id=$1
+),
+cleared_skill_improvement_proposals AS (
+    DELETE FROM skill_improvement_proposal WHERE workspace_id=$1
+),
+cleared_skill_revisions AS (
+    DELETE FROM skill_revision WHERE workspace_id=$1
+),
+cleared_workflow_reworks AS (
+    DELETE FROM workflow_rework WHERE workspace_id=$1
+),
 cleared_workflow_gate_decisions AS (
     DELETE FROM workflow_gate_decision WHERE workspace_id = $1
 ),

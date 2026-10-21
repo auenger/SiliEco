@@ -19,9 +19,17 @@ import { useT } from "../i18n";
 
 function editableText(value: Record<string, unknown>): string {
   for (const key of ["content", "description", "title"] as const) {
-    if (typeof value[key] === "string") return value[key];
+    if (typeof value[key] === "string" && value[key].trim()) return value[key];
   }
-  return JSON.stringify(value, null, 2);
+  const changedFields = Object.fromEntries(
+    Object.entries(value).filter(
+      ([key, fieldValue]) =>
+        key !== "expected_revision" &&
+        fieldValue !== null &&
+        fieldValue !== undefined,
+    ),
+  );
+  return JSON.stringify(changedFields, null, 2);
 }
 
 export function RevisionConflictDialog() {
@@ -52,7 +60,7 @@ export function RevisionConflictDialog() {
       toast.success(t(($) => $.revision_conflict.overwrite_success));
       close();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t(($) => $.revision_conflict.overwrite_failed));
+      toast.error(t(($) => $.revision_conflict.overwrite_failed));
     } finally {
       setWorking(null);
     }
@@ -71,8 +79,16 @@ export function RevisionConflictDialog() {
     <Dialog open={conflict !== null} onOpenChange={(open) => !open && working === null && close()}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{t(($) => $.revision_conflict.title)}</DialogTitle>
-          <DialogDescription>{t(($) => $.revision_conflict.description)}</DialogDescription>
+          <DialogTitle>
+            {conflict?.kind === "issue"
+              ? t(($) => $.revision_conflict.task_title)
+              : t(($) => $.revision_conflict.title)}
+          </DialogTitle>
+          <DialogDescription>
+            {conflict?.kind === "issue"
+              ? t(($) => $.revision_conflict.task_description)
+              : t(($) => $.revision_conflict.description)}
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="revision-current">{t(($) => $.revision_conflict.server_version)}</Label><Textarea id="revision-current" readOnly rows={10} value={currentText} className="resize-none" /></div>

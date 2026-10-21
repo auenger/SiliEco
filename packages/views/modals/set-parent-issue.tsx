@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { childIssuesOptions } from "@silieco/core/issues/queries";
 import { useUpdateIssue } from "@silieco/core/issues/mutations";
+import { isRevisionConflictError } from "@silieco/core/revisions";
 import { IssuePickerModal } from "./issue-picker-modal";
 import { useT } from "../i18n";
 
@@ -40,12 +41,11 @@ export function SetParentIssueModal({
         updateIssue.mutate(
           { id: issueId, parent_issue_id: selected.id },
           {
-            onError: (err) =>
-              toast.error(
-                err instanceof Error && err.message
-                  ? err.message
-                  : t(($) => $.set_parent.toast_failed),
-              ),
+            onError: (err) => {
+              if (!isRevisionConflictError(err)) {
+                toast.error(t(($) => $.set_parent.toast_failed));
+              }
+            },
           },
         );
         toast.success(t(($) => $.set_parent.toast_success, { identifier: selected.identifier }));

@@ -73,6 +73,21 @@ export type UpdateIssueMutationInput = {
   move_intent?: Pick<MoveIssueRequest, "before_id" | "after_id">;
 } & UpdateIssueRequest;
 
+const MANUAL_REVISION_CONFLICT_FIELDS = [
+  "title",
+  "description",
+  "attachment_ids",
+] as const;
+
+function canRetryIssueRevisionConflict(update: UpdateIssueRequest): boolean {
+  if (Object.prototype.hasOwnProperty.call(update, "expected_revision")) {
+    return false;
+  }
+  return !MANUAL_REVISION_CONFLICT_FIELDS.some((field) =>
+    Object.prototype.hasOwnProperty.call(update, field),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Per-status pagination
 // ---------------------------------------------------------------------------
@@ -246,9 +261,35 @@ export function useUpdateIssue() {
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
   return useMutation({
-    mutationFn: ({ id, move_intent: moveIntent, ...data }: UpdateIssueMutationInput) => {
+    mutationFn: async ({ id, move_intent: moveIntent, ...data }: UpdateIssueMutationInput) => {
       const current = qc.getQueryData<Issue>(issueKeys.detail(wsId, id));
-      if (!moveIntent) return api.updateIssue(id, { ...data, ...(current?.revision ? { expected_revision: current.revision } : {}) });
+      if (!moveIntent) {
+        try {
+          return await api.updateIssue(id, {
+            ...data,
+            ...(current?.revision
+              ? { expected_revision: current.revision }
+              : {}),
+          });
+        } catch (error) {
+          const conflict = revisionConflictBody(error);
+          const latestRevision =
+            typeof conflict?.current.revision === "string"
+              ? conflict.current.revision
+              : undefined;
+          if (
+            !conflict ||
+            !latestRevision ||
+            !canRetryIssueRevisionConflict(data)
+          ) {
+            throw error;
+          }
+          return api.updateIssue(id, {
+            ...data,
+            expected_revision: latestRevision,
+          });
+        }
+      }
       const { position: _optimisticPosition, ...target } = data;
       return api.moveIssue(id, { ...target, ...moveIntent });
     },
@@ -339,17 +380,41 @@ export function useUpdateIssue() {
       const conflict = revisionConflictBody(err);
       if (conflict && !vars.move_intent) {
         const { id, move_intent: _moveIntent, ...attemptedUpdate } = vars;
-        const revision = typeof conflict.current.revision === "string" ? conflict.current.revision : undefined;
         useRevisionConflictStore.getState().open({
           kind: "issue",
           current: conflict.current,
           attempted: conflict.attempted,
           retry: async () => {
-            const updated = await api.updateIssue(id, { ...attemptedUpdate, ...(revision ? { expected_revision: revision } : {}) });
+            // This is the explicit force-overwrite action. Reusing even the
+            // server's current revision leaves a race window and makes the
+            // button behave like another optimistic retry instead of the
+            // override the user selected.
+            const { expected_revision: _expectedRevision, ...forcedUpdate } = attemptedUpdate;
+            const updated = await api.updateIssue(id, forcedUpdate);
             qc.setQueryData(issueKeys.detail(wsId, id), updated);
             return updated;
           },
-          refresh: () => qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, id) }),
+          refresh: async () => {
+            // A Task shown on an SOP Stage board is embedded in the workflow
+            // instance snapshot. Refresh both caches so closing/reopening the
+            // conflict dialog cannot leave the board (or its Issue detail)
+            // holding the stale revision that caused the conflict.
+            await qc.refetchQueries({
+              queryKey: issueKeys.detail(wsId, id),
+              type: "active",
+            });
+            const workflowInstanceId =
+              typeof conflict.current.workflow_instance_id === "string"
+                ? conflict.current.workflow_instance_id
+                : undefined;
+            if (workflowInstanceId) {
+              await qc.refetchQueries({
+                queryKey: workflowKeys.instance(wsId, workflowInstanceId),
+                type: "active",
+              });
+            }
+            await qc.invalidateQueries({ queryKey: issueKeys.all(wsId) });
+          },
         });
       }
     },

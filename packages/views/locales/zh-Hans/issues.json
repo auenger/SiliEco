@@ -2,6 +2,7 @@
   "page": {
     "breadcrumb_title": "Tasks",
     "breadcrumb_workspace_fallback": "工作区",
+    "create_task": "创建 task",
     "empty_title": "还没有 task",
     "empty_hint": "创建一个 task 开始使用。",
     "move_failed": "移动 task 失败"

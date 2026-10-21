@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY skill_evaluation_suite_hash;

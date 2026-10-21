@@ -412,6 +412,11 @@ func main() {
 	taskSvc.Metrics = businessMetrics
 	autopilotSvc := service.NewAutopilotService(queries, pool, bus, taskSvc)
 	registerAutopilotListeners(bus, autopilotSvc)
+	workflowExecutionSvc := &service.WorkflowExecutionService{Queries: queries, TxStarter: pool, TaskService: taskSvc, Storage: h.Storage}
+	go workflowExecutionSvc.RunDispatchWorker(sweepCtx)
+	go workflowExecutionSvc.RunDeadlineWorker(sweepCtx)
+	go workflowExecutionSvc.RunAcceptanceWorker(sweepCtx)
+	go workflowExecutionSvc.RunArtifactCleanupWorker(sweepCtx)
 
 	// Construct a LivenessStore that mirrors the one wired into the HTTP
 	// handler. Both the heartbeat write path (handler) and the sweeper read

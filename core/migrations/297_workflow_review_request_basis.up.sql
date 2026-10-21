@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY workflow_review_request_basis_uidx ON workflow_review_request(workspace_id,execution_id,basis_hash);

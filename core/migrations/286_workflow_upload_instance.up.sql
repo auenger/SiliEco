@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY workflow_upload_instance_idx ON workflow_artifact_upload (workspace_id, workflow_instance_id);

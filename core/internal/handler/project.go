@@ -619,6 +619,24 @@ func (h *Handler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to detach project workflow tasks")
 		return
 	}
+	if err := qtx.DeleteProjectWorkflowExecutionActions(r.Context(), db.DeleteProjectWorkflowExecutionActionsParams{
+		ProjectID: project.ID, WorkspaceID: project.WorkspaceID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete workflow execution actions")
+		return
+	}
+	if err := qtx.DeleteProjectWorkflowResults(r.Context(), db.DeleteProjectWorkflowResultsParams{
+		ProjectID: project.ID, WorkspaceID: project.WorkspaceID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete workflow results")
+		return
+	}
+	if err := qtx.DeleteProjectWorkflowStageExecutions(r.Context(), db.DeleteProjectWorkflowStageExecutionsParams{
+		ProjectID: project.ID, WorkspaceID: project.WorkspaceID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete workflow executions")
+		return
+	}
 	if err := qtx.DeleteProjectWorkflowGateDecisions(r.Context(), db.DeleteProjectWorkflowGateDecisionsParams{
 		ProjectID: project.ID, WorkspaceID: project.WorkspaceID,
 	}); err != nil {

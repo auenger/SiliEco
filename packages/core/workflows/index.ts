@@ -1,5 +1,9 @@
 export {
   workflowKeys,
+  workflowExecutionsOptions,
+  workflowResultOptions,
+  workflowHumanReviewOptions,
+  workflowAgentReviewStatusOptions,
   workflowListOptions,
   workflowDetailOptions,
   workflowVersionsOptions,
@@ -8,6 +12,10 @@ export {
 } from "./queries";
 export {
   useCreateWorkflow,
+  useRecordWorkflowHumanDecision,
+  useRecoverWorkflowAgentReview,
+  useCorrectWorkflowExecutionInputs,
+  useReworkWorkflowExecution,
   useUpdateWorkflow,
   useArchiveWorkflow,
   useCreateWorkflowVersion,

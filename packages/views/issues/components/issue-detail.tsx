@@ -50,6 +50,7 @@ import { contentReferencesAttachment } from "@silieco/core/types";
 import { STATUS_CONFIG, PRIORITY_CONFIG } from "@silieco/core/issues/config";
 import { formatDateOnly, isPastDateOnly } from "@silieco/core/issues/date";
 import { useUpdateIssue } from "@silieco/core/issues/mutations";
+import { isRevisionConflictError } from "@silieco/core/revisions";
 import { toast } from "sonner";
 import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, StagePicker, StartDatePicker, DueDatePicker, AssigneePicker, LabelPicker } from ".";
 import { maxSiblingStage } from "./pickers/stage-picker";
@@ -622,12 +623,11 @@ function SubIssueRow({
       updateIssue.mutate(
         { id: child.id, ...updates },
         {
-          onError: (err) =>
-            toast.error(
-              err instanceof Error && err.message
-                ? err.message
-                : t(($) => $.detail.update_failed),
-            ),
+          onError: (err) => {
+            if (!isRevisionConflictError(err)) {
+              toast.error(t(($) => $.detail.update_failed));
+            }
+          },
         },
       );
     },

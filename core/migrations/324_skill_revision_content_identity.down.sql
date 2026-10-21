@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY skill_revision_content_idx;

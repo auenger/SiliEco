@@ -1,3 +1,5 @@
+import { SkillImprovementProposalSchema, SkillImprovementProposalPageSchema, type SkillImprovementProposal, type SkillImprovementProposalPage, type CreateSkillImprovementProposalInput } from "./skill-proposal-schema";
+import {SkillRevisionSchema,SkillRevisionPageSchema,type SkillRevisionPage,type SkillRevision,type CreateSkillRevisionInput} from "./skill-revision-schema";
 import type {
   Issue,
   IssuePriority,
@@ -170,6 +172,18 @@ import type {
   Workflow,
   WorkflowVersion,
   WorkflowInstance,
+  WorkflowHumanReview,
+  WorkflowAgentReviewStatus,
+  RecoverWorkflowAgentReviewRequest,
+  WorkflowAgentReviewRecovery,
+  WorkflowExecution,
+  WorkflowResult,
+  RecordWorkflowHumanDecisionRequest,
+  CorrectWorkflowExecutionInputsRequest,
+  WorkflowInputRecovery,
+  ReworkWorkflowExecutionRequest,
+  WorkflowExecutionRework,
+  WorkflowGateDecision,
   CreateWorkflowRequest,
   UpdateWorkflowRequest,
   CreateWorkflowVersionRequest,
@@ -294,6 +308,14 @@ import {
   WorkflowSchema,
   WorkflowVersionSchema,
   WorkflowInstanceSchema,
+  WorkflowHumanReviewSchema,
+  WorkflowAgentReviewStatusSchema,
+  WorkflowAgentReviewRecoverySchema,
+  WorkflowExecutionListSchema,
+  WorkflowInputRecoverySchema,
+  WorkflowExecutionReworkSchema,
+  WorkflowResultSchema,
+  WorkflowGateDecisionSchema,
   ListWorkflowsResponseSchema,
   ListWorkflowVersionsResponseSchema,
   ListWorkflowInstancesResponseSchema,
@@ -2119,6 +2141,62 @@ export class ApiClient {
     return this.fetch(`/api/skills/${id}`);
   }
 
+  async listSkillRevisions(id: string, cursor?: string, pageSize = 25, workspaceId?: string): Promise<SkillRevisionPage> {
+    const params = new URLSearchParams({page_size:String(pageSize)});
+    if (cursor) params.set("cursor",cursor);
+    const endpoint = `/api/skills/${id}/revisions?${params.toString()}`;
+    const raw = await this.fetch<unknown>(endpoint, {headers:workspaceId ? {"X-Workspace-ID":workspaceId,"X-Workspace-Slug":""} : undefined});
+    const page = parseWithFallback<SkillRevisionPage | null>(raw,SkillRevisionPageSchema,null,{endpoint});
+    if (!page || page.revisions.some(item=>item.source_kind!=="workspace" || item.source_id!==id || (workspaceId && item.workspace_id!==workspaceId)) || (cursor && page.next_cursor===cursor)) throw new Error("Invalid skill revision page");
+    return page;
+  }
+
+  async createSkillRevision(id: string, data: CreateSkillRevisionInput, workspaceId?: string): Promise<SkillRevision> {
+    const endpoint = `/api/skills/${id}/revisions`;
+    const raw = await this.fetch<unknown>(endpoint, {method:"POST",body:JSON.stringify(data),headers:workspaceId ? {"X-Workspace-ID":workspaceId,"X-Workspace-Slug":""} : undefined});
+    const revision = parseWithFallback<SkillRevision | null>(raw, SkillRevisionSchema, null, {endpoint});
+    if (!revision || revision.source_kind !== "workspace" || revision.source_id !== id || (workspaceId && revision.workspace_id !== workspaceId)) throw new Error("Invalid skill revision response");
+    return revision;
+  }
+
+  async getSkillRevision(id: string, revisionId: string, workspaceId?: string): Promise<SkillRevision> {
+    const endpoint = `/api/skills/${id}/revisions/${revisionId}`;
+    const raw = await this.fetch<unknown>(endpoint, {headers:workspaceId ? {"X-Workspace-ID":workspaceId,"X-Workspace-Slug":""} : undefined});
+    const revision = parseWithFallback<SkillRevision | null>(raw, SkillRevisionSchema, null, {endpoint});
+    if (!revision || revision.id !== revisionId || revision.source_kind !== "workspace" || revision.source_id !== id || (workspaceId && revision.workspace_id !== workspaceId)) throw new Error("Invalid skill revision response");
+    return revision;
+  }
+
+  async createSkillImprovementProposal(id: string, data: CreateSkillImprovementProposalInput, workspaceId: string): Promise<SkillImprovementProposal> {
+    if (!workspaceId) throw new Error("A workspace is required");
+    const endpoint = `/api/skills/${id}/proposals`;
+    const raw = await this.fetch<unknown>(endpoint, {method: "POST", body: JSON.stringify(data), headers: {"X-Workspace-ID": workspaceId, "X-Workspace-Slug": ""}});
+    const proposal = parseWithFallback<SkillImprovementProposal | null>(raw, SkillImprovementProposalSchema, null, {endpoint});
+    if (!proposal || proposal.workspace_id !== workspaceId || proposal.skill_id !== id || proposal.request_id !== data.request_id || proposal.baseline_revision_id !== data.baseline_revision_id || proposal.candidate_revision_id !== data.candidate_revision_id || (proposal.evidence.execution_id ?? "") !== (data.source_execution_id ?? "") || (proposal.evidence.result_revision ?? 0) !== (data.source_result_revision ?? 0)) throw new Error("Invalid skill proposal response");
+    return proposal;
+  }
+
+  async getSkillImprovementProposal(id: string, proposalId: string, workspaceId: string): Promise<SkillImprovementProposal> {
+    if (!workspaceId) throw new Error("A workspace is required");
+    const endpoint = `/api/skills/${id}/proposals/${proposalId}`;
+    const raw = await this.fetch<unknown>(endpoint, {headers: {"X-Workspace-ID": workspaceId, "X-Workspace-Slug": ""}});
+    const proposal = parseWithFallback<SkillImprovementProposal | null>(raw, SkillImprovementProposalSchema, null, {endpoint});
+    if (!proposal || proposal.workspace_id !== workspaceId || proposal.skill_id !== id || proposal.id !== proposalId) throw new Error("Invalid skill proposal response");
+    return proposal;
+  }
+
+  async listSkillImprovementProposals(id: string, workspaceId: string, cursor?: string, pageSize = 25): Promise<SkillImprovementProposalPage> {
+    if (!workspaceId) throw new Error("A workspace is required");
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) throw new Error("Invalid proposal page size");
+    const params = new URLSearchParams({page_size: String(pageSize)});
+    if (cursor) params.set("cursor", cursor);
+    const endpoint = `/api/skills/${id}/proposals?${params}`;
+    const raw = await this.fetch<unknown>(endpoint, {headers: {"X-Workspace-ID": workspaceId, "X-Workspace-Slug": ""}});
+    const page = parseWithFallback<SkillImprovementProposalPage | null>(raw, SkillImprovementProposalPageSchema, null, {endpoint});
+    if (!page || page.proposals.some((proposal) => proposal.workspace_id !== workspaceId || proposal.skill_id !== id) || (cursor && page.next_cursor === cursor)) throw new Error("Invalid skill proposal page");
+    return page;
+  }
+
   async createSkill(data: CreateSkillRequest): Promise<Skill> {
     return this.fetch("/api/skills", {
       method: "POST",
@@ -2818,6 +2896,61 @@ export class ApiClient {
       EMPTY_WORKFLOW_INSTANCE,
       { endpoint: "GET /api/workflow-instances/{id}" },
     );
+  }
+
+  async listWorkflowExecutions(id: string): Promise<WorkflowExecution[]> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${id}/executions`);
+    return parseWithFallback<WorkflowExecution[]>(raw, WorkflowExecutionListSchema, [], {endpoint: "GET /api/workflow-instances/{id}/executions"});
+  }
+
+  async getWorkflowResult(id: string, executionId: string, revision: number): Promise<WorkflowResult | null> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${id}/executions/${executionId}/results/${revision}`);
+    return parseWithFallback<WorkflowResult | null>(raw, WorkflowResultSchema, null, {endpoint: "GET /api/workflow-instances/{id}/executions/{executionId}/results/{revision}"});
+  }
+
+  async getWorkflowArtifactBlob(id: string, executionId: string, revision: number, artifactRevisionId: string): Promise<Blob> {
+    const response = await this.fetchRaw(`/api/workflow-instances/${id}/executions/${executionId}/results/${revision}/artifacts/${artifactRevisionId}`);
+    return response.blob();
+  }
+
+  async reworkWorkflowExecution(id: string, sourceExecutionId: string, data: ReworkWorkflowExecutionRequest): Promise<WorkflowExecutionRework | null> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${id}/executions/${sourceExecutionId}/rework`, {method: "POST", body: JSON.stringify(data)});
+    const result = parseWithFallback<WorkflowExecutionRework | null>(raw, WorkflowExecutionReworkSchema, null, {endpoint: "POST /api/workflow-instances/{id}/executions/{executionId}/rework"});
+    return result?.instance_id === id && result.source_execution_id === sourceExecutionId && result.execution_id !== sourceExecutionId && result.stage_id === data.target_stage_id ? result : null;
+  }
+
+  async correctWorkflowExecutionInputs(id: string, executionId: string, data: CorrectWorkflowExecutionInputsRequest): Promise<WorkflowInputRecovery | null> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${id}/executions/${executionId}/inputs`, {method: "POST", body: JSON.stringify(data)});
+    const result = parseWithFallback<WorkflowInputRecovery | null>(raw, WorkflowInputRecoverySchema, null, {endpoint: "POST /api/workflow-instances/{id}/executions/{executionId}/inputs"});
+    return result?.execution_id === executionId && result.instance_id === id ? result : null;
+  }
+
+  async getWorkflowAgentReviewStatus(id: string, executionId: string): Promise<WorkflowAgentReviewStatus | null> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${id}/executions/${executionId}/review-status`);
+    const result = parseWithFallback<WorkflowAgentReviewStatus | null>(raw, WorkflowAgentReviewStatusSchema, null, {endpoint: "GET /api/workflow-instances/{id}/executions/{executionId}/review-status"});
+    return result?.execution_id === executionId ? result : null;
+  }
+
+  async recoverWorkflowAgentReview(id: string, executionId: string, requestId: string, data: RecoverWorkflowAgentReviewRequest): Promise<WorkflowAgentReviewRecovery | null> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${id}/executions/${executionId}/reviews/${requestId}/recover`, {method: "POST", body: JSON.stringify(data)});
+    const result = parseWithFallback<WorkflowAgentReviewRecovery | null>(raw, WorkflowAgentReviewRecoverySchema, null, {endpoint: "POST /api/workflow-instances/{id}/executions/{executionId}/reviews/{requestId}/recover"});
+    return result?.instance_id === id && result.execution_id === executionId && result.request_id === requestId && result.failed_task_id === data.failed_task_id && result.task_id !== data.failed_task_id ? result : null;
+  }
+
+  async getWorkflowHumanReview(id: string, executionId: string): Promise<WorkflowHumanReview | null> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${id}/executions/${executionId}/review`);
+    return parseWithFallback<WorkflowHumanReview | null>(raw, WorkflowHumanReviewSchema, null, {
+      endpoint: "GET /api/workflow-instances/{id}/executions/{executionId}/review",
+    });
+  }
+
+  async recordWorkflowHumanDecision(id: string, executionId: string, data: RecordWorkflowHumanDecisionRequest): Promise<WorkflowGateDecision | null> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${id}/executions/${executionId}/decisions`, {
+      method: "POST", body: JSON.stringify(data),
+    });
+    return parseWithFallback<WorkflowGateDecision | null>(raw, WorkflowGateDecisionSchema, null, {
+      endpoint: "POST /api/workflow-instances/{id}/executions/{executionId}/decisions",
+    });
   }
 
   async transitionWorkflowInstance(

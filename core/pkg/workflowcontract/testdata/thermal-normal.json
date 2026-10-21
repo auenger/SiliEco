@@ -1,0 +1,1 @@
+{"case_name":"fixture-only","solver":"mock-thermal-poc-v1","target_tmax_c":80,"observed_tmax_c":74,"verdict":"pass","sources":[{"artifact_id":"requirements","revision":1}]}

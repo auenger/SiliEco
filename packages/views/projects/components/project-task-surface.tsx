@@ -105,6 +105,11 @@ export function ProjectTaskSurface({
       workflow_stage_id: stage.id,
     });
   };
+  const openLifecycleTask = () => {
+    useModalStore.getState().open("create-issue", {
+      project_id: projectId,
+    });
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -167,7 +172,12 @@ export function ProjectTaskSurface({
           )}
         </div>
 
-        {effectiveMode === "stage" && hasAvailableRuns && (
+        {effectiveMode === "lifecycle" ? (
+          <Button size="sm" onClick={openLifecycleTask}>
+            <Plus className="size-3.5" />
+            {t(($) => $.project_tasks.create_task)}
+          </Button>
+        ) : hasAvailableRuns && (
           <div className="flex items-center gap-2">
             {!workflowRunId && (
             <Select

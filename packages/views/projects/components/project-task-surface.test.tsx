@@ -4,7 +4,8 @@ import { I18nProvider } from "@silieco/core/i18n/react";
 import enWorkflows from "../../locales/en/workflows.json";
 import { ProjectTaskSurface } from "./project-task-surface";
 
-const { runsByProject, transitionInstance } = vi.hoisted(() => ({
+const { openModal, runsByProject, transitionInstance } = vi.hoisted(() => ({
+  openModal: vi.fn(),
   runsByProject: {
     current: new Map<string, Array<Record<string, unknown>>>(),
   },
@@ -22,7 +23,7 @@ vi.mock("@silieco/core/hooks", () => ({
 
 vi.mock("@silieco/core/modals", () => ({
   useModalStore: {
-    getState: () => ({ open: vi.fn() }),
+    getState: () => ({ open: openModal }),
   },
 }));
 
@@ -98,7 +99,18 @@ function surface(projectId: string, workflowRunId?: string) {
 describe("ProjectTaskSurface", () => {
   beforeEach(() => {
     runsByProject.current = new Map();
+    openModal.mockReset();
     transitionInstance.mockReset();
+  });
+
+  it("creates a Task directly from the lifecycle board", () => {
+    render(surface("project-1"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+
+    expect(openModal).toHaveBeenCalledWith("create-issue", {
+      project_id: "project-1",
+    });
   });
 
   it("falls back to Project Tasks when switching from an SOP run to a Project without runs", () => {

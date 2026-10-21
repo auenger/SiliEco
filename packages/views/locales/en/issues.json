@@ -2,8 +2,9 @@
   "page": {
     "breadcrumb_title": "Tasks",
     "breadcrumb_workspace_fallback": "Workspace",
+    "create_task": "Create Task",
     "empty_title": "No tasks yet",
-    "empty_hint": "Create an task to get started.",
+    "empty_hint": "Create a task to get started.",
     "move_failed": "Failed to move task"
   },
   "status": {

@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY issue_workflow_execution_idx ON issue(workspace_id,workflow_stage_execution_id) WHERE workflow_stage_execution_id IS NOT NULL;

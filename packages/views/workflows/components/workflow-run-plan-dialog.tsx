@@ -1,5 +1,7 @@
 "use client";
 
+import { workflowConfigurationDialogWidth } from "./workflow-dialog";
+import { StageExecutionFields, validReworkPolicyDraft, validRetryPolicyDraft } from "./stage-execution-fields";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -78,8 +80,13 @@ interface RunStageDraft {
   skills: string;
   allowedMcpServerIds: string[] | null;
   gate: WorkflowObject & { type?: WorkflowGateType };
+  executionMode: string;
+  executorId: string | null;
+  reworkPolicy?: WorkflowObject;
+  retryPolicy?: WorkflowObject;
   completionRule: WorkflowObject;
   inputSpec: WorkflowObject;
+  inputBindings?: WorkflowObject;
   outputSpec: WorkflowObject;
   rollbackStageKey: string | null;
 }
@@ -102,8 +109,11 @@ function stageDraft(stage: WorkflowInstanceStage, skills: readonly SkillSummary[
       .join(", "),
     allowedMcpServerIds: stage.allowed_mcp_server_ids ?? null,
     gate: { ...stage.gate },
-    completionRule: { ...stage.completion_rule },
+    executionMode: stage.execution_mode ?? "manual",
+    executorId: stage.executor_id ?? null,
+    completionRule: { ...stage.completion_rule }, reworkPolicy:{...stage.rework_policy}, retryPolicy:{...stage.retry_policy},
     inputSpec: { ...stage.input_spec },
+    inputBindings: { ...stage.input_bindings },
     outputSpec: { ...stage.output_spec },
     rollbackStageKey: stage.rollback_stage_key,
   };
@@ -291,6 +301,8 @@ export function WorkflowRunPlanDialog({
         skills: "",
         allowedMcpServerIds: null,
         gate: { type: "none" },
+        executionMode: "manual",
+        executorId: null,
         completionRule: { type: "all_tasks_terminal" },
         inputSpec: {},
         outputSpec: {},
@@ -308,8 +320,10 @@ export function WorkflowRunPlanDialog({
     setStages((items) => items.filter((_, itemIndex) => itemIndex !== index));
   };
 
+  const invalidRollback = stages.some((stage) => !validReworkPolicyDraft(stage.reworkPolicy) || !validRetryPolicyDraft(stage.retryPolicy)) || stages.some((stage, index) => stage.rollbackStageKey && !stages.slice(0, index).some((previous) => previous.stableKey === stage.rollbackStageKey));
+
   const save = () => {
-    if (!run || !title.trim() || stages.length === 0 || stages.some((stage) => !stage.name.trim())) {
+    if (invalidRollback || !run || !title.trim() || stages.length === 0 || stages.some((stage) => !stage.name.trim() || (stage.executionMode === "agent" && !(agents as Agent[]).some((agent) => agent.id === stage.executorId && !agent.archived_at)))) {
       return;
     }
     updatePlan.mutate(
@@ -320,12 +334,15 @@ export function WorkflowRunPlanDialog({
           title: title.trim(),
           description: description.trim() || null,
           change_note: changeNote.trim() || null,
-          stages: stages.map((stage, index) => ({
+          stages: stages.map((stage) => ({
             ...(stage.id ? { id: stage.id } : {}),
             stable_key: stage.stableKey,
             name: stage.name.trim(),
             description: stage.description.trim() || null,
-            completion_rule: stage.completionRule,
+            execution_mode: stage.executionMode,
+            executor_id: stage.executorId,
+            completion_rule: stage.completionRule, rework_policy:stage.reworkPolicy ?? {}, retry_policy: stage.retryPolicy ?? {},
+            input_bindings: stage.inputBindings ?? {},
             input_spec: stage.input.trim()
               ? { ...stage.inputSpec, default_artifact: stage.input.trim() }
               : withoutKey(stage.inputSpec, "default_artifact"),
@@ -335,14 +352,7 @@ export function WorkflowRunPlanDialog({
             required_skills: skillRefs(stage.skills, workspaceSkills),
             allowed_mcp_server_ids: stage.allowedMcpServerIds,
             gate: stage.gate,
-            rollback_stage_key:
-              stage.gate.type !== "none" && index > 0
-                ? stages
-                    .slice(0, index)
-                    .some((candidate) => candidate.stableKey === stage.rollbackStageKey)
-                  ? stage.rollbackStageKey
-                  : stages[index - 1]!.stableKey
-                : null,
+            rollback_stage_key: stage.rollbackStageKey,
           })),
         },
       },
@@ -362,7 +372,7 @@ export function WorkflowRunPlanDialog({
   return (
     <>
     <Dialog open={open} onOpenChange={(next) => !updatePlan.isPending && onOpenChange(next)}>
-      <DialogContent className="flex max-h-[90vh] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+      <DialogContent className={`flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 ${workflowConfigurationDialogWidth}`}>
         <DialogHeader className="border-b border-border/70 px-5 py-4">
           <div className="flex flex-wrap items-center gap-2">
             <DialogTitle>{t(($) => $.designer.run_plan_title)}</DialogTitle>
@@ -508,6 +518,7 @@ export function WorkflowRunPlanDialog({
                           </div>
                         </div>
 
+                        <div className="mt-3"><StageExecutionFields value={stage} rollbackStages={stages.slice(0, index).map((item) => ({stableKey: item.stableKey, name: item.name}))} precedingStages={stages.slice(0, index).filter((item) => item.executionMode === "agent").map((item) => ({stableKey: item.stableKey, name: item.name}))} agents={agents as Agent[]} disabled={isPast || isCurrent || updatePlan.isPending} onChange={(patch) => updateStage(index, patch)} /></div>
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
                           <div className="space-y-1.5 sm:col-span-2">
                             <Label htmlFor={`run-stage-name-${index}`}>
@@ -703,10 +714,11 @@ export function WorkflowRunPlanDialog({
           <Button
             disabled={
               !run ||
+              invalidRollback ||
               updatePlan.isPending ||
               !title.trim() ||
               stages.length === 0 ||
-              stages.some((stage) => !stage.name.trim()) ||
+              stages.some((stage) => !stage.name.trim() || (stage.executionMode === "agent" && !(agents as Agent[]).some((agent) => agent.id === stage.executorId && !agent.archived_at))) ||
               changeCount === 0
             }
             onClick={() => setConfirmSave(true)}

@@ -1,0 +1,1 @@
+ALTER TABLE workflow_stage_execution DROP COLUMN rework_source_execution_id,DROP COLUMN rework_metadata;

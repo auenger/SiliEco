@@ -8,7 +8,7 @@
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
        i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.metadata, i.stage, i.properties,
-       i.workflow_instance_id, i.workflow_stage_id
+       i.workflow_instance_id, i.workflow_stage_id, i.workflow_invalidated_by_rework_id
 FROM issue i
 WHERE i.workspace_id = $1
   AND (sqlc.narg('status')::text IS NULL OR i.status = sqlc.narg('status'))
@@ -86,10 +86,11 @@ INSERT INTO issue (
     workspace_id, title, description, status, priority,
     assignee_type, assignee_id, creator_type, creator_id,
     parent_issue_id, position, start_date, due_date, number, project_id,
-    stage, workflow_instance_id, workflow_stage_id
+    stage, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-    sqlc.narg('stage'), sqlc.narg('workflow_instance_id'), sqlc.narg('workflow_stage_id')
+    sqlc.narg('stage'), sqlc.narg('workflow_instance_id'), sqlc.narg('workflow_stage_id'),
+    (SELECT e.id FROM workflow_stage_execution e WHERE e.workspace_id=$1 AND e.workflow_instance_id=sqlc.narg('workflow_instance_id') AND e.workflow_stage_id=sqlc.narg('workflow_stage_id') ORDER BY e.attempt DESC LIMIT 1)
 ) RETURNING *;
 
 -- name: GetIssueByNumber :one
@@ -112,10 +113,11 @@ UPDATE issue SET
     stage = sqlc.narg('stage'),
     workflow_instance_id = sqlc.narg('workflow_instance_id'),
     workflow_stage_id = sqlc.narg('workflow_stage_id'),
+    workflow_stage_execution_id = CASE WHEN workflow_instance_id IS NOT DISTINCT FROM sqlc.narg('workflow_instance_id') AND workflow_stage_id IS NOT DISTINCT FROM sqlc.narg('workflow_stage_id') THEN workflow_stage_execution_id ELSE (SELECT e.id FROM workflow_stage_execution e WHERE e.workspace_id=issue.workspace_id AND e.workflow_instance_id=sqlc.narg('workflow_instance_id') AND e.workflow_stage_id=sqlc.narg('workflow_stage_id') ORDER BY e.attempt DESC LIMIT 1) END,
     updated_at = now()
-WHERE id = $1
-  AND (sqlc.narg('expected_revision')::timestamptz IS NULL OR updated_at = sqlc.narg('expected_revision'))
-RETURNING *;
+WHERE issue.id = $1
+  AND (sqlc.narg('expected_revision')::timestamptz IS NULL OR issue.updated_at = sqlc.narg('expected_revision'))
+RETURNING issue.*;
 
 -- name: UpdateIssueStatus :one
 -- Workspace_id in the WHERE clause is a SQL-layer tenant guard; see DeleteIssue.
@@ -130,11 +132,12 @@ INSERT INTO issue (
     workspace_id, title, description, status, priority,
     assignee_type, assignee_id, creator_type, creator_id,
     parent_issue_id, position, start_date, due_date, number, project_id,
-    origin_type, origin_id, stage, workflow_instance_id, workflow_stage_id
+    origin_type, origin_id, stage, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
     sqlc.narg('origin_type'), sqlc.narg('origin_id'), sqlc.narg('stage'),
-    sqlc.narg('workflow_instance_id'), sqlc.narg('workflow_stage_id')
+    sqlc.narg('workflow_instance_id'), sqlc.narg('workflow_stage_id'),
+    (SELECT e.id FROM workflow_stage_execution e WHERE e.workspace_id=$1 AND e.workflow_instance_id=sqlc.narg('workflow_instance_id') AND e.workflow_stage_id=sqlc.narg('workflow_stage_id') ORDER BY e.attempt DESC LIMIT 1)
 ) RETURNING *;
 
 -- name: LockIssueDuplicateKey :exec
@@ -200,7 +203,7 @@ DELETE FROM issue WHERE issue.id IN (SELECT target.id FROM target);
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
        i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.metadata, i.stage, i.properties,
-       i.workflow_instance_id, i.workflow_stage_id
+       i.workflow_instance_id, i.workflow_stage_id, i.workflow_invalidated_by_rework_id
 FROM issue i
 WHERE i.workspace_id = $1
   AND i.status NOT IN ('done', 'cancelled')

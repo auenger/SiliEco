@@ -643,7 +643,10 @@ export function useRealtimeSync(
       },
       workflow_instance: () => {
         const wsId = getCurrentWsId();
-        if (wsId) qc.invalidateQueries({ queryKey: workflowKeys.all(wsId) });
+        if (wsId) {
+          qc.invalidateQueries({ queryKey: workflowKeys.all(wsId) });
+          qc.invalidateQueries({ queryKey: issueKeys.all(wsId) });
+        }
       },
       workflow_task: () => {
         const wsId = getCurrentWsId();

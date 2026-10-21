@@ -1,5 +1,6 @@
 "use client";
 
+import { workflowConfigurationDialogWidth } from "./workflow-dialog";
 import {
   useCallback,
   useEffect,
@@ -28,6 +29,7 @@ import {
   GripVertical,
   Plus,
   Route,
+  RefreshCw,
   ScrollText,
   ShieldCheck,
   Sparkles,
@@ -292,9 +294,13 @@ function WorkflowBoardColumn({
 export function WorkflowBoard({
   instance,
   mode,
+  onRefresh,
+  refreshing = false,
 }: {
   instance: WorkflowInstance;
   mode: BoardMode;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }) {
   const { t } = useT("workflows");
   const { t: tIssues } = useT("issues");
@@ -302,13 +308,42 @@ export function WorkflowBoard({
   const { getActorName } = useActorName();
   const queryClient = useQueryClient();
   const attachTask = useAttachWorkflowTask();
-  const tasks = useMemo(() => instance.tasks ?? [], [instance.tasks]);
+  const tasks = useMemo(() => (instance.tasks ?? []).filter((task) => task.workflow_invalidated_by_rework_id == null), [instance.tasks]);
   const stages = useMemo(() => instance.stages ?? [], [instance.stages]);
   const [statusFilter, setStatusFilter] =
     useState<TaskStatusFilter>(ALL_TASK_STATUSES);
   const [transcriptStageId, setTranscriptStageId] = useState<string | null>(null);
   const [transcriptOffset, setTranscriptOffset] = useState(0);
+  const [internalRefreshing, setInternalRefreshing] = useState(false);
+  const refreshInternal = useCallback(async () => {
+    setInternalRefreshing(true);
+    try {
+      await queryClient.refetchQueries({
+        queryKey: workflowKeys.instance(workspaceId, instance.id),
+        type: "active",
+      });
+      const latest = queryClient.getQueryData<WorkflowInstance>(
+        workflowKeys.instance(workspaceId, instance.id),
+      );
+      await Promise.all(
+        (latest?.tasks ?? tasks).map((task) =>
+          queryClient.refetchQueries({
+            queryKey: issueKeys.detail(workspaceId, task.id),
+            type: "active",
+          }),
+        ),
+      );
+      await queryClient.invalidateQueries({ queryKey: issueKeys.all(workspaceId) });
+    } finally {
+      setInternalRefreshing(false);
+    }
+  }, [instance.id, queryClient, tasks, workspaceId]);
+  useEffect(() => {
+    void refreshInternal();
+  }, [instance.id]);
   const transcriptStage = stages.find((stage) => stage.id === transcriptStageId);
+  const invalidatedTasks = (instance.tasks ?? []).filter((task) => task.workflow_stage_id === transcriptStageId && task.workflow_invalidated_by_rework_id != null);
+  const paths = useWorkspacePaths();
   const transcriptDecisions = (instance.decisions ?? []).filter(
     (decision) => decision.from_stage_id === transcriptStageId,
   );
@@ -402,6 +437,17 @@ export function WorkflowBoard({
             })}
           </span>
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t(($) => $.board.refresh)}
+              title={t(($) => $.board.refresh)}
+              onClick={onRefresh ?? (() => void refreshInternal())}
+              disabled={refreshing || internalRefreshing}
+            >
+              <RefreshCw className={cn("size-3.5", (refreshing || internalRefreshing) && "animate-spin")} />
+            </Button>
             <Select
               items={statusFilterItems}
               value={statusFilter}
@@ -474,9 +520,20 @@ export function WorkflowBoard({
               ))}
         </div>
         <Dialog open={Boolean(transcriptStageId)} onOpenChange={(open) => { if (!open) { setTranscriptStageId(null); setTranscriptOffset(0); } }}>
-          <DialogContent className="max-h-[80vh] max-w-3xl overflow-y-auto">
+          <DialogContent className={`max-h-[85vh] overflow-y-auto ${workflowConfigurationDialogWidth}`}>
             <DialogHeader><DialogTitle>{t(($) => $.transcript.title, { stage: transcriptStage?.name ?? "Stage" })}</DialogTitle><DialogDescription>{t(($) => $.transcript.description)}</DialogDescription></DialogHeader>
             <div className="space-y-2">
+              {(instance.reworks ?? []).filter((record) => record.source_stage_id === transcriptStageId || record.target_stage_id === transcriptStageId).map((record) => <section key={record.id} className="space-y-1 rounded-lg border border-border bg-muted/25 p-3 text-caption">
+                <h3 className="font-medium">{t(($) => $.rework.history)}</h3>
+                <p>{instance.stages?.find((stage) => stage.id === record.source_stage_id)?.name ?? record.source_stage_id} → {instance.stages?.find((stage) => stage.id === record.target_stage_id)?.name ?? record.target_stage_id}</p>
+                <p className="whitespace-pre-wrap break-words">{record.reason}</p>
+                <p className="text-micro text-muted-foreground">{getActorName(record.actor_type,record.actor_id)} · {record.created_at}</p>
+              </section>)}
+              {invalidatedTasks.length > 0 && <section className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                <h3 className="text-caption font-medium">{t(($) => $.rework.invalidated_tasks)}</h3>
+                <p className="text-micro text-muted-foreground">{t(($) => $.rework.invalidated_tasks_hint)}</p>
+                {invalidatedTasks.map((task) => <AppLink key={task.id} href={paths.taskDetail(task.id)} className="block break-words text-caption hover:underline">{task.identifier}: {task.title}</AppLink>)}
+              </section>}
               {transcriptDecisions.length > 0 && (
                 <div className="rounded-lg border border-brand/20 bg-brand/5 p-3">
                   <p className="text-caption font-medium">{t(($) => $.transcript.approval_events)}</p>
@@ -485,6 +542,7 @@ export function WorkflowBoard({
                       <div key={decision.id} className="flex items-start justify-between gap-3 text-caption">
                         <div>
                           <span className="font-medium">{decision.outcome === "approved" ? t(($) => $.transcript.approved) : t(($) => $.transcript.rejected)}</span>
+                          {decision.invalidated_by_rework_id != null && <Badge variant="outline" className="ml-2">{t(($) => $.rework.invalidated)}</Badge>}
                           <span className="text-muted-foreground"> · {getActorName(decision.actor_type, decision.actor_id)}</span>
                           {decision.note && <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{decision.note}</p>}
                         </div>
@@ -776,6 +834,7 @@ export function LegacyWorkflowsPage({
     ...workflowInstanceOptions(workspaceId, selectedInstanceId ?? ""),
     enabled: Boolean(selectedInstanceId),
   });
+  const [refreshing, setRefreshing] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [runTitle, setRunTitle] = useState("");
   const [taskToAddId, setTaskToAddId] = useState<string | null>(null);
@@ -795,6 +854,34 @@ export function LegacyWorkflowsPage({
     return (taskPool?.issues ?? []).filter((task) => !attached.has(task.id));
   }, [instance?.tasks, taskPool?.issues]);
 
+  const refreshBoard = useCallback(async () => {
+    if (!selectedInstanceId) return;
+    setRefreshing(true);
+    try {
+      await queryClient.refetchQueries({
+        queryKey: workflowKeys.instance(workspaceId, selectedInstanceId),
+        type: "active",
+      });
+      const latest = queryClient.getQueryData<WorkflowInstance>(
+        workflowKeys.instance(workspaceId, selectedInstanceId),
+      );
+      await Promise.all(
+        (latest?.tasks ?? []).map((task) =>
+          queryClient.refetchQueries({
+            queryKey: issueKeys.detail(workspaceId, task.id),
+            type: "active",
+          }),
+        ),
+      );
+      await queryClient.invalidateQueries({ queryKey: issueKeys.all(workspaceId) });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [queryClient, selectedInstanceId, workspaceId]);
+
+  // Reopening or activating a run must use a fresh server snapshot. The
+  // instance response embeds Task data, so ordinary mount/unmount alone is
+  // insufficient when React Query still has the previous snapshot cached.
   useEffect(() => {
     if (
       embedded &&
@@ -1136,7 +1223,12 @@ export function LegacyWorkflowsPage({
                   </div>
 
                   {instance ? (
-                    <WorkflowBoard instance={instance} mode={boardMode} />
+                    <WorkflowBoard
+                      instance={instance}
+                      mode={boardMode}
+                      onRefresh={() => void refreshBoard()}
+                      refreshing={refreshing}
+                    />
                   ) : (
                     <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border text-body text-muted-foreground">
                       <div className="text-center">

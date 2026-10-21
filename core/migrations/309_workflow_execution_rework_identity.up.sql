@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY workflow_execution_rework_source_uidx ON workflow_stage_execution(workspace_id,rework_source_execution_id) WHERE rework_source_execution_id IS NOT NULL;

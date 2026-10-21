@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@silieco/core/i18n/react";
 import enWorkflows from "../../locales/en/workflows.json";
@@ -80,9 +80,12 @@ const run = {
       name: "Review",
       description: null,
       position: 2,
-      completion_rule: { type: "all_tasks_terminal" },
+      input_bindings: {schema_version:"silieco.input-bindings/v1",data:[]},
+      execution_mode: "agent",
+      executor_id: "agent-1",
+      completion_rule: { type: "validated_result" },
       input_spec: {},
-      output_spec: {},
+      output_spec: {contract:{schema_version:"silieco.stage/v1",data:{type:"object"}}},
       required_skills: [],
       gate: { type: "human" },
       rollback_stage_key: "stage_2",
@@ -97,6 +100,10 @@ const run = {
 
 vi.mock("@silieco/core/hooks", () => ({
   useWorkspaceId: () => "workspace-1",
+}));
+
+vi.mock("@silieco/core/mcp", () => ({
+  workspaceMCPServersOptions: () => ({ queryKey: ["workspace-mcp"] }),
 }));
 
 vi.mock("@silieco/core/workflows", () => ({
@@ -115,7 +122,8 @@ vi.mock("@tanstack/react-query", () => ({
     data:
       queryKey[0] === "skills"
         ? testSkills
-        : queryKey[0] === "members" || queryKey[0] === "agents"
+        : queryKey[0] === "agents" ? [{id:"agent-1",name:"Builder",archived_at:null}]
+        : queryKey[0] === "members" || queryKey[0] === "workspace-mcp"
           ? emptyList
           : run,
     isLoading: false,
@@ -125,7 +133,7 @@ vi.mock("@tanstack/react-query", () => ({
 describe("WorkflowRunPlanDialog", () => {
   beforeEach(() => mutate.mockReset());
 
-  it("locks completed Stages and saves current/future adjustments with the run revision", () => {
+  it("locks completed Stages and saves current/future adjustments with the run revision", async () => {
     render(
       <I18nProvider locale="en" resources={{ en: { workflows: enWorkflows } }}>
         <WorkflowRunPlanDialog
@@ -149,6 +157,11 @@ describe("WorkflowRunPlanDialog", () => {
 
     const outputs = screen.getAllByLabelText("Output requirement");
     fireEvent.change(outputs[1]!, { target: { value: "release.md" } });
+    expect(screen.getByRole("button", {name: "Save run adjustments"})).toBeEnabled();
+    fireEvent.click(screen.getAllByRole("combobox", {name: "Rework rollback target"})[2]!);
+    fireEvent.mouseMove(screen.getByRole("option", {name: "Plan"}));
+    fireEvent.click(screen.getByRole("option", {name: "Plan"}));
+    await waitFor(() => expect(screen.getAllByRole("combobox", {name: "Rework rollback target"})[2]).toHaveTextContent("Plan"));
     fireEvent.click(screen.getByRole("button", { name: "Save run adjustments" }));
     expect(screen.getByText("Save these run adjustments?")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save run adjustments" }));
@@ -159,6 +172,11 @@ describe("WorkflowRunPlanDialog", () => {
         data: expect.objectContaining({
           expected_revision: 2,
           stages: expect.arrayContaining([
+            expect.objectContaining({
+              id:"stage-future", rollback_stage_key:"stage_1", input_bindings:{schema_version:"silieco.input-bindings/v1",data:[]}, execution_mode:"agent", executor_id:"agent-1",
+              completion_rule:{type:"validated_result"},
+              output_spec:{contract:{schema_version:"silieco.stage/v1",data:{type:"object"}}},
+            }),
             expect.objectContaining({
               id: "stage-current",
               output_spec: { default_artifact: "release.md" },

@@ -99,7 +99,7 @@ func commentToResponse(c db.Comment, reactions []ReactionResponse, attachments [
 		ParentID:       uuidToPtr(c.ParentID),
 		CreatedAt:      timestampToString(c.CreatedAt),
 		UpdatedAt:      timestampToString(c.UpdatedAt),
-		Revision:       timestampToString(c.UpdatedAt),
+		Revision:       revisionTimestampToString(c.UpdatedAt),
 		ResolvedAt:     timestampToPtr(c.ResolvedAt),
 		ResolvedByType: textToPtr(c.ResolvedByType),
 		ResolvedByID:   uuidToPtr(c.ResolvedByID),

@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY agent_task_queue_workflow_execution_idx ON agent_task_queue (workflow_stage_execution_id) WHERE workflow_stage_execution_id IS NOT NULL;

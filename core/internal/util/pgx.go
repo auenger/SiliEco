@@ -84,6 +84,16 @@ func TimestampToString(t pgtype.Timestamptz) string {
 	return t.Time.Format(time.RFC3339)
 }
 
+// RevisionTimestampToString preserves the database timestamp's full precision.
+// Revision tokens are compared directly with timestamptz values and must not
+// be rounded to whole seconds.
+func RevisionTimestampToString(t pgtype.Timestamptz) string {
+	if !t.Valid {
+		return ""
+	}
+	return t.Time.Format(time.RFC3339Nano)
+}
+
 func TimestampToPtr(t pgtype.Timestamptz) *string {
 	if !t.Valid {
 		return nil

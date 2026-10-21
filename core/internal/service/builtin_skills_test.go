@@ -585,6 +585,73 @@ func TestFeatureWorkflowBuiltinSkillsAreCompleteAndSafe(t *testing.T) {
 	}
 }
 
+func TestThermalPOCBuiltinSkillsAreCompleteAndExplicitlyMockOnly(t *testing.T) {
+	expected := []string{
+		"silieco-thermal-requirements",
+		"silieco-thermal-requirements-review",
+		"silieco-thermal-model-precheck",
+		"silieco-thermal-baseline",
+		"silieco-thermal-result-review",
+		"silieco-thermal-candidate-review",
+		"silieco-thermal-candidate-simulation",
+		"silieco-thermal-report",
+		"silieco-thermal-mock-runner",
+	}
+
+	for _, name := range expected {
+		skill, ok := findSkill(t, name)
+		if !ok {
+			continue
+		}
+		fm, _, _ := splitFrontmatter(skill.Content)
+		if got := strings.TrimSpace(fm["user-invocable"]); got != "false" {
+			t.Errorf("%s user-invocable = %q, want false", name, got)
+		}
+	}
+
+	for _, name := range expected[:len(expected)-1] {
+		skill, ok := findSkill(t, name)
+		if !ok {
+			continue
+		}
+		for _, contract := range []string{"## Input", "## Required output"} {
+			if !strings.Contains(skill.Content, contract) {
+				t.Errorf("%s missing stage contract section %q", name, contract)
+			}
+		}
+	}
+
+	runner, ok := findSkill(t, "silieco-thermal-mock-runner")
+	if ok {
+		if !skillHasFile(runner, "scripts/thermal_mock.py") {
+			t.Error("thermal Mock Runner missing scripts/thermal_mock.py")
+		}
+		for _, want := range []string{
+			"accepted → running → succeeded",
+			"execution_status",
+			"thermal_verdict",
+			"must never be used as engineering evidence",
+		} {
+			if !strings.Contains(runner.Content, want) {
+				t.Errorf("thermal Mock Runner missing %q", want)
+			}
+		}
+	}
+
+	baseline, ok := findSkill(t, "silieco-thermal-baseline")
+	if ok && !strings.Contains(baseline.Content, "intentionally generates a converged result above") {
+		t.Error("thermal baseline skill must disclose the forced POC FAIL path")
+	}
+	candidate, ok := findSkill(t, "silieco-thermal-candidate-simulation")
+	if ok && !strings.Contains(candidate.Content, "approved-candidate.json") {
+		t.Error("thermal candidate simulation must require an approval artifact")
+	}
+	report, ok := findSkill(t, "silieco-thermal-report")
+	if ok && !strings.Contains(report.Content, "not a real engineering sign-off") {
+		t.Error("thermal report skill must reject real-engineering claims")
+	}
+}
+
 func findSkill(t *testing.T, name string) (AgentSkillData, bool) {
 	t.Helper()
 	for _, s := range loadBuiltinSkills() {

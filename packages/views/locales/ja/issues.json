@@ -2,6 +2,7 @@
   "page": {
     "breadcrumb_title": "Task",
     "breadcrumb_workspace_fallback": "ワークスペース",
+    "create_task": "task を作成",
     "empty_title": "まだTaskがありません",
     "empty_hint": "Taskを作成して始めましょう。",
     "move_failed": "Taskを移動できませんでした"

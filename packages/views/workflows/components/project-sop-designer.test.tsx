@@ -27,6 +27,10 @@ vi.mock("@silieco/core/paths", () => ({
   }),
 }));
 
+vi.mock("@silieco/core/mcp", () => ({
+  workspaceMCPServersOptions: () => ({ queryKey: ["workspace-mcp"] }),
+}));
+
 vi.mock("../../navigation", () => ({
   useNavigation: () => ({ push: navigateTo }),
 }));
@@ -59,6 +63,8 @@ vi.mock("@tanstack/react-query", () => ({
     const data =
       queryKey[0] === "workflow-runs"
         ? runs.current
+        : queryKey[0] === "workspace-mcp"
+          ? { servers: [] }
         : queryKey[0] === "workspace-members"
           ? members.current
           : queryKey[0] === "workspace-agents"
@@ -132,6 +138,7 @@ describe("ProjectSopDesigner", () => {
   it("offers the prototype templates without rendering Task management", () => {
     renderDesigner();
 
+    expect(screen.getByRole("button", { name: /散热仿真 POC/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Feature 研发工作流/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /投标模板/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /软件开发模板/ })).toBeInTheDocument();
@@ -140,6 +147,36 @@ describe("ProjectSopDesigner", () => {
     expect(screen.getByRole("button", { name: /空白 SOP/ })).toBeInTheDocument();
     expect(screen.queryByText("Task board")).not.toBeInTheDocument();
     expect(screen.queryByText("Start a Workflow")).not.toBeInTheDocument();
+  });
+
+  it("publishes the thermal simulation POC with built-in stage skills and human gates", () => {
+    renderDesigner();
+
+    fireEvent.click(screen.getByRole("button", { name: /散热仿真 POC/ }));
+    expect(screen.getByDisplayValue("散热仿真 POC（Mock）")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("散热需求提取")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("候选仿真（Mock）")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish SOP" }));
+
+    const [payload] = createWorkflow.mock.calls[0]!;
+    expect(payload.stages).toHaveLength(8);
+    expect(payload.stages.map((item: { required_skills: string[] }) => item.required_skills)).toEqual([
+      ["silieco-thermal-requirements"],
+      ["silieco-thermal-requirements-review"],
+      ["silieco-thermal-model-precheck", "silieco-thermal-mock-runner"],
+      ["silieco-thermal-baseline", "silieco-thermal-mock-runner"],
+      ["silieco-thermal-result-review", "silieco-thermal-mock-runner"],
+      ["silieco-thermal-candidate-review"],
+      ["silieco-thermal-candidate-simulation", "silieco-thermal-mock-runner"],
+      ["silieco-thermal-report", "silieco-thermal-mock-runner"],
+    ]);
+    expect(payload.stages[1].gate).toMatchObject({ type: "human", require_human: true });
+    expect(payload.stages[5].gate).toMatchObject({ type: "human", require_human: true });
+    expect(payload.stages[7].gate).toMatchObject({ type: "human", require_human: true });
+    expect(payload.stages[3].output_spec).toEqual({
+      default_artifact: "baseline-job.json + baseline-result.json",
+    });
   });
 
   it("maps the built-in Feature workflow stages to their platform skills", () => {
@@ -203,13 +240,22 @@ describe("ProjectSopDesigner", () => {
     const runName = screen.getByLabelText("Run name");
     expect(runName).toHaveValue("Release SOP · Run 1");
     fireEvent.change(runName, { target: { value: "Mobile 2.0 release" } });
+    const inputs = screen.getByLabelText(/Run inputs \(JSON\)/);
+    fireEvent.change(inputs, {target: {value: "{"}});
+    expect(screen.getByRole("button", {name: "Start run"})).toBeDisabled();
+    fireEvent.change(inputs, {target: {value: '{"goal":"Publish the report"}'}});
     fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+    fireEvent.keyDown(runName, {key: "Enter"});
+    expect(createInstance).toHaveBeenCalledTimes(1);
 
     expect(createInstance).toHaveBeenCalledWith(
       {
         workflowId: "workflow-1",
         data: {
           title: "Mobile 2.0 release",
+          inputs: {goal: "Publish the report"},
           project_id: "project-1",
           start: true,
         },
@@ -319,6 +365,46 @@ describe("ProjectSopDesigner", () => {
     });
   });
 
+  it("preserves the executor and contracts when inheriting an automatic SOP", () => {
+    agents.current = [{id:"agent-1",name:"Builder",archived_at:null}];
+    const contract = { schema_version: "silieco.stage/v1", data: { type: "object" } };
+    workflows.current = [{
+      id: "automatic-source", project_id: null, name: "Automatic source", status: "published",
+      current_version: { version: 1, stages: [{
+        id: "automatic-stage", stable_key: "build-stable", input_bindings: {schema_version:"silieco.input-bindings/v1",data:[]}, name: "Build", execution_mode: "agent", executor_id: "agent-1",
+        completion_rule: { type: "validated_result" }, input_spec: { contract }, output_spec: { contract },
+        required_skills: [], gate: { type: "none" },
+      }, {
+        id: "review-stage", stable_key: "review-stable", name: "Review", execution_mode: "agent", executor_id: "agent-1",
+        completion_rule: {type: "validated_result"}, output_spec: {contract}, input_spec: {}, required_skills: [],
+        gate: {type: "none"}, rollback_stage_key: "build-stable",
+      }] },
+    }];
+    renderDesigner();
+    fireEvent.click(screen.getByRole("button", { name: "Inherit and customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish SOP" }));
+    expect(createWorkflow.mock.calls[0]?.[0].stages[0]).toMatchObject({
+      stable_key: "build-stable", input_bindings: {schema_version:"silieco.input-bindings/v1",data:[]}, execution_mode: "agent", executor_id: "agent-1", completion_rule: { type: "validated_result" },
+      input_spec: { contract }, output_spec: { contract },
+    });
+    expect(createWorkflow.mock.calls[0]?.[0].stages[1].rollback_stage_key).toBe("build-stable");
+  });
+
+  it("publishes an agent stage with an earlier manual rollback target", () => {
+    agents.current = [{id:"agent-1",name:"Builder",archived_at:null}];
+    workflows.current = [{id:"mixed-source",project_id:null,name:"Mixed source",status:"published",current_version:{version:1,stages:[
+      {id:"manual-stage",stable_key:"manual-input",name:"Manual input",execution_mode:"manual",executor_id:null,completion_rule:{type:"all_tasks_terminal"},input_spec:{},output_spec:{},required_skills:[],gate:{type:"none"}},
+      {id:"agent-stage",stable_key:"build",name:"Build",execution_mode:"agent",executor_id:"agent-1",completion_rule:{type:"validated_result"},input_spec:{},output_spec:{contract:{schema_version:"silieco.stage/v1",data:{type:"object"}}},required_skills:[],gate:{type:"none"},rollback_stage_key:"manual-input"},
+    ]}}];
+    renderDesigner();fireEvent.click(screen.getByRole("button",{name:"Inherit and customize"}));
+    expect(screen.getByRole("button",{name:"Publish SOP"})).toBeEnabled();
+    fireEvent.click(screen.getAllByRole("combobox",{name:"Rework rollback target"})[1]!);
+    expect(screen.getByRole("option",{name:"Manual input"})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option",{name:"Manual input"}));
+    fireEvent.click(screen.getByRole("button",{name:"Publish SOP"}));
+    expect(createWorkflow.mock.calls[0]?.[0].stages[1]).toMatchObject({execution_mode:"agent",rollback_stage_key:"manual-input"});
+  });
+
   it("creates a Project variant from a reusable Space SOP", () => {
     workflows.current = [
       {
@@ -403,6 +489,7 @@ describe("ProjectSopDesigner", () => {
         id: "skill-review",
         name: "Code review",
         description: "Review implementation quality",
+        config: {},
       },
     ];
     agents.current = [
