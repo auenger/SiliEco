@@ -44,3 +44,11 @@ coverage.out
 *.log
 .DS_Store
 .collaborator
+
+# Local test reports and packaged download artifacts
+/test-results/
+/playwright-report/
+/apps/web/public/downloads/
+/apps/web/public/cli/*.tar.gz
+/apps/web/public/cli/*.zip
+/apps/web/public/cli/checksums.txt

@@ -15,9 +15,11 @@ export type RuntimeConfigResult =
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = Object.freeze({
   schemaVersion: 1,
-  apiUrl: "http://localhost:8080",
-  wsUrl: "ws://localhost:8080/ws",
-  appUrl: "http://localhost:3000",
+  // Internal HTTP deployment default. A user-provided
+  // ~/.silieco/desktop.json still overrides this value when present.
+  apiUrl: "http://yilia.me:6688",
+  wsUrl: "ws://yilia.me:6688/ws",
+  appUrl: "http://yilia.me:6688",
 });
 
 const LOCAL_DEV_RUNTIME_CONFIG: RuntimeConfig = Object.freeze({

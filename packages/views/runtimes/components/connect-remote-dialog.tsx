@@ -31,7 +31,7 @@ import { useT } from "../../i18n";
 type Step = "instructions" | "success";
 
 const INSTALL_CMD =
-  "curl -fsSL https://raw.githubusercontent.com/silieco-ai/silieco/main/scripts/install.sh | bash";
+  "curl -fsSL http://yilia.me:6688/cli/install.sh | bash";
 const CLOUD_SERVER_URL = "https://api.silieco.ai";
 const CLOUD_APP_URL = "https://silieco.ai";
 

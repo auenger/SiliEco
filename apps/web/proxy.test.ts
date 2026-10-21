@@ -159,6 +159,21 @@ describe("proxy runtime upstream rewrites", () => {
     }
   });
 
+  it("rewrites backend health checks to the runtime API origin", () => {
+    const previous = process.env.REMOTE_API_URL;
+    process.env.REMOTE_API_URL = "http://backend:8080";
+    try {
+      const res = proxy(makeRequest("/health"));
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("x-middleware-rewrite")).toBe(
+        "http://backend:8080/health",
+      );
+    } finally {
+      restoreEnv("REMOTE_API_URL", previous);
+    }
+  });
+
   it("rewrites docs requests to the runtime docs origin", () => {
     const previous = process.env.DOCS_URL;
     process.env.DOCS_URL = "http://docs:4000";

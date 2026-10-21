@@ -18,7 +18,7 @@ const dateString = z.preprocess(
 const useCaseFrontmatterSchema = z.looseObject({
   title: z.string(),
   description: z.string().optional(),
-  hero_image: z.string(),
+  hero_image: z.string().optional(),
   updated_at: dateString,
   category: z.string().optional(),
 });

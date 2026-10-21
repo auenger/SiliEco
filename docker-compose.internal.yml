@@ -1,0 +1,4 @@
+# Internal HTTP preview override. Use with docker-compose.selfhost.yml.
+# The .env file should set FRONTEND_BIND_ADDRESS=0.0.0.0 and leave
+# BACKEND_BIND_ADDRESS at its secure loopback default.
+services: {}

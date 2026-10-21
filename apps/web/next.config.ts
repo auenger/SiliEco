@@ -52,8 +52,13 @@ const nextConfig: NextConfig = {
     return {
       // Run before file-system routes so /docs isn't shadowed by the
       // [workspaceSlug] dynamic segment.
-      beforeFiles: docsUrl
-        ? [
+      beforeFiles: [
+        {
+          source: "/",
+          destination: "/product-home/index.html",
+        },
+        ...(docsUrl
+          ? [
             {
               source: "/docs",
               destination: `${docsUrl}/docs`,
@@ -63,12 +68,17 @@ const nextConfig: NextConfig = {
               destination: `${docsUrl}/docs/:path*`,
             },
           ]
-        : [],
+          : []),
+      ],
       afterFiles: remoteApiUrl
         ? [
             {
               source: "/api/:path*",
               destination: `${remoteApiUrl}/api/:path*`,
+            },
+            {
+              source: "/health",
+              destination: `${remoteApiUrl}/health`,
             },
             {
               source: "/ws",

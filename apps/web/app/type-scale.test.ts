@@ -52,7 +52,7 @@ const sourceExtensions = [".ts", ".tsx", ".css"];
  * steps as a table cell. They still may not use pixel sizes, so only the
  * relative-unit rule is lifted for them.
  */
-const marketingPaths = ["apps/web/app/(landing)", "apps/web/features/landing"];
+const marketingPaths = ["apps/web/app/(landing)", "apps/web/features/landing", "apps/web/public/product-home/"];
 const isMarketing = (rel: string) => marketingPaths.some((p) => rel.startsWith(p));
 
 /**

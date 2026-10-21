@@ -7,12 +7,12 @@ import {
 } from "./runtime-config";
 
 describe("runtime config", () => {
-  it("uses local Silieco defaults without a desktop.json file", () => {
+  it("uses the internal deployment defaults without a desktop.json file", () => {
     expect(DEFAULT_RUNTIME_CONFIG).toEqual({
       schemaVersion: 1,
-      apiUrl: "http://localhost:8080",
-      wsUrl: "ws://localhost:8080/ws",
-      appUrl: "http://localhost:3000",
+      apiUrl: "http://yilia.me:6688",
+      wsUrl: "ws://yilia.me:6688/ws",
+      appUrl: "http://yilia.me:6688",
     });
   });
 

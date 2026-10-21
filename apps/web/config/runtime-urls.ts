@@ -82,6 +82,9 @@ export function runtimeRewriteDestination(
   if (pathname === "/api" || pathname.startsWith("/api/")) {
     return appendPath(remoteApiUrl, pathname);
   }
+  if (pathname === "/health") {
+    return appendPath(remoteApiUrl, "/health");
+  }
   if (pathname === "/uploads" || pathname.startsWith("/uploads/")) {
     return appendPath(remoteApiUrl, pathname);
   }

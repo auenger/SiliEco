@@ -122,6 +122,7 @@ export const config = {
   // request time instead of being baked into next.config.js at build time.
   matcher: [
     "/api/:path*",
+    "/health",
     "/auth/:path*",
     "/uploads/:path*",
     "/docs/:path*",

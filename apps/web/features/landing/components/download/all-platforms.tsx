@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useLocale } from "../../i18n";
 import type { DownloadAssets } from "../../utils/parse-release-assets";
-import { AppleIcon, LinuxIcon, WindowsIcon } from "./os-icons";
+import { AppleIcon, WindowsIcon } from "./os-icons";
 
 interface Props {
   assets: DownloadAssets;
@@ -68,62 +68,15 @@ export function AllPlatforms({
             label={d.winX64Label}
             formats={[
               {
-                label: d.formatExe,
-                href: assets.winX64Exe,
+                label: d.formatZip,
+                href: assets.winX64Zip,
               },
             ]}
             unavailable={d.unavailable}
           />
-          <Row
-            icon={<WindowsIcon className="text-[#0a0d12]" />}
-            label={d.winArm64Label}
-            formats={[
-              {
-                label: d.formatExe,
-                href: assets.winArm64Exe,
-              },
-            ]}
-            unavailable={d.unavailable}
-          />
-          <Row
-            icon={<LinuxIcon className="text-[#0a0d12]" />}
-            label={d.linuxX64Label}
-            formats={[
-              {
-                label: d.formatAppImage,
-                href: assets.linuxAmd64AppImage,
-              },
-              {
-                label: d.formatDeb,
-                href: assets.linuxAmd64Deb,
-              },
-              {
-                label: d.formatRpm,
-                href: assets.linuxAmd64Rpm,
-              },
-            ]}
-            unavailable={d.unavailable}
-          />
-          <Row
-            icon={<LinuxIcon className="text-[#0a0d12]" />}
-            label={d.linuxArm64Label}
-            formats={[
-              {
-                label: d.formatAppImage,
-                href: assets.linuxArm64AppImage,
-              },
-              {
-                label: d.formatDeb,
-                href: assets.linuxArm64Deb,
-              },
-              {
-                label: d.formatRpm,
-                href: assets.linuxArm64Rpm,
-              },
-            ]}
-            unavailable={d.unavailable}
-            isLast
-          />
+          <div className="border-t border-[#0a0d12]/8 px-6 py-4 text-label text-[#0a0d12]/55">
+            Windows and macOS builds are available for this internal preview.
+          </div>
         </div>
 
         {isFallbackNeeded(assets) ? (
@@ -195,10 +148,9 @@ function Row({ icon, label, formats, unavailable, isLast }: RowProps) {
   );
 }
 
-// Twelve desktop artifacts are expected per release (four Mac,
-// two Windows, six Linux). If any are missing, surface the GitHub
-// fallback link so users on an orphaned row have a way out.
-const EXPECTED_ASSET_COUNT = 12;
+// Five internal-preview artifacts are served by the Web container: four Mac
+// packages and one Windows portable bundle.
+const EXPECTED_ASSET_COUNT = 5;
 
 function isFallbackNeeded(assets: DownloadAssets): boolean {
   return Object.values(assets).filter(Boolean).length < EXPECTED_ASSET_COUNT;

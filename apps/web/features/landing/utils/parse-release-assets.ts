@@ -24,6 +24,7 @@ export interface DownloadAssets {
   macX64Dmg?: string;
   macX64Zip?: string;
   winX64Exe?: string;
+  winX64Zip?: string;
   winArm64Exe?: string;
   linuxAmd64AppImage?: string;
   linuxAmd64Deb?: string;
@@ -73,8 +74,10 @@ export function parseReleaseAssets(raw: GitHubAsset[]): DownloadAssets {
         else if (extLower === "zip") out.macX64Zip = url;
       }
     } else if (platform === "windows") {
-      if (extLower !== "exe") continue;
-      if (archLower === "x64") out.winX64Exe = url;
+      if (archLower === "x64") {
+        if (extLower === "exe") out.winX64Exe = url;
+        else if (extLower === "zip") out.winX64Zip = url;
+      }
       else if (archLower === "arm64") out.winArm64Exe = url;
     } else if (platform === "linux") {
       const normalized = normalizeLinuxArch(arch);
