@@ -34,7 +34,7 @@ describe("loadRuntimeConfig", () => {
     });
   });
 
-  it("uses local Silieco defaults when packaged config is absent", async () => {
+  it("uses internal deployment defaults when packaged config is absent", async () => {
     const dir = await mkdtemp(join(tmpdir(), "silieco-desktop-config-"));
     await expect(
       loadRuntimeConfig({
@@ -46,9 +46,9 @@ describe("loadRuntimeConfig", () => {
       ok: true,
       config: {
         schemaVersion: 1,
-        apiUrl: "http://localhost:8080",
-        wsUrl: "ws://localhost:8080/ws",
-        appUrl: "http://localhost:3000",
+        apiUrl: "http://yilia.me:6688",
+        wsUrl: "ws://yilia.me:6688/ws",
+        appUrl: "http://yilia.me:6688",
       },
     });
   });
