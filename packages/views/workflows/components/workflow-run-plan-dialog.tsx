@@ -373,7 +373,7 @@ export function WorkflowRunPlanDialog({
     <>
     <Dialog open={open} onOpenChange={(next) => !updatePlan.isPending && onOpenChange(next)}>
       <DialogContent className={`flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 ${workflowConfigurationDialogWidth}`}>
-        <DialogHeader className="border-b border-border/70 px-5 py-4">
+        <DialogHeader className="shrink-0 border-b border-border/70 px-5 py-4">
           <div className="flex flex-wrap items-center gap-2">
             <DialogTitle>{t(($) => $.designer.run_plan_title)}</DialogTitle>
             {run && run.source_version > 0 && (
@@ -707,7 +707,7 @@ export function WorkflowRunPlanDialog({
           </div>
         )}
 
-        <DialogFooter className="border-t border-border/70 bg-muted/15 px-5 py-3">
+        <DialogFooter className="m-0 shrink-0 border-t border-border/70 bg-muted/15 px-5 py-3">
           <Button variant="ghost" disabled={updatePlan.isPending} onClick={() => onOpenChange(false)}>
             {t(($) => $.designer.archive_cancel)}
           </Button>
