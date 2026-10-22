@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { parseWorkflowDraft, workflowDesignerPrompt, type WorkflowTextDraft } from "./designer";
+import { parseWorkflowDraft, workflowDesignerPrompt, workflowDraftFromPrompt, type WorkflowTextDraft } from "./designer";
 
 type Editor = {
   id: string; wsId: string; projectId?: string; portalId: string;
@@ -43,7 +43,7 @@ export function failWorkflowChat(request: Request) {
 }
 
 /** Three-way merge: preserve manual edits to fields the agent did not change. */
-export function mergeWorkflowDraft(base: WorkflowTextDraft, current: WorkflowTextDraft, proposed: WorkflowTextDraft): WorkflowTextDraft | null {
+export function mergeWorkflowDraft(base: WorkflowTextDraft, current: WorkflowTextDraft, proposed: WorkflowTextDraft, resolveConflicts = false): WorkflowTextDraft | null {
   if (current.stages.length !== base.stages.length || current.stages.some((s, i) => s.id !== base.stages[i]?.id)) return null;
   if (proposed.stages.some((s) => s.id && !base.stages.some((b) => b.id === s.id))) return null;
   let conflict = false;
@@ -62,7 +62,7 @@ export function mergeWorkflowDraft(base: WorkflowTextDraft, current: WorkflowTex
       return { ...s, name: field(b.name, s.name, p.name), description: field(b.description, s.description, p.description), input: field(b.input, s.input, p.input), output: field(b.output, s.output, p.output) };
     }).concat(proposed.stages.filter((s) => !s.id)),
   };
-  return conflict ? null : result;
+  return conflict && !resolveConflicts ? null : result;
 }
 export function finishWorkflowChat(wsId: string, sessionId: string, taskId: string, content: string) {
   const state = useWorkflowChatEditorStore.getState();
@@ -81,4 +81,50 @@ export function finishWorkflowChat(wsId: string, sessionId: string, taskId: stri
   const restore = editor.snapshot();
   editor.apply(merged);
   useWorkflowChatEditorStore.setState({ status: "applied", undo: restore });
+}
+
+export type WorkflowFillResult =
+  | { status: "applied" | "unchanged" | "invalid" | "unavailable" }
+  | { status: "conflict"; current: WorkflowTextDraft; conflicts: WorkflowFieldConflict[] };
+export type WorkflowFieldConflict = { stage: string; field: "name" | "description" | "input" | "output"; current: string; proposed: string };
+function fieldConflicts(base: WorkflowTextDraft, current: WorkflowTextDraft, proposed: WorkflowTextDraft): WorkflowFieldConflict[] {
+  const conflicts: WorkflowFieldConflict[] = [];
+  function compare(stage: string, field: WorkflowFieldConflict["field"], b: string, c: string, p: string) {
+    if (p !== b && c !== b && c !== p) conflicts.push({ stage, field, current: c, proposed: p });
+  }
+  for (const field of ["name", "description"] as const) compare(current.name, field, base[field], current[field], proposed[field]);
+  for (const b of base.stages) {
+    const c = current.stages.find((s) => s.id === b.id);
+    const p = proposed.stages.find((s) => s.id === b.id);
+    if (c && p) for (const field of ["name", "description", "input", "output"] as const) compare(c.name, field, b[field], c[field], p[field]);
+  }
+  return conflicts;
+}
+
+/** Explicit recovery; resolving conflicts requires the exact reviewed draft. */
+export function applyWorkflowChatHistory(wsId: string, sessionId: string, taskId: string, prompt: string, content: string, reviewed?: WorkflowTextDraft): WorkflowFillResult {
+  const state = useWorkflowChatEditorStore.getState();
+  const editor = state.editor;
+  if (!editor || editor.wsId !== wsId || state.request) return { status: "unavailable" };
+  const baseline = workflowDraftFromPrompt(prompt);
+  const proposed = parseWorkflowDraft(content);
+  if (!baseline || !proposed) {
+    useWorkflowChatEditorStore.setState({ status: "invalid" });
+    return { status: "invalid" };
+  }
+  const current = editor.read();
+  const reviewedCurrent = !!reviewed && JSON.stringify(reviewed) === JSON.stringify(current);
+  const merged = mergeWorkflowDraft(baseline, current, proposed, reviewedCurrent);
+  useWorkflowChatEditorStore.setState({ sessionId });
+  if (!merged) {
+    useWorkflowChatEditorStore.setState({ status: "conflict" });
+    // Structural mismatches cannot be overridden with a text-only confirmation.
+    const structurallyCompatible = !!mergeWorkflowDraft(baseline, current, proposed, true);
+    return { status: "conflict", current, conflicts: structurallyCompatible ? fieldConflicts(baseline, current, proposed) : [] };
+  }
+  if (JSON.stringify(merged) === JSON.stringify(current)) return { status: "unchanged" };
+  const restore = editor.snapshot();
+  editor.apply(merged);
+  useWorkflowChatEditorStore.setState({ status: "applied", undo: restore, taskIds: [...state.taskIds, taskId] });
+  return { status: "applied" };
 }

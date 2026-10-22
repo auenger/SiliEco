@@ -705,6 +705,11 @@ export function WorkflowRunPlanDialog({
                 <WorkflowChatBridge key={instanceId} open={assistantOpen} projectId={run.project_id ?? undefined} selection={selectedSection} revision={JSON.stringify({ title, description, stages })} onRestore={() => { setTitle(title); setDescription(description); setStages(stages); }}
                   draft={{ name: title, description, stages: stages.filter((_, index) => index >= currentPosition).map(({ stableKey, name, description, input, output }) => ({ id: stableKey, name, description, input, output })) }}
                   onApply={(draft) => {
+                    const changed = stages.find((stage, index) => {
+                      const patch = draft.stages.find((item) => item.id === stage.stableKey);
+                      return index >= currentPosition && patch && ["name", "description", "input", "output"].some((field) => patch[field as keyof typeof patch] !== stage[field as keyof typeof stage]);
+                    });
+                    if (changed) { setSelectedSection(changed.stableKey); setEditorTab("content"); }
                     setTitle(draft.name); setDescription(draft.description);
                     setStages((items) => {
                       const updated = items.map((stage, index) => {

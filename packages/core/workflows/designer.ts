@@ -18,7 +18,38 @@ export function parseWorkflowDraft(content: string): WorkflowTextDraft | null {
   const blocks = [...content.matchAll(/<sop_draft>\s*([\s\S]*?)\s*<\/sop_draft>/g)];
   if (blocks.length !== 1) return null;
   try {
-    const parsed = WorkflowTextDraftSchema.safeParse(JSON.parse(blocks[0]![1]!));
+    const parsed = WorkflowTextDraftSchema.safeParse(JSON.parse(normalizeDraftJSON(blocks[0]![1]!)));
+    return parsed.success ? parsed.data : null;
+  } catch { return null; }
+}
+
+/** Normalize presentation wrappers and literal control characters, never JSON structure. */
+function normalizeDraftJSON(block: string): string {
+  const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/i.exec(block.trim());
+  const source = fenced ? fenced[1]! : block;
+  let quoted = false;
+  let escaped = false;
+  let result = "";
+  for (const char of source) {
+    if (quoted && char.charCodeAt(0) < 32) {
+      result += JSON.stringify(char).slice(1, -1);
+      continue;
+    }
+    result += char;
+    if (escaped) { escaped = false; continue; }
+    if (quoted && char === "\\") { escaped = true; continue; }
+    if (char === '"') quoted = !quoted;
+  }
+  return result;
+}
+
+export function workflowDraftFromPrompt(content: string): WorkflowTextDraft | null {
+  if (!content.startsWith("Help design this SOP through conversation.")) return null;
+  const start = content.indexOf("\n\nCURRENT DRAFT:\n");
+  const end = content.lastIndexOf("\n\nUSER REQUEST:\n");
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = WorkflowTextDraftSchema.safeParse(JSON.parse(content.slice(start + 17, end)));
     return parsed.success ? parsed.data : null;
   } catch { return null; }
 }
@@ -28,7 +59,7 @@ export function stripWorkflowDraft(content: string): string {
 }
 
 export function workflowDesignerPrompt(request: string, draft: WorkflowTextDraft): string {
-  return `Help design this SOP through conversation. Only propose text changes; do not use tools to create, publish, update resources, or modify project files. Preserve existing stage IDs and settings; omit id only for a genuinely new stage. Return a short explanation followed by exactly one <sop_draft> JSON block with {"name":"...","description":"Markdown","stages":[{"id":"existing id, omitted for new stages","name":"...","description":"Markdown goal and instructions","input":"Markdown input requirements","output":"Markdown output and acceptance standards"}]}. Every string must be valid JSON. Do not include execution, permission, reviewer, Skill or MCP settings. Do not delete existing stages. Reply in the user's language. The draft is for review in the editor, never claim it has been published.\n\nCURRENT DRAFT:\n${JSON.stringify(draft)}\n\nUSER REQUEST:\n${request}`;
+  return `Help design this SOP through conversation. Only propose text changes; do not use tools to create, publish, update resources, or modify project files. Preserve existing stage IDs and settings; omit id only for a genuinely new stage. Return a short explanation followed by exactly one <sop_draft> JSON block with {"name":"...","description":"Markdown","stages":[{"id":"existing id, omitted for new stages","name":"...","description":"Markdown goal and instructions","input":"Markdown input requirements","output":"Markdown output and acceptance standards"}]}. Every string must be valid JSON. Put raw JSON directly inside <sop_draft>, without Markdown code fences. Encode newlines inside strings as \"\\n\"; never use literal line breaks inside JSON strings. Do not include execution, permission, reviewer, Skill or MCP settings. Do not delete existing stages. Reply in the user's language. The draft is for review in the editor, never claim it has been published.\n\nCURRENT DRAFT:\n${JSON.stringify(draft)}\n\nUSER REQUEST:\n${request}`;
 }
 
 /** Keep protocol payloads out of both the floating chat and saved chat history. */

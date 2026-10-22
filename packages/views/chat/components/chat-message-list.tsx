@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { Virtuoso, type Components } from "react-virtuoso";
@@ -46,6 +46,7 @@ import { useT } from "../../i18n";
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
+  renderMessageAction?: (message: ChatMessage) => ReactNode;
   /**
    * Server-authoritative pending-task snapshot. `null` / undefined means
    * no in-flight task — list renders without StatusPill.
@@ -145,6 +146,7 @@ const LIST_COMPONENTS: Components<ChatRenderItem, ChatListContext> = {
 
 export function ChatMessageList({
   messages,
+  renderMessageAction,
   pendingTask,
   availability,
   firstItemIndex = 0,
@@ -285,6 +287,7 @@ export function ChatMessageList({
               memberNames={memberNames}
               agentNames={agentNames}
             />
+            {item.kind === "message" && renderMessageAction?.(item.message)}
           </div>
         )}
       />

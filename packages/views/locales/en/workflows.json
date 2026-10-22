@@ -106,6 +106,12 @@
     "note_limit": "The review note is too long. Shorten it before submitting."
   },
   "designer": {
+    "delete_sop": "Delete SOP",
+    "delete_sop_description": "Delete “{{name}}”? It will be removed from the SOP list. Only SOPs with no runs can be deleted.",
+    "delete_sop_blocked": "SOPs with existing runs cannot be deleted",
+    "delete_sop_success": "SOP deleted",
+    "delete_sop_failed": "Could not delete SOP. Check your permissions and whether it already has runs.",
+    "delete_sop_confirm": "Confirm deletion",
     "library_title": "SOP design",
     "library_description": "Create and maintain reusable processes for this Project. Tasks and run boards remain in the Project Task page.",
     "templates": "Choose a template",
@@ -470,6 +476,20 @@
     "fill_conflict": "Your edits conflict with this reply. Draft kept; ask the agent to try again.",
     "fill_invalid": "The reply could not be applied. Ask the agent to try again.",
     "undo": "Undo",
-    "detach": "Disconnect"
+    "detach": "Disconnect",
+    "reply_draft": "SOP draft returned · apply it to the current editor if needed",
+    "fill_reply": "Fill current SOP",
+    "fill_unchanged": "This reply already matches the current SOP.",
+    "fill_review_conflicts": "Some fields have changed since this reply. Review the differences below.",
+    "fill_structure_changed": "The stage structure changed. Ask the agent to regenerate from the current SOP.",
+    "fill_unavailable": "Reconnect the SOP editor and wait for the current request to finish.",
+    "field_name": "Name",
+    "field_description": "Goal / description",
+    "field_input": "Input requirements",
+    "field_output": "Output standards",
+    "current_content": "Current content",
+    "reply_content": "Reply content",
+    "use_reply": "Use reply for conflicting fields",
+    "expand_preview": "Expand preview"
   }
 }

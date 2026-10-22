@@ -101,6 +101,12 @@
     "failed": "Stage の決定を送信できませんでした"
   },
   "designer": {
+    "delete_sop": "SOP を削除",
+    "delete_sop_description": "「{{name}}」を削除しますか？SOP 一覧から削除されます。実行履歴のない SOP のみ削除できます。",
+    "delete_sop_blocked": "実行履歴のある SOP は削除できません",
+    "delete_sop_success": "SOP を削除しました",
+    "delete_sop_failed": "削除できません。権限と実行履歴を確認してください。",
+    "delete_sop_confirm": "削除を確認",
     "library_title": "SOP 設計",
     "library_description": "この Project 用の再利用可能なプロセスを作成・管理します。Task と実行ボードは Project の Task ページで管理します。",
     "templates": "テンプレートを選択",
@@ -320,6 +326,20 @@
     "fill_conflict": "手動編集と競合しました。下書きを保持しました。再試行してください。",
     "fill_invalid": "応答を反映できません。再試行してください。",
     "undo": "元に戻す",
-    "detach": "解除"
+    "detach": "解除",
+    "reply_draft": "SOP 下書きを現在のエディターに反映できます",
+    "fill_reply": "現在の SOP に反映",
+    "fill_unchanged": "この応答は現在の SOP と一致しています。",
+    "fill_review_conflicts": "応答後に変更された項目があります。差分を確認してください。",
+    "fill_structure_changed": "ステージ構成が変わりました。現在の SOP から再生成してください。",
+    "fill_unavailable": "SOP エディターを再接続し、現在のリクエストの完了を待ってください。",
+    "field_name": "名前",
+    "field_description": "目標・説明",
+    "field_input": "入力要件",
+    "field_output": "出力基準",
+    "current_content": "現在の内容",
+    "reply_content": "応答の内容",
+    "use_reply": "競合項目に応答を使用",
+    "expand_preview": "プレビューを拡大"
   }
 }

@@ -1688,3 +1688,12 @@ describe("ApiClient review recovery", () => {
     await expect(new ApiClient("https://api.example.test").getWorkflowAgentReviewStatus(id,id)).resolves.toBeNull();
   });
 });
+
+it("requests unused-only SOP deletion and parses malformed responses safely", async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "sop-1", status: "archived", current_version: "invalid" }), { status: 200, headers: { "Content-Type": "application/json" } }));
+  vi.stubGlobal("fetch", fetch);
+  const result = await new ApiClient("https://api.example.test").archiveWorkflow("sop-1", true);
+  expect(fetch.mock.calls[0]?.[0]).toBe("https://api.example.test/api/workflows/sop-1?unused_only=true");
+  expect(fetch.mock.calls[0]?.[1]).toMatchObject({ method: "DELETE" });
+  expect(result.current_version).toBeUndefined();
+});

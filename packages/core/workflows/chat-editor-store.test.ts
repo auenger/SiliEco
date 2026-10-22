@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { attachWorkflowEditor, detachWorkflowEditor, prepareWorkflowChat, acceptWorkflowChat, finishWorkflowChat, mergeWorkflowDraft, useWorkflowChatEditorStore } from "./chat-editor-store";
-import type { WorkflowTextDraft } from "./designer";
+import { applyWorkflowChatHistory, attachWorkflowEditor, detachWorkflowEditor, prepareWorkflowChat, acceptWorkflowChat, finishWorkflowChat, mergeWorkflowDraft, useWorkflowChatEditorStore } from "./chat-editor-store";
+import { workflowDesignerPrompt, type WorkflowTextDraft } from "./designer";
 const base: WorkflowTextDraft = { name: "SOP", description: "Goal", stages: [{ id: "ba", name: "BA", description: "Analyze", input: "Sources", output: "Requirements" }] };
 const proposed = { ...base, stages: [{ ...base.stages[0]!, output: "Cited requirements" }] };
 const block = (draft: WorkflowTextDraft) => `<sop_draft>${JSON.stringify(draft)}</sop_draft>`;
@@ -42,4 +42,27 @@ describe("floating chat SOP fill", () => {
     expect(apply).not.toHaveBeenCalled();
     expect(useWorkflowChatEditorStore.getState().status).toBe("invalid");
   });
+  it("recovers a saved reply with its original baseline and protects newer edits", () => {
+    applyWorkflowChatHistory("ws", "history", "old-task", workflowDesignerPrompt("Edit", base), block(proposed));
+    expect(apply).toHaveBeenCalledExactlyOnceWith(proposed);
+    expect(useWorkflowChatEditorStore.getState().sessionId).toBe("history");
+    apply.mockClear();
+    attachWorkflowEditor({ id: "editor", wsId: "ws", portalId: "target", read: () => ({ ...base, stages: [{ ...base.stages[0]!, output: "My manual edit" }] }), selection: () => "ba", apply, snapshot: () => restore });
+    applyWorkflowChatHistory("ws", "history", "old-task", workflowDesignerPrompt("Edit", base), block(proposed));
+    expect(apply).not.toHaveBeenCalled();
+    expect(useWorkflowChatEditorStore.getState().status).toBe("conflict");
+  });
+
+  it("does not overwrite edits made after conflict review", () => {
+    let current = { ...base, stages: [{ ...base.stages[0]!, output: "Manual" }] };
+    attachWorkflowEditor({ id: "editor", wsId: "ws", portalId: "target", read: () => current, selection: () => "ba", apply, snapshot: () => restore });
+    const result = applyWorkflowChatHistory("ws", "session", "task", workflowDesignerPrompt("Edit", base), block(proposed));
+    expect(result.status).toBe("conflict");
+    if (result.status !== "conflict") throw new Error("Expected conflict");
+    current = { ...current, stages: [{ ...current.stages[0]!, output: "Newer manual" }] };
+    const retry = applyWorkflowChatHistory("ws", "session", "task", workflowDesignerPrompt("Edit", base), block(proposed), result.current);
+    expect(retry.status).toBe("conflict");
+    expect(apply).not.toHaveBeenCalled();
+  });
+
 });

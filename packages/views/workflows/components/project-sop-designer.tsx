@@ -58,6 +58,7 @@ import {
   useCreateWorkflow,
   useCreateWorkflowInstance,
   useArchiveWorkflowInstance,
+  useArchiveWorkflow,
   workflowInstancesOptions,
   workflowListOptions,
 } from "@silieco/core/workflows";
@@ -933,6 +934,11 @@ export function ProjectSopDesigner({
   const createWorkflow = useCreateWorkflow();
   const createInstance = useCreateWorkflowInstance();
   const archiveInstance = useArchiveWorkflowInstance();
+  const deleteWorkflow = useArchiveWorkflow(true);
+  const [workflowToDelete, setWorkflowToDelete] = useState<Workflow>();
+  const { data: allRuns, isError: runsCheckFailed } = useQuery(
+    workflowInstancesOptions(workspaceId),
+  );
   const [startingWorkflowId, setStartingWorkflowId] = useState<string>();
   const [workflowToStart, setWorkflowToStart] = useState<{
     id: string;
@@ -966,6 +972,8 @@ export function ProjectSopDesigner({
   const selectedWorkflow = workflows.find(
     (workflow) => workflow.id === selectedWorkflowId,
   );
+  const selectedHasRuns = allRuns?.some((run) => run.workflow_id === selectedWorkflow?.id) === true;
+  const canManageSelected = selectedWorkflow && (projectId ? selectedWorkflow.project_id === projectId : !selectedWorkflow.project_id);
   const spaceWorkflows = workflows.filter((workflow) => !workflow.project_id);
   const projectWorkflows = workflows.filter(
     (workflow) => workflow.project_id === projectId,
@@ -1556,6 +1564,19 @@ export function ProjectSopDesigner({
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
+                          {canManageSelected && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-destructive hover:text-destructive"
+                              disabled={!allRuns || runsCheckFailed || selectedHasRuns || deleteWorkflow.isPending}
+                              title={selectedHasRuns ? t(($) => $.designer.delete_sop_blocked) : t(($) => $.designer.delete_sop)}
+                              onClick={() => setWorkflowToDelete(selectedWorkflow)}
+                            >
+                              <Trash2 className="size-3.5" />
+                              {t(($) => $.designer.delete_sop)}
+                            </Button>
+                          )}
                           {projectId && (
                             <Button
                               size="sm"
@@ -1805,6 +1826,33 @@ export function ProjectSopDesigner({
             }}
           />
         )}
+        <AlertDialog open={Boolean(workflowToDelete)} onOpenChange={(open) => { if (!open && !deleteWorkflow.isPending) setWorkflowToDelete(undefined); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t(($) => $.designer.delete_sop)}</AlertDialogTitle>
+              <AlertDialogDescription>{t(($) => $.designer.delete_sop_description, { name: workflowToDelete?.name ?? "" })}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteWorkflow.isPending}>{t(($) => $.designer.archive_cancel)}</AlertDialogCancel>
+              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={deleteWorkflow.isPending} onClick={(event) => {
+                event.preventDefault();
+                if (!workflowToDelete || deleteWorkflow.isPending) return;
+                deleteWorkflow.mutate(workflowToDelete.id, {
+                  onSuccess: () => {
+                    setWorkflowToDelete(undefined);
+                    setSelectedWorkflowId(undefined);
+                    toast.success(t(($) => $.designer.delete_sop_success));
+                  },
+                  onError: () => toast.error(t(($) => $.designer.delete_sop_failed)),
+                });
+              }}>
+                {deleteWorkflow.isPending && <LoaderCircle className="size-3.5 animate-spin" />}
+                {t(($) => $.designer.delete_sop_confirm)}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <AlertDialog
           open={Boolean(runToArchive)}
           onOpenChange={(open) => {
@@ -2309,6 +2357,11 @@ export function ProjectSopDesigner({
             <WorkflowChatBridge open={assistantOpen} projectId={projectId} selection={[...expanded].join(", ") || "overview"} revision={JSON.stringify({ name, description, stages })} onRestore={() => { setName(name); setDescription(description); setStages(stages); }}
               draft={{ name, description, stages: stages.map(({ id, name, description, input, output }) => ({ id, name, description, input, output })) }}
               onApply={(draft) => {
+                const changed = stages.find((stage) => {
+                  const patch = draft.stages.find((item) => item.id === stage.id);
+                  return patch && ["name", "description", "input", "output"].some((field) => patch[field as keyof typeof patch] !== stage[field as keyof typeof stage]);
+                });
+                if (changed) { setExpanded(new Set([changed.id])); setEditorTab("content"); }
                 setName(draft.name); setDescription(draft.description);
                 setStages((current) => {
                   const updated = current.map((stage) => {

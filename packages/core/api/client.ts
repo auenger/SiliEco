@@ -2797,8 +2797,8 @@ export class ApiClient {
     });
   }
 
-  async archiveWorkflow(id: string): Promise<Workflow> {
-    const raw = await this.fetch<unknown>(`/api/workflows/${id}`, {
+  async archiveWorkflow(id: string, unusedOnly = false): Promise<Workflow> {
+    const raw = await this.fetch<unknown>(`/api/workflows/${id}${unusedOnly ? "?unused_only=true" : ""}`, {
       method: "DELETE",
     });
     return parseWithFallback(raw, WorkflowSchema, EMPTY_WORKFLOW, {

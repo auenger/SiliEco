@@ -27,6 +27,6 @@ export {
   useAttachWorkflowTask,
   useDetachWorkflowTask,
 } from "./mutations";
-export { parseWorkflowDraft, stripWorkflowDraft, workflowDesignerPrompt, workflowChatDisplayContent } from "./designer";
+export { parseWorkflowDraft, stripWorkflowDraft, workflowDesignerPrompt, workflowChatDisplayContent, workflowDraftFromPrompt } from "./designer";
 export type { WorkflowTextDraft } from "./designer";
 export * from "./chat-editor-store";

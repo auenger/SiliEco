@@ -899,11 +899,37 @@ func (h *Handler) ArchiveWorkflow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	row, err := h.Queries.ArchiveWorkflow(r.Context(), db.ArchiveWorkflowParams{
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start workflow deletion")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+	if _, err := qtx.LockWorkflowForVersion(r.Context(), db.LockWorkflowForVersionParams{ID: workflowID, WorkspaceID: wsUUID}); err != nil {
+		writeError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	if r.URL.Query().Get("unused_only") == "true" {
+		count, err := qtx.CountWorkflowInstances(r.Context(), db.CountWorkflowInstancesParams{WorkflowID: workflowID, WorkspaceID: wsUUID})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to check workflow runs")
+			return
+		}
+		if count > 0 {
+			writeError(w, http.StatusConflict, "workflow has existing runs")
+			return
+		}
+	}
+	row, err := qtx.ArchiveWorkflow(r.Context(), db.ArchiveWorkflowParams{
 		ID: workflowID, WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "workflow not found")
+		writeError(w, http.StatusInternalServerError, "failed to delete workflow")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit workflow deletion")
 		return
 	}
 	resp := workflowToResponse(row)
@@ -1264,6 +1290,11 @@ func (h *Handler) CreateWorkflowInstance(w http.ResponseWriter, r *http.Request)
 	}
 	if _, err := qtx.LockProjectForWorkflowExecution(r.Context(), db.LockProjectForWorkflowExecutionParams{ID: projectID, WorkspaceID: wsUUID}); err != nil {
 		writeError(w, http.StatusConflict, "project is unavailable")
+		return
+	}
+	lockedWorkflow, err := qtx.LockWorkflowForVersion(r.Context(), db.LockWorkflowForVersionParams{ID: workflowID, WorkspaceID: wsUUID})
+	if err != nil || lockedWorkflow.Status == "archived" {
+		writeError(w, http.StatusConflict, "workflow is unavailable")
 		return
 	}
 	row, err := qtx.CreateWorkflowInstance(r.Context(), db.CreateWorkflowInstanceParams{

@@ -66,6 +66,7 @@ import type { Agent, Attachment, ChatMessage, ChatMessagesPage, ChatPendingTask,
 import { useT } from "../../i18n";
 
 import { useWorkflowChatEditorStore, prepareWorkflowChat, acceptWorkflowChat, failWorkflowChat, finishWorkflowChat } from "@silieco/core/workflows";
+import { WorkflowChatReplyAction } from "../../workflows/components/workflow-chat-reply-action";
 import { WorkflowChatStatus } from "../../workflows/components/workflow-chat-status";
 
 const uiLogger = createLogger("chat.ui");
@@ -887,6 +888,11 @@ export function ChatWindow() {
         <ChatMessageList
           key={activeSessionId}
           messages={messages}
+          renderMessageAction={(message) => message.role === "assistant" && message.task_id && activeSessionId ? (
+            <WorkflowChatReplyAction wsId={wsId} sessionId={activeSessionId} taskId={message.task_id}
+              content={message.content} pending={!!pendingTaskId}
+              prompt={messages.find((item) => item.role === "user" && item.task_id === message.task_id)?.content ?? ""} />
+          ) : null}
           pendingTask={pendingTask}
           availability={availability}
           firstItemIndex={firstItemIndex}

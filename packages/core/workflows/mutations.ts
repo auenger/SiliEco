@@ -50,11 +50,11 @@ export function useUpdateWorkflow() {
   });
 }
 
-export function useArchiveWorkflow() {
+export function useArchiveWorkflow(unusedOnly = false) {
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceId();
   return useMutation({
-    mutationFn: (workflowId: string) => api.archiveWorkflow(workflowId),
+    mutationFn: (workflowId: string) => api.archiveWorkflow(workflowId, unusedOnly),
     onSettled: () =>
       queryClient.invalidateQueries({
         queryKey: workflowKeys.all(workspaceId),

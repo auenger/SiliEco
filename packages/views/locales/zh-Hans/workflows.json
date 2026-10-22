@@ -106,6 +106,12 @@
     "note_limit": "审核备注过长，请缩短后提交。"
   },
   "designer": {
+    "delete_sop": "删除 SOP",
+    "delete_sop_description": "确定删除「{{name}}」吗？删除后将从 SOP 列表移除。仅未创建过运行的 SOP 可以删除。",
+    "delete_sop_blocked": "已有运行记录的 SOP 无法删除",
+    "delete_sop_success": "SOP 已删除",
+    "delete_sop_failed": "删除失败，请检查权限或确认该 SOP 尚未创建运行。",
+    "delete_sop_confirm": "确认删除",
     "library_title": "SOP 设计",
     "library_description": "为当前 Project 创建和维护可复用流程。Task 与运行看板统一在 Project 的 Task 页面管理。",
     "templates": "选择模板",
@@ -470,6 +476,20 @@
     "fill_conflict": "回复与手动修改冲突，已保留草稿。请让智能体重新调整。",
     "fill_invalid": "回复格式无法回填，请让智能体重新调整。",
     "undo": "撤销",
-    "detach": "断开"
+    "detach": "断开",
+    "reply_draft": "已返回 SOP 草稿，可重新填入当前编辑器",
+    "fill_reply": "填入当前 SOP",
+    "fill_unchanged": "当前 SOP 已与这条回复一致，无需重复填入。",
+    "fill_review_conflicts": "部分字段在生成回复后已变化，请核对下方差异。",
+    "fill_structure_changed": "阶段结构已变化，请让智能体基于当前 SOP 重新生成。",
+    "fill_unavailable": "请重新连接 SOP 编辑器，并等待当前请求完成。",
+    "field_name": "名称",
+    "field_description": "目标与说明",
+    "field_input": "输入要求",
+    "field_output": "产出物标准",
+    "current_content": "当前内容",
+    "reply_content": "回复内容",
+    "use_reply": "采用回复中的冲突字段",
+    "expand_preview": "展开查看"
   }
 }

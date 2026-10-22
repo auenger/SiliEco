@@ -4,9 +4,10 @@ import { I18nProvider } from "@silieco/core/i18n/react";
 import enWorkflows from "../../locales/en/workflows.json";
 import { ProjectSopDesigner } from "./project-sop-designer";
 
-const { agents, archiveInstance, createInstance, createWorkflow, members, navigateTo, runs, skills, workflows } = vi.hoisted(() => ({
+const { agents, archiveDefinition, archiveInstance, createInstance, createWorkflow, members, navigateTo, runs, skills, workflows } = vi.hoisted(() => ({
   agents: { current: [] as unknown[] },
   archiveInstance: vi.fn(),
+  archiveDefinition: vi.fn(),
   createInstance: vi.fn(),
   createWorkflow: vi.fn(),
   members: { current: [] as unknown[] },
@@ -47,6 +48,7 @@ vi.mock("@silieco/core/workflows", () => ({
     isPending: false,
     mutate: createInstance,
   }),
+  useArchiveWorkflow: () => ({ isPending: false, mutate: archiveDefinition }),
   useArchiveWorkflowInstance: () => ({
     isPending: false,
     mutate: archiveInstance,
@@ -122,6 +124,7 @@ describe("ProjectSopDesigner", () => {
   beforeEach(() => {
     createInstance.mockReset();
     archiveInstance.mockReset();
+    archiveDefinition.mockReset();
     createWorkflow.mockReset();
     navigateTo.mockReset();
     agents.current = [];
@@ -136,6 +139,29 @@ describe("ProjectSopDesigner", () => {
     runs.current = [];
     skills.current = [];
     workflows.current = [];
+  });
+
+  it("confirms deletion of an unused published Project SOP", () => {
+    workflows.current = [{ id: "unused", project_id: "project-1", name: "Unused SOP", status: "published", current_version: { stages: [] } }];
+    renderDesigner();
+    fireEvent.click(screen.getByRole("button", { name: "Delete SOP" }));
+    expect(archiveDefinition).not.toHaveBeenCalled();
+    expect(screen.getByText(/Only SOPs with no runs/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm deletion" }));
+    expect(archiveDefinition).toHaveBeenCalledWith("unused", expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }));
+  });
+
+  it("blocks deletion when the SOP has an archived run in another Project", () => {
+    workflows.current = [{ id: "used", project_id: "project-1", name: "Used SOP", status: "published", current_version: { stages: [] } }];
+    runs.current = [{ id: "run", workflow_id: "used", project_id: "other", title: "Old run", status: "completed", archived_at: "2026-10-22" }];
+    renderDesigner();
+    expect(screen.getByRole("button", { name: "Delete SOP" })).toBeDisabled();
+  });
+
+  it("keeps Space SOP deletion out of the Project page", () => {
+    workflows.current = [{ id: "shared", project_id: null, name: "Shared SOP", status: "published", current_version: { stages: [] } }];
+    renderDesigner();
+    expect(screen.queryByRole("button", { name: "Delete SOP" })).not.toBeInTheDocument();
   });
 
   it("offers the prototype templates without rendering Task management", () => {

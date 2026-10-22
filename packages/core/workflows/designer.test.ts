@@ -36,3 +36,10 @@ it("hides protocol payloads when reopening saved conversations", () => {
   expect(workflowChatDisplayContent(`Updated.\n${block(draft)}`)).toBe("Updated.");
   expect(workflowChatDisplayContent("Ordinary chat")).toBe("Ordinary chat");
 });
+
+it("accepts fenced replies with literal Markdown newlines without relaxing the schema", () => {
+  const multiline = { ...draft, description: '## Goal\n\n- A\n- B\tC', stages: [{ ...draft.stages[0], output: 'A "quoted" title\nC:\\path' }] };
+  const invalidJSON = JSON.stringify(multiline).replaceAll('\\n', '\n').replaceAll('\\t', '\t');
+  expect(parseWorkflowDraft('<sop_draft>\n```json\n' + invalidJSON + '\n```\n</sop_draft>')).toEqual(multiline);
+  expect(parseWorkflowDraft('<sop_draft>\n```json\n{"name":"bad",}\n```\n</sop_draft>')).toBeNull();
+});
