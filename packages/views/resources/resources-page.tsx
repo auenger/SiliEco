@@ -2,17 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, CornerDownRight, Download, FileText, FolderGit, FolderKanban, Link2, Loader2, PackageOpen, Search, X } from "lucide-react";
+import { Check, CornerDownRight, Download, FileText, FolderGit, Link2, Loader2, PackageOpen, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { useCurrentWorkspace, useWorkspacePaths } from "@silieco/core/paths";
 import {
-  projectFileResourcesOptions,
+  useFileResources,
   useCreateAttachmentReference,
   useDeleteAttachmentReference,
   targetAttachmentReferencesOptions,
   workspaceAttachmentReferencesOptions,
-  workspaceFileResourcesOptions,
 } from "@silieco/core/resources";
 import { issueAttachmentsOptions } from "@silieco/core/issues/queries";
 import type { AttachmentReference, AttachmentReferenceTargetType, FileResource } from "@silieco/core/types";
@@ -31,6 +30,7 @@ import { CollectionPageHeader, CollectionPageState } from "../layout";
 import { AppLink } from "../navigation";
 import { useDownloadAttachment } from "../editor/use-download-attachment";
 import { useT } from "../i18n";
+import { ResourceFileTree } from "./resource-file-tree";
 import { FileResourceLeadingVisual } from "./file-resource-leading-visual";
 
 function formatBytes(value: number): string {
@@ -157,6 +157,21 @@ function ResourceList({
   );
 }
 
+function FilePageControl({ query }: { query: ReturnType<typeof useFileResources> }) {
+  const { t } = useT("resources");
+  if (!query.hasNextPage && !query.isError) return null;
+  return (
+    <div className="flex shrink-0 flex-col items-center gap-2 p-4">
+      {query.isError && <p role="alert" className="text-caption text-destructive">{t(($) => $.load_failed)}</p>}
+      <Button variant="outline" size="sm" disabled={query.isFetching}
+        onClick={() => void (query.hasNextPage ? query.fetchNextPage() : query.refetch())}>
+        {query.isFetching && <Loader2 className="size-4 animate-spin" />}
+        {query.isError ? t(($) => $.retry) : t(($) => $.load_more)}
+      </Button>
+    </div>
+  );
+}
+
 function LoadingList() {
   return (
     <div className="space-y-4 px-5 py-5">
@@ -188,10 +203,8 @@ export function AttachExistingFileButton({
     contextProjectId && targetType === "issue" ? "related" : "all",
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const { data, isLoading } = useQuery({
-    ...workspaceFileResourcesOptions(wsId),
-    enabled: open,
-  });
+  const fileQuery = useFileResources(wsId, undefined, open);
+  const { files, isLoading } = fileQuery;
   const { data: targetReferences } = useQuery({
     ...targetAttachmentReferencesOptions(wsId, targetType, targetId),
     enabled: open,
@@ -212,7 +225,7 @@ export function AttachExistingFileButton({
 
   const visibleFiles = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
-    return [...(data?.files ?? [])]
+    return [...files]
       .filter((file) => {
         if (
           scope === "related" &&
@@ -235,7 +248,7 @@ export function AttachExistingFileButton({
         if (leftRelated !== rightRelated) return rightRelated - leftRelated;
         return Date.parse(right.created_at) - Date.parse(left.created_at);
       });
-  }, [contextProjectId, data?.files, scope, search]);
+  }, [contextProjectId, files, scope, search]);
 
   const toggleSelected = (attachmentId: string) => {
     setSelectedIds((current) => {
@@ -248,7 +261,7 @@ export function AttachExistingFileButton({
 
   const attachSelected = async () => {
     if (selectedIds.size === 0) return;
-    const selectedFiles = (data?.files ?? []).filter((file) => selectedIds.has(file.id));
+    const selectedFiles = files.filter((file) => selectedIds.has(file.id));
     try {
       for (const attachmentId of selectedIds) {
         await createReference.mutateAsync({ targetType, targetId, attachmentId });
@@ -288,7 +301,7 @@ export function AttachExistingFileButton({
         <Link2 className="size-3.5" />
         {compact ? null : t(($) => $.reference_existing)}
       </DialogTrigger>
-      <DialogContent className="max-h-[82vh] max-w-2xl overflow-hidden p-0">
+      <DialogContent className="flex max-h-[82vh] max-w-2xl flex-col overflow-hidden p-0">
         <DialogHeader className="px-5 pt-5">
           <DialogTitle>{t(($) => $.picker_title)}</DialogTitle>
           <DialogDescription>{t(($) => $.picker_description)}</DialogDescription>
@@ -327,8 +340,8 @@ export function AttachExistingFileButton({
             </div>
           ) : null}
         </div>
-        <div className="min-h-40 max-h-[50vh] overflow-y-auto pb-2">
-          {isLoading ? <LoadingList /> : (data?.files.length ?? 0) === 0 ? (
+        <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+          {isLoading ? <LoadingList /> : files.length === 0 ? (
             <CollectionPageState icon={PackageOpen} title={t(($) => $.empty_title)} />
           ) : visibleFiles.length === 0 ? (
             <CollectionPageState
@@ -372,7 +385,11 @@ export function AttachExistingFileButton({
             </div>
           )}
         </div>
-        <DialogFooter className="m-0 px-5 py-3">
+        {fileQuery.hasNextPage && search.trim() && (
+          <p className="px-5 text-caption text-muted-foreground">{t(($) => $.search_loaded)}</p>
+        )}
+        <FilePageControl query={fileQuery} />
+        <DialogFooter className="m-0 shrink-0 px-5 py-3">
           <span className="mr-auto self-center text-caption text-muted-foreground">
             {t(($) => $.selected_count, { count: selectedIds.size })}
           </span>
@@ -394,8 +411,8 @@ export function ResourcesPage() {
   const { t } = useT("resources");
   const wsId = useWorkspaceId();
   const workspace = useCurrentWorkspace();
-  const paths = useWorkspacePaths();
-  const { data, isLoading } = useQuery(workspaceFileResourcesOptions(wsId));
+  const fileQuery = useFileResources(wsId);
+  const { files, isLoading } = fileQuery;
   const { data: workspaceReferences, isLoading: referencesLoading } = useQuery(
     workspaceAttachmentReferencesOptions(wsId),
   );
@@ -408,31 +425,13 @@ export function ResourcesPage() {
     }
     return map;
   }, [workspaceReferences?.references]);
-  const projectGroups = useMemo(() => {
-    const groups = new Map<string, { id: string | null; title: string; files: FileResource[] }>();
-    for (const file of data?.files ?? []) {
-      const key = file.source_project_id ?? "__shared__";
-      const group = groups.get(key) ?? {
-        id: file.source_project_id,
-        title: file.source_project_title ?? t(($) => $.unassigned_project),
-        files: [],
-      };
-      group.files.push(file);
-      groups.set(key, group);
-    }
-    return [...groups.values()].sort((left, right) => {
-      if (left.id === null) return 1;
-      if (right.id === null) return -1;
-      return left.title.localeCompare(right.title);
-    });
-  }, [data?.files, t]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <CollectionPageHeader
         icon={FileText}
         title={t(($) => $.title)}
-        count={data?.total}
+        count={fileQuery.total}
         description={t(($) => $.description)}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -456,33 +455,14 @@ export function ResourcesPage() {
           </section>
         ) : null}
         <div className="px-5 py-3 text-body font-medium">{t(($) => $.shared_files)}</div>
-        {isLoading || referencesLoading ? <LoadingList /> : projectGroups.length === 0 ? (
+        {isLoading || referencesLoading ? <LoadingList /> : files.length === 0 ? (
           <ResourceList files={[]} />
         ) : (
-          <div className="space-y-4 px-5 pb-6">
-            {projectGroups.map((group) => (
-              <section key={group.id ?? "shared"} className="overflow-hidden rounded-lg border bg-card">
-                <div className="flex items-center gap-2 border-b bg-muted/20 px-4 py-2.5">
-                  <FolderKanban className="size-4 text-muted-foreground" aria-hidden="true" />
-                  {group.id ? (
-                    <AppLink href={paths.projectDetail(group.id)} className="font-medium hover:underline">
-                      {group.title}
-                    </AppLink>
-                  ) : (
-                    <span className="font-medium">{group.title}</span>
-                  )}
-                  <span className="ml-auto text-caption text-muted-foreground">
-                    {t(($) => $.file_count, { count: group.files.length })}
-                  </span>
-                </div>
-                <ResourceList
-                  files={group.files}
-                  referencesByAttachment={referencesByAttachment}
-                />
-              </section>
-            ))}
-          </div>
+          <ResourceFileTree files={files} renderFiles={(group) => (
+            <ResourceList files={group} referencesByAttachment={referencesByAttachment} />
+          )} />
         )}
+        <FilePageControl query={fileQuery} />
       </div>
     </div>
   );
@@ -493,6 +473,8 @@ export function IssueFilesSection({ issueId }: { issueId: string }) {
   const wsId = useWorkspaceId();
   const paths = useWorkspacePaths();
   const download = useDownloadAttachment();
+  const [page, setPage] = useState({ issueId, limit: 50 });
+  const limit = page.issueId === issueId ? page.limit : 50;
   const { data: attachments = [] } = useQuery(issueAttachmentsOptions(issueId));
   const { data: references } = useQuery(
     targetAttachmentReferencesOptions(wsId, "issue", issueId),
@@ -523,7 +505,7 @@ export function IssueFilesSection({ issueId }: { issueId: string }) {
         {t(($) => $.task_files)}
       </div>
       <div className="space-y-1 pl-2">
-        {attachments.map((file) => (
+        {attachments.slice(0, limit).map((file) => (
           <div key={file.id} className="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1 hover:bg-accent/50">
             <FileResourceLeadingVisual file={file} compact />
             <AppLink
@@ -553,6 +535,11 @@ export function IssueFilesSection({ issueId }: { issueId: string }) {
           </div>
         ))}
       </div>
+      {attachments.length > limit && (
+        <Button variant="ghost" size="sm" onClick={() => setPage({ issueId, limit: limit + 50 })}>
+          {t(($) => $.load_more)}
+        </Button>
+      )}
     </div>
   );
 }
@@ -566,7 +553,8 @@ export function ProjectFilesPage({
 }) {
   const { t } = useT("resources");
   const wsId = useWorkspaceId();
-  const { data, isLoading } = useQuery(projectFileResourcesOptions(wsId, projectId));
+  const fileQuery = useFileResources(wsId, projectId);
+  const { files, isLoading } = fileQuery;
   const { data: references } = useQuery(
     targetAttachmentReferencesOptions(wsId, "project", projectId),
   );
@@ -608,12 +596,16 @@ export function ProjectFilesPage({
         {isLoading ? (
           <LoadingList />
         ) : (
-          <ResourceList
-            files={data?.files ?? []}
-            referencedIds={canManage ? referencedIds : undefined}
-            onRemoveReference={canManage ? (id) => void removeReference(id) : undefined}
-          />
+          files.length === 0 ? <ResourceList files={[]} /> :
+          <ResourceFileTree key={projectId} files={files} renderFiles={(group) => (
+            <ResourceList
+              files={group}
+              referencedIds={canManage ? referencedIds : undefined}
+              onRemoveReference={canManage ? (id) => void removeReference(id) : undefined}
+            />
+          )} />
         )}
+        <FilePageControl query={fileQuery} />
       </div>
     </div>
   );

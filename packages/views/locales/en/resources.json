@@ -37,5 +37,9 @@
   "reference_project": "Project · {{title}}",
   "unassigned_project": "Cross-project shared resources",
   "file_count_one": "{{count}} file",
-  "file_count_other": "{{count}} files"
+  "file_count_other": "{{count}} files",
+  "load_more": "Load more files",
+  "load_failed": "Could not load files",
+  "retry": "Retry",
+  "search_loaded": "Search covers loaded files. Load more to include older files."
 }

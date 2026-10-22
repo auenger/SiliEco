@@ -1,4 +1,5 @@
-import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { infiniteQueryOptions, useInfiniteQuery, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { issueKeys } from "../issues/queries";
 
@@ -27,6 +28,32 @@ export function projectFileResourcesOptions(wsId: string, projectId: string) {
     queryKey: fileResourceKeys.project(wsId, projectId),
     queryFn: () => api.listProjectFiles(projectId, { limit: 100 }),
   });
+}
+
+const FILE_PAGE_SIZE = 50;
+
+export function fileResourcesInfiniteOptions(wsId: string, projectId?: string) {
+  return infiniteQueryOptions({
+    queryKey: [...(projectId
+      ? fileResourceKeys.project(wsId, projectId)
+      : fileResourceKeys.workspace(wsId)), "infinite"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => projectId
+      ? api.listProjectFiles(projectId, { limit: FILE_PAGE_SIZE, offset: pageParam })
+      : api.listFileResources({ limit: FILE_PAGE_SIZE, offset: pageParam }),
+    getNextPageParam: (lastPage, _pages, offset) => {
+      const next = offset + lastPage.files.length;
+      return lastPage.files.length > 0 && next < lastPage.total ? next : undefined;
+    },
+  });
+}
+
+export function useFileResources(wsId: string, projectId?: string, enabled = true) {
+  const query = useInfiniteQuery({ ...fileResourcesInfiniteOptions(wsId, projectId), enabled });
+  const files = useMemo(() => [...new Map(
+    (query.data?.pages.flatMap((page) => page.files) ?? []).map((file) => [file.id, file]),
+  ).values()], [query.data]);
+  return { ...query, files, total: query.data?.pages[0]?.total };
 }
 
 export function attachmentReferencesOptions(wsId: string, attachmentId: string) {

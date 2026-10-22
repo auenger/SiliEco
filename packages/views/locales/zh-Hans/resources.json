@@ -37,5 +37,9 @@
   "reference_project": "项目 · {{title}}",
   "unassigned_project": "跨项目共享资源",
   "file_count_one": "{{count}} 个文件",
-  "file_count_other": "{{count}} 个文件"
+  "file_count_other": "{{count}} 个文件",
+  "load_more": "加载更多文件",
+  "load_failed": "文件加载失败",
+  "retry": "重试",
+  "search_loaded": "当前搜索已加载的文件，加载更多可查找较早的文件。"
 }

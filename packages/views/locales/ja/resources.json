@@ -37,5 +37,9 @@
   "reference_project": "プロジェクト · {{title}}",
   "unassigned_project": "プロジェクト横断の共有リソース",
   "file_count_one": "{{count}} ファイル",
-  "file_count_other": "{{count}} ファイル"
+  "file_count_other": "{{count}} ファイル",
+  "load_more": "ファイルをさらに読み込む",
+  "load_failed": "ファイルを読み込めませんでした",
+  "retry": "再試行",
+  "search_loaded": "検索対象は読み込み済みのファイルです。古いファイルは追加で読み込んでください。"
 }

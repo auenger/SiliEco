@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import {
   File,
   FileArchive,
@@ -84,20 +84,40 @@ export function FileResourceLeadingVisual({
   const kind = getPreviewKind(file.content_type, file.filename);
   const Icon = getFileResourceIcon(file);
   const imageUrl = kind === "image" ? thumbnailUrlOf(file) : null;
+  const ref = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!imageUrl || visible) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    });
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [imageUrl, visible]);
+
 
   return (
     <span
+      ref={ref}
       className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/60 ${compact ? "size-7" : "size-9"}`}
       aria-hidden="true"
       data-file-visual={kind === "image" ? "thumbnail" : "icon"}
     >
       <Icon className={`${compact ? "size-3.5" : "size-4"} text-muted-foreground`} />
-      {imageUrl ? (
+      {imageUrl && visible ? (
         <img
           src={imageUrl}
           alt=""
           className="absolute inset-0 block size-full object-contain object-center p-0.5"
           loading="lazy"
+          decoding="async"
           onError={(event) => { event.currentTarget.hidden = true; }}
         />
       ) : null}

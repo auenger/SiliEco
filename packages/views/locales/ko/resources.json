@@ -37,5 +37,9 @@
   "reference_project": "프로젝트 · {{title}}",
   "unassigned_project": "프로젝트 간 공유 리소스",
   "file_count_one": "파일 {{count}}개",
-  "file_count_other": "파일 {{count}}개"
+  "file_count_other": "파일 {{count}}개",
+  "load_more": "파일 더 불러오기",
+  "load_failed": "파일을 불러오지 못했습니다",
+  "retry": "다시 시도",
+  "search_loaded": "불러온 파일을 검색합니다. 이전 파일을 찾으려면 더 불러오세요."
 }

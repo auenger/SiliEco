@@ -1,5 +1,5 @@
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Attachment } from "@silieco/core/types";
 import { FileResourceLeadingVisual } from "./file-resource-leading-visual";
 
@@ -25,6 +25,23 @@ function makeFile(overrides: Partial<Attachment> = {}): Attachment {
 }
 
 describe("FileResourceLeadingVisual", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("does not request a thumbnail until its row intersects the viewport", () => {
+    let notify: IntersectionObserverCallback = () => {};
+    const disconnect = vi.fn();
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(callback: IntersectionObserverCallback) { notify = callback; }
+      observe() {}
+      disconnect = disconnect;
+    });
+    const { container } = render(<FileResourceLeadingVisual file={makeFile()} />);
+    expect(container.querySelector("img")).toBeNull();
+    act(() => notify([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
+    expect(container.querySelector("img")?.src).toBe("https://cdn.example.test/photo.png");
+    expect(disconnect).toHaveBeenCalled();
+  });
+
   it("renders an image thumbnail for image files", () => {
     const { container } = render(<FileResourceLeadingVisual file={makeFile()} />);
 
