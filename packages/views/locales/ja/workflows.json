@@ -301,5 +301,25 @@
     "previous": "前へ",
     "next": "次へ",
     "page": "{{current}} / {{total}} ページ"
+  },
+  "editor": {
+    "overview": "基本情報",
+    "navigation": "SOP 編集メニュー",
+    "sections": "ステージ設定",
+    "content": "目標と成果物",
+    "execution": "実行とリソース",
+    "review": "レビューと承認",
+    "write": "編集",
+    "preview": "プレビュー",
+    "markdown_hint": "文字を選択して書式ツールを開きます。Markdown の見出し・リスト・表とプレビューに対応しています。",
+    "assistant": "エージェントで編集",
+    "thinking": "処理中…",
+    "run_draft_hint": "完了済みステージは維持されます。新規ステージの実行・承認設定は別途設定してください。",
+    "chat_context": "この SOP を編集中 · 応答を下書きに自動反映",
+    "filled": "SOP 下書きを更新しました。保存してください。",
+    "fill_conflict": "手動編集と競合しました。下書きを保持しました。再試行してください。",
+    "fill_invalid": "応答を反映できません。再試行してください。",
+    "undo": "元に戻す",
+    "detach": "解除"
   }
 }

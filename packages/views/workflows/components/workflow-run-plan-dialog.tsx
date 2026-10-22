@@ -1,10 +1,12 @@
 "use client";
 
-import { workflowConfigurationDialogWidth } from "./workflow-dialog";
+import { WorkflowMarkdownEditor } from "./workflow-markdown-editor";
+import { WorkflowEditorNavigation, WorkflowEditorTabs, type WorkflowEditorTab } from "./workflow-editor-navigation";
 import { StageExecutionFields, validReworkPolicyDraft, validRetryPolicyDraft } from "./stage-execution-fields";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Bot,
   ArrowDown,
   ArrowUp,
   CheckCircle2,
@@ -66,9 +68,10 @@ import {
   SelectValue,
 } from "@silieco/ui/components/ui/select";
 import { Textarea } from "@silieco/ui/components/ui/textarea";
-import { cn } from "@silieco/ui/lib/utils";
 import { useT } from "../../i18n";
 import { StageMCPSelector } from "./stage-mcp-selector";
+
+const WorkflowChatBridge = lazy(() => import("./workflow-chat-bridge"));
 
 interface RunStageDraft {
   id?: string;
@@ -162,13 +165,20 @@ export function WorkflowRunPlanDialog({
   const [description, setDescription] = useState("");
   const [changeNote, setChangeNote] = useState("");
   const [stages, setStages] = useState<RunStageDraft[]>([]);
+  const [selectedSection, setSelectedSection] = useState("overview");
+  const [editorTab, setEditorTab] = useState<WorkflowEditorTab>("content");
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantVisited, setAssistantVisited] = useState(false);
   const [confirmSave, setConfirmSave] = useState(false);
+
+  useEffect(() => { setAssistantVisited(false); setAssistantOpen(false); }, [open, instanceId]);
 
   useEffect(() => {
     if (!run || !open) return;
     setTitle(run.title);
     setDescription(run.description ?? "");
     setChangeNote("");
+    setSelectedSection("overview");
     setStages((run.stages ?? []).map((stage) => stageDraft(stage, workspaceSkills)));
   }, [open, run, workspaceSkills]);
 
@@ -290,6 +300,8 @@ export function WorkflowRunPlanDialog({
 
   const addStage = () => {
     const unique = `run_stage_${Date.now()}`;
+    setSelectedSection(unique);
+    setEditorTab("content");
     setStages((items) => [
       ...items,
       {
@@ -318,6 +330,7 @@ export function WorkflowRunPlanDialog({
       return;
     }
     setStages((items) => items.filter((_, itemIndex) => itemIndex !== index));
+    setSelectedSection("overview");
   };
 
   const invalidRollback = stages.some((stage) => !validReworkPolicyDraft(stage.reworkPolicy) || !validRetryPolicyDraft(stage.retryPolicy)) || stages.some((stage, index) => stage.rollbackStageKey && !stages.slice(0, index).some((previous) => previous.stableKey === stage.rollbackStageKey));
@@ -372,8 +385,8 @@ export function WorkflowRunPlanDialog({
   return (
     <>
     <Dialog open={open} onOpenChange={(next) => !updatePlan.isPending && onOpenChange(next)}>
-      <DialogContent className={`flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 ${workflowConfigurationDialogWidth}`}>
-        <DialogHeader className="shrink-0 border-b border-border/70 px-5 py-4">
+      <DialogContent className={`flex h-[90dvh] max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl`}>
+        <DialogHeader className="shrink-0 border-b border-border/70 px-5 py-4 pr-12">
           <div className="flex flex-wrap items-center gap-2">
             <DialogTitle>{t(($) => $.designer.run_plan_title)}</DialogTitle>
             {run && run.source_version > 0 && (
@@ -394,6 +407,7 @@ export function WorkflowRunPlanDialog({
           <DialogDescription>
             {t(($) => $.designer.run_plan_description, { name: sourceName })}
           </DialogDescription>
+          <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => { setAssistantVisited(true); setAssistantOpen((open) => !open); }}><Bot className="size-3.5" />{t(($) => $.editor.assistant)}</Button>
         </DialogHeader>
 
         {isLoading || !run ? (
@@ -402,7 +416,10 @@ export function WorkflowRunPlanDialog({
             {t(($) => $.designer.run_plan_loading)}
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+            <WorkflowEditorNavigation stages={stages.map((stage, index) => ({ id: stage.stableKey, name: stage.name, locked: index < currentPosition }))} selected={selectedSection} onSelect={(id) => { setSelectedSection(id); setEditorTab("content"); }} onAdd={addStage} disabled={updatePlan.isPending} />
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-4">
+            <div className={selectedSection === "overview" ? "space-y-4" : "hidden"}>
             <div className="rounded-lg border border-brand/20 bg-brand/5 px-3 py-2.5 text-caption text-muted-foreground">
               <p className="flex items-center gap-2 font-medium text-foreground">
                 <GitBranch className="size-3.5 text-brand" />
@@ -417,13 +434,7 @@ export function WorkflowRunPlanDialog({
                 <Input id="run-plan-title" value={title} onChange={(event) => setTitle(event.target.value)} />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="run-plan-description">{t(($) => $.create.description)}</Label>
-                <Textarea
-                  id="run-plan-description"
-                  rows={2}
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                />
+                <WorkflowMarkdownEditor label={t(($) => $.create.description)} value={description} onChange={setDescription} />
               </div>
             </div>
 
@@ -442,8 +453,10 @@ export function WorkflowRunPlanDialog({
               </Button>
             </div>
 
+            </div>
             <div className="space-y-2.5">
               {stages.map((stage, index) => {
+                if (stage.stableKey !== selectedSection) return null;
                 const isPast = index < currentPosition;
                 const isCurrent = index === currentPosition;
                 const tasks = stage.id ? taskCounts.get(stage.id) ?? 0 : 0;
@@ -453,10 +466,7 @@ export function WorkflowRunPlanDialog({
                 return (
                   <section
                     key={stage.id ?? stage.stableKey}
-                    className={cn(
-                      "rounded-xl border p-3",
-                      isCurrent ? "border-brand/35 bg-brand/5" : "border-border/80 bg-muted/15",
-                    )}
+                    className="min-w-0"
                   >
                     <div className="flex items-start gap-3">
                       <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background text-caption font-semibold">
@@ -518,7 +528,8 @@ export function WorkflowRunPlanDialog({
                           </div>
                         </div>
 
-                        <div className="mt-3"><StageExecutionFields value={stage} rollbackStages={stages.slice(0, index).map((item) => ({stableKey: item.stableKey, name: item.name}))} precedingStages={stages.slice(0, index).filter((item) => item.executionMode === "agent").map((item) => ({stableKey: item.stableKey, name: item.name}))} agents={agents as Agent[]} disabled={isPast || isCurrent || updatePlan.isPending} onChange={(patch) => updateStage(index, patch)} /></div>
+                        <div className="my-4"><WorkflowEditorTabs value={editorTab} onChange={setEditorTab} /></div>
+                        <div className={editorTab === "execution" ? "mt-3" : "hidden"}><StageExecutionFields value={stage} rollbackStages={stages.slice(0, index).map((item) => ({stableKey: item.stableKey, name: item.name}))} precedingStages={stages.slice(0, index).filter((item) => item.executionMode === "agent").map((item) => ({stableKey: item.stableKey, name: item.name}))} agents={agents as Agent[]} disabled={isPast || isCurrent || updatePlan.isPending} onChange={(patch) => updateStage(index, patch)} /></div>
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
                           <div className="space-y-1.5 sm:col-span-2">
                             <Label htmlFor={`run-stage-name-${index}`}>
@@ -531,18 +542,14 @@ export function WorkflowRunPlanDialog({
                               onChange={(event) => updateStage(index, { name: event.target.value })}
                             />
                           </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`run-stage-output-${index}`}>
-                              {t(($) => $.designer.run_plan_output)}
-                            </Label>
-                            <Input
-                              id={`run-stage-output-${index}`}
-                              disabled={isPast}
-                              value={stage.output}
-                              onChange={(event) => updateStage(index, { output: event.target.value })}
-                            />
+                          <div className={editorTab === "content" ? "sm:col-span-2" : "hidden"}>
+                            <WorkflowMarkdownEditor label={t(($) => $.designer.stage_description)} value={stage.description} disabled={isPast} onChange={(description) => updateStage(index, { description })} />
                           </div>
-                          <div className="space-y-1.5">
+                          <div className={editorTab === "content" ? "grid gap-5 sm:col-span-2 lg:grid-cols-2" : "hidden"}>
+                            <WorkflowMarkdownEditor label={t(($) => $.designer.default_input)} value={stage.input} disabled={isPast} onChange={(input) => updateStage(index, { input })} />
+                            <WorkflowMarkdownEditor label={t(($) => $.designer.run_plan_output)} value={stage.output} disabled={isPast} onChange={(output) => updateStage(index, { output })} />
+                          </div>
+                          <div className={editorTab === "execution" ? "space-y-1.5 sm:col-span-2" : "hidden"}>
                             <Label htmlFor={`run-stage-skills-${index}`}>
                               {t(($) => $.designer.run_plan_skills)}
                             </Label>
@@ -554,7 +561,7 @@ export function WorkflowRunPlanDialog({
                               onChange={(event) => updateStage(index, { skills: event.target.value })}
                             />
                           </div>
-                          <div className="space-y-1.5">
+                          <div className={editorTab === "review" ? "space-y-1.5" : "hidden"}>
                             <Label>{t(($) => $.designer.run_plan_gate)}</Label>
                             <Select
                               items={[
@@ -581,7 +588,7 @@ export function WorkflowRunPlanDialog({
                             </Select>
                           </div>
                           {(stage.gate.type === "agent" || stage.gate.type === "hybrid") && (
-                            <div className="space-y-1.5">
+                            <div className={editorTab === "review" ? "space-y-1.5" : "hidden"}>
                               <Label>{t(($) => $.designer.agent_decider)}</Label>
                               <Select
                                 items={(agents as Agent[])
@@ -615,7 +622,7 @@ export function WorkflowRunPlanDialog({
                             </div>
                           )}
                           {(stage.gate.type === "human" || stage.gate.type === "hybrid") && (
-                            <div className="space-y-1.5">
+                            <div className={editorTab === "review" ? "space-y-1.5" : "hidden"}>
                               <Label>
                                 {stage.gate.type === "hybrid"
                                   ? t(($) => $.designer.final_human_decider)
@@ -657,19 +664,7 @@ export function WorkflowRunPlanDialog({
                               </Select>
                             </div>
                           )}
-                          <div className="space-y-1.5 sm:col-span-2">
-                            <Label htmlFor={`run-stage-description-${index}`}>
-                              {t(($) => $.create.description)}
-                            </Label>
-                            <Textarea
-                              id={`run-stage-description-${index}`}
-                              rows={2}
-                              disabled={isPast}
-                              value={stage.description}
-                              onChange={(event) => updateStage(index, { description: event.target.value })}
-                            />
-                          </div>
-                          <div className="sm:col-span-2">
+                          <div className={editorTab === "execution" ? "sm:col-span-2" : "hidden"}>
                             <StageMCPSelector
                               servers={workspaceMCP?.servers ?? []}
                               selectedIds={stage.allowedMcpServerIds}
@@ -704,6 +699,31 @@ export function WorkflowRunPlanDialog({
                 onChange={(event) => setChangeNote(event.target.value)}
               />
             </div>
+            </div>
+            {assistantVisited && <div>
+              <Suspense fallback={<div className="p-4 text-caption">{t(($) => $.editor.thinking)}</div>}>
+                <WorkflowChatBridge key={instanceId} open={assistantOpen} projectId={run.project_id ?? undefined} selection={selectedSection} revision={JSON.stringify({ title, description, stages })} onRestore={() => { setTitle(title); setDescription(description); setStages(stages); }}
+                  draft={{ name: title, description, stages: stages.filter((_, index) => index >= currentPosition).map(({ stableKey, name, description, input, output }) => ({ id: stableKey, name, description, input, output })) }}
+                  onApply={(draft) => {
+                    setTitle(draft.name); setDescription(draft.description);
+                    setStages((items) => {
+                      const updated = items.map((stage, index) => {
+                        const patch = draft.stages.find((item) => item.id === stage.stableKey);
+                        return index >= currentPosition && patch ? { ...stage, name: patch.name, description: patch.description, input: patch.input, output: patch.output } : stage;
+                      });
+                      for (const [index, proposed] of draft.stages.filter((item) => !item.id).entries()) {
+                        updated.push({
+                          stableKey: `run_stage_${Date.now()}_${index}`, name: proposed.name, description: proposed.description,
+                          input: proposed.input, output: proposed.output, skills: "", allowedMcpServerIds: null,
+                          gate: { type: "none" }, executionMode: "manual", executorId: null,
+                          completionRule: { type: "all_tasks_terminal" }, inputSpec: {}, outputSpec: {}, rollbackStageKey: null,
+                        });
+                      }
+                      return updated;
+                    });
+                  }} />
+              </Suspense>
+            </div>}
           </div>
         )}
 

@@ -451,5 +451,25 @@
     "hint": "Applies to execution and reviewer calls. Attempts include the first call; 1 disables automatic retries. Timeout starts when a call runs. Empty fields use defaults; an empty timeout adds no time limit.",
     "backoff_hint": "Set an initial delay to customize backoff. Use 0 for immediate retry. The multiplier defaults to 1 and the maximum delay to 3600 seconds.",
     "invalid": "Use whole numbers within the displayed ranges. Set an initial delay before its multiplier or maximum; the maximum must be at least the initial delay."
+  },
+  "editor": {
+    "overview": "Overview",
+    "navigation": "SOP sections",
+    "sections": "Stage settings",
+    "content": "Goal & deliverables",
+    "execution": "Execution & resources",
+    "review": "Review & approval",
+    "write": "Write",
+    "preview": "Preview",
+    "markdown_hint": "Select text to open formatting tools. Supports Markdown headings, lists and tables, with a rendered preview.",
+    "assistant": "Ask agent to edit",
+    "thinking": "Working…",
+    "run_draft_hint": "Completed stages are preserved. New stages can be added; execution and approval settings remain yours to configure.",
+    "chat_context": "Editing this SOP · replies fill the draft automatically",
+    "filled": "SOP draft updated · save when ready",
+    "fill_conflict": "Your edits conflict with this reply. Draft kept; ask the agent to try again.",
+    "fill_invalid": "The reply could not be applied. Ask the agent to try again.",
+    "undo": "Undo",
+    "detach": "Disconnect"
   }
 }

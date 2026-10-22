@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@silieco/core/i18n/react";
 import enWorkflows from "../../locales/en/workflows.json";
@@ -107,6 +107,7 @@ vi.mock("@silieco/core/mcp", () => ({
 }));
 
 vi.mock("@silieco/core/workflows", () => ({
+  useWorkflowChatEditorStore: Object.assign((selector: (state: { undo: null }) => unknown) => selector({ undo: null }), { getState: () => ({ undo: null }) }),
   workflowInstanceOptions: () => ({ queryKey: ["workflow-run"] }),
   useUpdateWorkflowInstancePlan: () => ({ isPending: false, mutate }),
 }));
@@ -130,6 +131,11 @@ vi.mock("@tanstack/react-query", () => ({
   }),
 }));
 
+vi.mock("../../editor", () => ({
+  ContentEditor: ({ value, onUpdate, placeholder }: { value: string; onUpdate: (value: string) => void; placeholder: string }) => <textarea aria-label={placeholder || "Markdown content"} value={value} onChange={(event) => onUpdate(event.target.value)} />,
+  ReadonlyContent: ({ content }: { content: string }) => <div>{content}</div>,
+}));
+
 describe("WorkflowRunPlanDialog", () => {
   beforeEach(() => mutate.mockReset());
 
@@ -145,23 +151,21 @@ describe("WorkflowRunPlanDialog", () => {
       </I18nProvider>,
     );
 
-    const stageNames = screen.getAllByLabelText("Stage name");
-    expect(stageNames[0]).toBeDisabled();
-    expect(stageNames[1]).toBeEnabled();
-    expect(stageNames[2]).toBeEnabled();
-
-    const deleteButtons = screen.getAllByRole("button", { name: "Delete Stage" });
-    expect(deleteButtons[0]).toBeDisabled();
-    expect(deleteButtons[1]).toBeDisabled();
-    expect(deleteButtons[2]).toBeEnabled();
-
-    const outputs = screen.getAllByLabelText("Output requirement");
-    fireEvent.change(outputs[1]!, { target: { value: "release.md" } });
+    fireEvent.click(screen.getByTitle("Plan"));
+    expect(screen.getByRole("button", { name: "Delete Stage" })).toBeDisabled();
+    expect(screen.getByLabelText("Stage name")).toBeDisabled();
+    fireEvent.click(screen.getByTitle("Build"));
+    expect(screen.getByRole("button", { name: "Delete Stage" })).toBeDisabled();
+    const output = within(screen.getByRole("region", {name: "Output requirement"})).getByRole("textbox");
+    fireEvent.change(output, { target: { value: "release.md" } });
     expect(screen.getByRole("button", {name: "Save run adjustments"})).toBeEnabled();
-    fireEvent.click(screen.getAllByRole("combobox", {name: "Rework rollback target"})[2]!);
+    fireEvent.click(screen.getByTitle("Review"));
+    expect(screen.getByRole("button", { name: "Delete Stage" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Execution & resources" }));
+    fireEvent.click(screen.getByRole("combobox", {name: "Rework rollback target"}));
     fireEvent.mouseMove(screen.getByRole("option", {name: "Plan"}));
     fireEvent.click(screen.getByRole("option", {name: "Plan"}));
-    await waitFor(() => expect(screen.getAllByRole("combobox", {name: "Rework rollback target"})[2]).toHaveTextContent("Plan"));
+    await waitFor(() => expect(screen.getByRole("combobox", {name: "Rework rollback target"})).toHaveTextContent("Plan"));
     fireEvent.click(screen.getByRole("button", { name: "Save run adjustments" }));
     expect(screen.getByText("Save these run adjustments?")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save run adjustments" }));

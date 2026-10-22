@@ -1,8 +1,10 @@
 "use client";
 
+import { WorkflowMarkdownEditor } from "./workflow-markdown-editor";
+import { WorkflowEditorNavigation, WorkflowEditorTabs, type WorkflowEditorTab } from "./workflow-editor-navigation";
 import { workflowOperationDialogClassName } from "./workflow-dialog";
 import { StageExecutionFields, validReworkPolicyDraft, validRetryPolicyDraft } from "./stage-execution-fields";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -92,7 +94,7 @@ import { Textarea } from "@silieco/ui/components/ui/textarea";
 import { cn } from "@silieco/ui/lib/utils";
 import { SkillPickerList } from "../../agents/components/skill-picker-list";
 import { ActorAvatar } from "../../common/actor-avatar";
-import { ContentEditor, ReadonlyContent } from "../../editor";
+import { ReadonlyContent } from "../../editor";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import { useT } from "../../i18n";
 import { useNavigation } from "../../navigation";
@@ -104,6 +106,8 @@ import {
 } from "../../issues/components/pickers/property-picker";
 import { WorkflowRunPlanDialog } from "./workflow-run-plan-dialog";
 import { StageMCPSelector } from "./stage-mcp-selector";
+
+const WorkflowChatBridge = lazy(() => import("./workflow-chat-bridge"));
 
 type StageStatus = string;
 type CanonicalStageStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "blocked";
@@ -571,8 +575,6 @@ function gateIsConfigured(
 }
 
 function ArtifactMarkdownEditor({
-  editorKey,
-  icon,
   label,
   helper,
   placeholder,
@@ -587,32 +589,7 @@ function ArtifactMarkdownEditor({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const { t } = useT("workflows");
-  return (
-    <div className="min-w-0">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-caption font-medium">
-          {icon}
-          {label}
-        </span>
-        <Badge variant="outline" className="font-mono text-micro">
-          {t(($) => $.designer.markdown)}
-        </Badge>
-      </div>
-      <div className="overflow-hidden rounded-lg border border-border/80 bg-card focus-within:border-brand/40">
-        <ContentEditor
-          key={editorKey}
-          defaultValue={value}
-          onUpdate={onChange}
-          placeholder={placeholder}
-          className="min-h-28 max-h-60 overflow-y-auto px-3 py-2.5 text-body"
-          showBubbleMenu
-          disableMentions
-        />
-      </div>
-      <p className="mt-1 text-micro leading-4 text-muted-foreground">{helper}</p>
-    </div>
-  );
+  return <WorkflowMarkdownEditor label={label} value={value} onChange={onChange} placeholder={placeholder} helper={helper} />;
 }
 
 function StageSkillSelector({
@@ -981,6 +958,9 @@ export function ProjectSopDesigner({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [stages, setStages] = useState<SopStageDraft[]>([]);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantVisited, setAssistantVisited] = useState(false);
+  const [editorTab, setEditorTab] = useState<WorkflowEditorTab>("content");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const selectedWorkflow = workflows.find(
@@ -1015,6 +995,8 @@ export function ProjectSopDesigner({
       members,
       agents,
     );
+    setAssistantOpen(false);
+    setAssistantVisited(false);
     setTemplateName(template.name);
     setTemplateSource(template.source);
     setName(template.source === "blank" ? "" : template.name);
@@ -1022,7 +1004,7 @@ export function ProjectSopDesigner({
     setEditingScope(scope);
     setSourceWorkflowName(undefined);
     setStages(nextStages);
-    setExpanded(new Set(nextStages.map((item) => item.id)));
+    setExpanded(new Set());
     setEditing(true);
   };
   const customize = (workflow: Workflow) => {
@@ -1032,6 +1014,8 @@ export function ProjectSopDesigner({
       agents,
     );
     if (!projectId || nextStages.length === 0) return;
+    setAssistantOpen(false);
+    setAssistantVisited(false);
     setTemplateName(workflow.name);
     setTemplateSource("blank");
     setName(`${workflow.name} Project 版`);
@@ -1039,7 +1023,7 @@ export function ProjectSopDesigner({
     setEditingScope("project");
     setSourceWorkflowName(workflow.name);
     setStages(nextStages);
-    setExpanded(new Set(nextStages.map((item) => item.id)));
+    setExpanded(new Set());
     setEditing(true);
   };
   const updateStage = (id: string, patch: Partial<Omit<SopStageDraft, "id">>) =>
@@ -1058,7 +1042,8 @@ export function ProjectSopDesigner({
     while (stages.some((candidate) => candidate.stableKey === `stage_${number}`)) number++;
     item.stableKey = `stage_${number}`;
     setStages((current) => [...current, item]);
-    setExpanded((current) => new Set(current).add(item.id));
+    setExpanded(new Set([item.id]));
+    setEditorTab("content");
   };
   const addCustomStatus = (event: KeyboardEvent<HTMLInputElement>, item: SopStageDraft) => {
     if (event.key !== "Enter") return;
@@ -1860,14 +1845,15 @@ export function ProjectSopDesigner({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <header className="flex min-h-14 items-center gap-3 border-b border-border/70 px-5 py-2">
-        <Button variant="ghost" size="icon-sm" onClick={() => setEditing(false)}><ArrowLeft /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label={t(($) => $.create.cancel)} onClick={() => setEditing(false)}><ArrowLeft /></Button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-body font-semibold">{t(($) => $.designer.editor_title)}</h2>
-            <Badge variant="secondary">{templateName}</Badge>
+            <Badge variant="secondary" className="hidden sm:inline-flex">{templateName}</Badge>
           </div>
-          <p className="text-caption text-muted-foreground">{t(($) => $.designer.editor_hint)}</p>
+          <p className="hidden text-caption text-muted-foreground md:block">{t(($) => $.designer.editor_hint)}</p>
         </div>
+        <Button type="button" variant="outline" size="sm" aria-label={t(($) => $.editor.assistant)} onClick={() => { setAssistantVisited(true); setAssistantOpen((open) => !open); }}><Bot className="size-3.5" /><span className="hidden sm:inline">{t(($) => $.editor.assistant)}</span></Button>
         <Button
           size="sm"
           disabled={
@@ -1884,17 +1870,17 @@ export function ProjectSopDesigner({
         </Button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl px-5 py-5">
-          <div className="space-y-3">
+      <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
+        <WorkflowEditorNavigation stages={stages} selected={[...expanded][0] ?? "overview"}
+          onSelect={(id) => { setExpanded(id === "overview" ? new Set() : new Set([id])); setEditorTab("content"); }} onAdd={addStage} disabled={createWorkflow.isPending} />
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl px-5 py-5 md:px-8 md:py-6">
+          <div className={expanded.size === 0 ? "space-y-5" : "hidden"}>
             <label className="block space-y-1.5 text-caption font-medium">
               <span>{t(($) => $.create.name)}</span>
               <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t(($) => $.create.name_placeholder)} autoFocus />
             </label>
-            <label className="block space-y-1.5 text-caption font-medium">
-              <span>{t(($) => $.create.description)}</span>
-              <Textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder={t(($) => $.create.description_placeholder)} rows={2} />
-            </label>
+            <WorkflowMarkdownEditor label={t(($) => $.create.description)} value={description} onChange={setDescription} placeholder={t(($) => $.create.description_placeholder)} />
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
                 <span className="block text-micro font-medium text-muted-foreground">{t(($) => $.designer.source)}</span>
@@ -1919,11 +1905,11 @@ export function ProjectSopDesigner({
             </div>
           </div>
 
-          <div className="mb-2 mt-6">
+          <div className={expanded.size === 0 ? "mb-4 mt-6" : "hidden"}>
             <h3 className="text-body font-semibold">{t(($) => $.designer.stage_list, { count: stages.length })}</h3>
             <p className="text-caption text-muted-foreground">{t(($) => $.designer.stage_list_hint)}</p>
             {invalidGateCount > 0 && (
-              <p className="mt-2 flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2 text-caption text-amber-800 dark:text-amber-300">
+              <p className="mt-2 flex items-center gap-1.5 rounded-lg border border-border bg-muted px-3 py-2 text-caption text-muted-foreground">
                 <ShieldCheck className="size-3.5 shrink-0" />
                 {t(($) => $.designer.incomplete_gates, {
                   count: invalidGateCount,
@@ -1934,6 +1920,7 @@ export function ProjectSopDesigner({
           <div className="space-y-2.5">
             {stages.map((item, index) => {
               const open = expanded.has(item.id);
+              if (!open) return null;
               const defaultHumanId =
                 (members.find((member) => member.role === "owner") ?? members[0])
                   ?.user_id ?? "";
@@ -1941,17 +1928,12 @@ export function ProjectSopDesigner({
                 agents.find((agent) => !agent.archived_at)?.id ?? "";
               const gateConfigured = gateIsConfigured(item, members, agents);
               return (
-                <section key={item.id} className={cn("overflow-hidden rounded-xl border bg-muted/20", item.gateEnabled ? "border-amber-500/35 bg-amber-500/5" : "border-border/80")}>
-                  <div className="flex min-h-11 items-center gap-2 px-3">
+                <section key={item.id} className="min-w-0 space-y-4">
+                  <div className="flex min-h-11 items-center gap-2">
                     <button
                       type="button"
-                      className={cn("flex size-6 shrink-0 items-center justify-center rounded-md text-micro font-semibold text-white", item.gateEnabled ? "bg-amber-600" : "bg-brand")}
-                      onClick={() => setExpanded((current) => {
-                        const next = new Set(current);
-                        if (next.has(item.id)) next.delete(item.id);
-                        else next.add(item.id);
-                        return next;
-                      })}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-micro font-semibold"
+                      aria-label={t(($) => $.editor.content)}
                     >{index + 1}</button>
                     <Input
                       value={item.name}
@@ -1959,28 +1941,22 @@ export function ProjectSopDesigner({
                       placeholder={t(($) => $.create.stage_placeholder)}
                       className="h-8 border-transparent bg-transparent px-1 text-body font-semibold shadow-none focus-visible:border-input focus-visible:bg-background"
                     />
-                    {item.gateEnabled && <ShieldCheck className="size-3.5 shrink-0 text-amber-600" />}
+                    {item.gateEnabled && <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground" />}
                     <Button type="button" variant="ghost" size="icon-xs" disabled={index === 0} title={t(($) => $.designer.move_up)} onClick={() => moveStage(index, -1)}><ArrowUp /></Button>
                     <Button type="button" variant="ghost" size="icon-xs" disabled={index === stages.length - 1} title={t(($) => $.designer.move_down)} onClick={() => moveStage(index, 1)}><ArrowDown /></Button>
-                    <Button type="button" variant="ghost" size="icon-xs" disabled={stages.length === 1} title={t(($) => $.designer.delete_stage)} className="text-muted-foreground hover:text-destructive" onClick={() => setStages((current) => current.filter((value) => value.id !== item.id))}><Trash2 /></Button>
+                    <Button type="button" variant="ghost" size="icon-xs" disabled={stages.length === 1} title={t(($) => $.designer.delete_stage)} className="text-muted-foreground hover:text-destructive" onClick={() => { setStages((current) => current.filter((value) => value.id !== item.id)); setExpanded(new Set()); }}><Trash2 /></Button>
                   </div>
 
                   {open && (
-                    <div className="space-y-4 border-t border-border/70 bg-background/70 px-3 py-3">
+                    <div className="space-y-5">
+                      <WorkflowEditorTabs value={editorTab} onChange={setEditorTab} />
+                      <div className={editorTab === "execution" ? "space-y-4" : "hidden"}>
                       <StageExecutionFields value={item} rollbackStages={stages.slice(0, index).filter((stage) => stage.stableKey).map((stage) => ({stableKey: stage.stableKey!, name: stage.name}))} precedingStages={stages.slice(0, index).filter((stage) => stage.executionMode === "agent" && stage.stableKey).map((stage) => ({stableKey: stage.stableKey!, name: stage.name}))} agents={agents} disabled={createWorkflow.isPending} onChange={(patch) => updateStage(item.id, patch)} />
-                      <label className="block space-y-1.5 text-caption font-medium">
-                        <span>{t(($) => $.designer.stage_description)}</span>
-                        <Textarea
-                          value={item.description}
-                          rows={2}
-                          placeholder={t(($) => $.designer.stage_description_placeholder)}
-                          onChange={(event) =>
-                            updateStage(item.id, {
-                              description: event.target.value,
-                            })
-                          }
-                        />
-                      </label>
+                      </div>
+                      <div className={editorTab === "content" ? "space-y-5" : "hidden"}>
+                        <WorkflowMarkdownEditor label={t(($) => $.designer.stage_description)} value={item.description} onChange={(description) => updateStage(item.id, { description })} placeholder={t(($) => $.designer.stage_description_placeholder)} />
+                      </div>
+                      <div className={editorTab === "execution" ? "space-y-4" : "hidden"}>
 
                       {item.executionMode !== "agent" && <>
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -2082,7 +2058,8 @@ export function ProjectSopDesigner({
 
                       </>}
 
-                      <div className="grid gap-4 lg:grid-cols-2">
+                      </div>
+                      <div className={editorTab === "content" ? "grid gap-5 lg:grid-cols-2" : "hidden"}>
                         <ArtifactMarkdownEditor
                           editorKey={`${item.id}-input`}
                           icon={<FileInput className="size-3.5 text-muted-foreground" />}
@@ -2103,6 +2080,7 @@ export function ProjectSopDesigner({
                         />
                       </div>
 
+                      <div className={editorTab === "execution" ? "space-y-5" : "hidden"}>
                       <StageSkillSelector
                         skills={workspaceSkills}
                         selectedRefs={item.skills}
@@ -2116,12 +2094,14 @@ export function ProjectSopDesigner({
                         onChange={(allowedMcpServerIds) => updateStage(item.id, { allowedMcpServerIds })}
                       />
 
+                      </div>
+                      <div className={editorTab === "review" ? "space-y-4" : "hidden"}>
                       <div
                         className={cn(
-                          "rounded-xl border p-3",
+                          "rounded-lg border p-4",
                           item.gateEnabled
                             ? gateConfigured
-                              ? "border-amber-500/35 bg-amber-500/5"
+                              ? "border-border bg-muted/20"
                               : "border-destructive/40 bg-destructive/5"
                             : "border-dashed border-border bg-muted/10",
                         )}
@@ -2311,6 +2291,7 @@ export function ProjectSopDesigner({
                           </div>
                         )}
                       </div>
+                      </div>
                     </div>
                   )}
                 </section>
@@ -2322,6 +2303,29 @@ export function ProjectSopDesigner({
             {t(($) => $.create.add_stage)}
           </button>
         </div>
+        </div>
+        {assistantVisited && <div>
+          <Suspense fallback={<div className="p-4 text-caption text-muted-foreground">{t(($) => $.editor.thinking)}</div>}>
+            <WorkflowChatBridge open={assistantOpen} projectId={projectId} selection={[...expanded].join(", ") || "overview"} revision={JSON.stringify({ name, description, stages })} onRestore={() => { setName(name); setDescription(description); setStages(stages); }}
+              draft={{ name, description, stages: stages.map(({ id, name, description, input, output }) => ({ id, name, description, input, output })) }}
+              onApply={(draft) => {
+                setName(draft.name); setDescription(draft.description);
+                setStages((current) => {
+                  const updated = current.map((stage) => {
+                    const patch = draft.stages.find((item) => item.id === stage.id);
+                    return patch ? { ...stage, name: patch.name, description: patch.description, input: patch.input, output: patch.output } : stage;
+                  });
+                  for (const proposed of draft.stages.filter((item) => !item.id)) {
+                    const stage = cloneStages(blankSopTemplate())[0]!;
+                    let number = 1;
+                    while (updated.some((item) => item.stableKey === `stage_${number}`)) number++;
+                    updated.push({ ...stage, ...proposed, id: stage.id, stableKey: `stage_${number}` });
+                  }
+                  return updated;
+                });
+              }} />
+          </Suspense>
+        </div>}
       </div>
     </div>
   );

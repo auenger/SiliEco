@@ -65,6 +65,9 @@ import { createLogger } from "@silieco/core/logger";
 import type { Agent, Attachment, ChatMessage, ChatMessagesPage, ChatPendingTask, ChatSession, PendingChatTasksResponse } from "@silieco/core/types";
 import { useT } from "../../i18n";
 
+import { useWorkflowChatEditorStore, prepareWorkflowChat, acceptWorkflowChat, failWorkflowChat, finishWorkflowChat } from "@silieco/core/workflows";
+import { WorkflowChatStatus } from "../../workflows/components/workflow-chat-status";
+
 const uiLogger = createLogger("chat.ui");
 const apiLogger = createLogger("chat.api");
 const CHAT_VIRTUOSO_INITIAL_FIRST_ITEM_INDEX = 1_000_000;
@@ -137,7 +140,11 @@ export function ChatWindow() {
   // it starts from a large stable base and only subtracts the count of loaded
   // prepended rows, so concurrent server inserts cannot drift the scroll anchor.
   const messagePages = activeSessionId ? rawMessagePages?.pages ?? [] : [];
-  const messages = [...messagePages].reverse().flatMap((page) => page.messages);
+  const workflowEditor = useWorkflowChatEditorStore((s) => s.editor);
+  const workflowSessionId = useWorkflowChatEditorStore((s) => s.sessionId);
+  const workflowRequest = useWorkflowChatEditorStore((s) => s.request);
+  const rawMessages = [...messagePages].reverse().flatMap((page) => page.messages);
+  const messages = rawMessages;
   const olderMessageCount = messagePages.slice(1).reduce((sum, page) => sum + page.messages.length, 0);
   const firstItemIndex = messages.length > 0
     ? CHAT_VIRTUOSO_INITIAL_FIRST_ITEM_INDEX - olderMessageCount
@@ -152,10 +159,15 @@ export function ChatWindow() {
   // (chat:message / chat:done / task:*) keep it invalidated in real time.
   //
   // This is the SOLE source for pendingTaskId — no mirror in the store.
-  const { data: pendingTask } = useQuery(
+  const { data: pendingTask, isSuccess: pendingTaskLoaded } = useQuery(
     pendingChatTaskOptions(activeSessionId ?? ""),
   );
   const pendingTaskId = pendingTask?.task_id ?? null;
+  useEffect(() => {
+    if (!workflowRequest?.taskId || !pendingTaskLoaded || pendingTaskId || !activeSessionId) return;
+    const response = [...rawMessages].reverse().find((m) => m.role === "assistant" && m.task_id === workflowRequest.taskId);
+    if (response) finishWorkflowChat(wsId, activeSessionId, workflowRequest.taskId, response.content);
+  }, [wsId, activeSessionId, pendingTaskLoaded, pendingTaskId, rawMessages, workflowRequest]);
   const stopRequestedBeforeTaskRef = useRef(false);
   // Durable deferred-cancellation draft restores (#5219). Same hook as the chat
   // page controller — the skip/apply/consume/reconcile state machine must not
@@ -497,10 +509,16 @@ export function ChatWindow() {
       // draft is never cleared, before the roundtrip settles — a slow send never
       // reads as "posted but the box is still full", and a rejected one keeps
       // the draft for retry (ChatInput never cleared it).
+      const workflowSend = !isGroupSession ? prepareWorkflowChat(wsId, sessionId, content) : null;
       let result;
       try {
-        result = await api.sendChatMessage(sessionId, finalContent, attachmentIds);
+        result = await api.sendChatMessage(sessionId, workflowSend?.content ?? finalContent, attachmentIds);
+        if (workflowSend) {
+          if (result.task_id) acceptWorkflowChat(workflowSend.request, result.task_id);
+          else failWorkflowChat(workflowSend.request);
+        }
       } catch (err) {
+        if (workflowSend) failWorkflowChat(workflowSend.request);
         apiLogger.error("sendChatMessage.error", { sessionId, err });
         toast.error(t(($) => $.input.send_failed_toast));
         return false;
@@ -756,6 +774,8 @@ export function ChatWindow() {
   // window's own width, not the page behind it.
   const containerClass = "absolute bottom-2 right-2 z-50 flex flex-col overflow-hidden rounded-xl bg-surface-raised shadow-[var(--floating-shadow)] ring-1 ring-surface-border @container";
   const containerStyle: React.CSSProperties = {
+    maxWidth: "calc(100% - 16px)",
+    maxHeight: "calc(100% - 16px)",
     transformOrigin: "bottom right",
     pointerEvents: isOpen ? "auto" : "none",
   };
@@ -796,6 +816,7 @@ export function ChatWindow() {
       }}
     >
       <ChatResizeHandles onDragStart={startDrag} />
+      {workflowEditor?.wsId === wsId && (!workflowSessionId || workflowSessionId === activeSessionId) && <WorkflowChatStatus />}
       {/* Header — ⊕ new + session dropdown | window tools */}
       <div className="flex items-center justify-between border-b px-4 py-2.5 gap-2">
         <div className="flex items-center gap-1 min-w-0">
@@ -888,11 +909,13 @@ export function ChatWindow() {
           </div>
         </div>
       ) : (
-        <EmptyState
-          hasSessions={sessions.length > 0}
-          agentName={activeAgent?.name}
-          onPickPrompt={(text) => handleSend(text)}
-        />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <EmptyState
+            hasSessions={sessions.length > 0}
+            agentName={activeAgent?.name}
+            onPickPrompt={(text) => handleSend(text)}
+          />
+        </div>
       )}
 
       {/* Status banner above the input — single mutually-exclusive slot.

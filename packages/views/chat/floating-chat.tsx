@@ -1,5 +1,8 @@
 "use client";
 
+import { createPortal } from "react-dom";
+import { useWorkflowChatEditorStore } from "@silieco/core/workflows";
+import { useWorkspaceId } from "@silieco/core/hooks";
 import { useChatStore } from "@silieco/core/chat";
 import { useWorkspacePaths } from "@silieco/core/paths";
 import { useNavigation } from "../navigation";
@@ -18,15 +21,20 @@ import { ChatWindow } from "./components/chat-window";
  *     would be pure duplication — hide it there.
  */
 export function FloatingChat() {
+  const wsId = useWorkspaceId();
+  const editor = useWorkflowChatEditorStore((s) => s.editor);
+  const target = editor?.wsId === wsId ? document.getElementById(editor.portalId) : null;
   const enabled = useChatStore((s) => s.floatingChatEnabled);
   const { pathname } = useNavigation();
   const wsPaths = useWorkspacePaths();
 
-  if (!enabled) return null;
+  if (!enabled && !target) return null;
   // Suppress on the Chat tab — it renders the same conversation full-page.
   if (pathname === wsPaths.chat() || pathname.startsWith(`${wsPaths.chat()}/`)) {
     return null;
   }
+
+  if (target) return createPortal(<ChatWindow />, target);
 
   return (
     <>

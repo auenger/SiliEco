@@ -36,6 +36,7 @@ vi.mock("../../navigation", () => ({
 }));
 
 vi.mock("@silieco/core/workflows", () => ({
+  useWorkflowChatEditorStore: Object.assign((selector: (state: { undo: null }) => unknown) => selector({ undo: null }), { getState: () => ({ undo: null }) }),
   workflowListOptions: () => ({ queryKey: ["workflows"] }),
   workflowInstancesOptions: () => ({ queryKey: ["workflow-runs"] }),
   useCreateWorkflow: () => ({
@@ -85,15 +86,17 @@ vi.mock("../../common/actor-avatar", () => ({
 vi.mock("../../editor", () => ({
   ContentEditor: ({
     defaultValue,
+    value,
     onUpdate,
     placeholder,
   }: {
-    defaultValue: string;
+    defaultValue?: string;
+    value?: string;
     onUpdate: (value: string) => void;
     placeholder: string;
   }) => (
     <textarea
-      defaultValue={defaultValue}
+      defaultValue={value ?? defaultValue}
       placeholder={placeholder}
       onChange={(event) => onUpdate(event.currentTarget.value)}
     />
@@ -154,8 +157,8 @@ describe("ProjectSopDesigner", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /散热仿真 POC/ }));
     expect(screen.getByDisplayValue("散热仿真 POC（Mock）")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("散热需求提取")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("候选仿真（Mock）")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /散热需求提取/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /候选仿真（Mock）/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Publish SOP" }));
 
@@ -185,14 +188,14 @@ describe("ProjectSopDesigner", () => {
     fireEvent.click(screen.getByRole("button", { name: /Feature 研发工作流/ }));
 
     expect(screen.getByDisplayValue("Feature 研发工作流")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("需求输入与分析")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("PRD 产出")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("PRD 校验")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("原型或 MVP")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Feature 拆分与开发准备")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("开发实现")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("本地化测试与验收")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("完成与归档")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /需求输入与分析/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /PRD 产出/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /PRD 校验/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /原型或 MVP/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Feature 拆分与开发准备/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /开发实现/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /本地化测试与验收/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /完成与归档/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Publish SOP" }));
 
@@ -327,11 +330,11 @@ describe("ProjectSopDesigner", () => {
     fireEvent.click(screen.getByRole("button", { name: /软件开发模板/ }));
 
     expect(screen.getByDisplayValue("软件开发模板")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("需求设计")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("架构设计")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("开发实现")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("E2E 测试")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("发布验收")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /需求设计/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /架构设计/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /开发实现/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /E2E 测试/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /发布验收/ })).toBeInTheDocument();
   });
 
   it("publishes the selected template with Stage configuration only", () => {
@@ -398,7 +401,9 @@ describe("ProjectSopDesigner", () => {
     ]}}];
     renderDesigner();fireEvent.click(screen.getByRole("button",{name:"Inherit and customize"}));
     expect(screen.getByRole("button",{name:"Publish SOP"})).toBeEnabled();
-    fireEvent.click(screen.getAllByRole("combobox",{name:"Rework rollback target"})[1]!);
+    fireEvent.click(screen.getByTitle("Build"));
+    fireEvent.click(screen.getByRole("button", { name: "Execution & resources" }));
+    fireEvent.click(screen.getByRole("combobox",{name:"Rework rollback target"}));
     expect(screen.getByRole("option",{name:"Manual input"})).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option",{name:"Manual input"}));
     fireEvent.click(screen.getByRole("button",{name:"Publish SOP"}));
@@ -472,7 +477,9 @@ describe("ProjectSopDesigner", () => {
   it("shows and removes a custom Stage status", () => {
     renderDesigner();
     fireEvent.click(screen.getByRole("button", { name: /Bug 修复模板/ }));
-    const customStatus = screen.getAllByPlaceholderText("Custom status, Enter")[0]!;
+    fireEvent.click(screen.getByRole("navigation").querySelectorAll("button")[1]!);
+    fireEvent.click(screen.getByRole("button", { name: "Execution & resources" }));
+    const customStatus = screen.getByPlaceholderText("Custom status, Enter");
 
     fireEvent.change(customStatus, { target: { value: "QA ready" } });
     fireEvent.keyDown(customStatus, { key: "Enter" });
@@ -506,6 +513,7 @@ describe("ProjectSopDesigner", () => {
     fireEvent.change(screen.getByLabelText("SOP name"), {
       target: { value: "Delivery SOP" },
     });
+    fireEvent.click(screen.getByRole("navigation").querySelectorAll("button")[1]!);
     fireEvent.change(screen.getByPlaceholderText("Stage name"), {
       target: { value: "Review" },
     });
@@ -516,8 +524,10 @@ describe("ProjectSopDesigner", () => {
       target: { value: "## Required output\n\n- `review.md`" },
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "Execution & resources" }));
     fireEvent.click(screen.getByRole("button", { name: "Choose Skills" }));
     fireEvent.click(screen.getByRole("button", { name: /Code review/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Review & approval" }));
     fireEvent.click(screen.getByRole("switch", { name: "Stage exit gate" }));
     fireEvent.click(
       screen.getByRole("radio", { name: /Assigned Agent decision/ }),

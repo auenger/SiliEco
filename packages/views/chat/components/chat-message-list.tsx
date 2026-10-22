@@ -20,6 +20,7 @@ import {
 import { ChevronRight, ChevronDown, Brain, AlertCircle, AlertTriangle, Copy } from "lucide-react";
 import { useScrollFade } from "@silieco/ui/hooks/use-scroll-fade";
 import { isTaskMessageTaskId, taskMessagesOptions } from "@silieco/core/chat/queries";
+import { workflowChatDisplayContent } from "@silieco/core/workflows";
 import { RichContent } from "../../rich-content";
 import { RichContentScrollRootProvider } from "../../rich-content/scroll-root";
 import { copyText } from "@silieco/ui/lib/clipboard";
@@ -392,14 +393,14 @@ const MessageBubble = memo(function MessageBubble({
            * too. `compact` trims the leading/trailing block margins so a
            * single-line bubble stays as tight as the plain-text version. */}
           <RichContent
-            content={message.content}
+            content={workflowChatDisplayContent(message.content)}
             attachments={message.attachments}
             density="compact"
             phase="settled"
           />
           <AttachmentList
             attachments={message.attachments}
-            content={message.content}
+            content={workflowChatDisplayContent(message.content)}
             className="mt-1.5"
           />
           </div>
@@ -469,7 +470,7 @@ function AssistantMessage({
   // array reference when a duplicate event arrives, so this recomputes only
   // when a genuinely new message lands.
   const timeline: ChatTimelineItem[] = useMemo(
-    () => transformTimeline(buildTimeline(taskMessages ?? []), transformContent),
+    () => transformTimeline(transformTimeline(buildTimeline(taskMessages ?? []), workflowChatDisplayContent), transformContent),
     [taskMessages, transformContent],
   );
 
@@ -511,7 +512,7 @@ function AssistantMessage({
         <NoResponseNotice />
       ) : message && timeline.length === 0 ? (
         <RichContent
-          content={message.content}
+          content={workflowChatDisplayContent(message.content)}
           attachments={message.attachments}
           density="compact"
           phase="settled"
@@ -522,7 +523,7 @@ function AssistantMessage({
         <>
           <AttachmentList
             attachments={message.attachments}
-            content={message.content}
+            content={workflowChatDisplayContent(message.content)}
           />
           <MessageFooter
             message={message}
