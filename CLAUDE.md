@@ -230,7 +230,7 @@ Do not claim verification passed unless you ran it. If you skip checks because t
 ## Commits and Releases
 
 - Commits should be atomic and use conventional prefixes: `feat(scope)`, `fix(scope)`, `refactor(scope)`, `docs`, `test(scope)`, `chore(scope)`.
-- A production deployment requires a CLI release tag on `main`: create `v0.x.x`, push it, and let `release.yml` publish binaries and the Homebrew tap.
+- GitHub Actions CI, release, and packaging workflows have been removed. Build and validate locally; follow `服务器部署说明.md` for uploading artifacts, switching server versions, post-deployment checks, and rollback. Pushing a tag does not publish binaries or update Homebrew.
 - Bump patch by default unless the user specifies a version.
 
 ## Domain Reminders
