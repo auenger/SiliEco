@@ -88,6 +88,7 @@ describe("chatProjectContextSupported", () => {
 
   it("treats git-describe dev builds as supported regardless of base tag", () => {
     expect(chatProjectContextSupported("v0.4.8-37-g5d0275d68")).toBe(true);
+    expect(chatProjectContextSupported("v0.0.0-20-ge39b4d4-dirty")).toBe(true);
     expect(chatProjectContextSupported("v0.1.0-235-gdaf0e935-dirty")).toBe(true);
   });
 });
