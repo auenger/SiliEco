@@ -39,7 +39,9 @@ const allowedDevOrigins = process.env.CORS_ALLOWED_ORIGINS
   : undefined;
 
 const nextConfig: NextConfig = {
-  ...(process.env.STANDALONE === "true" ? { output: "standalone" as const } : {}),
+  ...(process.env.STANDALONE === "true"
+    ? { output: "standalone" as const }
+    : {}),
   transpilePackages: ["@silieco/core", "@silieco/ui", "@silieco/views"],
   ...(allowedDevOrigins && allowedDevOrigins.length > 0
     ? { allowedDevOrigins }
@@ -48,26 +50,32 @@ const nextConfig: NextConfig = {
     formats: ["image/avif", "image/webp"],
     qualities: [75, 80, 85],
   },
+  async redirects() {
+    return [
+      "/homepage",
+      "/about",
+      "/contact-sales",
+      "/changelog",
+      "/download",
+      "/usecases/:path*",
+    ].map((source) => ({ source, destination: "/", permanent: true }));
+  },
   async rewrites() {
     return {
       // Run before file-system routes so /docs isn't shadowed by the
       // [workspaceSlug] dynamic segment.
       beforeFiles: [
-        {
-          source: "/",
-          destination: "/product-home/index.html",
-        },
         ...(docsUrl
           ? [
-            {
-              source: "/docs",
-              destination: `${docsUrl}/docs`,
-            },
-            {
-              source: "/docs/:path*",
-              destination: `${docsUrl}/docs/:path*`,
-            },
-          ]
+              {
+                source: "/docs",
+                destination: `${docsUrl}/docs`,
+              },
+              {
+                source: "/docs/:path*",
+                destination: `${docsUrl}/docs/:path*`,
+              },
+            ]
           : []),
       ],
       afterFiles: remoteApiUrl

@@ -8,7 +8,12 @@ const jsonLd = {
       "@type": "Organization",
       name: "Silieco",
       url: "https://www.silieco.ai",
-      sameAs: ["https://github.com/silieco-ai/silieco"],
+      parentOrganization: {
+        "@type": "Organization",
+        name: "SiliRoot",
+        url: "https://siliroot.com/",
+      },
+      email: "machi@siliroot.com",
     },
     {
       "@type": "SoftwareApplication",
@@ -16,7 +21,7 @@ const jsonLd = {
       applicationCategory: "ProjectManagement",
       operatingSystem: "Web",
       description:
-        "Open-source project management platform that turns coding agents into real teammates.",
+        "Open-source workspace for human and agent collaboration through tasks, SOPs, and evidence-based handoffs.",
       offers: {
         "@type": "Offer",
         price: "0",
@@ -40,7 +45,9 @@ export default async function LandingLayout({
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <div className="landing-light h-full overflow-x-hidden overflow-y-auto bg-white">
-        <LocaleProvider initialLocale={initialLocale}>{children}</LocaleProvider>
+        <LocaleProvider initialLocale={initialLocale}>
+          {children}
+        </LocaleProvider>
       </div>
     </>
   );

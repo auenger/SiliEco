@@ -4,14 +4,14 @@ import { RedirectIfAuthenticated } from "@/features/landing/components/redirect-
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Silieco — Open Agent Work OS",
+    absolute: "Silieco — Humans & Agents, Working Together",
   },
   description:
-    "One open workspace for planning work, coordinating agents, and executing through infrastructure you own.",
+    "An open-source workspace where humans and agents collaborate through shared tasks, SOPs, and clear handoffs.",
   openGraph: {
-    title: "Silieco — Open Agent Work OS",
+    title: "Silieco — Humans & Agents, Working Together",
     description:
-      "Plan in the App, coordinate in Core, and execute through the Daemon.",
+      "Define goals, coordinate agent execution, and review outcomes together.",
     url: "/",
   },
   alternates: {
