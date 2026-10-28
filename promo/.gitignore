@@ -1,0 +1,4 @@
+node_modules
+out/
+public/v2/*.wav
+public/v3/*.wav

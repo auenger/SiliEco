@@ -1,0 +1,116 @@
+{
+  "duration": 64,
+  "bpm": 120,
+  "sampleRate": 48000,
+  "channels": 2,
+  "source": "Original procedural composition and synthesized UI cues; no external samples",
+  "tracks": [
+    {
+      "name": "music.wav",
+      "peakDb": -15.130409636163655,
+      "rmsDb": -30.1626291279079
+    },
+    {
+      "name": "sfx.wav",
+      "peakDb": -17.058296206061726,
+      "rmsDb": -40.7938726767026
+    }
+  ],
+  "cues": [
+    {
+      "time": 4.85,
+      "type": "swoosh",
+      "label": "场景转场"
+    },
+    {
+      "time": 13.85,
+      "type": "swoosh",
+      "label": "场景转场"
+    },
+    {
+      "time": 23.85,
+      "type": "swoosh",
+      "label": "场景转场"
+    },
+    {
+      "time": 33.85,
+      "type": "swoosh",
+      "label": "场景转场"
+    },
+    {
+      "time": 41.85,
+      "type": "swoosh",
+      "label": "场景转场"
+    },
+    {
+      "time": 52.85,
+      "type": "swoosh",
+      "label": "场景转场"
+    },
+    {
+      "time": 58.85,
+      "type": "swoosh",
+      "label": "场景转场"
+    },
+    {
+      "time": 11.8,
+      "type": "click",
+      "label": "产品确认并交接"
+    },
+    {
+      "time": 12.8,
+      "type": "receive",
+      "label": "Agent 成为负责人"
+    },
+    {
+      "time": 14.6,
+      "type": "swoosh",
+      "label": "任务跨机器传递"
+    },
+    {
+      "time": 16.2,
+      "type": "receive",
+      "label": "运行时获取关联信息"
+    },
+    {
+      "time": 20,
+      "type": "click",
+      "label": "SOP 与 Skill 已就绪"
+    },
+    {
+      "time": 27.2,
+      "type": "click",
+      "label": "推进研发实现"
+    },
+    {
+      "time": 31.2,
+      "type": "receive",
+      "label": "实现与本地检查完成"
+    },
+    {
+      "time": 36.1,
+      "type": "swoosh",
+      "label": "Agent 向研发移交任务"
+    },
+    {
+      "time": 38,
+      "type": "receive",
+      "label": "研发接收验收任务"
+    },
+    {
+      "time": 44.4,
+      "type": "click",
+      "label": "Agent 回答验收问题"
+    },
+    {
+      "time": 50,
+      "type": "success",
+      "label": "研发确认验收"
+    },
+    {
+      "time": 59.4,
+      "type": "success",
+      "label": "品牌收尾"
+    }
+  ]
+}

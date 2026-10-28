@@ -1,0 +1,19 @@
+{
+  "name": "silieco-product-film",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "node scripts/render-headless.mjs render src/index.tsx SiliecoCollaboration out/v3/Silieco-人机协作宣传片.mp4 --codec=h264 --crf=17 --pixel-format=yuv420p --audio-codec=aac --concurrency=1 --gl=angle --chrome-mode=headless-shell --image-format=png",
+    "render:v1": "node scripts/render-headless.mjs render src/v1.tsx Silieco out/Silieco-产品宣传.mp4 --codec=h264 --crf=17 --pixel-format=yuv420p --concurrency=1 --gl=angle --chrome-mode=headless-shell --image-format=png",
+    "music": "node scripts/soundtrack-v3.mjs",
+    "render:v2": "node scripts/render-headless.mjs render src/v2.tsx SiliecoCollaboration out/v2/Silieco-人机协作宣传片.mp4 --codec=h264 --crf=17 --pixel-format=yuv420p --audio-codec=aac --concurrency=1 --gl=angle --chrome-mode=headless-shell --image-format=png",
+    "music:v2": "node scripts/soundtrack.mjs"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.538",
+    "@remotion/media": "4.0.538",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.538"
+  }
+}
