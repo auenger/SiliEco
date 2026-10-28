@@ -27,7 +27,8 @@
     "runtime": "运行时",
     "attachment": "附件",
     "create_agent": "创建智能体",
-    "unknown": "未知页面"
+    "unknown": "未知页面",
+    "browser": "网页反馈"
   },
   "workspace_loader": {
     "loading_workspace": "正在加载工作区...",

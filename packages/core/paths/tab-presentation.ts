@@ -37,6 +37,7 @@ export type TabVisual =
 
 /** Localization keys under the `layout.tab` namespace for tab type labels. */
 export type TabLabelKey =
+  | "browser"
   | "issue"
   | "project"
   | "autopilot"
@@ -145,6 +146,8 @@ export function resolveTabPresentation(
   data: TabEntityData = {},
 ): TabPresentation {
   switch (subject.kind) {
+    case "browser":
+      return { visual: { kind: "icon", icon: "Globe" }, title: { kind: "tab", tabKey: "browser" } };
     case "page": {
       const page = WORKSPACE_PAGES[subject.page];
       return {

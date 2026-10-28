@@ -29,7 +29,8 @@
     "package:all": "node scripts/package.mjs --all-platforms --publish never",
     "lint": "eslint .",
     "test": "vitest run",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "test:browser": "electron-vite build --config scripts/browser-smoke.config.ts && electron out/browser-smoke/index.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

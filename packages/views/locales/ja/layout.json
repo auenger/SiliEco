@@ -27,7 +27,8 @@
     "runtime": "ランタイム",
     "attachment": "添付ファイル",
     "create_agent": "エージェントを作成",
-    "unknown": "不明なページ"
+    "unknown": "不明なページ",
+    "browser": "Web フィードバック"
   },
   "workspace_loader": {
     "loading_workspace": "ワークスペースを読み込み中…",

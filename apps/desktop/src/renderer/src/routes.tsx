@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import {
   createMemoryRouter,
   Outlet,
@@ -39,6 +39,8 @@ import { DaemonSettingsTab } from "./components/daemon-settings-tab";
 import { UpdatesSettingsTab } from "./components/updates-settings-tab";
 import { WorkspaceRouteLayout } from "./components/workspace-route-layout";
 import { DesktopRouteErrorPage } from "./components/route-error-page";
+
+const BrowserToolRoute = lazy(() => import("./platform/browser-tool").then((module) => ({ default: module.BrowserToolRoute })));
 
 /**
  * Wraps `SettingsPage` so the desktop-only extra tabs can pull their labels
@@ -135,6 +137,7 @@ export const appRoutes: RouteObject[] = [
           // safety net instead of an in-router <Navigate> (SILI-4741
           // invariant 1: the router never self-navigates).
           { index: true, element: null },
+          { path: "browser/:sessionId", element: <Suspense fallback={<div className="flex-1 bg-background" />}><BrowserToolRoute /></Suspense> },
           {
             path: "tasks",
             element: <IssuesPage />,

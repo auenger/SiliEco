@@ -1,3 +1,4 @@
+import { BrowserToolLifecycle } from "@/platform/browser-tool-entry";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
@@ -217,6 +218,7 @@ export function DesktopShell() {
 
   return (
     <DesktopNavigationProvider>
+      <BrowserToolLifecycle />
       {/* WorkspaceSlugProvider accepts null — components that need slug
           use useWorkspaceSlug() (nullable) or useRequiredWorkspaceSlug()
           (throws). TabContent MUST always render so the tab router can

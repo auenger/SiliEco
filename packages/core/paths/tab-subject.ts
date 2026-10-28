@@ -18,6 +18,7 @@ import { pageForSegment, type WorkspacePageKey } from "./route-icons";
 export type TabActorType = "agent" | "member" | "squad";
 
 export type TabSubject =
+  | { kind: "browser"; sessionId: string }
   /** A collection or tool page with no specific resource. */
   | { kind: "page"; page: WorkspacePageKey }
   /** A single issue detail. */
@@ -76,6 +77,8 @@ export function parseTabSubject(url: string): TabSubject {
   const id = segments[2] ?? "";
 
   switch (segment) {
+    case "browser":
+      return id ? { kind: "browser", sessionId: id } : { kind: "unknown" };
     case "tasks":
     case "issues":
       return id ? { kind: "issue", id } : { kind: "page", page: "issues" };
@@ -141,6 +144,8 @@ export function parseTabSubject(url: string): TabSubject {
  */
 export function tabSubjectKey(subject: TabSubject): string {
   switch (subject.kind) {
+    case "browser":
+      return `browser:${subject.sessionId}`;
     case "page":
       return `page:${subject.page}`;
     case "issue":

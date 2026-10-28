@@ -1,3 +1,4 @@
+import { BrowserToolTabButton } from "@/platform/browser-tool-entry";
 import {
   Fragment,
   useEffect,
@@ -662,6 +663,7 @@ export function TabBar() {
         />
       </div>
       {group && <NewTabButton />}
+      {group && <BrowserToolTabButton />}
     </div>
   );
 }

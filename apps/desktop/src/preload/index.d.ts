@@ -1,3 +1,4 @@
+import type { BrowserBridge } from "@silieco/core/page-feedback/protocol";
 import { ElectronAPI } from "@electron-toolkit/preload";
 import type { RuntimeConfigResult } from "../shared/runtime-config";
 import type { NavigationGesture } from "../shared/navigation-gestures";
@@ -19,6 +20,7 @@ import type {
 } from "../shared/daemon-types";
 
 interface DesktopAPI {
+  browser: BrowserBridge;
   /** App version + normalized OS, captured synchronously at preload time. */
   appInfo: {
     version: string;

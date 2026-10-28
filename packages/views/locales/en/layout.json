@@ -27,7 +27,8 @@
     "runtime": "Runtime",
     "attachment": "Attachment",
     "create_agent": "Create Agent",
-    "unknown": "Unknown page"
+    "unknown": "Unknown page",
+    "browser": "Web feedback"
   },
   "workspace_loader": {
     "loading_workspace": "Loading workspace…",

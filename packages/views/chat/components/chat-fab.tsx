@@ -56,6 +56,7 @@ export function ChatFab() {
   return (
     <Tooltip>
       <TooltipTrigger
+        data-chat-launcher=""
         onClick={handleClick}
         aria-label={tooltip}
         className={cn(

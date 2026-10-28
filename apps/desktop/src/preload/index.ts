@@ -1,3 +1,4 @@
+import { BROWSER_COMMAND, BROWSER_STATE, type BrowserCommand, type BrowserBridge } from "@silieco/core/page-feedback/protocol";
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type { RuntimeConfigResult } from "../shared/runtime-config";
@@ -102,6 +103,14 @@ function subscribeToMainRendererChannel<T>(
 }
 
 const desktopAPI = {
+  browser: {
+    command: (request: BrowserCommand) => ipcRenderer.invoke(BROWSER_COMMAND, request),
+    subscribe: (callback: Parameters<BrowserBridge["subscribe"]>[0]) => {
+      const handler = (_event: Electron.IpcRendererEvent, event: Parameters<typeof callback>[0]) => callback(event);
+      ipcRenderer.on(BROWSER_STATE, handler);
+      return () => { ipcRenderer.removeListener(BROWSER_STATE, handler); };
+    },
+  } satisfies BrowserBridge,
   /** App version + normalized OS. Read once at preload time so the renderer
    *  can use it synchronously when initializing the API client. */
   appInfo,

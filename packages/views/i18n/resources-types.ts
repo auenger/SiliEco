@@ -1,3 +1,4 @@
+import type pageFeedback from "../locales/en/page-feedback.json";
 import "i18next";
 // Pulls in the `ui` namespace augmentation owned by packages/ui — see
 // packages/ui/types/i18next.ts. Side-effect import is required for views'
@@ -72,6 +73,7 @@ declare global {
     squads: typeof squads;
     billing: typeof billing;
     resources: typeof resources;
+    "page-feedback": typeof pageFeedback;
   }
 }
 

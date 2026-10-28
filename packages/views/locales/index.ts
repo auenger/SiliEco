@@ -1,3 +1,7 @@
+import koPageFeedback from "./ko/page-feedback.json";
+import jaPageFeedback from "./ja/page-feedback.json";
+import zhHansPageFeedback from "./zh-Hans/page-feedback.json";
+import enPageFeedback from "./en/page-feedback.json";
 import type { LocaleResources, SupportedLocale } from "@silieco/core/i18n";
 import enCommon from "./en/common.json";
 import enAuth from "./en/auth.json";
@@ -140,6 +144,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     squads: enSquads,
     billing: enBilling,
     resources: enResources,
+    "page-feedback": enPageFeedback,
   },
   "zh-Hans": {
     common: zhHansCommon,
@@ -169,6 +174,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     squads: zhHansSquads,
     billing: zhHansBilling,
     resources: zhHansResources,
+    "page-feedback": zhHansPageFeedback,
   },
   ko: {
     common: koCommon,
@@ -198,6 +204,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     squads: koSquads,
     billing: koBilling,
     resources: koResources,
+    "page-feedback": koPageFeedback,
   },
   ja: {
     common: jaCommon,
@@ -227,5 +234,6 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     squads: jaSquads,
     billing: jaBilling,
     resources: jaResources,
+    "page-feedback": jaPageFeedback,
   },
 };

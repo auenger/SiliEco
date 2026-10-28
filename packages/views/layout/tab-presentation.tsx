@@ -59,8 +59,10 @@ import { ROUTE_ICON_COMPONENTS } from "./route-icon-components";
 const NONE = "__tab_presentation_none__";
 
 // Resource kinds where a persisted title is a good first-frame fallback while
-// the live data loads. Flow/unknown/attachment always use their type label.
+// the live data loads. Browser titles are maintained by the native guest bridge.
+// Flow/unknown/attachment always use their type label.
 const PENDING_RESOURCE_KEYS: ReadonlySet<TabLabelKey> = new Set<TabLabelKey>([
+  "browser",
   "issue",
   "project",
   "autopilot",

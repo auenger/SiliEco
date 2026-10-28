@@ -20,6 +20,7 @@
 
 /** Every icon name a nav page or a tab type-icon can resolve to. */
 export type RouteIconName =
+  | "Globe"
   | "Inbox"
   | "MessageSquare"
   | "CircleUser"
