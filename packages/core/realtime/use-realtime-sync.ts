@@ -837,6 +837,7 @@ export function useRealtimeSync(
           statusChanged: payload.status_changed,
           projectChanged: payload.project_changed,
         });
+        if (issue.workflow_instance_id) qc.invalidateQueries({queryKey: workflowKeys.all(wsId)});
         if (issue.status) {
           onInboxIssueStatusChanged(qc, wsId, issue.id, issue.status);
         }
@@ -847,7 +848,10 @@ export function useRealtimeSync(
       const { issue } = p as IssueCreatedPayload;
       if (!issue) return;
       const wsId = getCurrentWsId();
-      if (wsId) onIssueCreated(qc, wsId, issue);
+      if (wsId) {
+        onIssueCreated(qc, wsId, issue);
+        if (issue.workflow_instance_id) qc.invalidateQueries({queryKey: workflowKeys.all(wsId)});
+      }
     });
 
     const unsubIssueDeleted = ws.on("issue:deleted", (p) => {

@@ -81,6 +81,8 @@
     "panel_summary": "현재 Stage의 Task {{total}}개 중 {{complete}}개가 완료되었습니다.",
     "unavailable": "검증할 수 없음",
     "no_current_stage": "이 실행에는 검증할 수 있는 Stage가 없습니다.",
+    "round_completed": "현재 작업의 검증이 완료되었습니다. 새 작업을 추가하면 이 SOP를 계속 사용할 수 있으며 새 단계 검증이 필요합니다.",
+    "round_completed_badge": "현재 작업 완료",
     "run_closed": "이 실행은 {{status}} 상태이므로 Stage를 검증할 수 없습니다.",
     "open": "Stage 검토",
     "waiting_human": "지정 멤버 검토 대기",

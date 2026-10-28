@@ -295,7 +295,14 @@ then an explicit next/successor request maps to the reported next Stage, and
 same-phase work stays in the current Stage. Always include both workflow flags
 on create. A human assignee, `--status backlog`, or a request not to auto-run
 changes execution behavior only; none of them authorizes dropping SOP binding.
-Attaching the new Task to a later Stage does not transition the workflow run.
+Attaching the new Task to a later Stage does not advance an active workflow run.
+For a task-driven Run (all Stages use manual execution), `completed` means its
+current work passed review. Creating or attaching a follow-up Task reopens the
+same Run at the selected Stage; select the first Stage for a new requirement.
+Adding work to an earlier Stage moves the review cursor back there. Previous
+Tasks and gate decisions remain, but the new work requires fresh review.
+Archived/cancelled Runs and completed Runs containing agent-executed Stages
+cannot be continued this way; accepted execution results remain protected.
 
 ## Incorrect → correct
 

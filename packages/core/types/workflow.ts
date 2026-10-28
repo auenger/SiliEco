@@ -132,6 +132,7 @@ export interface WorkflowRework {
 }
 
 export interface WorkflowInstance {
+  accepts_new_tasks?: boolean;
  reworks?: WorkflowRework[];
   state_token?: string | null;
   inputs?: WorkflowObject;

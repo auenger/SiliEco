@@ -125,6 +125,16 @@ func (s *WorkflowExecutionService) MoveIssueStage(ctx context.Context, workspace
 	if err != nil {
 		return empty, err
 	}
+	if stageID.Valid && (issue.WorkflowInstanceID != instanceID || issue.WorkflowStageID != stageID) {
+		run := runs[instanceID]
+		if err := prepareWorkflowForNewTask(ctx, q, run, stageID); err != nil {
+			return empty, err
+		}
+		if run.Status == "completed" {
+			run.Status = "active"
+			runs[instanceID] = run
+		}
+	}
 	for _, run := range runs {
 		if run.ArchivedAt.Valid || run.Status == "completed" || run.Status == "cancelled" {
 			return empty, ErrWorkflowExecutionConflict
@@ -178,6 +188,16 @@ func (s *WorkflowExecutionService) UpdateIssueWithWorkflowLock(ctx context.Conte
 	}
 	if !sameIssueRevision(current.UpdatedAt, observed.UpdatedAt) {
 		return empty, fmt.Errorf("%w: task revision changed", ErrWorkflowExecutionConflict)
+	}
+	if params.WorkflowInstanceID.Valid && (current.WorkflowInstanceID != params.WorkflowInstanceID || current.WorkflowStageID != params.WorkflowStageID) {
+		run := runs[params.WorkflowInstanceID]
+		if err := prepareWorkflowForNewTask(ctx, q, run, params.WorkflowStageID); err != nil {
+			return empty, err
+		}
+		if run.Status == "completed" {
+			run.Status = "active"
+			runs[params.WorkflowInstanceID] = run
+		}
 	}
 	for _, run := range runs {
 		if run.ArchivedAt.Valid || run.Status == "completed" || run.Status == "cancelled" {

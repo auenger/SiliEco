@@ -82,6 +82,8 @@
     "panel_summary": "{{complete}} of {{total}} Tasks complete in the current Stage.",
     "unavailable": "Unavailable",
     "no_current_stage": "This run has no active Stage to validate.",
+    "round_completed": "Current work has passed review. Add a new task to continue this SOP; the new work will require fresh stage review.",
+    "round_completed_badge": "Work completed",
     "run_closed": "This run is {{status}} and can no longer be validated.",
     "open": "Review Stage",
     "waiting_human": "Awaiting assigned member",

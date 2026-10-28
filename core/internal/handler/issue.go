@@ -2817,7 +2817,7 @@ func (h *Handler) validateWorkflowTaskAssignment(
 	if err != nil {
 		return db.WorkflowInstance{}, http.StatusBadRequest, "workflow run not found in this workspace"
 	}
-	if instance.Status == "completed" || instance.Status == "cancelled" {
+	if instance.Status == "cancelled" {
 		return db.WorkflowInstance{}, http.StatusConflict, "workflow run is closed"
 	}
 	if instance.ArchivedAt.Valid {

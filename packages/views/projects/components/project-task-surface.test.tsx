@@ -60,9 +60,12 @@ vi.mock("@tanstack/react-query", () => ({
         ? {
             id: queryKey[1],
             title: "Release SOP · Run 1",
-            status: "active",
-            current_stage_id: "stage-1",
-            stages: [{ id: "stage-1", name: "Planning" }],
+            status: [...runsByProject.current.values()]
+              .flat()
+              .find((run) => run.id === queryKey[1])?.status ?? "active",
+            accepts_new_tasks: [...runsByProject.current.values()].flat().find((run) => run.id === queryKey[1])?.accepts_new_tasks,
+            current_stage_id: "stage-2",
+            stages: [{ id: "stage-1", name: "Planning" }, { id: "stage-2", name: "Review" }],
           }
         : undefined,
     };
@@ -145,6 +148,32 @@ describe("ProjectTaskSurface", () => {
 
     expect(screen.getByRole("button", { name: "SOP Stage" })).toBeDisabled();
     expect(screen.getByTestId("project-task-board")).toBeInTheDocument();
+  });
+
+  it("keeps a completed run available for Stage history without creating new Tasks", () => {
+    runsByProject.current.set("project-1", [
+      { id: "done-run", title: "Completed development", status: "completed" },
+    ]);
+
+    render(surface("project-1"));
+    fireEvent.click(screen.getByRole("button", { name: "SOP Stage" }));
+
+    expect(screen.getByTestId("workflow-board")).toHaveTextContent("done-run");
+    expect(screen.getByText("completed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Task" })).toBeDisabled();
+    expect(transitionInstance).not.toHaveBeenCalled();
+    expect(openModal).not.toHaveBeenCalled();
+  });
+
+  it("starts follow-up work at the first stage of a reusable completed run", () => {
+    runsByProject.current.set("project-1", [
+      { id: "done-run", title: "Development", status: "completed", accepts_new_tasks: true },
+    ]);
+    render(surface("project-1"));
+    fireEvent.click(screen.getByRole("button", { name: "SOP Stage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    expect(openModal).toHaveBeenCalledWith("create-issue", expect.objectContaining({workflow_instance_id: "done-run", workflow_stage_id: "stage-1"}));
+    expect(transitionInstance).not.toHaveBeenCalled();
   });
 
   it("opens a sidebar-selected SOP run directly without a run dropdown", () => {

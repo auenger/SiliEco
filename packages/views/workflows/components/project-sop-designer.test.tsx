@@ -178,6 +178,35 @@ describe("ProjectSopDesigner", () => {
     expect(screen.queryByText("Start a Workflow")).not.toBeInTheDocument();
   });
 
+  it("publishes the four-stage system development SOP with Markdown handoffs and human acceptance", () => {
+    renderDesigner();
+    fireEvent.click(screen.getByRole("button", { name: /系统研发 SOP/ }));
+    expect(screen.getByDisplayValue("系统研发 SOP")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Publish SOP" }));
+
+    const [payload] = createWorkflow.mock.calls[0]!;
+    expect(payload.name).toBe("系统研发 SOP");
+    expect(payload.stages.map((item: { name: string }) => item.name)).toEqual([
+      "需求的输入和整理", "需求转研发设计", "研发任务实现", "研发任务本地测试和验收",
+    ]);
+    for (const item of payload.stages) {
+      expect(item.description).toContain("## 阶段目标");
+      expect(item.description).toContain("## 执行内容");
+      expect(item.input_spec.default_artifact).toMatch(/## /);
+      expect(item.output_spec.default_artifact).toContain("## 必交产物");
+    }
+    expect(payload.stages[0].output_spec.default_artifact).toContain("source-index.md");
+    expect(payload.stages[1].input_spec.default_artifact).toContain("source-index.md");
+    expect(payload.stages[1].output_spec.default_artifact).toContain("development-tasks.md");
+    expect(payload.stages[2].input_spec.default_artifact).toContain("development-tasks.md");
+    expect(payload.stages[2].output_spec.default_artifact).toContain("implementation-notes.md");
+    expect(payload.stages[3].input_spec.default_artifact).toContain("implementation-notes.md");
+    expect(payload.stages[3].output_spec.default_artifact).toContain("verification-report.md");
+    expect(payload.stages[1].gate).toMatchObject({ type: "human", require_human: true });
+    expect(payload.stages[3].gate).toMatchObject({ type: "human", require_human: true });
+    expect(payload.stages[3].rollback_stage_key).toBe(payload.stages[2].stable_key);
+  });
+
   it("publishes the thermal simulation POC with built-in stage skills and human gates", () => {
     renderDesigner();
 
@@ -348,6 +377,17 @@ describe("ProjectSopDesigner", () => {
     expect(navigateTo).toHaveBeenCalledWith("/projects/project-1?run=run-1");
     fireEvent.click(screen.getByRole("button", { name: "Adjust this run" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("Adjusting Release SOP");
+  });
+
+  it("opens the historical board of a completed Project run", () => {
+    runs.current = [{
+      id: "done-run", title: "Completed development", status: "completed",
+      project_id: "project-1", archived_at: null, task_count: 4,
+    }];
+    renderDesigner();
+    fireEvent.click(screen.getByRole("button", { name: "Open run board" }));
+    expect(navigateTo).toHaveBeenCalledWith("/projects/project-1?run=done-run");
+    expect(createInstance).not.toHaveBeenCalled();
   });
 
   it("loads the software template into a five-Stage SOP editor", () => {

@@ -63,7 +63,9 @@ function ManualStageReviewControl({
 
   if (!currentStage || (instance.status !== "active" && instance.status !== "waiting")) {
     const unavailableReason = currentStage
-      ? t(($) => $.stage_review.run_closed, { status: instance.status })
+      ? instance.status === "completed" && instance.accepts_new_tasks === true
+        ? t(($) => $.stage_review.round_completed)
+        : t(($) => $.stage_review.run_closed, { status: instance.status })
       : t(($) => $.stage_review.no_current_stage);
     return (
       <div className="flex min-h-14 items-center gap-3 rounded-lg border border-border/70 bg-muted/25 px-3 py-2.5">
@@ -78,7 +80,7 @@ function ManualStageReviewControl({
             {unavailableReason}
           </p>
         </div>
-        <Badge variant="outline">{t(($) => $.stage_review.unavailable)}</Badge>
+        <Badge variant="outline">{instance.status === "completed" && instance.accepts_new_tasks === true ? t(($) => $.stage_review.round_completed_badge) : t(($) => $.stage_review.unavailable)}</Badge>
       </div>
     );
   }

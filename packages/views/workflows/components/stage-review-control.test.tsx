@@ -237,3 +237,10 @@ it("requires a reason and impact acknowledgement before returning", () => {
   expect(rollback).toBeDisabled();
   expect(screen.getByLabelText("Review note")).toBeEnabled();
 });
+
+it("explains completed reusable work without offering a duplicate approval", () => {
+  const run = {...workflowRun({type: "human"}), status: "completed" as const, accepts_new_tasks: true};
+  render(<I18nProvider locale="en" resources={{en:{workflows:enWorkflows}}}><StageReviewControl instance={run}/></I18nProvider>);
+  expect(screen.getByText(enWorkflows.stage_review.round_completed)).toBeInTheDocument();
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+});

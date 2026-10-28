@@ -16,13 +16,13 @@ const { createInstance, workflowRuns } = vi.hoisted(() => ({
         id: "run-1",
         workflow_id: "workflow-1",
         title: "Release A",
-        status: "active",
+        status: "active", accepts_new_tasks: false,
       },
       {
         id: "run-2",
         workflow_id: "workflow-1",
         title: "Release B",
-        status: "active",
+        status: "active", accepts_new_tasks: false,
       },
     ],
   },
@@ -61,6 +61,7 @@ vi.mock("@tanstack/react-query", () => ({
       return {
         data: {
           id: "run-1",
+          status: workflowRuns.current[0]?.status,
           current_stage_id: "stage-2",
           stages: [
             { id: "stage-1", name: "Build" },
@@ -132,13 +133,13 @@ describe("WorkflowAssignmentPicker", () => {
         id: "run-1",
         workflow_id: "workflow-1",
         title: "Release A",
-        status: "active",
+        status: "active", accepts_new_tasks: false,
       },
       {
         id: "run-2",
         workflow_id: "workflow-1",
         title: "Release B",
-        status: "active",
+        status: "active", accepts_new_tasks: false,
       },
     ];
   });
@@ -192,4 +193,13 @@ describe("WorkflowAssignmentPicker", () => {
       ),
     );
   });
+});
+
+it("reuses a completed task pipeline and selects its first stage", async () => {
+  createInstance.mockReset();
+  workflowRuns.current = [{id:"run-1", workflow_id:"workflow-1", title:"Release A", status:"completed", accepts_new_tasks:true}];
+  render(<Harness/>);
+  fireEvent.click(screen.getByRole("button", {name:/Release SOP/}));
+  await waitFor(() => expect(screen.getByTestId("assignment")).toHaveTextContent('"workflowStageId":"stage-1"'));
+  expect(createInstance).not.toHaveBeenCalled();
 });

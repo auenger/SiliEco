@@ -1404,3 +1404,9 @@ it("preserves manual rework history without an agent execution", () => {
  expect(WorkflowInstanceSchema.parse({...EMPTY_WORKFLOW_INSTANCE,reworks:[rework]}).reworks).toEqual([rework]);
  expect(WorkflowInstanceSchema.parse({...EMPTY_WORKFLOW_INSTANCE,reworks:[{...rework,actor_type:123}]}).reworks).toEqual([]);
 });
+
+it("parses task continuation capability without trusting malformed server values", () => {
+  expect(WorkflowInstanceSchema.parse({...EMPTY_WORKFLOW_INSTANCE, accepts_new_tasks:true}).accepts_new_tasks).toBe(true);
+  expect(WorkflowInstanceSchema.parse({...EMPTY_WORKFLOW_INSTANCE, accepts_new_tasks:"true"}).accepts_new_tasks).toBeUndefined();
+  expect(WorkflowInstanceSchema.parse(EMPTY_WORKFLOW_INSTANCE).accepts_new_tasks).toBeUndefined();
+});

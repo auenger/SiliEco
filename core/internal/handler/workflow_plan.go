@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/silieco-ai/silieco/core/internal/service"
 	"github.com/silieco-ai/silieco/core/internal/util"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
@@ -79,6 +80,7 @@ func (h *Handler) decorateWorkflowInstanceResponse(
 	if err != nil {
 		return err
 	}
+	resp.AcceptsNewTasks = !instance.ArchivedAt.Valid && (instance.Status == "active" || instance.Status == "waiting" || (instance.Status == "completed" && service.TaskWorkflowIsReusable(stages)))
 	resp.StageCount = int32(len(stages))
 	for _, stage := range stages {
 		if instance.CurrentStageID.Valid && stage.ID == instance.CurrentStageID {

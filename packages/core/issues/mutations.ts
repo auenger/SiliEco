@@ -225,16 +225,11 @@ export function useCreateIssue() {
         if (data) qc.setQueryData<ListIssuesCache>(key, addIssueToBuckets(data, newIssue));
       }
       // Workflow boards render the Task snapshot embedded in the selected
-      // instance detail. Refresh that one run after an SOP-assigned Task is
-      // created; invalidating only the ordinary issue lists leaves the Stage
-      // board showing its pre-create snapshot.
+      // instance detail. New membership can also reactivate the run, so refresh
+      // both the detail and run lists after an SOP-assigned Task is created.
       if (newIssue.workflow_instance_id) {
-        qc.invalidateQueries({
-          queryKey: workflowKeys.instance(
-            wsId,
-            newIssue.workflow_instance_id,
-          ),
-        });
+        qc.invalidateQueries({queryKey: workflowKeys.instance(wsId, newIssue.workflow_instance_id)});
+        qc.invalidateQueries({queryKey: [...workflowKeys.all(wsId), "instances"]});
       }
       // Surface the just-created issue in cmd+k's Recent list without
       // requiring the user to open it first.
@@ -540,6 +535,9 @@ export function useUpdateIssue() {
           vars.workflow_instance_id,
         ].filter((id): id is string => Boolean(id)),
       );
+      if (affectedWorkflowInstances.size > 0) {
+        qc.invalidateQueries({ queryKey: [...workflowKeys.all(wsId), "instances"] });
+      }
       for (const instanceId of affectedWorkflowInstances) {
         qc.invalidateQueries({
           queryKey: workflowKeys.instance(wsId, instanceId),

@@ -194,9 +194,9 @@ export function useAttachWorkflowTask() {
       taskId: string;
       stageId: string;
     }) => api.attachWorkflowTask(instanceId, taskId, stageId),
-    onSettled: (_data, _error, variables) =>
+    onSettled: () =>
       queryClient.invalidateQueries({
-        queryKey: workflowKeys.instance(workspaceId, variables.instanceId),
+        queryKey: workflowKeys.all(workspaceId),
       }),
   });
 }

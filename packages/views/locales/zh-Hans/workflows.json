@@ -82,6 +82,8 @@
     "panel_summary": "当前 Stage 已完成 {{complete}} / {{total}} 个 task。",
     "unavailable": "暂不可验证",
     "no_current_stage": "本次运行尚未进入可验证的 Stage。",
+    "round_completed": "当前任务已完成验收。新建或加入后续任务即可继续使用此 SOP，新任务仍需重新完成阶段验收。",
+    "round_completed_badge": "本轮已完成",
     "run_closed": "本次运行状态为 {{status}}，不能再执行 Stage 验证。",
     "open": "检查 Stage",
     "waiting_human": "等待指定成员",

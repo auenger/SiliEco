@@ -55,7 +55,7 @@ export function WorkflowAssignmentPicker({
       projectRuns.filter(
         (run) =>
           !run.archived_at &&
-          run.status !== "completed" &&
+          (run.status !== "completed" || run.accepts_new_tasks === true) &&
           run.status !== "cancelled",
       ),
     [projectRuns],
@@ -86,7 +86,7 @@ export function WorkflowAssignmentPicker({
     if (!workflowInstanceId || stages.length === 0) return;
     if (stages.some((stage) => stage.id === workflowStageId)) return;
     const defaultStage =
-      stages.find((stage) => stage.id === runDetail?.current_stage_id) ??
+      stages.find((stage) => runDetail?.status !== "completed" && stage.id === runDetail?.current_stage_id) ??
       stages[0];
     if (defaultStage) {
       onChange({
@@ -97,6 +97,7 @@ export function WorkflowAssignmentPicker({
   }, [
     onChange,
     runDetail?.current_stage_id,
+    runDetail?.status,
     stages,
     workflowInstanceId,
     workflowStageId,

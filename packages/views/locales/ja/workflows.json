@@ -81,6 +81,8 @@
     "panel_summary": "現在の Stage は {{total}} 件中 {{complete}} 件の Task が完了しています。",
     "unavailable": "検証できません",
     "no_current_stage": "この実行には検証可能な Stage がありません。",
+    "round_completed": "現在のタスクの検証が完了しました。新しいタスクを追加すると、この SOP を続行できます。新しいタスクは再検証が必要です。",
+    "round_completed_badge": "今回の作業完了",
     "run_closed": "この実行は {{status}} のため、Stage を検証できません。",
     "open": "Stage を確認",
     "waiting_human": "指定メンバーの確認待ち",

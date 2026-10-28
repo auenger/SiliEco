@@ -319,7 +319,7 @@ describe("Project accordion", () => {
     await waitFor(() => expect(chevron?.getAttribute("class")).not.toContain("rotate-90"));
   });
 
-  it("shows Project resources and each active SOP run as direct links", () => {
+  it("keeps completed SOP runs accessible alongside active runs", () => {
     workflowRuns.current = [
       {
         id: "run-1",
@@ -327,6 +327,13 @@ describe("Project accordion", () => {
         project_id: "project-1",
         status: "active",
         archived_at: null,
+      },
+      {
+        id: "run-archived",
+        title: "Archived SOP",
+        project_id: "project-1",
+        status: "completed",
+        archived_at: "2026-10-23T00:00:00Z",
       },
       {
         id: "run-done",
@@ -348,7 +355,11 @@ describe("Project accordion", () => {
       "href",
       "/acme/projects/project-1?run=run-1",
     );
-    expect(screen.queryByText("Completed SOP")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Completed SOP" })).toHaveAttribute(
+      "href",
+      "/acme/projects/project-1?run=run-done",
+    );
+    expect(screen.queryByText("Archived SOP")).not.toBeInTheDocument();
   });
 });
 

@@ -159,6 +159,7 @@ type WorkflowInstanceResponse struct {
 	Description       *string                          `json:"description"`
 	Inputs            json.RawMessage                  `json:"inputs"`
 	Revision          int32                            `json:"revision"`
+	AcceptsNewTasks   bool                             `json:"accepts_new_tasks"`
 	CanEdit           bool                             `json:"can_edit"`
 	SourceVersion     int32                            `json:"source_version"`
 	Status            string                           `json:"status"`
@@ -1819,7 +1820,7 @@ func (h *Handler) AttachWorkflowTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "workflow instance not found")
 		return
 	}
-	if instance.Status == "completed" || instance.Status == "cancelled" {
+	if instance.Status == "cancelled" {
 		writeError(w, http.StatusConflict, "workflow instance is closed")
 		return
 	}

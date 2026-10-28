@@ -888,6 +888,7 @@ export const WorkflowReworkSchema = z.object({
 });
 
 export const WorkflowInstanceSchema = z.object({
+  accepts_new_tasks: z.boolean().optional().catch(undefined),
   reworks:z.array(WorkflowReworkSchema).default([]).catch([]),
   inputs: z.record(z.string(), z.unknown()).default({}).catch({}),
   id: z.string(),

@@ -604,6 +604,81 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	if decisionCount != 1 {
 		t.Fatalf("expected one human gate decision, got %d", decisionCount)
 	}
+
+	// A completed task pipeline accepts another requirement without replacing
+	// its identity, old tasks, or gate audit. All new delivery needs fresh review.
+	detail := httptest.NewRecorder()
+	testHandler.GetWorkflowInstance(detail, workflowRequest(http.MethodGet, "/run", nil, map[string]string{"id": instance.ID}))
+	var completedDetail WorkflowInstanceResponse
+	if err := json.Unmarshal(detail.Body.Bytes(), &completedDetail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Code != http.StatusOK || !completedDetail.AcceptsNewTasks {
+		t.Fatalf("completed manual run capability missing: %d %s", detail.Code, detail.Body.String())
+	}
+	oldToken := workflowStateTokenForTest(t, instance.ID)
+	followup := httptest.NewRecorder()
+	testHandler.CreateIssue(followup, newRequest(http.MethodPost, "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Next independent requirement", "status": "backlog", "project_id": projectID,
+		"workflow_instance_id": instance.ID, "workflow_stage_id": firstStage.ID,
+	}))
+	if followup.Code != http.StatusCreated {
+		t.Fatalf("follow-up creation: %d %s", followup.Code, followup.Body.String())
+	}
+	var nextTask IssueResponse
+	if err := json.Unmarshal(followup.Body.Bytes(), &nextTask); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := testHandler.Queries.GetWorkflowInstanceInWorkspace(context.Background(), db.GetWorkflowInstanceInWorkspaceParams{ID: parseUUID(instance.ID), WorkspaceID: parseUUID(testWorkspaceID)})
+	if err != nil || resumed.Status != "active" || resumed.CurrentStageID != parseUUID(firstStage.ID) || resumed.CompletedAt.Valid {
+		t.Fatalf("not resumed at requirement stage: %+v %v", resumed, err)
+	}
+	if workflowStateTokenForTest(t, instance.ID) == oldToken {
+		t.Fatal("previous review token survived new work")
+	}
+	freshReview := httptest.NewRecorder()
+	testHandler.TransitionWorkflowInstance(freshReview, workflowRequest(http.MethodPost, "/transition", map[string]any{"outcome": "approved", "expected_state_token": workflowStateTokenForTest(t, instance.ID)}, map[string]string{"id": instance.ID}))
+	if freshReview.Code != http.StatusConflict {
+		t.Fatalf("unfinished new task bypassed review: %d %s", freshReview.Code, freshReview.Body.String())
+	}
+	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET status='done' WHERE id=$1`, nextTask.ID); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		review := httptest.NewRecorder()
+		testHandler.TransitionWorkflowInstance(review, workflowRequest(http.MethodPost, "/transition", map[string]any{"outcome": "approved", "expected_state_token": workflowStateTokenForTest(t, instance.ID)}, map[string]string{"id": instance.ID}))
+		if review.Code != http.StatusOK {
+			t.Fatalf("second round review: %d %s", review.Code, review.Body.String())
+		}
+	}
+	var historyCount int
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM workflow_gate_decision WHERE workflow_instance_id=$1`, instance.ID).Scan(&historyCount); err != nil || historyCount != 2 {
+		t.Fatalf("review history lost: %d %v", historyCount, err)
+	}
+	// Both task-assignment APIs must be able to reopen the same pipeline.
+	for _, mode := range []string{"attach", "update"} {
+		if _, err := testPool.Exec(context.Background(), `UPDATE workflow_instance SET status='completed',completed_at=now() WHERE id=$1`, instance.ID); err != nil {
+			t.Fatal(err)
+		}
+		unbound := httptest.NewRecorder()
+		testHandler.CreateIssue(unbound, newRequest(http.MethodPost, "/api/issues?workspace_id="+testWorkspaceID, map[string]any{"title": "New membership via " + mode, "status": "backlog", "project_id": projectID}))
+		if unbound.Code != http.StatusCreated {
+			t.Fatalf("unbound task: %d %s", unbound.Code, unbound.Body.String())
+		}
+		var task IssueResponse
+		if err := json.Unmarshal(unbound.Body.Bytes(), &task); err != nil {
+			t.Fatal(err)
+		}
+		attached := httptest.NewRecorder()
+		if mode == "attach" {
+			testHandler.AttachWorkflowTask(attached, workflowRequest(http.MethodPost, "/tasks", map[string]any{"stage_id": firstStage.ID}, map[string]string{"id": instance.ID, "taskId": task.ID}))
+		} else {
+			testHandler.UpdateIssue(attached, workflowRequest(http.MethodPut, "/api/issues/"+task.ID, map[string]any{"workflow_instance_id": instance.ID, "workflow_stage_id": firstStage.ID}, map[string]string{"id": task.ID}))
+		}
+		if attached.Code != http.StatusOK {
+			t.Fatalf("%s follow-up: %d %s", mode, attached.Code, attached.Body.String())
+		}
+	}
 }
 
 func TestSpaceWorkflowCanRunInsideAProject(t *testing.T) {

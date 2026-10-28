@@ -52,7 +52,6 @@ export function ProjectTaskSurface({
       runs.filter(
         (run) =>
           !run.archived_at &&
-          run.status !== "completed" &&
           run.status !== "cancelled",
       ),
     [runs],
@@ -94,9 +93,10 @@ export function ProjectTaskSurface({
     enabled: effectiveMode === "stage" && Boolean(selectedRunId),
   });
   const openStageTask = () => {
+    if (selectedRun?.status !== "active" && selectedRun?.status !== "waiting" && selectedRun?.accepts_new_tasks !== true) return;
     const stage =
       selectedRun?.stages?.find(
-        (item) => item.id === selectedRun.current_stage_id,
+        (item) => selectedRun.status !== "completed" && item.id === selectedRun.current_stage_id,
       ) ?? selectedRun?.stages?.[0];
     if (!selectedRun || !stage) return;
     useModalStore.getState().open("create-issue", {
@@ -217,7 +217,10 @@ export function ProjectTaskSurface({
             )}
             <Button
               size="sm"
-              disabled={!selectedRun?.stages?.length}
+              disabled={
+                !selectedRun?.stages?.length ||
+                (selectedRun.status !== "active" && selectedRun.status !== "waiting" && selectedRun.accepts_new_tasks !== true)
+              }
               onClick={openStageTask}
             >
               <Plus className="size-3.5" />

@@ -499,13 +499,12 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     ...workflowInstancesOptions(wsId ?? ""),
     enabled: Boolean(wsId),
   });
-  const activeRunsByProject = React.useMemo(() => {
+  const visibleRunsByProject = React.useMemo(() => {
     const grouped = new Map<string, typeof workflowRuns>();
     for (const run of workflowRuns) {
       if (
         !run.project_id ||
         run.archived_at ||
-        run.status === "completed" ||
         run.status === "cancelled"
       ) {
         continue;
@@ -827,7 +826,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                             const projectHref = p.projectDetail(project.id);
                             const resourceHref = p.projectResources(project.id);
                             const sopHref = p.projectSop(project.id);
-                            const projectRuns = activeRunsByProject.get(project.id) ?? [];
+                            const projectRuns = visibleRunsByProject.get(project.id) ?? [];
                             const projectOpen = expandedProjectIds.has(project.id);
                             const projectActive = isNavActive(pathname, projectHref);
                             const activeSection = searchParams.get("section");

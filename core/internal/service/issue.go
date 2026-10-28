@@ -242,10 +242,13 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 		// Serialize insertion with stage transitions before allocating an issue
 		// number or creating any dependent records.
 		instance, err := lockWorkflowExecutionRun(ctx, qtx, p.WorkspaceID, workflowInstanceID)
-		if err != nil || instance.ArchivedAt.Valid || instance.Status == "completed" || instance.Status == "cancelled" {
+		if err != nil || instance.ArchivedAt.Valid || instance.Status == "cancelled" {
 			return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
 		}
 		if !instance.ProjectID.Valid || instance.ProjectID != projectID {
+			return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
+		}
+		if err := prepareWorkflowForNewTask(ctx, qtx, instance, workflowStageID); err != nil {
 			return IssueCreateResult{}, ErrWorkflowAssignmentInvalid
 		}
 		// Tasks bind to the immutable Stage copy owned by this Run, not to the

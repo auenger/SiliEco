@@ -69,6 +69,15 @@ describe("useRealtimeSync — ws instance change", () => {
     invalidateSpy = vi.spyOn(qc, "invalidateQueries");
   });
 
+  it.each(["issue:created", "issue:updated"] as const)("refreshes SOP continuation after %s from another client", (event) => {
+    const ws = createMockWs();
+    renderHook(() => useRealtimeSync(ws, stores), {wrapper: createWrapper(qc)});
+    const callback = vi.mocked(ws.on).mock.calls.find(([name]) => name === event)?.[1];
+    expect(callback).toBeDefined();
+    callback!({issue:{id:"task-1", workflow_instance_id:"run-1", status:"backlog"}} as never);
+    expect(invalidateSpy).toHaveBeenCalledWith({queryKey:workflowKeys.all("ws-1")});
+  });
+
   it("skips invalidation on first non-null ws instance", () => {
     const ws = createMockWs();
     renderHook(() => useRealtimeSync(ws, stores), {
