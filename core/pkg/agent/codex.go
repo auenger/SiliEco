@@ -882,6 +882,12 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		opts.CustomArgs = filterCodexShellEnvConfigOverrides(opts.CustomArgs, b.cfg.Logger)
 	}
 	codexArgs := buildCodexArgs(opts, b.cfg.Logger)
+	if codexHome != "" {
+		// Login profiles and cached shell snapshots can replace the daemon's
+		// PATH, hiding its bundled silieco CLI. Task-managed shells must use
+		// the fresh environment assembled by the daemon on every launch.
+		codexArgs = append(codexArgs, "-c", "allow_login_shell=false", "--disable", "shell_snapshot")
+	}
 	cmd := b.cfg.commandAt(execPath).exec(runCtx, codexArgs...)
 	hideAgentWindow(cmd)
 	// Run codex in its own process group so a cancel-on-stuck cleanup

@@ -4462,3 +4462,50 @@ func TestHasManagedCodexMcpConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexManagedShellKeepsDaemonEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fixture is POSIX-only")
+	}
+	t.Parallel()
+	for _, managed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("managed=%t", managed), func(t *testing.T) {
+			capture := filepath.Join(t.TempDir(), "args.txt")
+			fake := writeFakeCodexAppServer(t, `printf '%s\n' "$@" > "$CAPTURE_ARGS"
+exit 1
+`)
+			env := map[string]string{"CAPTURE_ARGS": capture}
+			if managed {
+				env["CODEX_HOME"] = t.TempDir()
+			}
+			backend, err := New("codex", Config{ExecutablePath: fake, Logger: slog.Default(), Env: env})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			session, launchErr := backend.Execute(ctx, "unused", ExecOptions{CustomArgs: []string{"-c", "allow_login_shell=true", "--enable", "shell_snapshot"}})
+			if launchErr != nil {
+				t.Fatal(launchErr)
+			}
+			select {
+			case <-session.Result:
+			case <-ctx.Done():
+				t.Fatal("fake Codex did not exit")
+			}
+			raw, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := strings.Split(strings.TrimSpace(string(raw)), "\n")
+			want := []string{"-c", "allow_login_shell=false", "--disable", "shell_snapshot"}
+			if managed {
+				if len(args) < len(want) || !reflect.DeepEqual(args[len(args)-len(want):], want) {
+					t.Fatalf("managed shell overrides must win last: %v", args)
+				}
+			} else if strings.Contains(string(raw), "allow_login_shell=false") {
+				t.Fatalf("unmanaged launch was changed: %v", args)
+			}
+		})
+	}
+}
