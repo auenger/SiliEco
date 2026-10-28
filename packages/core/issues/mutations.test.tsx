@@ -641,6 +641,43 @@ describe("useUpdateIssue — optimistic move keeps every bucketed board in sync"
     });
   });
 
+  it("recovers scalar updates from a legacy whole-second revision loop", async () => {
+    const legacy = makeIssue(1, { revision: "2026-10-22T15:55:29Z" });
+    qc.setQueryData(issueKeys.detail(WS_ID, legacy.id), legacy);
+    updateIssue.mockRejectedValueOnce(new ApiError("conflict", 409, "Conflict", {
+      code: "revision_conflict", current: legacy,
+      attempted: { status: "done", expected_revision: legacy.revision },
+    })).mockResolvedValueOnce({ ...legacy, status: "done" });
+    const { result } = renderHook(() => useUpdateIssue(), { wrapper: createWrapper(qc) });
+    await act(async () => { await result.current.mutateAsync({ id: legacy.id, status: "done" }); });
+    expect(updateIssue).toHaveBeenNthCalledWith(2, legacy.id, { status: "done" });
+  });
+
+  it("recovers a legacy revision loop after refreshing an initially stale revision", async () => {
+    const legacy = makeIssue(1, { revision: "2026-10-22T16:14:58Z" });
+    qc.setQueryData(issueKeys.detail(WS_ID, legacy.id), { ...legacy, revision: "2026-10-22T16:12:14Z" });
+    const conflict = new ApiError("conflict", 409, "Conflict", {
+      code: "revision_conflict", current: legacy, attempted: { status: "done" },
+    });
+    updateIssue.mockRejectedValueOnce(conflict).mockRejectedValueOnce(conflict).mockResolvedValueOnce({ ...legacy, status: "done" });
+    const { result } = renderHook(() => useUpdateIssue(), { wrapper: createWrapper(qc) });
+    await act(async () => { await result.current.mutateAsync({ id: legacy.id, status: "done" }); });
+    expect(updateIssue).toHaveBeenNthCalledWith(2, legacy.id, { status: "done", expected_revision: legacy.revision });
+    expect(updateIssue).toHaveBeenNthCalledWith(3, legacy.id, { status: "done" });
+  });
+
+  it("does not remove revision protection for text conflicts on legacy servers", async () => {
+    const legacy = makeIssue(1, { revision: "2026-10-22T15:55:29Z" });
+    qc.setQueryData(issueKeys.detail(WS_ID, legacy.id), legacy);
+    updateIssue.mockRejectedValue(new ApiError("conflict", 409, "Conflict", {
+      code: "revision_conflict", current: legacy,
+      attempted: { description: "new text", expected_revision: legacy.revision },
+    }));
+    const { result } = renderHook(() => useUpdateIssue(), { wrapper: createWrapper(qc) });
+    await act(async () => { await expect(result.current.mutateAsync({ id: legacy.id, description: "new text" })).rejects.toThrow(); });
+    expect(updateIssue).toHaveBeenCalledTimes(1);
+  });
+
   it("rolls both caches back when the request fails", async () => {
     updateIssue.mockRejectedValue(new Error("boom"));
 

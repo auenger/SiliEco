@@ -284,10 +284,37 @@ export function useUpdateIssue() {
           ) {
             throw error;
           }
-          return api.updateIssue(id, {
-            ...data,
-            expected_revision: latestRevision,
-          });
+          // Older servers truncate revisions to whole seconds, so even a
+          // fresh revision can never match their stored microseconds. Keep
+          // this compatibility retry limited to scalar metadata; text and
+          // attachment conflicts still require explicit review.
+          const scalarOnly = Object.entries(data).every(([field, value]) =>
+            value === undefined || ["status", "priority", "assignee_type", "assignee_id", "suppress_run", "handoff_note"].includes(field),
+          );
+          if (
+            scalarOnly &&
+            conflict.current.id === id &&
+            latestRevision === current?.revision &&
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(latestRevision)
+          ) {
+            return api.updateIssue(id, data);
+          }
+          try {
+            return await api.updateIssue(id, {
+              ...data,
+              expected_revision: latestRevision,
+            });
+          } catch (retryError) {
+            const repeated = revisionConflictBody(retryError);
+            if (
+              scalarOnly && repeated?.current.id === id &&
+              repeated.current.revision === latestRevision &&
+              /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(latestRevision)
+            ) {
+              return api.updateIssue(id, data);
+            }
+            throw retryError;
+          }
         }
       }
       const { position: _optimisticPosition, ...target } = data;
