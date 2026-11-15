@@ -11,28 +11,28 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/runtimeapps"
 )
 
-// Sub-issue Creation section — after SILI-2538 the platform posts the
+// Sub-task Creation section — after SILI-2538 the platform posts the
 // child-done parent notification itself, so the brief no longer carries
 // any parent-notification rule (per Bohan's call on PR #3055: delete the
 // guidance entirely, do not replace it with a "do not post one" sentence
 // — the agent should not be thinking about parent comments at all). All
 // that remains is the `--status todo` vs `--status backlog` rule for
-// creating sub-issues, which is unrelated to the notification path.
+// creating sub-tasks, which is unrelated to the notification path.
 
-func TestSubIssueCreationSectionPresentForIssueRuns(t *testing.T) {
+func TestSubTaskCreationSectionPresentForTaskRuns(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
-		ctx  TaskContextForEnv
+		ctx  RunContextForEnv
 	}{
 		{
 			name: "assignment-triggered",
-			ctx:  TaskContextForEnv{IssueID: "11111111-2222-3333-4444-555555555555"},
+			ctx:  RunContextForEnv{TaskID: "11111111-2222-3333-4444-555555555555"},
 		},
 		{
 			name: "comment-triggered",
-			ctx: TaskContextForEnv{
-				IssueID:          "22222222-3333-4444-5555-666666666666",
+			ctx: RunContextForEnv{
+				TaskID:           "22222222-3333-4444-5555-666666666666",
 				TriggerCommentID: "33333333-4444-5555-6666-777777777777",
 			},
 		},
@@ -43,14 +43,14 @@ func TestSubIssueCreationSectionPresentForIssueRuns(t *testing.T) {
 			t.Parallel()
 			out := buildMetaSkillContent("claude", tc.ctx)
 
-			if !strings.Contains(out, "## Sub-issue Creation") {
-				t.Fatalf("expected Sub-issue Creation section in %s brief", tc.name)
+			if !strings.Contains(out, "## Sub-task Creation") {
+				t.Fatalf("expected Sub-task Creation section in %s brief", tc.name)
 			}
 			for _, want := range []string{
-				"**Choosing `--status` when creating sub-issues.**",
+				"**Choosing `--status` when creating sub-tasks.**",
 				"`--status todo` = **start now**",
 				"`--status backlog` = **wait**",
-				"`silieco issue status <child-id> todo`",
+				"`silieco task status <child-id> todo`",
 				"all `--status todo`",
 				"`--status backlog` from the start",
 				// Stage guidance must reach the always-on brief so agents
@@ -58,7 +58,7 @@ func TestSubIssueCreationSectionPresentForIssueRuns(t *testing.T) {
 				// (SILI-3508 follow-up).
 				"**Ordering with stages.**",
 				"`--stage <N>`",
-				"`silieco issue children <id>`",
+				"`silieco task children <id>`",
 			} {
 				if !strings.Contains(out, want) {
 					t.Errorf("[%s] section missing %q", tc.name, want)
@@ -79,10 +79,10 @@ func TestSubIssueCreationSectionPresentForIssueRuns(t *testing.T) {
 // not come back through future edits.
 func TestBriefHasNoParentNotificationGuidance(t *testing.T) {
 	t.Parallel()
-	cases := []TaskContextForEnv{
-		{IssueID: "11111111-2222-3333-4444-555555555555"},
+	cases := []RunContextForEnv{
+		{TaskID: "11111111-2222-3333-4444-555555555555"},
 		{
-			IssueID:          "22222222-3333-4444-5555-666666666666",
+			TaskID:           "22222222-3333-4444-5555-666666666666",
 			TriggerCommentID: "33333333-4444-5555-6666-777777777777",
 		},
 	}
@@ -97,9 +97,9 @@ func TestBriefHasNoParentNotificationGuidance(t *testing.T) {
 		// Both framings must stay out.
 		for _, banned := range []string{
 			// Old "do it yourself" framing (PR #2918).
-			"## Parent / Sub-issue Protocol",
+			"## Parent / Sub-task Protocol",
 			"**Tell the parent when you finish a child.**",
-			"silieco issue comment add <parent-id>",
+			"silieco task comment add <parent-id>",
 			"with NO `--parent`",
 			"link the child as `[SILI-",
 			"`@mention` the parent's assignee",
@@ -122,17 +122,17 @@ func TestBriefHasNoParentNotificationGuidance(t *testing.T) {
 			"| Member or squad |",
 			"### A. Notify the parent",
 			"### B. Choose",
-			"When this issue has `parent_issue_id`:",
-			"**Closing out child work** (only if this issue has `parent_issue_id`)",
-			"**Notify the parent** (only if this issue has `parent_issue_id`",
-			"**Creating sub-issues** (applies to any issue-bound run)",
+			"When this task has `parent_task_id`:",
+			"**Closing out child work** (only if this task has `parent_task_id`)",
+			"**Notify the parent** (only if this task has `parent_task_id`",
+			"**Creating sub-tasks** (applies to any task-bound run)",
 			"For parent/child work, use these best-effort rules",
 			// The protocol must no longer emit a placeholder
-			// `<this-issue-id>` status flip — the workflow above owns
-			// that command with the real issue id substituted.
-			"`silieco issue status <this-issue-id> in_review`",
+			// `<this-task-id>` status flip — the workflow above owns
+			// that command with the real task id substituted.
+			"`silieco task status <this-task-id> in_review`",
 			// Non-existent CLI form Elon's earlier review flagged.
-			"issue list --parent",
+			"task list --parent",
 		} {
 			if strings.Contains(out, banned) {
 				t.Errorf("expected %q to be removed from the brief", banned)
@@ -142,53 +142,53 @@ func TestBriefHasNoParentNotificationGuidance(t *testing.T) {
 }
 
 // Comment-triggered briefs must NOT carry any unconditional status-flip
-// command targeting the current issue. Previous revisions had a
-// dedicated protocol step that wrote `silieco issue status <this-issue-id> in_review`;
-// the comment-triggered workflow rule "Do NOT change the issue status
+// command targeting the current task. Previous revisions had a
+// dedicated protocol step that wrote `silieco task status <this-task-id> in_review`;
+// the comment-triggered workflow rule "Do NOT change the task status
 // unless the comment explicitly asks for it" must remain the source of
 // truth (Elon's blocking review on PR #2918).
 func TestCommentTriggeredProtocolDoesNotForceInReview(t *testing.T) {
 	t.Parallel()
-	ctx := TaskContextForEnv{
-		IssueID:          "55555555-6666-7777-8888-999999999999",
+	ctx := RunContextForEnv{
+		TaskID:           "55555555-6666-7777-8888-999999999999",
 		TriggerCommentID: "66666666-7777-8888-9999-aaaaaaaaaaaa",
 	}
 	out := buildMetaSkillContent("claude", ctx)
 
-	if strings.Contains(out, "`silieco issue status <this-issue-id> in_review`") {
-		t.Errorf("comment-triggered brief must not contain a placeholder `<this-issue-id> in_review` flip — that conflicts with the comment-triggered \"do not change status unless asked\" rule")
+	if strings.Contains(out, "`silieco task status <this-task-id> in_review`") {
+		t.Errorf("comment-triggered brief must not contain a placeholder `<this-task-id> in_review` flip — that conflicts with the comment-triggered \"do not change status unless asked\" rule")
 	}
 
-	const guardrail = "Do NOT change the issue status unless the comment explicitly asks for it"
+	const guardrail = "Do NOT change the task status unless the comment explicitly asks for it"
 	if !strings.Contains(out, guardrail) {
 		t.Errorf("expected the comment-triggered workflow guardrail %q to be present", guardrail)
 	}
 
 	// For an ordinary agent the guardrail is absolute — the squad-leader
 	// carve-out below must not leak into this path.
-	if strings.Contains(out, "Own the parent issue status") {
+	if strings.Contains(out, "Own the parent task status") {
 		t.Errorf("ordinary-agent comment brief must not reference the squad status grant:\n%s", out)
 	}
 }
 
 // A squad leader on a comment-triggered turn gets the same guardrail plus a
 // named exception. Without it the guardrail and the Squad Operating Protocol's
-// "Own the parent issue status" responsibility contradict each other on the
+// "Own the parent task status" responsibility contradict each other on the
 // @mention-dispatch shape, where the member's delivery comment never asks for
 // a status change and no child-done system comment exists to ask on its
 // behalf — so the parent would sit in in_progress forever.
 func TestCommentTriggeredSquadLeaderDefersToStatusOwnershipGrant(t *testing.T) {
 	t.Parallel()
-	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID:          "55555555-6666-7777-8888-999999999999",
+	out := buildMetaSkillContent("claude", RunContextForEnv{
+		TaskID:           "55555555-6666-7777-8888-999999999999",
 		TriggerCommentID: "66666666-7777-8888-9999-aaaaaaaaaaaa",
 		IsSquadLeader:    true,
 	})
 
 	for _, want := range []string{
-		"Do NOT change the issue status unless the comment explicitly asks for it",
-		`Squad Operating Protocol's "Own the parent issue status"`,
-		"only appears when this issue is assigned to your squad",
+		"Do NOT change the task status unless the comment explicitly asks for it",
+		`Squad Operating Protocol's "Own the parent task status"`,
+		"only appears when this task is assigned to your squad",
 		"without waiting to be asked",
 		"When it is absent, the rule above is absolute.",
 	} {
@@ -212,11 +212,11 @@ func TestCommentTriggeredSquadLeaderDefersToStatusOwnershipGrant(t *testing.T) {
 func TestPerRunCommentContextStaysOutOfBrief(t *testing.T) {
 	t.Parallel()
 	const (
-		issueID = "55555555-6666-7777-8888-999999999999"
-		since   = "2026-05-28T11:00:00Z"
+		taskID = "55555555-6666-7777-8888-999999999999"
+		since  = "2026-05-28T11:00:00Z"
 	)
-	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID:          issueID,
+	out := buildMetaSkillContent("claude", RunContextForEnv{
+		TaskID:           taskID,
 		TriggerCommentID: "reply-abc",
 		TriggerThreadID:  "thread-abc",
 		NewCommentCount:  4,
@@ -229,7 +229,7 @@ func TestPerRunCommentContextStaysOutOfBrief(t *testing.T) {
 
 	for _, banned := range []string{
 		"reply-abc", "thread-abc", "reply-def", "thread-def", since,
-		"4 new comment(s) on this issue since your last run",
+		"4 new comment(s) on this task since your last run",
 		"DISTINCT threads",
 	} {
 		if strings.Contains(out, banned) {
@@ -238,9 +238,9 @@ func TestPerRunCommentContextStaysOutOfBrief(t *testing.T) {
 	}
 
 	// The helper that now feeds the per-turn prompt is unchanged.
-	hint := BuildNewCommentsHint(issueID, "reply-abc", "thread-abc", since, 4)
+	hint := BuildNewCommentsHint(taskID, "reply-abc", "thread-abc", since, 4)
 	for _, want := range []string{
-		"4 new comment(s) on this issue since your last run",
+		"4 new comment(s) on this task since your last run",
 		"blindly",
 		"--thread thread-abc --since " + since + " --output json",
 		"--tail 30",
@@ -255,15 +255,15 @@ func TestPerRunCommentContextStaysOutOfBrief(t *testing.T) {
 // helper behaviour it relies on is pinned here directly.
 func TestColdCommentsHintPointsAtTriggeringThread(t *testing.T) {
 	t.Parallel()
-	const issueID = "55555555-6666-7777-8888-999999999999"
-	hint := BuildColdCommentsHint(issueID, "trigger-1", "thread-root-1")
+	const taskID = "55555555-6666-7777-8888-999999999999"
+	hint := BuildColdCommentsHint(taskID, "trigger-1", "thread-root-1")
 	if strings.Contains(hint, "new comment(s) since your last run") {
 		t.Errorf("no since-delta hint should render on cold start, got:\n%s", hint)
 	}
-	if !strings.Contains(hint, "silieco issue comment list "+issueID+" --thread thread-root-1 --tail 30 --output json") {
+	if !strings.Contains(hint, "silieco task comment list "+taskID+" --thread thread-root-1 --tail 30 --output json") {
 		t.Errorf("cold start must point at the triggering thread read, got:\n%s", hint)
 	}
-	if strings.Contains(buildMetaSkillContent("claude", TaskContextForEnv{IssueID: issueID, TriggerCommentID: "trigger-1", TriggerThreadID: "thread-root-1"}), "thread-root-1") {
+	if strings.Contains(buildMetaSkillContent("claude", RunContextForEnv{TaskID: taskID, TriggerCommentID: "trigger-1", TriggerThreadID: "thread-root-1"}), "thread-root-1") {
 		t.Error("brief must not carry the per-run thread id (SILI-5377)")
 	}
 }
@@ -271,16 +271,16 @@ func TestColdCommentsHintPointsAtTriggeringThread(t *testing.T) {
 // Resumed/no-delta routing moved to the per-turn prompt (SILI-5377).
 func TestResumedCommentsHintSkipsDefaultThreadRead(t *testing.T) {
 	t.Parallel()
-	const issueID = "55555555-6666-7777-8888-999999999999"
-	hint := BuildResumedCommentsHint(issueID, "trigger-1", "thread-root-1")
+	const taskID = "55555555-6666-7777-8888-999999999999"
+	hint := BuildResumedCommentsHint(taskID, "trigger-1", "thread-root-1")
 
 	for _, want := range []string{
 		"triggering comment is already included above",
-		"No other new comments on this issue since your last run",
+		"No other new comments on this task since your last run",
 		"active thread anchor `thread-root-1` and triggering comment ID `trigger-1`",
 		"If your reply depends on thread context",
 		"do not rely only on resumed session memory",
-		"silieco issue comment list " + issueID + " --thread thread-root-1 --tail 30 --output json",
+		"silieco task comment list " + taskID + " --thread thread-root-1 --tail 30 --output json",
 	} {
 		if !strings.Contains(hint, want) {
 			t.Errorf("resumed/no-delta hint missing %q\n--- output ---\n%s", want, hint)
@@ -308,8 +308,8 @@ func TestSessionContinuityNoticeLivesOutsideBrief(t *testing.T) {
 		}
 	}
 
-	lost := TaskContextForEnv{
-		IssueID:                       "11111111-2222-3333-4444-555555555555",
+	lost := RunContextForEnv{
+		TaskID:                        "11111111-2222-3333-4444-555555555555",
 		TriggerCommentID:              "trigger-1",
 		PriorSessionResumeUnavailable: true,
 	}
@@ -318,85 +318,85 @@ func TestSessionContinuityNoticeLivesOutsideBrief(t *testing.T) {
 	}
 }
 
-// The issue workflow must keep every Agent Identity guardrail after the
+// The task workflow must keep every Agent Identity guardrail after the
 // comment/assignment branches were merged into one byte-stable section.
-func TestIssueWorkflowHonorsAgentIdentity(t *testing.T) {
+func TestTaskWorkflowHonorsAgentIdentity(t *testing.T) {
 	t.Parallel()
-	const issueID = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
-	out := buildMetaSkillContent("claude", TaskContextForEnv{IssueID: issueID})
+	const taskID = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
+	out := buildMetaSkillContent("claude", RunContextForEnv{TaskID: taskID})
 
 	for _, want := range []string{
 		"## Instruction Precedence",
-		"Agent Identity instructions have priority over the issue workflow below.",
+		"Agent Identity instructions have priority over the task workflow below.",
 		"If a workflow step conflicts with Agent Identity, skip the conflicting action",
-		"Never treat this runtime workflow as permission to change issue status, investigate, implement",
-		"Before step 4, run `silieco issue status " + issueID + " in_progress` unless your Agent Identity forbids issue status changes; if it does, skip it.",
+		"Never treat this runtime workflow as permission to change task status, investigate, implement",
+		"Before step 4, run `silieco task status " + taskID + " in_progress` unless your Agent Identity forbids task status changes; if it does, skip it.",
 		"Complete the task within your Agent Identity boundaries.",
-		"Do not investigate, implement, create issues, update issues, or delegate if your Agent Identity forbids that action",
-		"When done, run `silieco issue status " + issueID + " in_review` unless your Agent Identity forbids issue status changes; if it does, skip it.",
-		"If blocked, run `silieco issue status " + issueID + " blocked` unless your Agent Identity forbids issue status changes.",
+		"Do not investigate, implement, create tasks, update tasks, or delegate if your Agent Identity forbids that action",
+		"When done, run `silieco task status " + taskID + " in_review` unless your Agent Identity forbids task status changes; if it does, skip it.",
+		"If blocked, run `silieco task status " + taskID + " blocked` unless your Agent Identity forbids task status changes.",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("issue brief missing identity-bound workflow text %q\n---\n%s", want, out)
+			t.Errorf("task brief missing identity-bound workflow text %q\n---\n%s", want, out)
 		}
 	}
 
 	for _, banned := range []string{
-		"4. Run `silieco issue status " + issueID + " in_progress`\n",
+		"4. Run `silieco task status " + taskID + " in_progress`\n",
 		"5. Follow your Skills and Agent Identity to complete the task (write code, investigate, etc.)",
-		"8. When done, run `silieco issue status " + issueID + " in_review`\n",
+		"8. When done, run `silieco task status " + taskID + " in_review`\n",
 	} {
 		if strings.Contains(out, banned) {
-			t.Errorf("issue brief still contains unconditional legacy workflow text %q\n---\n%s", banned, out)
+			t.Errorf("task brief still contains unconditional legacy workflow text %q\n---\n%s", banned, out)
 		}
 	}
 }
 
 // Squad-leader briefs must open the parent with in_progress, but must not
 // treat the first dispatch turn as completion (no unconditional in_review).
-func TestSquadLeaderIssueWorkflowKeepsParentInProgress(t *testing.T) {
+func TestSquadLeaderTaskWorkflowKeepsParentInProgress(t *testing.T) {
 	t.Parallel()
-	const issueID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID:       issueID,
+	const taskID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	out := buildMetaSkillContent("claude", RunContextForEnv{
+		TaskID:        taskID,
 		IsSquadLeader: true,
 	})
 
 	for _, want := range []string{
-		"Before step 4, run `silieco issue status " + issueID + " in_progress` unless your Agent Identity forbids issue status changes; if it does, skip it.",
-		"After this initial dispatch, leave the parent issue `in_progress`",
-		"do NOT run `silieco issue status " + issueID + " in_review` or `done` on this turn",
+		"Before step 4, run `silieco task status " + taskID + " in_progress` unless your Agent Identity forbids task status changes; if it does, skip it.",
+		"After this initial dispatch, leave the parent task `in_progress`",
+		"do NOT run `silieco task status " + taskID + " in_review` or `done` on this turn",
 		"only then, if the overall goal is met, move the parent to `in_review`",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("squad-leader issue brief missing %q\n---\n%s", want, out)
+			t.Errorf("squad-leader task brief missing %q\n---\n%s", want, out)
 		}
 	}
 
-	if strings.Contains(out, "When done, run `silieco issue status "+issueID+" in_review`") {
-		t.Errorf("squad-leader issue brief must not contain the ordinary-agent completion step\n---\n%s", out)
+	if strings.Contains(out, "When done, run `silieco task status "+taskID+" in_review`") {
+		t.Errorf("squad-leader task brief must not contain the ordinary-agent completion step\n---\n%s", out)
 	}
 }
 
-// Instruction Precedence belongs to the issue workflow only; the issue-less
-// kinds must not inherit it. After SILI-5377 it applies to every issue run,
-// comment-triggered or not, because there is a single issue workflow.
-func TestInstructionPrecedenceOnlyAppliesToIssueWorkflow(t *testing.T) {
+// Instruction Precedence belongs to the task workflow only; the task-less
+// kinds must not inherit it. After SILI-5377 it applies to every task run,
+// comment-triggered or not, because there is a single task workflow.
+func TestInstructionPrecedenceOnlyAppliesToTaskWorkflow(t *testing.T) {
 	t.Parallel()
-	if out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID:          "11111111-2222-3333-4444-555555555555",
+	if out := buildMetaSkillContent("claude", RunContextForEnv{
+		TaskID:           "11111111-2222-3333-4444-555555555555",
 		TriggerCommentID: "22222222-3333-4444-5555-666666666666",
 	}); !strings.Contains(out, "## Instruction Precedence") {
-		t.Errorf("comment-triggered issue brief must carry Instruction Precedence\n---\n%s", out)
+		t.Errorf("comment-triggered task brief must carry Instruction Precedence\n---\n%s", out)
 	}
 
 	cases := []struct {
 		name string
-		ctx  TaskContextForEnv
+		ctx  RunContextForEnv
 	}{
-		{"chat", TaskContextForEnv{ChatSessionID: "chat-1"}},
-		{"quick-create", TaskContextForEnv{QuickCreatePrompt: "create me an issue"}},
-		{"autopilot run-only", TaskContextForEnv{AutopilotRunID: "run-1"}},
+		{"chat", RunContextForEnv{ChatSessionID: "chat-1"}},
+		{"quick-create", RunContextForEnv{QuickCreatePrompt: "create me an task"}},
+		{"autopilot run-only", RunContextForEnv{AutopilotRunID: "run-1"}},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -405,21 +405,21 @@ func TestInstructionPrecedenceOnlyAppliesToIssueWorkflow(t *testing.T) {
 			out := buildMetaSkillContent("claude", tc.ctx)
 			for _, banned := range []string{
 				"## Instruction Precedence",
-				"issue workflow below",
-				"Never treat this runtime workflow as permission to change issue status",
+				"task workflow below",
+				"Never treat this runtime workflow as permission to change task status",
 			} {
 				if strings.Contains(out, banned) {
-					t.Errorf("%s brief must not inherit issue-only precedence text %q\n---\n%s", tc.name, banned, out)
+					t.Errorf("%s brief must not inherit task-only precedence text %q\n---\n%s", tc.name, banned, out)
 				}
 			}
 		})
 	}
 }
 
-func TestChatOutputDoesNotRequireIssueComment(t *testing.T) {
+func TestChatOutputDoesNotRequireTaskComment(t *testing.T) {
 	t.Parallel()
 
-	out := buildMetaSkillContent("claude", TaskContextForEnv{ChatSessionID: "chat-1"})
+	out := buildMetaSkillContent("claude", RunContextForEnv{ChatSessionID: "chat-1"})
 
 	for _, want := range []string{
 		"This is a chat session",
@@ -431,18 +431,18 @@ func TestChatOutputDoesNotRequireIssueComment(t *testing.T) {
 	}
 
 	for _, banned := range []string{
-		"Final results MUST be delivered via `silieco issue comment add`",
+		"Final results MUST be delivered via `silieco task comment add`",
 		"The user does NOT see your terminal output",
-		"do not call `silieco issue comment add`",
+		"do not call `silieco task comment add`",
 		"unless the user explicitly asks",
 	} {
 		if strings.Contains(out, banned) {
-			t.Errorf("chat brief must not inherit issue-comment output warning %q\n---\n%s", banned, out)
+			t.Errorf("chat brief must not inherit task-comment output warning %q\n---\n%s", banned, out)
 		}
 	}
 }
 
-// The Output section for issue tasks must forbid mid-run progress
+// The Output section for task tasks must forbid mid-run progress
 // comments and require the single final result comment. Guards the
 // SILI-3605 regression where a review agent surfaced its progress
 // narration as the result instead of posting a conclusion. (The
@@ -456,13 +456,13 @@ func TestOutputForbidsMidRunProgressComments(t *testing.T) {
 		"Post exactly ONE comment per run",
 		"Do NOT post progress updates",
 	}
-	issueCtxs := map[string]TaskContextForEnv{
-		"assignment": {IssueID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
-		"comment":    {IssueID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", TriggerCommentID: "tc-1"},
+	taskCtxs := map[string]RunContextForEnv{
+		"assignment": {TaskID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+		"comment":    {TaskID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", TriggerCommentID: "tc-1"},
 	}
 
 	run := func(t *testing.T, label string) {
-		for name, ctx := range issueCtxs {
+		for name, ctx := range taskCtxs {
 			out := buildMetaSkillContent("claude", ctx)
 			for _, want := range wantPhrases {
 				if !strings.Contains(out, want) {
@@ -471,11 +471,11 @@ func TestOutputForbidsMidRunProgressComments(t *testing.T) {
 			}
 		}
 		// Chat keeps its own delivery channel; it must not inherit the
-		// issue-task "post a final comment" rules.
-		chat := buildMetaSkillContent("claude", TaskContextForEnv{ChatSessionID: "chat-1"})
+		// task-task "post a final comment" rules.
+		chat := buildMetaSkillContent("claude", RunContextForEnv{ChatSessionID: "chat-1"})
 		for _, banned := range wantPhrases {
 			if strings.Contains(chat, banned) {
-				t.Errorf("%s chat brief must not inherit issue output rule %q", label, banned)
+				t.Errorf("%s chat brief must not inherit task output rule %q", label, banned)
 			}
 		}
 	}
@@ -485,21 +485,21 @@ func TestOutputForbidsMidRunProgressComments(t *testing.T) {
 	run(t, "brief")
 }
 
-// The sub-issue creation rule must reach top-level parents that have no
-// `parent_issue_id` of their own — that is where the `todo` vs `backlog`
-// decision matters most. The section must not gate on this issue being
-// a child, and must not even mention `parent_issue_id`.
-func TestSubIssueCreationSectionIsUnconditional(t *testing.T) {
+// The sub-task creation rule must reach top-level parents that have no
+// `parent_task_id` of their own — that is where the `todo` vs `backlog`
+// decision matters most. The section must not gate on this task being
+// a child, and must not even mention `parent_task_id`.
+func TestSubTaskCreationSectionIsUnconditional(t *testing.T) {
 	t.Parallel()
-	ctx := TaskContextForEnv{
-		IssueID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+	ctx := RunContextForEnv{
+		TaskID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
 	}
 	out := buildMetaSkillContent("claude", ctx)
 
-	const header = "## Sub-issue Creation"
+	const header = "## Sub-task Creation"
 	start := strings.Index(out, header)
 	if start == -1 {
-		t.Fatalf("sub-issue creation section missing")
+		t.Fatalf("sub-task creation section missing")
 	}
 	rest := out[start:]
 	end := strings.Index(rest[len(header):], "\n## ")
@@ -510,8 +510,8 @@ func TestSubIssueCreationSectionIsUnconditional(t *testing.T) {
 		section = rest[:len(header)+end]
 	}
 
-	if strings.Contains(section, "parent_issue_id") {
-		t.Errorf("Sub-issue Creation section must not reference `parent_issue_id` — it applies to any issue-bound run, including top-level parents:\n%s", section)
+	if strings.Contains(section, "parent_task_id") {
+		t.Errorf("Sub-task Creation section must not reference `parent_task_id` — it applies to any task-bound run, including top-level parents:\n%s", section)
 	}
 }
 
@@ -520,45 +520,45 @@ func TestSubIssueCreationSectionIsUnconditional(t *testing.T) {
 // Context` for every task kind so agents see a consistent shared system prompt
 // regardless of how they were triggered. Empty content must skip the heading
 // entirely — bare headings would just add noise.
-func TestWorkspaceContextRenderedAcrossTaskKinds(t *testing.T) {
+func TestWorkspaceContextRenderedAcrossRunKinds(t *testing.T) {
 	t.Parallel()
 	const wsContext = "All comments must be in English. Prefer concise PR descriptions."
 	cases := []struct {
 		name string
-		ctx  TaskContextForEnv
+		ctx  RunContextForEnv
 	}{
 		{
 			name: "assignment-triggered",
-			ctx: TaskContextForEnv{
-				IssueID:          "11111111-2222-3333-4444-555555555555",
+			ctx: RunContextForEnv{
+				TaskID:           "11111111-2222-3333-4444-555555555555",
 				WorkspaceContext: wsContext,
 			},
 		},
 		{
 			name: "comment-triggered",
-			ctx: TaskContextForEnv{
-				IssueID:          "22222222-3333-4444-5555-666666666666",
+			ctx: RunContextForEnv{
+				TaskID:           "22222222-3333-4444-5555-666666666666",
 				TriggerCommentID: "33333333-4444-5555-6666-777777777777",
 				WorkspaceContext: wsContext,
 			},
 		},
 		{
 			name: "chat",
-			ctx: TaskContextForEnv{
+			ctx: RunContextForEnv{
 				ChatSessionID:    "chat-1",
 				WorkspaceContext: wsContext,
 			},
 		},
 		{
 			name: "quick-create",
-			ctx: TaskContextForEnv{
-				QuickCreatePrompt: "create me an issue",
+			ctx: RunContextForEnv{
+				QuickCreatePrompt: "create me an task",
 				WorkspaceContext:  wsContext,
 			},
 		},
 		{
 			name: "autopilot run-only",
-			ctx: TaskContextForEnv{
+			ctx: RunContextForEnv{
 				AutopilotRunID:   "run-1",
 				WorkspaceContext: wsContext,
 			},
@@ -591,19 +591,19 @@ func TestWorkspaceContextHeadingSkippedWhenEmpty(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
-		ctx  TaskContextForEnv
+		ctx  RunContextForEnv
 	}{
 		{
 			name: "empty string",
-			ctx: TaskContextForEnv{
-				IssueID:          "11111111-2222-3333-4444-555555555555",
+			ctx: RunContextForEnv{
+				TaskID:           "11111111-2222-3333-4444-555555555555",
 				WorkspaceContext: "",
 			},
 		},
 		{
 			name: "whitespace only",
-			ctx: TaskContextForEnv{
-				IssueID:          "11111111-2222-3333-4444-555555555555",
+			ctx: RunContextForEnv{
+				TaskID:           "11111111-2222-3333-4444-555555555555",
 				WorkspaceContext: "   \n\t  \r\n",
 			},
 		},
@@ -645,8 +645,8 @@ func TestConnectedAppsBlockLivesOutsideBrief(t *testing.T) {
 		t.Error("empty app list must render nothing")
 	}
 
-	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID:          "11111111-2222-3333-4444-555555555555",
+	out := buildMetaSkillContent("claude", RunContextForEnv{
+		TaskID:           "11111111-2222-3333-4444-555555555555",
 		WorkspaceContext: "Prefer source-of-truth systems.",
 		ConnectedApps:    apps,
 	})
@@ -657,29 +657,29 @@ func TestConnectedAppsBlockLivesOutsideBrief(t *testing.T) {
 
 func TestConnectedAppsHeadingSkippedWhenEmpty(t *testing.T) {
 	t.Parallel()
-	out := buildMetaSkillContent("claude", TaskContextForEnv{IssueID: "11111111-2222-3333-4444-555555555555"})
+	out := buildMetaSkillContent("claude", RunContextForEnv{TaskID: "11111111-2222-3333-4444-555555555555"})
 	if strings.Contains(out, "## Connected Apps") {
 		t.Fatalf("empty connected apps must not emit the heading")
 	}
 }
 
-func TestSubIssueCreationSectionSkippedForNonIssueModes(t *testing.T) {
+func TestSubTaskCreationSectionSkippedForNonTaskModes(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
-		ctx  TaskContextForEnv
+		ctx  RunContextForEnv
 	}{
 		{
 			name: "chat",
-			ctx:  TaskContextForEnv{ChatSessionID: "chat-1"},
+			ctx:  RunContextForEnv{ChatSessionID: "chat-1"},
 		},
 		{
 			name: "quick-create",
-			ctx:  TaskContextForEnv{QuickCreatePrompt: "create me an issue"},
+			ctx:  RunContextForEnv{QuickCreatePrompt: "create me an task"},
 		},
 		{
 			name: "autopilot run-only",
-			ctx:  TaskContextForEnv{AutopilotRunID: "run-1"},
+			ctx:  RunContextForEnv{AutopilotRunID: "run-1"},
 		},
 	}
 	for _, tc := range cases {
@@ -687,8 +687,8 @@ func TestSubIssueCreationSectionSkippedForNonIssueModes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out := buildMetaSkillContent("claude", tc.ctx)
-			if strings.Contains(out, "## Sub-issue Creation") {
-				t.Errorf("%s mode must NOT emit the Sub-issue Creation section", tc.name)
+			if strings.Contains(out, "## Sub-task Creation") {
+				t.Errorf("%s mode must NOT emit the Sub-task Creation section", tc.name)
 			}
 		})
 	}
@@ -872,8 +872,8 @@ func TestInjectRuntimeConfigPreservesUserContent(t *testing.T) {
 				t.Fatalf("seed: %v", err)
 			}
 
-			content, err := InjectRuntimeConfig(dir, tc.provider, TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			content, err := InjectRuntimeConfig(dir, tc.provider, RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 			})
 			if err != nil {
 				t.Fatalf("InjectRuntimeConfig: %v", err)
@@ -932,8 +932,8 @@ func TestInjectRuntimeConfigUnknownProviderSkipsWrite(t *testing.T) {
 		}
 	}
 
-	if _, err := InjectRuntimeConfig(dir, "totally-unknown-provider", TaskContextForEnv{
-		IssueID: "11111111-2222-3333-4444-555555555555",
+	if _, err := InjectRuntimeConfig(dir, "totally-unknown-provider", RunContextForEnv{
+		TaskID: "11111111-2222-3333-4444-555555555555",
 	}); err != nil {
 		t.Fatalf("InjectRuntimeConfig: %v", err)
 	}
@@ -1248,8 +1248,8 @@ func TestCleanupRuntimeConfigByProvider(t *testing.T) {
 
 			// Inject through the production path so cleanup runs against
 			// the same wire format the agent saw.
-			if _, err := InjectRuntimeConfig(dir, tc.provider, TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			if _, err := InjectRuntimeConfig(dir, tc.provider, RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 			}); err != nil {
 				t.Fatalf("InjectRuntimeConfig: %v", err)
 			}
@@ -1288,8 +1288,8 @@ func TestInjectThenCleanupRoundTrip(t *testing.T) {
 	// fresh user file" path and the "subsequent task hits a clean file
 	// again" path.
 	for i := 0; i < 2; i++ {
-		if _, err := InjectRuntimeConfig(dir, "claude", TaskContextForEnv{
-			IssueID: "11111111-2222-3333-4444-555555555555",
+		if _, err := InjectRuntimeConfig(dir, "claude", RunContextForEnv{
+			TaskID: "11111111-2222-3333-4444-555555555555",
 		}); err != nil {
 			t.Fatalf("iter %d inject: %v", i, err)
 		}
@@ -1384,8 +1384,8 @@ func TestInjectThenCleanupRoundTripByteExactBoundaries(t *testing.T) {
 			// Two cycles to cover both "first inject hits user file" and
 			// "subsequent inject hits a cleaned file" paths.
 			for i := 0; i < 2; i++ {
-				if _, err := InjectRuntimeConfig(dir, "claude", TaskContextForEnv{
-					IssueID: "11111111-2222-3333-4444-555555555555",
+				if _, err := InjectRuntimeConfig(dir, "claude", RunContextForEnv{
+					TaskID: "11111111-2222-3333-4444-555555555555",
 				}); err != nil {
 					t.Fatalf("iter %d inject: %v", i, err)
 				}
@@ -1441,14 +1441,14 @@ func TestInjectReplaceThenCleanupRestoresByteExact(t *testing.T) {
 			}
 
 			// First inject — append path.
-			if _, err := InjectRuntimeConfig(dir, "claude", TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			if _, err := InjectRuntimeConfig(dir, "claude", RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 			}); err != nil {
 				t.Fatalf("first inject: %v", err)
 			}
 			// Second inject — replace-in-place path.
-			if _, err := InjectRuntimeConfig(dir, "claude", TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			if _, err := InjectRuntimeConfig(dir, "claude", RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 			}); err != nil {
 				t.Fatalf("second inject: %v", err)
 			}
@@ -1549,7 +1549,7 @@ func TestSingleThreadReplyInstructionsKeepSingleParent(t *testing.T) {
 // only tools[]+system[] surviving.
 //
 // Therefore the rendered managed block must be byte-identical for the same
-// (agent, issue, provider) no matter what triggered the run. Every field
+// (agent, task, provider) no matter what triggered the run. Every field
 // varied below is per-run state that used to be interpolated into the brief.
 //
 // If this test fails, do NOT relax it — move the offending value into the
@@ -1560,55 +1560,55 @@ func TestSingleThreadReplyInstructionsKeepSingleParent(t *testing.T) {
 func TestInjectRuntimeConfigByteIdenticalAcrossTriggers(t *testing.T) {
 	t.Parallel()
 
-	const issueID = "11111111-2222-3333-4444-555555555555"
-	base := TaskContextForEnv{
-		IssueID:   issueID,
+	const taskID = "11111111-2222-3333-4444-555555555555"
+	base := RunContextForEnv{
+		TaskID:    taskID,
 		AgentID:   "agent-1",
 		AgentName: "Eve",
 	}
 
 	variants := []struct {
 		name   string
-		mutate func(c *TaskContextForEnv)
+		mutate func(c *RunContextForEnv)
 	}{
-		{"assignment-triggered", func(c *TaskContextForEnv) {}},
-		{"comment-triggered", func(c *TaskContextForEnv) {
+		{"assignment-triggered", func(c *RunContextForEnv) {}},
+		{"comment-triggered", func(c *RunContextForEnv) {
 			c.TriggerCommentID = "comment-1"
 			c.TriggerThreadID = "thread-1"
 		}},
-		{"comment-triggered-other-comment", func(c *TaskContextForEnv) {
+		{"comment-triggered-other-comment", func(c *RunContextForEnv) {
 			c.TriggerCommentID = "comment-2"
 			c.TriggerThreadID = "thread-2"
 		}},
-		{"resumed-with-delta", func(c *TaskContextForEnv) {
+		{"resumed-with-delta", func(c *RunContextForEnv) {
 			c.TriggerCommentID = "comment-3"
 			c.PriorSessionResumed = true
 			c.NewCommentCount = 7
 			c.NewCommentsSince = "2026-05-28T11:00:00Z"
 		}},
-		{"resume-unavailable", func(c *TaskContextForEnv) {
+		{"resume-unavailable", func(c *RunContextForEnv) {
 			c.TriggerCommentID = "comment-4"
 			c.PriorSessionResumeUnavailable = true
 		}},
-		{"cross-thread-fan-out", func(c *TaskContextForEnv) {
+		{"cross-thread-fan-out", func(c *RunContextForEnv) {
 			c.TriggerCommentID = "comment-5"
 			c.CommentReplyTargets = []ThreadReplyTarget{
 				{ThreadID: "t1", ParentID: "t1"},
 				{ThreadID: "t2", ParentID: "t2"},
 			}
 		}},
-		{"member-initiator", func(c *TaskContextForEnv) {
+		{"member-initiator", func(c *RunContextForEnv) {
 			c.InitiatorType = "member"
 			c.InitiatorID = "user-1"
 			c.InitiatorName = "Bohan"
 			c.InitiatorEmail = "bohan@example.com"
 		}},
-		{"agent-initiator", func(c *TaskContextForEnv) {
+		{"agent-initiator", func(c *RunContextForEnv) {
 			c.InitiatorType = "agent"
 			c.InitiatorID = "agent-9"
 			c.InitiatorName = "GPT-Boy"
 		}},
-		{"connected-apps", func(c *TaskContextForEnv) {
+		{"connected-apps", func(c *RunContextForEnv) {
 			c.ConnectedApps = []runtimeapps.ConnectedApp{{
 				Provider:    "composio",
 				ServerName:  "composio",
@@ -1620,10 +1620,10 @@ func TestInjectRuntimeConfigByteIdenticalAcrossTriggers(t *testing.T) {
 
 	// Non-vacuity guard: the brief must still depend on its stable inputs, or
 	// this whole test would pass on a function that ignores ctx entirely.
-	otherIssue := base
-	otherIssue.IssueID = "99999999-8888-7777-6666-555555555555"
-	if buildMetaSkillContent("claude", base) == buildMetaSkillContent("claude", otherIssue) {
-		t.Fatal("brief does not vary with issue id — byte-identity assertions below would be vacuous")
+	otherTask := base
+	otherTask.TaskID = "99999999-8888-7777-6666-555555555555"
+	if buildMetaSkillContent("claude", base) == buildMetaSkillContent("claude", otherTask) {
+		t.Fatal("brief does not vary with task id — byte-identity assertions below would be vacuous")
 	}
 
 	for _, provider := range []string{"claude", "codex"} {
@@ -1676,11 +1676,11 @@ func firstBriefDiff(want, got string) string {
 }
 
 // TestBriefByteIdenticalAcrossRunsForEveryKind extends the SILI-5377 guarantee
-// past issue runs.
+// past task runs.
 //
 // Chat sessions resume too — handler/daemon.go:2172 hands the daemon a
 // PriorSessionID from the chat_session row, with the same PriorWorkDir and
-// PriorSessionResumeUnavailable plumbing as an issue task. So a chat brief that
+// PriorSessionResumeUnavailable plumbing as an task task. So a chat brief that
 // varied per turn would lose the prompt cache exactly the same way, and a long
 // chat is precisely where that hurts most. Autopilot and quick-create are
 // single-shot today, but the invariant is free to hold for them too and stops a
@@ -1688,34 +1688,34 @@ func firstBriefDiff(want, got string) string {
 func TestBriefByteIdenticalAcrossRunsForEveryKind(t *testing.T) {
 	t.Parallel()
 
-	kinds := map[string]TaskContextForEnv{
+	kinds := map[string]RunContextForEnv{
 		"chat":         {ChatSessionID: "chat-1", ChatChannelType: ChannelTypeSlack, AgentID: "a-1", AgentName: "Eve"},
-		"quick-create": {QuickCreatePrompt: "make an issue", AgentID: "a-1", AgentName: "Eve"},
+		"quick-create": {QuickCreatePrompt: "make an task", AgentID: "a-1", AgentName: "Eve"},
 		"autopilot":    {AutopilotRunID: "run-1", AutopilotID: "ap-1", AgentID: "a-1", AgentName: "Eve"},
 	}
 
 	// Per-run state that changes between turns of one resumed session.
 	variants := []struct {
 		name   string
-		mutate func(c *TaskContextForEnv)
+		mutate func(c *RunContextForEnv)
 	}{
-		{"baseline", func(c *TaskContextForEnv) {}},
-		{"resumed", func(c *TaskContextForEnv) { c.PriorSessionResumed = true }},
-		{"resume-unavailable", func(c *TaskContextForEnv) { c.PriorSessionResumeUnavailable = true }},
-		{"member-initiator", func(c *TaskContextForEnv) {
+		{"baseline", func(c *RunContextForEnv) {}},
+		{"resumed", func(c *RunContextForEnv) { c.PriorSessionResumed = true }},
+		{"resume-unavailable", func(c *RunContextForEnv) { c.PriorSessionResumeUnavailable = true }},
+		{"member-initiator", func(c *RunContextForEnv) {
 			c.InitiatorType, c.InitiatorID = "member", "u-1"
 			c.InitiatorName, c.InitiatorEmail = "Bohan", "bohan@example.com"
 		}},
-		{"other-initiator", func(c *TaskContextForEnv) {
+		{"other-initiator", func(c *RunContextForEnv) {
 			// A Slack channel lets a different person trigger each turn.
 			c.InitiatorType, c.InitiatorID = "member", "u-2"
 			c.InitiatorName, c.InitiatorEmail = "Someone Else", "else@example.com"
 		}},
-		{"agent-initiator", func(c *TaskContextForEnv) {
+		{"agent-initiator", func(c *RunContextForEnv) {
 			c.InitiatorType, c.InitiatorID = "agent", "a-9"
 			c.InitiatorName = "GPT-Boy"
 		}},
-		{"connected-apps", func(c *TaskContextForEnv) {
+		{"connected-apps", func(c *RunContextForEnv) {
 			c.ConnectedApps = []runtimeapps.ConnectedApp{{
 				Provider: "composio", ServerName: "composio",
 				ToolkitSlug: "notion", ToolkitName: "Notion",

@@ -58,14 +58,14 @@ Mobile is allowed to differ in **UI and interaction** — it's a phone, not a po
 
 **Root cause**: Backend `GET /api/inbox` returns raw rows that include:
 1. archived items, and
-2. multiple inbox notifications per issue (a comment, a status change, and an assignment on the same issue each create one row).
+2. multiple inbox notifications per task (a comment, a status change, and an assignment on the same task each create one row).
 
 Web/desktop run those raw rows through `deduplicateInboxItems` (`packages/core/inbox/queries.ts`) before rendering and before counting unread:
 1. filter `archived = true` out
-2. group by `issue_id`, keep the newest in each group
+2. group by `task_id`, keep the newest in each group
 3. sort by `created_at` desc
 
-Mobile's first cut rendered the raw list directly. So a single issue with 3 notifications showed as 3 rows with 3 unread dots, while web showed 1.
+Mobile's first cut rendered the raw list directly. So a single task with 3 notifications showed as 3 rows with 3 unread dots, while web showed 1.
 
 **Fix**: mirror `deduplicateInboxItems` into `apps/mobile/lib/inbox-display.ts`, run mobile's inbox tab through it before rendering and before any counting.
 
@@ -80,8 +80,8 @@ This pattern repeats: timeline coalescing (`buildTimelineGroups`), inbox dedup, 
 Start minimal. Add to this list when actually adopted — do NOT pre-list libraries.
 
 - **Expo SDK 55**
-- **React Native 0.82**
-- **React 19.1** — whatever Expo SDK 55 ships. Pinned in `apps/mobile/package.json` directly, NOT via root `catalog:`.
+- **React Native 0.83.6**
+- **React 19.2.0** — aligned with the installed Expo SDK 55 dependencies. Pinned in `apps/mobile/package.json` directly, NOT via root `catalog:`.
 - **TypeScript** strict
 - **Expo Router 55** (file-based routing — version aligns with Expo SDK)
 - **NativeWind 4** + **Tailwind 3.4** — NativeWind 5 is unstable; stay on v4. (Note: web/desktop use Tailwind v4 — versions intentionally differ.)
@@ -102,10 +102,10 @@ Three principles govern every UI decision on mobile. They exist to fight the tem
 
 **Principle 1 — existing pattern first.** Before reaching for ANY new component (RNR add, hand-written primitive, new sheet container), grep the mobile codebase for an already-shipped pattern that does the same thing.
 
-- Building a row → grep `components/inbox/`, `components/issue/`, `components/project/` for an analogous list-row first.
-- Building a picker / sheet → check `components/issue/pickers/`, `components/project/pickers/` — there are 8+ pickers; one of them is probably the shape you need.
+- Building a row → grep `components/inbox/`, `components/task/`, `components/project/` for an analogous list-row first.
+- Building a picker / sheet → check `components/task/pickers/`, `components/project/pickers/` — there are 8+ pickers; one of them is probably the shape you need.
 - Building a status / priority / actor visual → `components/ui/status-icon.tsx`, `priority-icon.tsx`, `actor-avatar.tsx` already exist. Re-use, don't re-skin.
-- Composer / form / detail screen layout → `app/(app)/[workspace]/issue/[id]/`, `chat/`, `new-issue.tsx` — copy the structure, don't reinvent.
+- Composer / form / detail screen layout → `app/(app)/[workspace]/task/[id]/`, `chat/`, `new-task.tsx` — copy the structure, don't reinvent.
 
 If a working pattern exists, **import or copy-adapt it**. If it almost-fits but needs a small extension, extend the existing one (one PR) rather than fork a second variant. Only when no existing pattern fits, proceed to Principle 2.
 
@@ -132,7 +132,7 @@ Why: every "I'll just write a fresh one" produced one of the 21 legacy component
 After deciding via the waterfall:
 
 - **Generic UI primitives** → `components/ui/`. Either RNR `add` output or hand-written with `cva` + `cn()` + semantic tokens + `@rn-primitives/*` building blocks.
-- **Domain UI** (anything mentioning issues, priorities, statuses, actors, agents, presence, projects, runs) → `components/<domain>/`. Composes primitives but isn't generic.
+- **Domain UI** (anything mentioning tasks, priorities, statuses, actors, agents, presence, projects, runs) → `components/<domain>/`. Composes primitives but isn't generic.
 
 Never copy the visual shape of an existing hand-written `components/ui/` component as a template if its RNR equivalent exists — most of them are pre-migration legacy. The migration doc tracks which files are legacy and which have been replaced.
 
@@ -184,39 +184,39 @@ Layer 3 is what changes per feature; layers 1 and 2 are infrastructure and shoul
 
 ### Mount strategy: list-level global, per-record per-screen
 
-Mobile **does NOT use a single centralized `useRealtimeSync` hook** like `packages/core/realtime/use-realtime-sync.ts`. That pattern is fine on web (one tab = one mount, lives forever) but on mobile it gets in the way: most events care about a single record (one issue's comments, one chat session's messages), and the hook needs to know which record without prop-drilling.
+Mobile **does NOT use a single centralized `useRealtimeSync` hook** like `packages/core/realtime/use-realtime-sync.ts`. That pattern is fine on web (one tab = one mount, lives forever) but on mobile it gets in the way: most events care about a single record (one task's comments, one chat session's messages), and the hook needs to know which record without prop-drilling.
 
 Two mount tiers:
 
-- **Listing-level (always-on for the workspace session)** — mount inside the `<RealtimeSubscriptions />` component in `app/(app)/[workspace]/_layout.tsx`. These don't take parameters; they patch caches keyed only on `wsId`. Examples: `useInboxRealtime`, `useMyIssuesRealtime`. Both run from the moment the user enters a workspace until they leave it, regardless of which tab is foregrounded.
+- **Listing-level (always-on for the workspace session)** — mount inside the `<RealtimeSubscriptions />` component in `app/(app)/[workspace]/_layout.tsx`. These don't take parameters; they patch caches keyed only on `wsId`. Examples: `useInboxRealtime`, `useMyTasksRealtime`. Both run from the moment the user enters a workspace until they leave it, regardless of which tab is foregrounded.
 
-- **Per-record (mounted with id, cleans up on unmount)** — mount inside the screen that owns the record, parameterized by the id from the route. Example: `useIssueRealtime(id, () => router.back())` in `issue/[id].tsx`. The hook filters every event by `payload.issue_id === id` and only patches the current issue's caches. When the user navigates away the `useEffect` cleanup unsubscribes all listeners, so a backgrounded screen doesn't keep mutating caches it no longer owns.
+- **Per-record (mounted with id, cleans up on unmount)** — mount inside the screen that owns the record, parameterized by the id from the route. Example: `useTaskRealtime(id, () => router.back())` in `task/[id].tsx`. The hook filters every event by `payload.task_id === id` and only patches the current task's caches. When the user navigates away the `useEffect` cleanup unsubscribes all listeners, so a backgrounded screen doesn't keep mutating caches it no longer owns.
 
-Don't mount a per-record hook globally to "just be safe" — every filter call on every event then runs N times where N is the number of issues a user has ever opened in this session.
+Don't mount a per-record hook globally to "just be safe" — every filter call on every event then runs N times where N is the number of tasks a user has ever opened in this session.
 
 ### Patch over invalidate (cellular-data rule)
 
 When a WS payload contains the full updated object, **patch** the cache (`setQueryData` / `setQueriesData`). Only fall back to **invalidate** when:
 
-1. The payload is just an id (we don't know the full new shape — e.g., `issue:created` with no scope context).
+1. The payload is just an id (we don't know the full new shape — e.g., `task:created` with no scope context).
 2. The cache shape doesn't match what we can patch (e.g., multi-key scope-filtered lists where we'd have to predict membership).
-3. The event is rare enough that the extra refetch isn't a real cost (e.g., `issue:deleted` on a list that was about to invalidate anyway).
+3. The event is rare enough that the extra refetch isn't a real cost (e.g., `task:deleted` on a list that was about to invalidate anyway).
 4. After a reconnect, where we may have missed events while disconnected.
 
 Web is fine to invalidate generously because most users are on broadband; mobile users on cellular pay for each refetch. A `setQueryData` is free; an `invalidateQueries` is a network roundtrip per affected query key.
 
-### Mobile-owned updaters (don't import `packages/core/issues/ws-updaters.ts`)
+### Mobile-owned updaters (don't import `packages/core/tasks/ws-updaters.ts`)
 
-Mobile has its own `apps/mobile/data/realtime/issue-ws-updaters.ts` even though web has a near-identical file. **Do not import web's updaters into mobile.** Two reasons:
+Mobile has its own `apps/mobile/data/realtime/task-ws-updaters.ts` even though web has a near-identical file. **Do not import web's updaters into mobile.** Two reasons:
 
-1. **Key-factory binding.** Web's updaters reference `issueKeys` from `packages/core/issues/queries.ts` — a different runtime instance from mobile's `apps/mobile/data/queries/issue-keys.ts`. TanStack Query compares keys structurally so it *appears* to work, but binding cache mutation to a foreign key factory invites silent drift the moment either side adjusts its key shape (renames a segment, adds a discriminator).
-2. **Cache-shape divergence.** Mobile has simpler caches: flat `Issue[]` for my-issues (web has status-bucketed); no children subtree (web does); no label-byIssue cache (web does). Web's updaters carry conditional dead-code for paths mobile doesn't have, and mobile would silently no-op on web shapes that don't exist locally.
+1. **Key-factory binding.** Web's updaters reference `taskKeys` from `packages/core/tasks/queries.ts` — a different runtime instance from mobile's `apps/mobile/data/queries/task-keys.ts`. TanStack Query compares keys structurally so it *appears* to work, but binding cache mutation to a foreign key factory invites silent drift the moment either side adjusts its key shape (renames a segment, adds a discriminator).
+2. **Cache-shape divergence.** Mobile has simpler caches: flat `Task[]` for my-tasks (web has status-bucketed); no children subtree (web does); no label-byTask cache (web does). Web's updaters carry conditional dead-code for paths mobile doesn't have, and mobile would silently no-op on web shapes that don't exist locally.
 
-When the same logic needs to exist on both sides, copy the design — not the import. Document the mirror at the top of the mobile file (see `issue-ws-updaters.ts` for the pattern).
+When the same logic needs to exist on both sides, copy the design — not the import. Document the mirror at the top of the mobile file (see `task-ws-updaters.ts` for the pattern).
 
 ### Event-always-wins (optimistic conflict policy)
 
-Mutations like `useUpdateIssue` apply an optimistic patch to the detail cache, then the server processes the request and broadcasts `issue:updated`. If a separate WS event (from another client / another user / an agent) arrives between the optimistic patch and the mutation response, the WS handler overwrites the optimistic state with the server's authoritative state. Brief UI flicker is acceptable; correctness wins.
+Mutations like `useUpdateTask` apply an optimistic patch to the detail cache, then the server processes the request and broadcasts `task:updated`. If a separate WS event (from another client / another user / an agent) arrives between the optimistic patch and the mutation response, the WS handler overwrites the optimistic state with the server's authoritative state. Brief UI flicker is acceptable; correctness wins.
 
 **Do not** add timestamp-comparison logic to "protect" the optimistic state — the server is the truth and the user benefits from seeing real changes immediately. If a specific event proves problematic in practice, add the gate at that point, not by default.
 
@@ -227,34 +227,34 @@ Each hook registers a single `ws.onReconnect(cb)` that invalidates **only the qu
 | Hook | Invalidates on reconnect |
 |---|---|
 | `useInboxRealtime` | `inboxKeys.list(wsId)` |
-| `useMyIssuesRealtime` | `issueKeys.myAll(wsId)` |
-| `useIssueRealtime(id)` | `issueKeys.detail(wsId, id)` + `issueKeys.timeline(wsId, id)` |
+| `useMyTasksRealtime` | `taskKeys.myAll(wsId)` |
+| `useTaskRealtime(id)` | `taskKeys.detail(wsId, id)` + `taskKeys.timeline(wsId, id)` |
 
 No global "invalidate everything on reconnect" sweep. The fanout would be every screen the user has ever visited in this session refetching simultaneously — wasteful on cellular and prone to rate-limiting the server in low-signal areas where reconnects happen frequently.
 
 ### Cross-cutting cache patches across features
 
 Some events legitimately need to mutate a foreign feature's cache. The
-canonical example: `issue:updated` changing an issue's status must also
-update the StatusIcon shown on the matching inbox row, and `issue:deleted`
-must strip every inbox row pointing at the dead issue.
+canonical example: `task:updated` changing a task's status must also
+update the StatusIcon shown on the matching inbox row, and `task:deleted`
+must strip every inbox row pointing at the dead task.
 
 The pattern:
 
 1. **The feature whose cache is being patched owns the updater.** Example:
    `apps/mobile/data/realtime/inbox-ws-updaters.ts` exports
-   `patchInboxIssueStatus` and `dropInboxItemsByIssue` — they live with
-   inbox, not with issues, because they read `inboxKeys.list(wsId)`.
+   `patchInboxTaskStatus` and `dropInboxItemsByTask` — they live with
+   inbox, not with tasks, because they read `inboxKeys.list(wsId)`.
 2. **That feature's realtime hook subscribes to the foreign event.**
-   `use-inbox-realtime.ts` subscribes to `issue:updated` and `issue:deleted`
-   alongside the `inbox:*` events. The issue-realtime hook does NOT know
+   `use-inbox-realtime.ts` subscribes to `task:updated` and `task:deleted`
+   alongside the `inbox:*` events. The task-realtime hook does NOT know
    that inbox cares.
 3. **Mirror web's wiring.** Web's `packages/core/inbox/ws-updaters.ts` has
    the same handlers; mobile copies the design. Behavioral parity hazard:
    without these the mobile inbox row keeps showing the prior status (or
-   404s on tap if the issue is gone) while web users see the change live.
+   404s on tap if the task is gone) while web users see the change live.
 
-If you find yourself reaching across features in `use-issues-realtime` to
+If you find yourself reaching across features in `use-tasks-realtime` to
 patch something else, you have the inversion: move the updater to the
 patched feature and subscribe there.
 
@@ -315,7 +315,7 @@ Rules:
   pattern in `apps/mobile/data/schemas.ts`).
 - The `endpoint` label is for telemetry — defaults to the path; override
   only when the path has dynamic segments and you want stable groupings
-  (`GET /api/issues/:id` not `GET /api/issues/abc-123`).
+  (`GET /api/tasks/:id` not `GET /api/tasks/abc-123`).
 - Migration is progressive: not every legacy method is converted yet.
   Adding a new method? Use the helpers. Touching an old method that
   isn't using them? Convert it as part of the same PR.
@@ -356,8 +356,8 @@ Two helpers replace ~20 lines of boilerplate per realtime hook:
    add `as XxxPayload` casts at handler bodies** — they're redundant
    and (worse) silently hide drift if `WSEventPayloadMap` shifts.
    The cast is only acceptable when one handler covers multiple events
-   that don't share a typed common ancestor (see `onTaskEvent` in
-   `use-issue-realtime.ts` — `task:progress` has no formal payload).
+   that don't share a typed common ancestor (see `onRunEvent` in
+   `use-task-realtime.ts` — `run:progress` has no formal payload).
 2. **`useWSSubscriptions(setup, deps)`** in
    `apps/mobile/lib/use-ws-subscriptions.ts` — wraps the
    `if (!ws || !wsId) return; useEffect + cleanup` template. Setup
@@ -377,7 +377,7 @@ narrow), not `any` (silent unsafe access). That's the safety net.
 
 Optimistic mutations that flip state read by a UI element that's about
 to be in a navigation snapshot (the classic case: marking an inbox row
-read, then `router.push` to the issue) MUST call `setQueryData` in
+read, then `router.push` to the task) MUST call `setQueryData` in
 `onMutate` **before** `await qc.cancelQueries(...)`. The await yields
 one microtask; iOS captures the source-view snapshot during that gap and
 freezes the row in its unread style inside the slide-in transition.
@@ -435,7 +435,7 @@ Mobile's fetch wrapper (`apps/mobile/data/api.ts`) MUST implement all four. Miss
 
 3. **`X-Request-ID` per request.** Generate a short random ID (`createRequestId()` in `apps/mobile/lib/request-id.ts`), send as `X-Request-ID` header. The same ID goes into client-side log lines so backend telemetry can be cross-referenced (server picks it up via the same header).
 
-4. **Structured request logger.** Two log lines per request: `[api] → METHOD path` (start, with `rid`) and `[api] ← STATUS path` (end, with `rid` + `duration`). Use `console.error` for 5xx, `console.warn` for 404s, `console.log` for success. Without this, debugging mobile API issues means staring at the React Native Network panel; with it, the dev console is self-explanatory and prod telemetry already comes structured.
+4. **Structured request logger.** Two log lines per request: `[api] → METHOD path` (start, with `rid`) and `[api] ← STATUS path` (end, with `rid` + `duration`). Use `console.error` for 5xx, `console.warn` for 404s, `console.log` for success. Without this, debugging mobile API tasks means staring at the React Native Network panel; with it, the dev console is self-explanatory and prod telemetry already comes structured.
 
 **What mobile correctly does NOT need (don't add these):** CSRF token (`X-CSRF-Token`), `credentials: "include"`, cookie reading. Mobile is Bearer-token auth, not cookie auth — the cookie attack surface that requires CSRF protection on web doesn't exist on mobile.
 
@@ -489,29 +489,29 @@ The mobile codebase started with ~15 Modal sheets. They almost all copied the sa
 
 **Rules for adding a new formSheet route:**
 
-1. **File goes under the parent context** so the URL reads sensibly — issue-detail pickers under `app/(app)/[workspace]/issue/[id]/picker/<field>.tsx`; project pickers under `project/[id]/picker/<field>.tsx`; transient action sheets under `<context>/<noun>/actions.tsx`. The new-issue draft flow has its own `new-issue-picker/<field>.tsx` directory because routes can't share state with the modal that opened them — see the draft-store discussion below.
+1. **File goes under the parent context** so the URL reads sensibly — task-detail pickers under `app/(app)/[workspace]/task/[id]/picker/<field>.tsx`; project pickers under `project/[id]/picker/<field>.tsx`; transient action sheets under `<context>/<noun>/actions.tsx`. The new-task draft flow has its own `new-task-picker/<field>.tsx` directory because routes can't share state with the modal that opened them — see the draft-store discussion below.
 2. **Register the Stack.Screen in `app/(app)/[workspace]/_layout.tsx`** using the shared `SHEET_OPTIONS` constant. Do NOT inline the config per screen — every picker-row sheet must look and feel identical (grabber, detents, corner radius). Isolated sheets that have no neighbour to be consistent with may override `sheetAllowedDetents` only (e.g. the `menu` sheet uses `"fitToContents"` because it's ≤ 5 fixed actions and the two-snap default would leave 60% blank).
-3. **Self-contained route bodies.** A picker route reads the record it needs from the TanStack Query cache (issue / project / timeline are already cached when the user gets there), calls its own mutation on submit, and `router.back()`s. No callbacks back up to a parent. The only legitimate exception is the new-issue draft flow, which uses `useNewIssueDraftStore` because the issue doesn't exist yet — there's nothing in cache to read.
+3. **Self-contained route bodies.** A picker route reads the record it needs from the TanStack Query cache (task / project / timeline are already cached when the user gets there), calls its own mutation on submit, and `router.back()`s. No callbacks back up to a parent. The only legitimate exception is the new-task draft flow, which uses `useNewTaskDraftStore` because the task doesn't exist yet — there's nothing in cache to read.
 4. **Header is drawn inside the body**, not by the Stack. SHEET_OPTIONS sets `headerShown: false`; the body renders its own `<View>` with title + optional right action. The native Stack header on a formSheet creates a layout dance with the grabber that doesn't match iOS sheets.
 
 **SHEET_OPTIONS rationale (every value exists for a known bug or platform behavior):**
 
 - `presentation: "formSheet"` — the magic that hands the screen to `UISheetPresentationController`.
 - `sheetGrabberVisible: true` — the iOS native drag handle. Users don't discover the gesture without it.
-- `sheetAllowedDetents: [0.6, 0.95]` — explicit numeric detents. The ergonomic `"fitToContents"` is broken on iOS 26 + Expo 55 (expo/expo#42904 padding inconsistency, #42965 zero-size). Predictable two-snap presentation across every picker-row sheet is more important than shrink-wrapping; every formSheet that lives in a chip row (issue-detail / project-detail AttributeRow) uses these explicit detents so muscle memory carries across the row. Isolated sheets (no chip-row neighbour) override with `"fitToContents"` — see the workspace `menu` sheet for the canonical example.
+- `sheetAllowedDetents: [0.6, 0.95]` — explicit numeric detents. The ergonomic `"fitToContents"` is broken on iOS 26 + Expo 55 (expo/expo#42904 padding inconsistency, #42965 zero-size). Predictable two-snap presentation across every picker-row sheet is more important than shrink-wrapping; every formSheet that lives in a chip row (task-detail / project-detail AttributeRow) uses these explicit detents so muscle memory carries across the row. Isolated sheets (no chip-row neighbour) override with `"fitToContents"` — see the workspace `menu` sheet for the canonical example.
 - `sheetCornerRadius: 20` — matches RNR card radius. Without this iOS uses a larger system default that's slightly out of sync with the rest of the app.
 - `contentStyle: { height: "100%" }` — safety net against the zero-size class of bugs above. Ensures the sheet body fills the allotted detent height.
 
 **Caveats that still apply:**
 
 - **Android falls back to a regular modal** — no rounded corners, no native drag. mobile/CLAUDE.md treats iOS as the primary target so this is acceptable, but document inline at the call site if a particular feature must work identically on both.
-- **A formSheet pushed from inside a `presentation: "modal"` route is supported** by Expo Router 55 / RN Screens 4, but the back gesture from the formSheet returns to the modal, not the underlying tab. This is the right UX for the new-issue draft flow (sheet dismisses back to the form), but check the navigation graph if you're adding a sheet under a non-obvious parent.
+- **A formSheet pushed from inside a `presentation: "modal"` route is supported** by Expo Router 55 / RN Screens 4, but the back gesture from the formSheet returns to the modal, not the underlying tab. This is the right UX for the new-task draft flow (sheet dismisses back to the form), but check the navigation graph if you're adding a sheet under a non-obvious parent.
 
 **Carve-out — picker-row consistency wins over per-container optimisation:**
 
 The table above says "< 7 fixed picker options → centered card". That rule
 applies in isolation, but **breaks down when multiple pickers coexist in
-the same chip row** (issue-detail AttributeRow is the canonical case:
+the same chip row** (task-detail AttributeRow is the canonical case:
 status / priority / assignee / label / project / due-date all sit next
 to each other). Mixing centered cards (for status/priority, short
 fixed lists) with formSheet routes (for assignee/label/project, long

@@ -17,8 +17,8 @@ import { CliInstallInstructions, OnboardingFlow } from "@silieco/views/onboardin
  * web (matching `WindowOverlay` on desktop); content is the shared
  * `<OnboardingFlow />`. Kept minimal — guard on auth, render, exit.
  *
- * On complete: runtime-connected onboarding may provide a guide issue id;
- * navigate there. Otherwise land on the workspace issues list, or root if
+ * On complete: runtime-connected onboarding may provide a guide task id;
+ * navigate there. Otherwise land on the workspace tasks list, or root if
  * the flow never produced a workspace.
  *
  * `CliInstallInstructions` is passed in as the `runtimeInstructions`
@@ -37,7 +37,7 @@ export default function OnboardingPage() {
   // The bootstrap path calls refreshMe() before returning, which flips
   // hasOnboarded to true while the page is still mounted. Without this
   // flag the guard below races onComplete: the guard's router.replace
-  // (issues list) can overtake onComplete's router.push (guide issue),
+  // (tasks list) can overtake onComplete's router.push (guide task),
   // dropping the user on the wrong destination. Marking the page as
   // "completing" right before onComplete navigates keeps the guard
   // silent for the in-flight transition.
@@ -54,7 +54,7 @@ export default function OnboardingPage() {
     // already onboarded. We deliberately don't bounce on `workspaces.length`
     // here — Step 3 of the flow creates a workspace mid-onboarding, and a
     // hasWorkspaces bounce here would kick the user out before Steps 4–5
-    // (runtime / agent / first issue) can run. The new entry-point
+    // (runtime / agent / first task) can run. The new entry-point
     // judgment in callback / login handles "where should this user go on
     // login" so OnboardingPage no longer needs to second-guess it.
     if (hasOnboarded) {
@@ -71,17 +71,17 @@ export default function OnboardingPage() {
   return (
     <div className="h-full overflow-y-auto bg-background">
       <OnboardingFlow
-        onComplete={(ws, issueId) => {
+        onComplete={(ws, taskId) => {
           // Runtime-connected onboarding now creates one focused
-          // onboarding issue. Skip/runtime-less exits still land on the
-          // workspace issues list.
+          // onboarding task. Skip/runtime-less exits still land on the
+          // workspace tasks list.
           completingRef.current = true;
-          if (ws && issueId) {
-            router.push(paths.workspace(ws.slug).issueDetail(issueId));
+          if (ws && taskId) {
+            router.push(paths.workspace(ws.slug).taskDetail(taskId));
           } else if (ws) {
-            router.push(paths.workspace(ws.slug).issues());
+            router.push(paths.workspace(ws.slug).tasks());
           } else {
-            router.push(paths.root());
+            router.push(paths.workspaces());
           }
         }}
         runtimeInstructions={<CliInstallInstructions />}

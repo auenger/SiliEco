@@ -390,8 +390,8 @@ func TestUploadFile_AttachesToChatSession(t *testing.T) {
 	if resp.ChatMessageID != nil {
 		t.Fatalf("chat_message_id should be NULL before send, got %v", resp.ChatMessageID)
 	}
-	if resp.IssueID != nil || resp.CommentID != nil {
-		t.Fatalf("issue_id/comment_id should be NULL for chat-only upload: %+v", resp)
+	if resp.TaskID != nil || resp.CommentID != nil {
+		t.Fatalf("task_id/comment_id should be NULL for chat-only upload: %+v", resp)
 	}
 	if resp.URL == "" {
 		t.Fatal("expected non-empty url")
@@ -854,7 +854,7 @@ func TestDownloadAttachment_BareNavigationDeniesNonMemberWith404(t *testing.T) {
 	ctx := context.Background()
 	var foreignWorkspaceID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO workspace (name, slug, description, issue_prefix)
+		INSERT INTO workspace (name, slug, description, task_prefix)
 		VALUES ('Bare-Nav Foreign', 'bare-nav-foreign', '', 'BNF')
 		RETURNING id::text
 	`).Scan(&foreignWorkspaceID); err != nil {

@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// TestCreateIssueAssignedToSquadEnqueuesLeader verifies that creating an
-// issue with assignee_type=squad immediately enqueues a task for the squad
+// TestCreateTaskAssignedToSquadEnqueuesLeader verifies that creating an
+// task with assignee_type=squad immediately enqueues a task for the squad
 // leader (mirrors the agent-assignee parking-lot rule: skip backlog only).
-func TestCreateIssueAssignedToSquadEnqueuesLeader(t *testing.T) {
+func TestCreateTaskAssignedToSquadEnqueuesLeader(t *testing.T) {
 	ctx := context.Background()
 
 	// Look up the seeded test agent — it has a runtime, so it can lead a squad.
@@ -33,37 +33,37 @@ func TestCreateIssueAssignedToSquadEnqueuesLeader(t *testing.T) {
 	}
 	defer testPool.Exec(ctx, `DELETE FROM squad WHERE id = $1`, squadID)
 
-	// Create an issue assigned to the squad.
+	// Create an task assigned to the squad.
 	w := httptest.NewRecorder()
-	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+	req := newRequest("POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 		"title":         "Squad-assigned at creation",
 		"assignee_type": "squad",
 		"assignee_id":   squadID,
 	})
-	testHandler.CreateIssue(w, req)
+	testHandler.CreateTask(w, req)
 	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("CreateTask: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var created IssueResponse
+	var created TaskResponse
 	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
-		t.Fatalf("decode issue: %v", err)
+		t.Fatalf("decode task: %v", err)
 	}
 	defer func() {
-		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq := newRequest("DELETE", "/api/tasks/"+created.ID, nil)
 		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
-		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+		testHandler.DeleteTask(httptest.NewRecorder(), cleanupReq)
 	}()
 
-	// A task for the squad leader should now exist for this issue.
-	var taskCount int
+	// A task for the squad leader should now exist for this task.
+	var runCount int
 	if err := testPool.QueryRow(ctx, `
-		SELECT count(*) FROM agent_task_queue
-		WHERE issue_id = $1 AND agent_id = $2
-	`, created.ID, leaderID).Scan(&taskCount); err != nil {
+		SELECT count(*) FROM agent_run
+		WHERE task_id = $1 AND agent_id = $2
+	`, created.ID, leaderID).Scan(&runCount); err != nil {
 		t.Fatalf("count tasks: %v", err)
 	}
-	if taskCount == 0 {
+	if runCount == 0 {
 		t.Fatalf("expected squad-leader task to be enqueued after squad-assigned create, got 0")
 	}
 }

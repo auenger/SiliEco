@@ -17,21 +17,21 @@ import (
 // and workspace delete. Without the sweep, a labelled agent/skill leaves a
 // permanent, invisible orphan row once resource labels are enabled.
 
-// insertLabelRow creates a real issue_label so the seeded junction row is valid
+// insertLabelRow creates a real task_label so the seeded junction row is valid
 // regardless of whether a given database still carries the pre-release label_id
 // foreign key. Registers cleanup.
 func insertLabelRow(t *testing.T, ctx context.Context, workspaceID, resourceType string) string {
 	t.Helper()
 	var labelID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue_label (workspace_id, resource_type, name, color)
+		INSERT INTO task_label (workspace_id, resource_type, name, color)
 		VALUES ($1, $2, $3, '#3b82f6')
 		RETURNING id
 	`, workspaceID, resourceType, resourceType+"-"+uuid.NewString()[:8]).Scan(&labelID); err != nil {
-		t.Fatalf("insert issue_label: %v", err)
+		t.Fatalf("insert task_label: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM issue_label WHERE id = $1`, labelID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM task_label WHERE id = $1`, labelID)
 	})
 	return labelID
 }
@@ -203,7 +203,7 @@ func seedWorkspaceResourceLabelFixture(t *testing.T, ctx context.Context, slug s
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id
+			runtime_id, visibility, max_concurrent_runs, owner_id
 		)
 		VALUES ($1, 'ws-label-agent', '', 'cloud', '{}'::jsonb, $2, 'workspace', 1, $3)
 		RETURNING id

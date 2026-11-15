@@ -9,7 +9,7 @@ import (
 // user-facing answer and the complete transcript.
 //
 // Result.Output is "final user-facing output selected by the backend" — it
-// becomes the channel reply and the auto-generated issue comment, so interim
+// becomes the channel reply and the auto-generated task comment, so interim
 // narration ("Let me check the logs first…") must not reach it (#6006). ACP
 // runtimes emit narration and the final answer as the same AgentMessageChunk
 // type, and a tool call is the only boundary they expose, so the deliverable is

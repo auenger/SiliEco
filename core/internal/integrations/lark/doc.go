@@ -9,10 +9,10 @@
 //     that rejects cross-user rebinds in-DB)
 //  4. Feishu ResolverSet (feishu_resolvers.go) feeding the shared,
 //     channel-agnostic engine.ChatSession (chat_session ensure / append,
-//     /issue parsing) — no Feishu-specific session service remains
+//     /task parsing) — no Feishu-specific session service remains
 //  5. Dispatcher (inbound pipeline: installation route → top-level
 //     message_id dedup → group filter → identity check → ensure
-//     session → append → /issue → enqueue chat task; typed outcomes
+//     session → append → /task → enqueue chat task; typed outcomes
 //     for offline / archived; emit returns DispatchResult + error so
 //     the connector can post the matching Lark-side reply card)
 //  6. AuditLogger (lark_inbound_audit; deliberately no body column)
@@ -44,8 +44,8 @@
 //
 // Architectural boundaries (frozen from Elon's 二审, SILI-2671 §4.8):
 //
-//  1. Issue creation goes through internal/service.IssueService.Create —
-//     this package never calls qtx.CreateIssue directly.
+//  1. Task creation goes through internal/service.TaskService.Create —
+//     this package never calls qtx.CreateTask directly.
 //  2. Inbound message ingestion uses the shared engine.ChatSession, NOT
 //     the HTTP `SendChatMessage` handler. Group chat_sessions have multi-
 //     member creator semantics that the HTTP handler's single-creator

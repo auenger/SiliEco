@@ -18,7 +18,7 @@ import (
 // into each task's isolated codex-home, which propagates the broken entries
 // into the per-task config and blocks `codex thread/start`.
 //
-// Stripping the whole `[[skills.config]]` array sidesteps the issue: Silieco
+// Stripping the whole `[[skills.config]]` array sidesteps the task: Silieco
 // writes the agent's currently assigned skills directly to
 // `codex-home/skills/<name>/SKILL.md`, and Codex auto-discovers them from
 // that directory. The user-level skill registry is irrelevant to a per-task

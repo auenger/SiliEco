@@ -1,7 +1,7 @@
 /**
  * Shared mention-input state for any RN `<TextInput>` that wants `@mention`
  * support plus a `MarkdownToolbar`. Replaces the ~50 LOC mention boilerplate
- * that `new-issue.tsx` and `comment-composer.tsx` used to each carry.
+ * that `new-task.tsx` and `comment-composer.tsx` used to each carry.
  *
  * The hook owns:
  *
@@ -15,7 +15,7 @@
  *
  * Snapshot / restore lets the caller implement optimistic submit + rollback
  * without coupling the policy to the hook (comment-composer does rollback;
- * new-issue prefers Alert and no rollback — both are fine).
+ * new-task prefers Alert and no rollback — both are fine).
  */
 import { useCallback, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {

@@ -8,10 +8,10 @@ import type { Agent, MemberWithUser, Squad } from "@silieco/core/types";
 import enCommon from "../locales/en/common.json";
 import enModals from "../locales/en/modals.json";
 import enAgents from "../locales/en/agents.json";
-import enIssues from "../locales/en/issues.json";
+import enTasks from "../locales/en/tasks.json";
 
 const TEST_RESOURCES = {
-  en: { common: enCommon, modals: enModals, agents: enAgents, issues: enIssues },
+  en: { common: enCommon, modals: enModals, agents: enAgents, tasks: enTasks },
 };
 
 const ME = "user-me";
@@ -207,7 +207,7 @@ function makeAgent(overrides: Partial<Agent> & { id: string; name: string; owner
     permission_mode: "private",
     invocation_targets: [],
     status: "idle",
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     model: "",
     skills: [],
     created_at: "2026-01-01T00:00:00Z",

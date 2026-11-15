@@ -26,7 +26,7 @@ afterEach(() => {
 
 const sample: FreezeBreadcrumb = {
   kind: "unresponsive",
-  context: { desktopRoute: { path: "/acme/issues" } },
+  context: { desktopRoute: { path: "/acme/tasks" } },
   ts: 1_700_000_000_000,
   version: "0.3.1",
 };
@@ -51,12 +51,12 @@ describe("freeze breadcrumb round-trip", () => {
 
   it("only lets the window that wrote a breadcrumb clear it", () => {
     const file = tempFile();
-    writeFreezeBreadcrumb(file, { ...sample, ownerId: "issue:2" });
+    writeFreezeBreadcrumb(file, { ...sample, ownerId: "task:2" });
 
     clearFreezeBreadcrumb(file, "main:1");
     expect(existsSync(file)).toBe(true);
 
-    clearFreezeBreadcrumb(file, "issue:2");
+    clearFreezeBreadcrumb(file, "task:2");
     expect(readFreezeBreadcrumb(file, fresh)).toBeNull();
   });
 });

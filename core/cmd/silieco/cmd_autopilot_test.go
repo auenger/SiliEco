@@ -21,7 +21,7 @@ func newAutopilotCreateTestCmd() *cobra.Command {
 	cmd.Flags().String("mode", "", "")
 	cmd.Flags().String("priority", "none", "")
 	cmd.Flags().String("project", "", "")
-	cmd.Flags().String("issue-title-template", "", "")
+	cmd.Flags().String("task-title-template", "", "")
 	cmd.Flags().StringArray("subscriber", nil, "")
 	cmd.Flags().String("output", "json", "")
 	return cmd
@@ -36,7 +36,7 @@ func newAutopilotUpdateTestCmd() *cobra.Command {
 	cmd.Flags().String("priority", "", "")
 	cmd.Flags().String("status", "", "")
 	cmd.Flags().String("mode", "", "")
-	cmd.Flags().String("issue-title-template", "", "")
+	cmd.Flags().String("task-title-template", "", "")
 	cmd.Flags().StringArray("subscriber", nil, "")
 	cmd.Flags().Bool("clear-subscribers", false, "")
 	cmd.Flags().String("output", "json", "")
@@ -164,7 +164,7 @@ func TestRunAutopilotCreateSendsProjectID(t *testing.T) {
 	cmd := newAutopilotCreateTestCmd()
 	_ = cmd.Flags().Set("title", "Daily planner")
 	_ = cmd.Flags().Set("agent", agentID)
-	_ = cmd.Flags().Set("mode", "create_issue")
+	_ = cmd.Flags().Set("mode", "create_task")
 	_ = cmd.Flags().Set("project", projectID)
 
 	if err := runAutopilotCreate(cmd, nil); err != nil {
@@ -213,7 +213,7 @@ func TestRunAutopilotCreateSendsSubscribers(t *testing.T) {
 	cmd := newAutopilotCreateTestCmd()
 	_ = cmd.Flags().Set("title", "Daily planner")
 	_ = cmd.Flags().Set("agent", agentID)
-	_ = cmd.Flags().Set("mode", "create_issue")
+	_ = cmd.Flags().Set("mode", "create_task")
 	_ = cmd.Flags().Set("subscriber", "Alice")
 
 	if err := runAutopilotCreate(cmd, nil); err != nil {

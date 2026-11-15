@@ -1,20 +1,26 @@
 -- name: CreateSquad :one
+WITH workspace_guard AS MATERIALIZED (
+ SELECT id FROM workspace WHERE id=$1 FOR KEY SHARE
+), leader_guard AS MATERIALIZED (
+ SELECT id FROM agent WHERE id=$4 AND workspace_id=$1 FOR KEY SHARE
+)
 INSERT INTO squad (workspace_id, name, description, leader_id, creator_id, avatar_url)
-VALUES ($1, $2, $3, $4, $5, $6)
+SELECT $1, $2, $3, $4, $5, $6
+WHERE EXISTS (SELECT 1 FROM workspace_guard) AND EXISTS (SELECT 1 FROM leader_guard)
 RETURNING *;
 
 -- name: GetSquad :one
-SELECT * FROM squad WHERE id = $1;
+SELECT * FROM squad WHERE squad.id = $1;
 
 -- name: GetSquadInWorkspace :one
-SELECT * FROM squad WHERE id = $1 AND workspace_id = $2;
+SELECT * FROM squad WHERE squad.id = $1 AND workspace_id = $2;
 
 -- name: ListSquads :many
-SELECT * FROM squad WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY created_at ASC;
+SELECT * FROM squad WHERE squad.workspace_id = $1 AND archived_at IS NULL ORDER BY created_at ASC;
 
 -- name: ListSquadMemberPreviewRows :many
 -- Static squad membership summary for list/hover previews. This deliberately
--- excludes derived runtime/task status; the squad detail members-status
+-- excludes derived runtime/run status; the squad detail members-status
 -- endpoint owns live state.
 SELECT
     sm.squad_id,
@@ -43,9 +49,15 @@ ORDER BY
     sm.created_at ASC;
 
 -- name: ListAllSquads :many
-SELECT * FROM squad WHERE workspace_id = $1 ORDER BY created_at ASC;
+SELECT * FROM squad WHERE squad.workspace_id = $1 ORDER BY created_at ASC;
 
 -- name: UpdateSquad :one
+WITH leader_guard AS MATERIALIZED (
+ SELECT agent.id FROM agent
+ WHERE agent.id=sqlc.narg('leader_id')
+ AND agent.workspace_id=(SELECT squad.workspace_id FROM squad WHERE squad.id=$1)
+ FOR KEY SHARE
+)
 UPDATE squad SET
     name = COALESCE(sqlc.narg('name'), name),
     description = COALESCE(sqlc.narg('description'), description),
@@ -53,7 +65,8 @@ UPDATE squad SET
     avatar_url = COALESCE(sqlc.narg('avatar_url'), avatar_url),
     instructions = COALESCE(sqlc.narg('instructions'), instructions),
     updated_at = now()
-WHERE id = $1
+WHERE squad.id = $1
+ AND (sqlc.narg('leader_id')::uuid IS NULL OR EXISTS (SELECT 1 FROM leader_guard))
 RETURNING *;
 
 -- name: ArchiveSquad :one
@@ -62,8 +75,13 @@ WHERE id = $1
 RETURNING *;
 
 -- name: AddSquadMember :one
-INSERT INTO squad_member (squad_id, member_type, member_id, role)
-VALUES ($1, $2, $3, $4)
+INSERT INTO squad_member (squad_id, member_type, member_id, role) SELECT
+    $1 AS squad_id,
+    $2 AS member_type,
+    $3 AS member_id,
+    $4 AS role
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM squad AS ref_squad_id WHERE ref_squad_id.id = ($1) FOR KEY SHARE))
+
 RETURNING *;
 
 -- name: RemoveSquadMember :execrows
@@ -88,7 +106,7 @@ SELECT EXISTS(
 SELECT count(*) FROM squad_member WHERE squad_id = $1;
 
 -- name: GetSquadByAssignee :one
--- Look up the squad when an issue is assigned to a squad.
+-- Look up the squad when an task is assigned to a squad.
 SELECT s.* FROM squad s WHERE s.id = $1 AND s.workspace_id = $2;
 
 -- name: ListSquadsByMember :many
@@ -99,8 +117,8 @@ WHERE s.workspace_id = $1 AND sm.member_type = $2 AND sm.member_id = $3
 ORDER BY s.created_at ASC;
 
 -- name: TransferSquadAssignees :exec
--- Transfer all issues assigned to a squad to the squad's leader agent.
-UPDATE issue SET assignee_type = 'agent', assignee_id = $2, updated_at = now()
+-- Transfer all tasks assigned to a squad to the squad's leader agent.
+UPDATE task SET assignee_type = 'agent', assignee_id = $2, updated_at = now()
 WHERE assignee_type = 'squad' AND assignee_id = $1;
 
 -- name: TransferSquadAutopilotsToLeader :exec
@@ -118,8 +136,8 @@ WHERE assignee_type = 'squad' AND assignee_id = $1;
 
 -- name: ListSquadMemberStatusRows :many
 -- Per-row join used to build the squad-members status view. One row per
--- (squad_member × active_task); members with no active task return a
--- single row with NULL task_* columns. Human members and agent members
+-- (squad_member × active_run); members with no active run return a
+-- single row with NULL run_* columns. Human members and agent members
 -- with no agent row also return one row with NULL agent_/runtime_ columns.
 -- The handler aggregates rows by member_id.
 SELECT
@@ -129,23 +147,23 @@ SELECT
     a.archived_at      AS agent_archived_at,
     ar.status          AS runtime_status,
     ar.last_seen_at    AS runtime_last_seen_at,
-    atq.id             AS task_id,
-    atq.status         AS task_status,
-    atq.issue_id       AS task_issue_id,
-    atq.dispatched_at  AS task_dispatched_at,
-    i.number           AS issue_number,
-    i.title            AS issue_title,
-    i.status           AS issue_status
+    atq.id             AS run_id,
+    atq.status         AS run_status,
+    atq.task_id       AS run_task_id,
+    atq.dispatched_at  AS run_dispatched_at,
+    i.number           AS task_number,
+    i.title            AS task_title,
+    i.status           AS task_status
 FROM squad_member sm
 LEFT JOIN agent a
        ON sm.member_type = 'agent' AND a.id = sm.member_id
 LEFT JOIN agent_runtime ar
        ON ar.id = a.runtime_id
-LEFT JOIN agent_task_queue atq
+LEFT JOIN agent_run atq
        ON sm.member_type = 'agent'
       AND atq.agent_id = sm.member_id
       AND atq.status IN ('dispatched', 'running', 'waiting_local_directory')
-LEFT JOIN issue i
-       ON i.id = atq.issue_id
+LEFT JOIN task i
+       ON i.id = atq.task_id
 WHERE sm.squad_id = $1
 ORDER BY sm.created_at ASC, atq.dispatched_at DESC NULLS LAST;

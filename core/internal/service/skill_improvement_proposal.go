@@ -64,7 +64,7 @@ func (s *SkillRevisionService) CreateImprovementProposal(ctx context.Context, p 
 		return empty, ErrSkillRevisionInvalid
 	}
 	switch p.Category {
-	case "skill_instruction", "insufficient_input", "tool_failure", "contract_issue", "model_capability", "human_correction", "positive_example":
+	case "skill_instruction", "insufficient_input", "tool_failure", "contract_task", "model_capability", "human_correction", "positive_example":
 	default:
 		return empty, ErrSkillRevisionInvalid
 	}

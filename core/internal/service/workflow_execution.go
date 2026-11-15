@@ -20,10 +20,10 @@ var ErrWorkflowExecutionConflict = errors.New("workflow execution state changed"
 // Callers must authorize workspace membership and execution access before entry.
 // Dispatch workers must revalidate those permissions when delivering an intent.
 type WorkflowExecutionService struct {
-	Queries     *db.Queries
-	TxStarter   TxStarter
-	TaskService *TaskService
-	Storage     storage.Storage
+	Queries         *db.Queries
+	TxStarter       TxStarter
+	AgentRunService *AgentRunService
+	Storage         storage.Storage
 }
 
 type EnsureWorkflowExecutionParams struct {

@@ -13,13 +13,13 @@ import (
 // under any earlier comment it coalesced, and nothing else. This is what lets
 // a coalesced cross-thread run answer each thread in its own thread instead of
 // being rejected with "parent_id must equal this task's trigger comment id".
-func TestTaskCoversReplyParent(t *testing.T) {
+func TestRunCoversReplyParent(t *testing.T) {
 	trigger := "11111111-1111-1111-1111-111111111111"
 	c1 := "22222222-2222-2222-2222-222222222222"
 	c2 := "33333333-3333-3333-3333-333333333333"
 	stranger := "99999999-9999-9999-9999-999999999999"
 
-	task := db.AgentTaskQueue{
+	agentRun := db.AgentRun{
 		TriggerCommentID: util.MustParseUUID(trigger),
 		CoalescedCommentIds: []pgtype.UUID{
 			util.MustParseUUID(c1),
@@ -40,7 +40,7 @@ func TestTaskCoversReplyParent(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := taskCoversReplyParent(task, tc.parent); got != tc.want {
+			if got := runCoversReplyParent(agentRun, tc.parent); got != tc.want {
 				t.Errorf("taskCoversReplyParent(%s) = %v, want %v", uuidToString(tc.parent), got, tc.want)
 			}
 		})
@@ -48,8 +48,8 @@ func TestTaskCoversReplyParent(t *testing.T) {
 
 	// An assignment-triggered task (no trigger comment, no coalesced set) covers
 	// nothing here; the caller only consults this when TriggerCommentID is valid.
-	empty := db.AgentTaskQueue{}
-	if taskCoversReplyParent(empty, util.MustParseUUID(trigger)) {
+	empty := db.AgentRun{}
+	if runCoversReplyParent(empty, util.MustParseUUID(trigger)) {
 		t.Errorf("a task with no trigger/coalesced comments must not authorize any parent")
 	}
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { useConfigStore } from "@silieco/core/config";
+import { cliCommands } from "../../common/cli-commands";
 import { useState } from "react";
 import { Check, Copy, Terminal } from "lucide-react";
 import { Card, CardContent } from "@silieco/ui/components/ui/card";
@@ -7,11 +9,6 @@ import { CODE_LIGATURE_CLASS } from "@silieco/ui/lib/code-style";
 import { cn } from "@silieco/ui/lib/utils";
 import { copyText } from "@silieco/ui/lib/clipboard";
 import { useT } from "../../i18n";
-
-const INSTALL_CMD =
-  "curl -fsSL http://yilia.me:6688/cli/install.sh | bash";
-const SETUP_CMD =
-  "silieco setup self-host --server-url http://yilia.me:6688 --app-url http://yilia.me:6688";
 
 function CopyButton({ text }: { text: string }) {
   const { t } = useT("onboarding");
@@ -64,11 +61,12 @@ function Step({ n, label, cmd }: { n: number; label: string; cmd: string }) {
 }
 
 /**
- * CLI install instructions — two copy-and-run commands. Hardcoded because
- * Internal testing uses the deployment-owned installer and explicit
- * self-host URLs so the CLI never depends on an unpublished GitHub release.
+ * CLI commands use the current deployment configuration and its own artifacts.
  */
 export function CliInstallInstructions() {
+  const serverUrl = useConfigStore(s => s.daemonServerUrl);
+  const appUrl = useConfigStore(s => s.daemonAppUrl);
+  const { installCmd, setupCmd } = cliCommands(serverUrl, appUrl);
   const { t } = useT("onboarding");
   return (
     <Card className="w-full">
@@ -76,8 +74,8 @@ export function CliInstallInstructions() {
         <p className="text-caption leading-[1.55] text-muted-foreground">
           {t(($) => $.cli_install.intro)}
         </p>
-        <Step n={1} label={t(($) => $.cli_install.step1_label)} cmd={INSTALL_CMD} />
-        <Step n={2} label={t(($) => $.cli_install.step2_label)} cmd={SETUP_CMD} />
+        <Step n={1} label={t(($) => $.cli_install.step1_label)} cmd={installCmd} />
+        <Step n={2} label={t(($) => $.cli_install.step2_label)} cmd={setupCmd} />
       </CardContent>
     </Card>
   );

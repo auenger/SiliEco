@@ -13,7 +13,7 @@ import (
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 )
 
-// TestSquadOperatingProtocolOwnsParentStatus locks the parent-issue status
+// TestSquadOperatingProtocolOwnsParentStatus locks the parent-task status
 // contract: first dispatch moves todo→in_progress and stays there; only a
 // later confirmation of overall completion may advance to in_review; done is
 // left to humans / integrations.
@@ -21,10 +21,10 @@ func TestSquadOperatingProtocolOwnsParentStatus(t *testing.T) {
 	protocol := squadOperatingProtocolFor(true)
 	compact := strings.Join(strings.Fields(protocol), " ")
 	for _, want := range []string{
-		"Own the parent issue status",
+		"Own the parent task status",
 		"move the parent to `in_progress`",
 		"successful dispatch is not completion",
-		"silieco issue status <issue-id> in_review",
+		"silieco task status <task-id> in_review",
 		"Leave `done` to a human reviewer",
 	} {
 		if !strings.Contains(compact, want) {
@@ -35,7 +35,7 @@ func TestSquadOperatingProtocolOwnsParentStatus(t *testing.T) {
 
 // TestSquadOperatingProtocolScopesParentStatusOwnership is the guard for the
 // SILI-5156 review finding: the briefing is injected on every leader path,
-// including an @squad mention on an issue assigned to someone else. Status
+// including an @squad mention on an task assigned to someone else. Status
 // ownership must not ride along — a guest leader gets an explicit prohibition
 // instead of the grant, so the model never has to infer the boundary.
 func TestSquadOperatingProtocolScopesParentStatusOwnership(t *testing.T) {
@@ -43,9 +43,9 @@ func TestSquadOperatingProtocolScopesParentStatusOwnership(t *testing.T) {
 	compactGuest := strings.Join(strings.Fields(guest), " ")
 
 	for _, want := range []string{
-		"Do NOT change this issue's status",
+		"Do NOT change this task's status",
 		"not assigned to your squad",
-		"never run `silieco issue status` on it",
+		"never run `silieco task status` on it",
 	} {
 		if !strings.Contains(compactGuest, want) {
 			t.Errorf("expected guest-leader protocol to contain %q\n--- protocol ---\n%s", want, guest)
@@ -53,8 +53,8 @@ func TestSquadOperatingProtocolScopesParentStatusOwnership(t *testing.T) {
 	}
 	// The grant must be entirely absent — not merely qualified.
 	for _, forbidden := range []string{
-		"Own the parent issue status",
-		"silieco issue status <issue-id> in_review",
+		"Own the parent task status",
+		"silieco task status <task-id> in_review",
 	} {
 		if strings.Contains(compactGuest, forbidden) {
 			t.Errorf("guest-leader protocol must not contain status grant %q\n--- protocol ---\n%s", forbidden, guest)
@@ -85,8 +85,8 @@ func TestSquadOperatingProtocolScopesParentStatusOwnership(t *testing.T) {
 
 // TestSquadOperatingProtocolWarnsAgainstDualTrigger locks in the rule
 // added for #3033: the protocol must tell the squad leader that a `todo`
-// child issue with an agent assignee already fires that agent, so they
-// must not also @mention the same agent on the parent issue for the
+// child task with an agent assignee already fires that agent, so they
+// must not also @mention the same agent on the parent task for the
 // same work. Asserts behavior, not exact wording — keep the substrings
 // narrow so harmless rewording doesn't break the test.
 func TestSquadOperatingProtocolWarnsAgainstDualTrigger(t *testing.T) {
@@ -358,65 +358,65 @@ func TestBuildSquadLeaderBriefing_MentionsRoundTrip(t *testing.T) {
 	}
 }
 
-// claimAndDecodeAgent runs ClaimTaskByRuntime for the given runtime and
+// claimAndDecodeAgent runs ClaimRunByRuntime for the given runtime and
 // returns the agent block of the response. Fails the test on non-200.
-func claimAndDecodeAgent(t *testing.T, runtimeID string) *TaskAgentData {
+func claimAndDecodeAgent(t *testing.T, runtimeID string) *RunAgentData {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/claim", nil, testWorkspaceID, "test-claim-squad-briefing")
+	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/runs/claim", nil, testWorkspaceID, "test-claim-squad-briefing")
 	req = withURLParam(req, "runtimeId", runtimeID)
-	testHandler.ClaimTaskByRuntime(w, req)
+	testHandler.ClaimRunByRuntime(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("ClaimTaskByRuntime: %d %s", w.Code, w.Body.String())
+		t.Fatalf("ClaimRunByRuntime: %d %s", w.Code, w.Body.String())
 	}
 	var resp struct {
-		Task *struct {
-			Agent *TaskAgentData `json:"agent"`
-		} `json:"task"`
+		AgentRun *struct {
+			Agent *RunAgentData `json:"agent"`
+		} `json:"run"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.Task == nil || resp.Task.Agent == nil {
-		t.Fatalf("expected task.agent in response, got: %s", w.Body.String())
+	if resp.AgentRun == nil || resp.AgentRun.Agent == nil {
+		t.Fatalf("expected run.agent in response, got: %s", w.Body.String())
 	}
-	return resp.Task.Agent
+	return resp.AgentRun.Agent
 }
 
-// queueSquadIssueTaskFor creates an issue assigned to the squad and a queued
-// task for the given (agentID, runtimeID). Returns the issue + task IDs.
-func queueSquadIssueTaskFor(t *testing.T, squadID, agentID, runtimeID string, issueNumber int) (issueID, taskID string) {
+// queueSquadTaskRunFor creates an task assigned to the squad and a queued
+// task for the given (agentID, runtimeID). Returns the task + task IDs.
+func queueSquadTaskRunFor(t *testing.T, squadID, agentID, runtimeID string, taskNumber int) (taskID, runID string) {
 	t.Helper()
 	ctx := context.Background()
 	if err := testPool.QueryRow(ctx, `
-INSERT INTO issue (
+INSERT INTO task (
 workspace_id, title, status, priority, creator_id, creator_type,
 assignee_type, assignee_id, number, position
 ) VALUES ($1, 'Squad briefing claim test', 'todo', 'medium', $2, 'member',
 'squad', $3, $4, 0)
 RETURNING id
-`, testWorkspaceID, testUserID, squadID, issueNumber).Scan(&issueID); err != nil {
-		t.Fatalf("create squad-assigned issue: %v", err)
+`, testWorkspaceID, testUserID, squadID, taskNumber).Scan(&taskID); err != nil {
+		t.Fatalf("create squad-assigned task: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID) })
 
 	if err := testPool.QueryRow(ctx, `
-INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, is_leader_task, squad_id)
+INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, is_leader_run, squad_id)
 VALUES ($1, $2, $3, 'queued', 0,
         ($1::uuid = (SELECT leader_id FROM squad WHERE id = $4::uuid)),
         $4::uuid)
 RETURNING id
-`, agentID, runtimeID, issueID, squadID).Scan(&taskID); err != nil {
-		t.Fatalf("queue task: %v", err)
+`, agentID, runtimeID, taskID, squadID).Scan(&runID); err != nil {
+		t.Fatalf("queue run: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM agent_run WHERE id = $1`, runID) })
 	return
 }
 
 // TestClaimTask_LeaderGetsBriefing — when the squad leader claims a task on
-// a squad-assigned issue, the response's agent.instructions must include
+// a squad-assigned task, the response's agent.instructions must include
 // the Operating Protocol + Roster + user instructions.
-func TestClaimTask_LeaderGetsBriefing(t *testing.T) {
+func TestClaimRun_LeaderGetsBriefing(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -435,7 +435,7 @@ func TestClaimTask_LeaderGetsBriefing(t *testing.T) {
 	helper := createHandlerTestAgent(t, "Briefing Helper", []byte("[]"))
 	addAgentMember(t, squad.ID, helper, "implementer")
 
-	queueSquadIssueTaskFor(t, util.UUIDToString(squad.ID), leaderID, runtimeID, 95001)
+	queueSquadTaskRunFor(t, util.UUIDToString(squad.ID), leaderID, runtimeID, 95001)
 
 	agent := claimAndDecodeAgent(t, runtimeID)
 	for _, want := range []string{
@@ -453,8 +453,8 @@ func TestClaimTask_LeaderGetsBriefing(t *testing.T) {
 }
 
 // TestClaimTask_NonLeaderGetsNoBriefing — when a non-leader squad member
-// claims a task on a squad-assigned issue, NO briefing is injected.
-func TestClaimTask_NonLeaderGetsNoBriefing(t *testing.T) {
+// claims a task on a squad-assigned task, NO briefing is injected.
+func TestClaimRun_NonLeaderGetsNoBriefing(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -481,7 +481,7 @@ func TestClaimTask_NonLeaderGetsNoBriefing(t *testing.T) {
 		t.Fatalf("get helper runtime: %v", err)
 	}
 
-	queueSquadIssueTaskFor(t, util.UUIDToString(squad.ID), helperID, helperRuntime, 95002)
+	queueSquadTaskRunFor(t, util.UUIDToString(squad.ID), helperID, helperRuntime, 95002)
 
 	agent := claimAndDecodeAgent(t, helperRuntime)
 	for _, mustNot := range []string{

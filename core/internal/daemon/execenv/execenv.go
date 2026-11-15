@@ -23,7 +23,7 @@ type RepoContextForEnv struct {
 	Ref         string // optional default checkout ref for this task
 }
 
-// ProjectResourceForEnv describes a single resource attached to the issue's
+// ProjectResourceForEnv describes a single resource attached to the task's
 // project. The resource_ref payload is type-specific JSON; the agent reads
 // resources.json on disk for the full structure. This struct only carries
 // fields the meta-skill template needs to render a human-readable summary
@@ -46,10 +46,10 @@ type WorkflowStageForEnv struct {
 type PrepareParams struct {
 	WorkspacesRoot string // base path for all envs (e.g., ~/silieco_workspaces)
 	WorkspaceID    string // workspace UUID — tasks are grouped under this
-	TaskID         string // task UUID — used for directory name
+	RunID          string // task UUID — used for directory name
 	AgentName      string // for git branch naming only
 	// Profile is the daemon's profile name (empty = default). It namespaces the
-	// per-issue Codex session store so a second profile-daemon sharing the same
+	// per-task Codex session store so a second profile-daemon sharing the same
 	// ~/.codex cannot see or GC this daemon's stores (SILI-4424).
 	Profile      string
 	Provider     string // agent provider (determines runtime config and skill injection paths)
@@ -66,7 +66,7 @@ type PrepareParams struct {
 	CursorMcpAuthSource string
 	// OpenclawGateway pins the OpenClaw Gateway endpoint inside the per-task
 	// wrapper. Only consulted when Provider == "openclaw" and the agent's
-	// runtime_config selected gateway mode (issue #3260). Zero means "inherit
+	// runtime_config selected gateway mode (task #3260). Zero means "inherit
 	// whatever the user's global openclaw.json already configures".
 	OpenclawGateway OpenclawGatewayPin
 	// LocalWorkDir, when non-empty, redirects the agent's working directory
@@ -99,12 +99,12 @@ type PrepareParams struct {
 	// Windows sandbox decision reads them, to honor a `-c windows.sandbox=...`
 	// override that never lands in config.toml (SILI-4957).
 	CodexCustomArgs []string
-	Task            TaskContextForEnv // context data for writing files
+	AgentRun        RunContextForEnv // context data for writing files
 }
 
 // TaskContextForEnv is the subset of task context used for writing context files.
-type TaskContextForEnv struct {
-	IssueID          string
+type RunContextForEnv struct {
+	TaskID           string
 	TriggerCommentID string // comment that triggered this task (empty for on_assign)
 	TriggerThreadID  string // root comment ID for the triggering thread; falls back to TriggerCommentID when empty
 	// CommentReplyTargets is set for a comment run that coalesced comments
@@ -116,7 +116,7 @@ type TaskContextForEnv struct {
 	// follow-ups collapse to a single group upstream, so this stays empty and
 	// the single-parent path is used (no duplicate replies).
 	CommentReplyTargets []ThreadReplyTarget
-	NewCommentCount     int    // issue-wide comments since this agent's last run (excludes its own and the injected trigger)
+	NewCommentCount     int    // task-wide comments since this agent's last run (excludes its own and the injected trigger)
 	NewCommentsSince    string // RFC3339 anchor (last run's started_at) the count is measured from; empty on cold start
 	PriorSessionResumed bool   // true when the daemon will resume an existing provider session for this task
 	// PriorSessionResumeUnavailable is true when this task carried a prior
@@ -163,12 +163,12 @@ type TaskContextForEnv struct {
 	AutopilotSource         string
 	AutopilotTriggerPayload string
 	QuickCreatePrompt       string // non-empty for quick-create tasks
-	HandoffNote             string // assignment handoff instruction; rendered into issue_context.md (SILI-3375)
+	HandoffNote             string // assignment handoff instruction; rendered into task_context.md (SILI-3375)
 	IsSquadLeader           bool   // true when the agent is acting as a squad leader (may exit silently on no_action)
 	// WorkspaceContext is the workspace-level system prompt (workspace.context
 	// in the DB). Rendered into the brief as `## Workspace Context` when
 	// non-empty so every agent in the workspace sees the same shared context,
-	// regardless of issue / chat / autopilot / quick-create.
+	// regardless of task / chat / autopilot / quick-create.
 	WorkspaceContext string
 	// ConnectedApps lists per-run external app capabilities mounted through
 	// MCP overlays. Rendered briefly so the agent can map app names such as
@@ -210,7 +210,7 @@ type SkillFileContextForEnv struct {
 
 // Environment represents a prepared, isolated execution environment.
 type Environment struct {
-	// RootDir is the top-level env directory ({workspacesRoot}/{task_id_short}/).
+	// RootDir is the top-level env directory ({workspacesRoot}/{run_id_short}/).
 	RootDir string
 	// WorkDir is the directory to pass as Cwd to the agent. Normally
 	// ({RootDir}/workdir/); when the task is bound to a local_directory
@@ -236,7 +236,7 @@ type Environment struct {
 	// land in a sandbox-writable location. Empty on macOS/Windows and for
 	// non-sandboxed providers, where the real HOME stays in place. See
 	// task_home.go and SILI-4856.
-	TaskHome string
+	RunHome string
 	// OpenclawConfigPath is the path to the per-task synthesized OpenClaw
 	// config (set only for openclaw provider). The daemon exports this as
 	// OPENCLAW_CONFIG_PATH on the openclaw subprocess so its native skill
@@ -262,7 +262,7 @@ type Environment struct {
 	// as an external root, and holds the bound skills in its skills/ subdir. The
 	// daemon exports it as HERMES_HOME so the hermes CLI discovers those skills
 	// natively — Hermes has no workspace-relative discovery, so the previous
-	// .agent_context/skills/ fallback was never read (issue #5242). See
+	// .agent_context/skills/ fallback was never read (task #5242). See
 	// hermes_home.go.
 	HermesHome string
 
@@ -272,11 +272,11 @@ type Environment struct {
 // PredictRootDir returns the env root path that Prepare would create for the
 // given task, without performing any I/O. Callers use this to claim ownership
 // of the directory (e.g. against the GC loop) before Prepare/Reuse runs.
-func PredictRootDir(workspacesRoot, workspaceID, taskID string) string {
-	if workspacesRoot == "" || workspaceID == "" || taskID == "" {
+func PredictRootDir(workspacesRoot, workspaceID, runID string) string {
+	if workspacesRoot == "" || workspaceID == "" || runID == "" {
 		return ""
 	}
-	return filepath.Join(workspacesRoot, workspaceID, shortID(taskID))
+	return filepath.Join(workspacesRoot, workspaceID, shortID(runID))
 }
 
 // Prepare creates an isolated execution environment for a task.
@@ -289,11 +289,11 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 	if params.WorkspaceID == "" {
 		return nil, fmt.Errorf("execenv: workspace ID is required")
 	}
-	if params.TaskID == "" {
+	if params.RunID == "" {
 		return nil, fmt.Errorf("execenv: task ID is required")
 	}
 
-	envRoot := filepath.Join(params.WorkspacesRoot, params.WorkspaceID, shortID(params.TaskID))
+	envRoot := filepath.Join(params.WorkspacesRoot, params.WorkspaceID, shortID(params.RunID))
 
 	// Self-heal the root-level daemon marker on every task start so a marker
 	// removed while the daemon runs is restored before the agent spawns. The
@@ -360,25 +360,25 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 	// and avoids a conditional that would silently disable cleanup if the
 	// local_directory detection logic ever drifts.
 	manifest := &sidecarManifest{}
-	if err := writeContextFiles(workDir, params.Provider, params.Task, manifest); err != nil {
+	if err := writeContextFiles(workDir, params.Provider, params.AgentRun, manifest); err != nil {
 		return nil, fmt.Errorf("execenv: write context files: %w", err)
 	}
 
 	// Persist managed-env provenance for non-local resumable envs at Prepare time
-	// (not on completion, where .gc_meta.json is written). A same-issue
+	// (not on completion, where .gc_meta.json is written). A same-task
 	// follow-up can be claimed the instant the prior task completes — before
 	// the prior handler writes .gc_meta.json — so reuse eligibility must be
 	// provable from an artifact that exists the moment the env is created. Only
-	// managed (non-local_directory) issue and chat envs get this marker; that is
+	// managed (non-local_directory) task and chat envs get this marker; that is
 	// exactly the set with a durable conversation scope. Non-fatal: a write failure
 	// only costs the next follow-up its session reuse (it falls back to a fresh
 	// session), which must never block dispatching this task.
-	if params.LocalWorkDir == "" && (params.Task.IssueID != "" || params.Task.ChatSessionID != "") {
+	if params.LocalWorkDir == "" && (params.AgentRun.TaskID != "" || params.AgentRun.ChatSessionID != "") {
 		if err := WriteManagedEnvProvenance(envRoot, ManagedEnvProvenance{
 			WorkspaceID:   params.WorkspaceID,
-			IssueID:       params.Task.IssueID,
-			ChatSessionID: params.Task.ChatSessionID,
-			AgentID:       params.Task.AgentID,
+			TaskID:        params.AgentRun.TaskID,
+			ChatSessionID: params.AgentRun.ChatSessionID,
+			AgentID:       params.AgentRun.AgentID,
 		}); err != nil && logger != nil {
 			logger.Warn("execenv: write managed env provenance failed (non-fatal); a follow-up may start a fresh session", "error", err)
 		}
@@ -390,22 +390,22 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 		// Under the Linux workspace-write sandbox the real HOME is read-only;
 		// give the task a writable HOME and grant write access to it in the
 		// Codex config so npm/Prisma can write their caches (SILI-4856).
-		taskHome, writableRoots, err := prepareCodexSandboxHome(envRoot, "", params.CodexVersion, logger)
+		runHome, writableRoots, err := prepareCodexSandboxHome(envRoot, "", params.CodexVersion, logger)
 		if err != nil {
 			return nil, fmt.Errorf("execenv: prepare task home: %w", err)
 		}
-		env.TaskHome = taskHome
-		if err := prepareCodexHomeWithOpts(codexHome, CodexHomeOptions{CodexVersion: params.CodexVersion, IsLocalDirectory: params.LocalWorkDir != "" || params.LocalWorktreeSource != "", SessionStoreKey: codexSessionStoreKey(params.Profile, params.Task.AgentID, params.Task.IssueID), WritableRoots: writableRoots, CodexCustomArgs: params.CodexCustomArgs}, logger); err != nil {
+		env.RunHome = runHome
+		if err := prepareCodexHomeWithOpts(codexHome, CodexHomeOptions{CodexVersion: params.CodexVersion, IsLocalDirectory: params.LocalWorkDir != "" || params.LocalWorktreeSource != "", SessionStoreKey: codexSessionStoreKey(params.Profile, params.AgentRun.AgentID, params.AgentRun.TaskID), WritableRoots: writableRoots, CodexCustomArgs: params.CodexCustomArgs}, logger); err != nil {
 			return nil, fmt.Errorf("execenv: prepare codex-home: %w", err)
 		}
-		if err := hydrateCodexSkills(codexHome, params.Task.AgentSkills, params.Task.DisabledRuntimeSkills, logger); err != nil {
+		if err := hydrateCodexSkills(codexHome, params.AgentRun.AgentSkills, params.AgentRun.DisabledRuntimeSkills, logger); err != nil {
 			return nil, fmt.Errorf("execenv: hydrate codex skills: %w", err)
 		}
 		env.CodexHome = codexHome
 	}
 
 	if params.Provider == "claude" {
-		settingsPath, err := prepareClaudeSkillSettings(envRoot, params.Task.DisabledRuntimeSkills, params.Task.AgentSkills)
+		settingsPath, err := prepareClaudeSkillSettings(envRoot, params.AgentRun.DisabledRuntimeSkills, params.AgentRun.AgentSkills)
 		if err != nil {
 			return nil, fmt.Errorf("execenv: prepare claude skill settings: %w", err)
 		}
@@ -416,11 +416,11 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 	// when the agent has skills bound. A skill-less Hermes task keeps the user's
 	// real home and its original behavior untouched. The overlay makes the bound
 	// skills visible — Hermes discovers skills only from its home, so the old
-	// .agent_context/skills/ fallback was never read (issue #5242). See
+	// .agent_context/skills/ fallback was never read (task #5242). See
 	// hermes_home.go.
-	if params.Provider == "hermes" && len(params.Task.AgentSkills) > 0 {
+	if params.Provider == "hermes" && len(params.AgentRun.AgentSkills) > 0 {
 		hermesHome := filepath.Join(envRoot, "hermes-home")
-		if err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, logger); err != nil {
+		if err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.AgentRun.AgentSkills, params.HermesEnv, logger); err != nil {
 			return nil, fmt.Errorf("execenv: prepare hermes-home: %w", err)
 		}
 		env.HermesHome = hermesHome
@@ -462,7 +462,7 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 		env.OpenclawIncludeRoot = result.IncludeRoot
 	}
 
-	logger.Info("execenv: prepared env", "root", envRoot, "repos_available", len(params.Task.Repos))
+	logger.Info("execenv: prepared env", "root", envRoot, "repos_available", len(params.AgentRun.Repos))
 	return env, nil
 }
 
@@ -497,7 +497,7 @@ type ReuseParams struct {
 	// agent picks up any runtime_config changes saved since the prior run.
 	OpenclawGateway OpenclawGatewayPin
 	// Profile is the daemon's profile name (empty = default), mirroring
-	// PrepareParams.Profile so a reused task keys its per-issue Codex session
+	// PrepareParams.Profile so a reused task keys its per-task Codex session
 	// store into the same profile namespace (SILI-4424).
 	Profile string
 	// LocalDirectory is true when the reused WorkDir is a user-supplied
@@ -516,7 +516,7 @@ type ReuseParams struct {
 	// Windows sandbox decision honors a `-c windows.sandbox=...` override here
 	// too (SILI-4957).
 	CodexCustomArgs []string
-	Task            TaskContextForEnv // refreshed context files / skills
+	AgentRun        RunContextForEnv // refreshed context files / skills
 }
 
 // Reuse wraps an existing workdir into an Environment and refreshes context files.
@@ -558,12 +558,12 @@ func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
 	}
 
 	// Roll back the previous dispatch's sidecar writes before refreshing.
-	// On reuse the workdir still holds the prior run's issue_context.md and
+	// On reuse the workdir still holds the prior run's task_context.md and
 	// skill directories; without clearing them first, writeSkillFiles sees
 	// its own earlier output occupying the canonical slug and falls back to
-	// a collision-free sibling (issue-review, issue-review-silieco,
-	// issue-review-silieco-2, …), accumulating a fresh duplicate on every
-	// re-dispatch to the same issue. allocateCollisionFreeSkillDir exists to
+	// a collision-free sibling (task-review, task-review-silieco,
+	// task-review-silieco-2, …), accumulating a fresh duplicate on every
+	// re-dispatch to the same task. allocateCollisionFreeSkillDir exists to
 	// dodge *user*-owned skill dirs (the local_directory flow), not our own
 	// prior writes, so we undo them via the prior manifest first and let the
 	// refresh below re-create each skill at its natural slug. This also brings
@@ -576,9 +576,9 @@ func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
 	//      CleanupSidecars alone can't do this — it preserves any recorded dir
 	//      the agent populated (correct on the local_directory teardown path),
 	//      which would otherwise keep the canonical slug occupied and push the
-	//      refresh back to issue-review-silieco.
+	//      refresh back to task-review-silieco.
 	//   2. CleanupSidecars rolls back the remaining sidecar files
-	//      (issue_context.md, project resources) and the manifest itself.
+	//      (task_context.md, project resources) and the manifest itself.
 	//
 	// No-op when RootDir is empty (legacy local_directory reuse, which the
 	// daemon skips anyway) or when no prior manifest exists (older build).
@@ -591,7 +591,7 @@ func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
 		}
 	}
 
-	// Refresh context files (issue_context.md, skills). Reuse tracks a
+	// Refresh context files (task_context.md, skills). Reuse tracks a
 	// fresh manifest under env.RootDir so a later CleanupSidecars sees
 	// the up-to-date list of writes (an old manifest from a prior run
 	// would otherwise reference files this Reuse no longer creates). For
@@ -602,7 +602,7 @@ func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
 	// legacy local_directory Reuse fallback — skip the persist in that
 	// case to avoid creating a stray manifest at the filesystem root.
 	manifest := &sidecarManifest{}
-	if err := writeContextFiles(params.WorkDir, params.Provider, params.Task, manifest); err != nil {
+	if err := writeContextFiles(params.WorkDir, params.Provider, params.AgentRun, manifest); err != nil {
 		logger.Warn("execenv: refresh context files failed", "error", err)
 	}
 
@@ -614,23 +614,23 @@ func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
 		// Refresh the per-task writable HOME (re-seed credential symlinks in
 		// case the user's real home changed) and recompute the sandbox
 		// writable_roots on reuse, mirroring the fresh Prepare path (SILI-4856).
-		taskHome, writableRoots, err := prepareCodexSandboxHome(env.RootDir, "", params.CodexVersion, logger)
+		runHome, writableRoots, err := prepareCodexSandboxHome(env.RootDir, "", params.CodexVersion, logger)
 		if err != nil {
 			logger.Warn("execenv: refresh task home failed", "error", err)
 		}
-		env.TaskHome = taskHome
-		if err := prepareCodexHomeWithOpts(codexHome, CodexHomeOptions{CodexVersion: params.CodexVersion, ResumeSessionID: params.ResumeSessionID, IsLocalDirectory: params.LocalDirectory, SessionStoreKey: codexSessionStoreKey(params.Profile, params.Task.AgentID, params.Task.IssueID), WritableRoots: writableRoots, CodexCustomArgs: params.CodexCustomArgs}, logger); err != nil {
+		env.RunHome = runHome
+		if err := prepareCodexHomeWithOpts(codexHome, CodexHomeOptions{CodexVersion: params.CodexVersion, ResumeSessionID: params.ResumeSessionID, IsLocalDirectory: params.LocalDirectory, SessionStoreKey: codexSessionStoreKey(params.Profile, params.AgentRun.AgentID, params.AgentRun.TaskID), WritableRoots: writableRoots, CodexCustomArgs: params.CodexCustomArgs}, logger); err != nil {
 			logger.Warn("execenv: refresh codex-home failed", "error", err)
 		} else {
 			env.CodexHome = codexHome
-			if err := hydrateCodexSkills(codexHome, params.Task.AgentSkills, params.Task.DisabledRuntimeSkills, logger); err != nil {
+			if err := hydrateCodexSkills(codexHome, params.AgentRun.AgentSkills, params.AgentRun.DisabledRuntimeSkills, logger); err != nil {
 				logger.Warn("execenv: refresh codex skills failed", "error", err)
 			}
 		}
 	}
 
 	if params.Provider == "claude" && env.RootDir != "" {
-		settingsPath, err := prepareClaudeSkillSettings(env.RootDir, params.Task.DisabledRuntimeSkills, params.Task.AgentSkills)
+		settingsPath, err := prepareClaudeSkillSettings(env.RootDir, params.AgentRun.DisabledRuntimeSkills, params.AgentRun.AgentSkills)
 		if err != nil {
 			logger.Warn("execenv: refresh claude skill settings failed", "error", err)
 		} else {
@@ -646,8 +646,8 @@ func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
 	// skill-less agent.
 	if params.Provider == "hermes" && env.RootDir != "" {
 		hermesHome := filepath.Join(env.RootDir, "hermes-home")
-		if len(params.Task.AgentSkills) > 0 {
-			if err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, logger); err != nil {
+		if len(params.AgentRun.AgentSkills) > 0 {
+			if err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.AgentRun.AgentSkills, params.HermesEnv, logger); err != nil {
 				// Fail closed: a half-built overlay must not run. Returning nil
 				// makes the daemon fall back to a fresh Prepare, whose error
 				// then blocks dispatch rather than silently dropping the bound
@@ -744,11 +744,11 @@ func hydrateCodexSkills(codexHome string, workspaceSkills []SkillContextForEnv, 
 
 // GCMetaKind identifies which kind of parent record a task workdir belongs to.
 // The GC loop dispatches its decision tree on this value so chat / autopilot /
-// quick-create tasks are no longer forced through the issue-centric path.
+// quick-create tasks are no longer forced through the task-centric path.
 type GCMetaKind string
 
 const (
-	GCKindIssue        GCMetaKind = "issue"
+	GCKindTask         GCMetaKind = "task"
 	GCKindChat         GCMetaKind = "chat"
 	GCKindAutopilotRun GCMetaKind = "autopilot_run"
 	GCKindQuickCreate  GCMetaKind = "quick_create"
@@ -759,14 +759,14 @@ const (
 // union keyed on Kind: only the ID field matching Kind is meaningful.
 //
 // Older meta files (pre-v2) lack the Kind field; readers must default empty
-// Kind to GCKindIssue for backward compatibility — only IssueID was written
-// before, and only issue-centric tasks ever produced a meta file.
+// Kind to GCKindTask for backward compatibility — only TaskID was written
+// before, and only task-centric tasks ever produced a meta file.
 type GCMeta struct {
 	Kind           GCMetaKind `json:"kind,omitempty"`
-	IssueID        string     `json:"issue_id,omitempty"`
+	TaskID         string     `json:"task_id,omitempty"`
 	ChatSessionID  string     `json:"chat_session_id,omitempty"`
 	AutopilotRunID string     `json:"autopilot_run_id,omitempty"`
-	TaskID         string     `json:"task_id,omitempty"`
+	RunID          string     `json:"run_id,omitempty"`
 	WorkspaceID    string     `json:"workspace_id"`
 	CompletedAt    time.Time  `json:"completed_at"`
 	// LocalDirectory marks tasks whose WorkDir pointed at a user-owned
@@ -804,7 +804,7 @@ func WriteGCMeta(envRoot string, meta GCMeta, logger *slog.Logger) error {
 }
 
 // ReadGCMeta reads GC metadata from a task directory root. Pre-v2 meta files
-// (no kind field) are normalized to GCKindIssue so the legacy issue path
+// (no kind field) are normalized to GCKindTask so the legacy task path
 // keeps working without a migration.
 func ReadGCMeta(envRoot string) (*GCMeta, error) {
 	data, err := os.ReadFile(filepath.Join(envRoot, gcMetaFile))
@@ -816,7 +816,7 @@ func ReadGCMeta(envRoot string) (*GCMeta, error) {
 		return nil, err
 	}
 	if meta.Kind == "" {
-		meta.Kind = GCKindIssue
+		meta.Kind = GCKindTask
 	}
 	return &meta, nil
 }
@@ -833,19 +833,19 @@ const ManagedEnvProvenanceManagedBy = "silieco-daemon-managed-env"
 // specific workspace, conversation scope, and agent.
 //
 // Its whole reason to exist is timing. A squad-leader follow-up on the same
-// issue can be claimed the instant the prior task completes — the server's
+// task can be claimed the instant the prior task completes — the server's
 // task-complete handler reconciles the follow-up and wakes the runtime before
 // the prior task's daemon handler writes .gc_meta.json. Keying reuse
 // eligibility off .gc_meta.json therefore raced: the successor read a
 // not-yet-written file and started a fresh session (SILI-4886). This marker is
 // on disk from the moment the env is created, so the successor can prove reuse
-// safety inside that window. It is written only for non-local managed issue or
+// safety inside that window. It is written only for non-local managed task or
 // chat envs, so its presence is itself the "safe to reuse, not a user
 // local_directory" assertion; see shouldReusePriorWorkdir.
 type ManagedEnvProvenance struct {
 	ManagedBy     string `json:"managed_by"`
 	WorkspaceID   string `json:"workspace_id"`
-	IssueID       string `json:"issue_id,omitempty"`
+	TaskID        string `json:"task_id,omitempty"`
 	ChatSessionID string `json:"chat_session_id,omitempty"`
 	AgentID       string `json:"agent_id"`
 }

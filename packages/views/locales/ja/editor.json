@@ -22,7 +22,7 @@
       "ordered_list": "番号付きリスト",
       "task_list": "タスクリスト"
     },
-    "sub_issue": {
+    "sub_task": {
       "tooltip": "選択範囲からサブTaskを作成",
       "created": "{{identifier}} を作成しました",
       "create_failed": "サブTaskを作成できませんでした"
@@ -63,7 +63,7 @@
   },
   "mention": {
     "group_users": "ユーザー",
-    "group_issues": "Task",
+    "group_tasks": "Task",
     "group_resources": "リソースファイル",
     "all_members": "すべてのメンバー",
     "searching": "検索中...",

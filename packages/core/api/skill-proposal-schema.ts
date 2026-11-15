@@ -41,7 +41,7 @@ export const SkillImprovementProposalPageSchema = z.object({
 
 export type SkillImprovementProposal = z.infer<typeof SkillImprovementProposalSchema>;
 export type SkillImprovementProposalPage = z.infer<typeof SkillImprovementProposalPageSchema>;
-export type SkillProposalCategory = "skill_instruction" | "insufficient_input" | "tool_failure" | "contract_issue" | "model_capability" | "human_correction" | "positive_example";
+export type SkillProposalCategory = "skill_instruction" | "insufficient_input" | "tool_failure" | "contract_task" | "model_capability" | "human_correction" | "positive_example";
 export interface CreateSkillImprovementProposalInput {
   request_id: string;
   baseline_revision_id: string;

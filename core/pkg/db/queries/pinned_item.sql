@@ -4,8 +4,15 @@ WHERE workspace_id = $1 AND user_id = $2
 ORDER BY position ASC, created_at ASC;
 
 -- name: CreatePinnedItem :one
-INSERT INTO pinned_item (workspace_id, user_id, item_type, item_id, position)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO pinned_item (workspace_id, user_id, item_type, item_id, position) SELECT
+    $1 AS workspace_id,
+    $2 AS user_id,
+    $3 AS item_type,
+    $4 AS item_id,
+    $5 AS position
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_user_id WHERE ref_user_id.id = ($2) FOR KEY SHARE))
+
 RETURNING *;
 
 -- name: DeletePinnedItem :exec

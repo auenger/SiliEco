@@ -56,7 +56,7 @@ import {
   PickerItem,
   PickerSection,
   PickerEmpty,
-} from "../../issues/components/pickers/property-picker";
+} from "../../tasks/components/pickers/property-picker";
 import { ChevronDown, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import type { Squad, SquadMember, SquadMemberStatus, SquadMemberStatusValue, Agent, MemberWithUser } from "@silieco/core/types";
@@ -84,7 +84,7 @@ export function SquadDetailPage() {
     enabled: !!workspace?.id && !!squadId,
   });
 
-  // Per-squad working/idle/offline + active-issue snapshot. WS task / agent /
+  // Per-squad working/idle/offline + active-task snapshot. WS task / agent /
   // daemon events invalidate this via use-realtime-sync; the staleTime is a
   // tab-focus safety net. Indexed by member_id so SquadMembersTab can look up
   // its row in O(1).
@@ -496,7 +496,7 @@ function InlineEditPopover({
 
 // Two-step add-member dialog (mirrors CreateAgentDialog's compact layout):
 // 1) pick a target — Members + Agents in one searchable popover, each row
-//    with an avatar so visual recognition matches the issue assignee picker;
+//    with an avatar so visual recognition matches the task assignee picker;
 // 2) optionally describe the role they'll play in this squad. Description
 //    lives here (not on the picker) because role is per-squad context that
 //    only makes sense at the moment of joining.
@@ -1155,9 +1155,9 @@ function SquadMembersTab({
               : statusValue === "unstable" ? t(($) => $.members_tab.status_unstable)
               : statusValue === "archived" ? t(($) => $.members_tab.status_archived)
               : null;
-          const activeIssues = status?.active_issues ?? [];
-          const primaryIssue = activeIssues[0];
-          const extraIssueCount = Math.max(0, activeIssues.length - 1);
+          const activeTasks = status?.active_tasks ?? [];
+          const primaryTask = activeTasks[0];
+          const extraTaskCount = Math.max(0, activeTasks.length - 1);
           // Show last_active only when the agent isn't currently working —
           // a "working" pill already implies the agent is live, and a
           // "last active 2s ago" line next to it is just noise.
@@ -1198,23 +1198,23 @@ function SquadMembersTab({
                 ) : m.role ? (
                   <div className="mt-0.5 text-caption text-muted-foreground">{m.role}</div>
                 ) : null}
-                {primaryIssue && (
+                {primaryTask && (
                   <div className="mt-1 flex items-center gap-1 text-caption text-muted-foreground min-w-0">
                     <AppLink
-                      href={p.issueDetail(primaryIssue.issue_id)}
+                      href={p.taskDetail(primaryTask.task_id)}
                       className="inline-flex items-center gap-1 min-w-0 hover:text-foreground transition-colors"
                     >
-                      <span className="font-mono text-micro uppercase shrink-0">{primaryIssue.identifier}</span>
-                      <span className="truncate">{primaryIssue.title}</span>
-                      {primaryIssue.issue_status === "blocked" && (
+                      <span className="font-mono text-micro uppercase shrink-0">{primaryTask.identifier}</span>
+                      <span className="truncate">{primaryTask.title}</span>
+                      {primaryTask.task_status === "blocked" && (
                         <span className="shrink-0 inline-flex items-center text-micro uppercase tracking-wide text-warning">
-                          {t(($) => $.members_tab.issue_status_blocked)}
+                          {t(($) => $.members_tab.task_status_blocked)}
                         </span>
                       )}
                     </AppLink>
-                    {extraIssueCount > 0 && (
+                    {extraTaskCount > 0 && (
                       <span className="shrink-0">
-                        · {t(($) => $.members_tab.active_issue_more, { count: extraIssueCount })}
+                        · {t(($) => $.members_tab.active_task_more, { count: extraTaskCount })}
                       </span>
                     )}
                   </div>

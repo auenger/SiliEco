@@ -130,8 +130,8 @@ var (
 	knownGithubEventKinds = map[string]string{
 		"pull_request":              "pull_request",
 		"pull_request_review":       "pull_request_review",
-		"issues":                    "issues",
-		"issue_comment":             "issue_comment",
+		"tasks":                     "tasks",
+		"task_comment":              "task_comment",
 		"push":                      "push",
 		"installation":              "installation",
 		"installation_repositories": "installation_repositories",
@@ -188,14 +188,14 @@ var (
 	}
 
 	knownDaemonWSKinds = map[string]string{
-		"heartbeat":     "heartbeat",
-		"task_claim":    "task_claim",
-		"task_complete": "task_complete",
-		"task_usage":    "task_usage",
-		"task_progress": "task_progress",
-		"task_messages": "task_messages",
-		"log":           "log",
-		"other":         "other",
+		"heartbeat":          "heartbeat",
+		"task_claim":         "task_claim",
+		"task_complete":      "task_complete",
+		"agent_run_usage":    "agent_run_usage",
+		"task_progress":      "task_progress",
+		"agent_run_messages": "agent_run_messages",
+		"log":                "log",
+		"other":              "other",
 	}
 
 	knownFeedbackKinds = map[string]string{

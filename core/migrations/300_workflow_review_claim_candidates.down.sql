@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY workflow_review_claim_candidates_idx;

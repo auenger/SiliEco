@@ -18,15 +18,15 @@ import { api, ApiError } from "@silieco/core/api";
 import { useAuthStore } from "@silieco/core/auth";
 import {
   AGENT_DESCRIPTION_MAX_LENGTH,
-  AGENT_MAX_CONCURRENT_TASKS_MAX,
-  AGENT_MAX_CONCURRENT_TASKS_MIN,
+  AGENT_MAX_CONCURRENT_RUNS_MAX,
+  AGENT_MAX_CONCURRENT_RUNS_MIN,
   agentTemplateDetailOptions,
   agentTemplateListOptions,
 } from "@silieco/core/agents";
 import {
   chatKeys,
   chatMessagesOptions,
-  pendingChatTaskOptions,
+  pendingChatRunOptions,
 } from "@silieco/core/chat/queries";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { useWorkspacePaths } from "@silieco/core/paths";
@@ -327,11 +327,11 @@ export function AgentCreationStudio() {
     refetchInterval: builderSessionId ? 1500 : false,
   });
   const builderPendingQuery = useQuery({
-    ...pendingChatTaskOptions(builderSessionId),
+    ...pendingChatRunOptions(builderSessionId),
     refetchInterval: builderSessionId ? 1500 : false,
   });
   const builderMessages = builderMessagesQuery.data ?? EMPTY_CHAT_MESSAGES;
-  const builderPending = !!builderPendingQuery.data?.task_id;
+  const builderPending = !!builderPendingQuery.data?.run_id;
   const builderDisplayMessages = useMemo(
     () =>
       builderMessages.map((message) => ({
@@ -505,7 +505,7 @@ export function AgentCreationStudio() {
     try {
       await api.deleteChatSession(builderSessionId);
       qc.removeQueries({ queryKey: chatKeys.messages(builderSessionId) });
-      qc.removeQueries({ queryKey: chatKeys.pendingTask(builderSessionId) });
+      qc.removeQueries({ queryKey: chatKeys.pendingRun(builderSessionId) });
       builderSessionIdRef.current = "";
       return true;
     } catch (error) {
@@ -651,8 +651,8 @@ export function AgentCreationStudio() {
         builderSessionId,
         encodedContent,
       );
-      if (!result.task_id) throw new Error("builder chat send returned no task id");
-      const taskId = result.task_id;
+      if (!result.run_id) throw new Error("builder chat send returned no task id");
+      const runId = result.run_id;
       const createdAt = new Date().toISOString();
       qc.setQueryData<ChatMessage[]>(
         chatKeys.messages(builderSessionId),
@@ -666,19 +666,19 @@ export function AgentCreationStudio() {
                   chat_session_id: builderSessionId,
                   role: "user",
                   content: encodedContent,
-                  task_id: taskId,
+                  run_id: runId,
                   created_at: createdAt,
                 },
               ],
       );
-      qc.setQueryData(chatKeys.pendingTask(builderSessionId), {
-        task_id: taskId,
+      qc.setQueryData(chatKeys.pendingRun(builderSessionId), {
+        run_id: runId,
         status: "queued",
         created_at: createdAt,
       });
       await Promise.all([
         qc.invalidateQueries({ queryKey: chatKeys.messages(builderSessionId) }),
-        qc.invalidateQueries({ queryKey: chatKeys.pendingTask(builderSessionId) }),
+        qc.invalidateQueries({ queryKey: chatKeys.pendingRun(builderSessionId) }),
       ]);
       return true;
     } catch (error) {
@@ -690,11 +690,11 @@ export function AgentCreationStudio() {
   };
 
   const stopBuilder = async () => {
-    const taskId = builderPendingQuery.data?.task_id;
-    if (!taskId || !builderSessionId) return;
-    qc.setQueryData(chatKeys.pendingTask(builderSessionId), {});
+    const runId = builderPendingQuery.data?.run_id;
+    if (!runId || !builderSessionId) return;
+    qc.setQueryData(chatKeys.pendingRun(builderSessionId), {});
     try {
-      const result = await api.cancelTaskById(taskId);
+      const result = await api.cancelRunById(runId);
       const restored = result.cancelled_chat_message;
       if (restored?.restore_to_input) {
         setBuilderRestoreDraft({
@@ -704,7 +704,7 @@ export function AgentCreationStudio() {
       }
       await Promise.all([
         qc.invalidateQueries({ queryKey: chatKeys.messages(builderSessionId) }),
-        qc.invalidateQueries({ queryKey: chatKeys.pendingTask(builderSessionId) }),
+        qc.invalidateQueries({ queryKey: chatKeys.pendingRun(builderSessionId) }),
       ]);
     } catch (error) {
       setBuilderError(
@@ -712,7 +712,7 @@ export function AgentCreationStudio() {
           ? error.message
           : t(($) => $.creation_studio.builder.stop_failed),
       );
-      qc.invalidateQueries({ queryKey: chatKeys.pendingTask(builderSessionId) });
+      qc.invalidateQueries({ queryKey: chatKeys.pendingRun(builderSessionId) });
     }
   };
 
@@ -960,7 +960,7 @@ export function AgentCreationStudio() {
             sessionId={builderSessionId}
             messages={builderDisplayMessages}
             loading={builderMessagesQuery.isLoading}
-            pendingTask={builderPendingQuery.data}
+            pendingRun={builderPendingQuery.data}
             runtimeOnline={selectedRuntime?.status === "online"}
             onSend={sendBuilderMessage}
             onStop={() => void stopBuilder()}
@@ -1602,7 +1602,7 @@ function BuilderConversation({
   sessionId,
   messages,
   loading,
-  pendingTask,
+  pendingRun,
   runtimeOnline,
   onSend,
   onStop,
@@ -1613,7 +1613,7 @@ function BuilderConversation({
   sessionId: string;
   messages: ChatMessage[];
   loading: boolean;
-  pendingTask: { task_id?: string; status?: string; created_at?: string } | undefined;
+  pendingRun: { run_id?: string; status?: string; created_at?: string } | undefined;
   runtimeOnline: boolean;
   onSend: (content: string) => Promise<boolean>;
   onStop: () => void;
@@ -1622,7 +1622,7 @@ function BuilderConversation({
   error: string | null;
 }) {
   const { t } = useT("agents");
-  const pending = !!pendingTask?.task_id;
+  const pending = !!pendingRun?.run_id;
   const draftKey = `agent-builder:${sessionId}`;
   const prompts = [
     t(($) => $.creation_studio.builder.prompt_review),
@@ -1662,7 +1662,7 @@ function BuilderConversation({
       ) : messages.length > 0 || pending ? (
         <ChatMessageList
           messages={messages}
-          pendingTask={pendingTask}
+          pendingRun={pendingRun}
           availability={runtimeOnline ? "online" : "offline"}
           transformContent={stripBuilderDraft}
         />
@@ -1949,13 +1949,13 @@ export function buildCreateAgentRequest(options: {
     if (duplicateSource.custom_args.length > 0) {
       request.custom_args = duplicateSource.custom_args;
     }
-    const sourceConcurrency = duplicateSource.max_concurrent_tasks;
+    const sourceConcurrency = duplicateSource.max_concurrent_runs;
     if (
       Number.isInteger(sourceConcurrency) &&
-      sourceConcurrency >= AGENT_MAX_CONCURRENT_TASKS_MIN &&
-      sourceConcurrency <= AGENT_MAX_CONCURRENT_TASKS_MAX
+      sourceConcurrency >= AGENT_MAX_CONCURRENT_RUNS_MIN &&
+      sourceConcurrency <= AGENT_MAX_CONCURRENT_RUNS_MAX
     ) {
-      request.max_concurrent_tasks = sourceConcurrency;
+      request.max_concurrent_runs = sourceConcurrency;
     }
   }
   return request;

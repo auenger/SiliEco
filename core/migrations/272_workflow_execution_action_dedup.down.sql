@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY IF EXISTS workflow_execution_action_dedup_uidx;

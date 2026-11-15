@@ -11,7 +11,7 @@ import (
 // TestCLIConfig_BackwardCompat_OldFileLoadsWithNilBackends verifies that a
 // config.json written by an older daemon (no `backends` key at all) loads
 // correctly into the new schema, with Backends == nil. This is the most
-// important guarantee of issue #3875's PR: existing on-disk configs MUST
+// important guarantee of task #3875's PR: existing on-disk configs MUST
 // continue to work byte-for-byte.
 func TestCLIConfig_BackwardCompat_OldFileLoadsWithNilBackends(t *testing.T) {
 	tmp := t.TempDir()

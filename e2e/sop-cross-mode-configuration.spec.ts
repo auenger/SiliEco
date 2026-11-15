@@ -10,7 +10,7 @@ test("SOP form publishes an agent stage with a manual rollback target",async({pa
  try {
   const run=await api.createManualWorkflowRun(`Review recovery browser ${Date.now()}`);runId=run.runId;await fixture("seed");
   const token=api.getToken();if(!token)throw new Error("Missing login");
-  await page.addInitScript(token=>{localStorage.setItem("silieco_token",token);localStorage.setItem("silieco:chat:isOpen","false");},token);
+  await page.addInitScript(token=>{localStorage.setItem("silieco_tr1_token",token);localStorage.setItem("silieco:tr1:chat:isOpen","false");},token);
   await page.setViewportSize({width:1440,height:1000});
   await page.goto(`/${api.getWorkspaceSlug()}/workflows`,{waitUntil:"domcontentloaded"});
   await page.getByRole("button",{name:/空白 SOP/}).click();

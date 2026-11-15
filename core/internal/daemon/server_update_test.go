@@ -26,7 +26,7 @@ func TestHandleUpdateReportsWhyItWasDeferred(t *testing.T) {
 		{
 			name: "agent task is active",
 			arrange: func(d *Daemon) {
-				d.activeTasks.Store(1)
+				d.activeRuns.Store(1)
 			},
 			wantError: "runtime update deferred because agent work is starting or still active; retry when the machine is idle",
 		},
@@ -115,7 +115,7 @@ func TestHandleUpdateWaitsForEmptyClaimInsteadOfStarving(t *testing.T) {
 	}
 }
 
-func TestHandleUpdateReportsBusyWhenClaimBecomesTask(t *testing.T) {
+func TestHandleUpdateReportsBusyWhenClaimBecomesRun(t *testing.T) {
 	var payload map[string]any
 	d, _ := updateReportDaemon(t, func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -138,9 +138,9 @@ func TestHandleUpdateReportsBusyWhenClaimBecomesTask(t *testing.T) {
 	}()
 
 	waitForServerUpdateBarrier(t, d)
-	d.activeTasks.Add(1)
+	d.activeRuns.Add(1)
 	d.exitClaim()
-	defer d.activeTasks.Add(-1)
+	defer d.activeRuns.Add(-1)
 
 	select {
 	case <-done:

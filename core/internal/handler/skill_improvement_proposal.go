@@ -52,7 +52,7 @@ func (h *Handler) CreateSkillImprovementProposal(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	if r.Header.Get("X-Agent-ID") != "" || r.Header.Get("X-Task-ID") != "" {
+	if r.Header.Get("X-Agent-ID") != "" || r.Header.Get("X-Run-ID") != "" {
 		writeError(w, http.StatusForbidden, "improvement proposals require a member identity")
 		return
 	}

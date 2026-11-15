@@ -6,21 +6,21 @@ import (
 )
 
 func TestVerifyRequiredStageSkills(t *testing.T) {
-	task := &Task{
+	agentRun := &AgentRun{
 		WorkflowStage: &WorkflowStageContextData{RequiredSkills: []string{"silieco-split-feature"}},
 		Agent:         &AgentData{Skills: []SkillData{{Name: "silieco-split-feature"}}},
 	}
-	if err := verifyRequiredStageSkills(task); err != nil {
+	if err := verifyRequiredStageSkills(agentRun); err != nil {
 		t.Fatalf("verifyRequiredStageSkills() error = %v", err)
 	}
 }
 
 func TestVerifyRequiredStageSkillsFailsClosed(t *testing.T) {
-	task := &Task{
+	agentRun := &AgentRun{
 		WorkflowStage: &WorkflowStageContextData{RequiredSkills: []string{"silieco-split-feature"}},
 		Agent:         &AgentData{},
 	}
-	err := verifyRequiredStageSkills(task)
+	err := verifyRequiredStageSkills(agentRun)
 	if err == nil || !strings.Contains(err.Error(), "silieco-split-feature") {
 		t.Fatalf("verifyRequiredStageSkills() error = %v, want named missing skill", err)
 	}

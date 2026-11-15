@@ -1,7 +1,7 @@
 /**
  * The 3 starter tasks the Runtime-path Welcome Modal offers a user after
  * Sili Agent is created. Each card maps to ONE task being created
- * via `api.createIssue` with:
+ * via `api.createTask` with:
  *   - title = STARTER_PROMPT.title[lang]
  *   - description = STARTER_PROMPT.prompt[lang]
  *   - assignee = the Helper agent

@@ -11,33 +11,33 @@ import (
 	"github.com/google/uuid"
 )
 
-func testWorkflowHumanReviewAPI(t *testing.T, runID, executionID string) {
+func testWorkflowHumanReviewAPI(t *testing.T, workflowRunID, executionID string) {
 	t.Helper()
 	ctx := context.Background()
-	var issueID, taskID, issueStatus, taskStatus string
+	var taskID, runID, taskStatus, runStatus string
 	var config []byte
-	if err := testPool.QueryRow(ctx, `SELECT e.main_issue_id,e.main_task_id,i.status,t.status,e.config_snapshot FROM workflow_stage_execution e JOIN issue i ON i.id=e.main_issue_id JOIN agent_task_queue t ON t.id=e.main_task_id WHERE e.id=$1`, executionID).Scan(&issueID, &taskID, &issueStatus, &taskStatus, &config); err != nil {
+	if err := testPool.QueryRow(ctx, `SELECT e.main_task_id,e.main_run_id,i.status,t.status,e.config_snapshot FROM workflow_stage_execution e JOIN task i ON i.id=e.main_task_id JOIN agent_run t ON t.id=e.main_run_id WHERE e.id=$1`, executionID).Scan(&taskID, &runID, &taskStatus, &runStatus, &config); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
 		// Restore this shared fixture before its independent deletion tests.
-		if _, err := testPool.Exec(ctx, `UPDATE workflow_instance SET status='active',completed_at=NULL WHERE id=$1`, runID); err != nil {
+		if _, err := testPool.Exec(ctx, `UPDATE workflow_instance SET status='active',completed_at=NULL WHERE id=$1`, workflowRunID); err != nil {
 			t.Error(err)
 		}
 		if _, err := testPool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=$2,status='awaiting_review',acceptance=NULL,finished_at=NULL WHERE id=$1`, executionID, config); err != nil {
 			t.Error(err)
 		}
-		if _, err := testPool.Exec(ctx, `UPDATE issue SET status=$2 WHERE id=$1`, issueID, issueStatus); err != nil {
+		if _, err := testPool.Exec(ctx, `UPDATE task SET status=$2 WHERE id=$1`, taskID, taskStatus); err != nil {
 			t.Error(err)
 		}
-		if _, err := testPool.Exec(ctx, `UPDATE agent_task_queue SET status=$2 WHERE id=$1`, taskID, taskStatus); err != nil {
+		if _, err := testPool.Exec(ctx, `UPDATE agent_run SET status=$2 WHERE id=$1`, runID, runStatus); err != nil {
 			t.Error(err)
 		}
 	}()
 	if _, err := testPool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=jsonb_set(config_snapshot,'{gate}',jsonb_build_object('type','human','decider',$2::text)) WHERE id=$1`, executionID, testUserID); err != nil {
 		t.Fatal(err)
 	}
-	params := map[string]string{"id": runID, "executionId": executionID}
+	params := map[string]string{"id": workflowRunID, "executionId": executionID}
 	read := func() *httptest.ResponseRecorder {
 		r := httptest.NewRecorder()
 		testHandler.GetWorkflowHumanReview(r, workflowRequest(http.MethodGet, "/review", nil, params))
@@ -46,10 +46,10 @@ func testWorkflowHumanReviewAPI(t *testing.T, runID, executionID string) {
 	if r := read(); r.Code != http.StatusConflict {
 		t.Fatalf("incomplete review: %d %s", r.Code, r.Body.String())
 	}
-	if _, err := testPool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, issueID); err != nil {
+	if _, err := testPool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, taskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := testPool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, taskID); err != nil {
+	if _, err := testPool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, runID); err != nil {
 		t.Fatal(err)
 	}
 	r := read()
@@ -57,7 +57,7 @@ func testWorkflowHumanReviewAPI(t *testing.T, runID, executionID string) {
 	if err := json.Unmarshal(r.Body.Bytes(), &basis); err != nil {
 		t.Fatal(err)
 	}
-	if r.Code != http.StatusOK || len(basis.BasisHash) != 64 || len(basis.Issues) != 1 || len(basis.Calls) != 1 || strings.Contains(r.Body.String(), "storage_key") || strings.Contains(r.Body.String(), "config_snapshot") {
+	if r.Code != http.StatusOK || len(basis.BasisHash) != 64 || len(basis.Tasks) != 1 || len(basis.Calls) != 1 || strings.Contains(r.Body.String(), "storage_key") || strings.Contains(r.Body.String(), "config_snapshot") {
 		t.Fatalf("review response: %d %s", r.Code, r.Body.String())
 	}
 	body := map[string]any{"expected_result_revision": basis.ResultRevision, "expected_basis_hash": basis.BasisHash, "outcome": "approved", "note": "Reviewed"}

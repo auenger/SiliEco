@@ -683,24 +683,24 @@ func TestProjectResourceCountBreadcrumb(t *testing.T) {
 	var number int
 	if err := testPool.QueryRow(context.Background(), `
 		UPDATE workspace
-		SET issue_counter = GREATEST(issue_counter, (SELECT COALESCE(MAX(number), 0) FROM issue WHERE workspace_id = $1)) + 1
-		WHERE id = $1 RETURNING issue_counter
+		SET task_counter = GREATEST(task_counter, (SELECT COALESCE(MAX(number), 0) FROM task WHERE workspace_id = $1)) + 1
+		WHERE id = $1 RETURNING task_counter
 	`, testWorkspaceID).Scan(&number); err != nil {
-		t.Fatalf("next issue number: %v", err)
+		t.Fatalf("next task number: %v", err)
 	}
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO issue (
+		INSERT INTO task (
 			workspace_id, creator_type, creator_id, title, status, priority,
 			project_id, number, position
 		)
 		VALUES ($1, 'member', $2, 'Project update stats breadcrumb', 'done', 'none', $3, $4, 0)
 		RETURNING id
-	`, testWorkspaceID, testUserID, project.ID, number).Scan(&issueID); err != nil {
-		t.Fatalf("create project issue: %v", err)
+	`, testWorkspaceID, testUserID, project.ID, number).Scan(&taskID); err != nil {
+		t.Fatalf("create project task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	// UpdateProject must preserve the breadcrumb. A title-only PUT used to
@@ -721,8 +721,8 @@ func TestProjectResourceCountBreadcrumb(t *testing.T) {
 	if updated.ResourceCount != 1 {
 		t.Errorf("UpdateProject ResourceCount = %d, want 1", updated.ResourceCount)
 	}
-	if updated.IssueCount != 1 || updated.DoneCount != 1 {
-		t.Errorf("UpdateProject issue stats = %d/%d, want 1/1", updated.DoneCount, updated.IssueCount)
+	if updated.TaskCount != 1 || updated.DoneCount != 1 {
+		t.Errorf("UpdateProject task stats = %d/%d, want 1/1", updated.DoneCount, updated.TaskCount)
 	}
 }
 

@@ -45,6 +45,7 @@ describe("WSClient", () => {
     expect(url.searchParams.get("client_platform")).toBe("desktop");
     expect(url.searchParams.get("client_version")).toBe("1.2.3");
     expect(url.searchParams.get("client_os")).toBe("macos");
+    expect(url.searchParams.get("protocol_generation")).toBe("task-run-v1");
     // Token must never appear in the URL — it is delivered as the first
     // WS message in token mode.
     expect(url.searchParams.has("token")).toBe(false);
@@ -104,26 +105,26 @@ describe("WSClient", () => {
     };
     const ws = new WSClient("ws://example.test/ws", { logger });
     const handler = vi.fn();
-    ws.on("issue:updated", handler);
+    ws.on("task:updated", handler);
     ws.connect();
 
     expect(() => {
-      FakeWebSocket.lastInstance!.onmessage?.({ data: `{"type":"issue` });
+      FakeWebSocket.lastInstance!.onmessage?.({ data: `{"type":"task` });
     }).not.toThrow();
 
     FakeWebSocket.lastInstance!.onmessage?.({
       data: JSON.stringify({
-        type: "issue:updated",
-        payload: { id: "issue-1" },
+        type: "task:updated",
+        payload: { id: "task-1" },
       }),
     });
 
     expect(logger.warn).toHaveBeenCalledWith(
       "ws: received unparseable message",
-      `{"type":"issue`,
+      `{"type":"task`,
     );
     expect(handler).toHaveBeenCalledWith(
-      { id: "issue-1" },
+      { id: "task-1" },
       undefined,
       undefined,
     );
@@ -146,8 +147,8 @@ describe("WSClient", () => {
     // realtime sync's onAny dispatcher.
     const anyHandler = vi.fn((msg: WSMessage) => msg.type.split(":")[0]);
     ws.onAny(anyHandler);
-    const issueHandler = vi.fn();
-    ws.on("issue:updated", issueHandler);
+    const taskHandler = vi.fn();
+    ws.on("task:updated", taskHandler);
     ws.connect();
 
     const badFrames = [
@@ -164,13 +165,13 @@ describe("WSClient", () => {
 
     // Bad frames never reached any handler.
     expect(anyHandler).not.toHaveBeenCalled();
-    expect(issueHandler).not.toHaveBeenCalled();
+    expect(taskHandler).not.toHaveBeenCalled();
 
     // A valid frame after the bad ones still dispatches normally.
     FakeWebSocket.lastInstance!.onmessage?.({
-      data: JSON.stringify({ type: "issue:updated", payload: { id: "i-1" } }),
+      data: JSON.stringify({ type: "task:updated", payload: { id: "i-1" } }),
     });
-    expect(issueHandler).toHaveBeenCalledWith({ id: "i-1" }, undefined, undefined);
+    expect(taskHandler).toHaveBeenCalledWith({ id: "i-1" }, undefined, undefined);
     expect(anyHandler).toHaveBeenCalledTimes(1);
 
     // The drop is logged at most once per connection despite four bad frames.
@@ -186,20 +187,20 @@ describe("WSClient", () => {
     ws.connect();
 
     const handler = vi.fn();
-    ws.on("issue:created", handler);
+    ws.on("task:created", handler);
 
     const fakeWs = (ws as any).ws as FakeWebSocket;
     fakeWs.onmessage?.({
       data: JSON.stringify({
-        type: "issue:created",
-        payload: { id: "issue-1" },
+        type: "task:created",
+        payload: { id: "task-1" },
         actor_id: "user-123",
         actor_type: "user",
       }),
     });
 
     expect(handler).toHaveBeenCalledWith(
-      { id: "issue-1" },
+      { id: "task-1" },
       "user-123",
       "user",
     );

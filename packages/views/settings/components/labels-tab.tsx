@@ -47,8 +47,8 @@ import { ColorPicker, COLOR_PICKER_PRESETS } from "../../common/color-picker";
 import { useT } from "../../i18n";
 import { SettingsTab } from "./settings-layout";
 
-const RESOURCE_TYPES: LabelResourceType[] = ["issue", "agent", "skill"];
-const ISSUE_RESOURCE_TYPES: LabelResourceType[] = ["issue"];
+const RESOURCE_TYPES: LabelResourceType[] = ["task", "agent", "skill"];
+const TASK_RESOURCE_TYPES: LabelResourceType[] = ["task"];
 
 interface LabelDraft {
   name: string;
@@ -67,17 +67,17 @@ export function LabelsTab() {
   const wsId = useWorkspaceId();
   const resourceLabelsEnabled = useFeatureEnabled(RESOURCE_LABELS_FLAG, false);
 
-  const [resourceType, setResourceType] = useState<LabelResourceType>("issue");
+  const [resourceType, setResourceType] = useState<LabelResourceType>("task");
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Label | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Label | null>(null);
 
-  const resourceTypes = resourceLabelsEnabled ? RESOURCE_TYPES : ISSUE_RESOURCE_TYPES;
+  const resourceTypes = resourceLabelsEnabled ? RESOURCE_TYPES : TASK_RESOURCE_TYPES;
 
   useEffect(() => {
-    if (!resourceLabelsEnabled && resourceType !== "issue") {
-      setResourceType("issue");
+    if (!resourceLabelsEnabled && resourceType !== "task") {
+      setResourceType("task");
       setQuery("");
     }
   }, [resourceLabelsEnabled, resourceType]);
@@ -415,7 +415,7 @@ function DeleteLabelDialog({
             onClick={() => {
               if (!label) return;
               remove.mutate(
-                { id: label.id, resource_type: label.resource_type ?? "issue" },
+                { id: label.id, resource_type: label.resource_type ?? "task" },
                 {
                   onSuccess: onClose,
                   onError: (error) =>

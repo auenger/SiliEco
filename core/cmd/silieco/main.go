@@ -45,7 +45,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&debugFlag, "debug", false, "Print full error details on failure (env: SILIECO_DEBUG)")
 
 	// Core commands
-	issueCmd.GroupID = groupCore
+	taskCmd.GroupID = groupCore
 	projectCmd.GroupID = groupCore
 	labelCmd.GroupID = groupCore
 	propertyCmd.GroupID = groupCore
@@ -71,7 +71,7 @@ func init() {
 	updateCmd.GroupID = groupAdditional
 	versionCmd.GroupID = groupAdditional
 
-	rootCmd.AddCommand(issueCmd)
+	rootCmd.AddCommand(taskCmd)
 	rootCmd.AddCommand(projectCmd)
 	rootCmd.AddCommand(labelCmd)
 	rootCmd.AddCommand(propertyCmd)

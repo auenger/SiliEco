@@ -1,6 +1,6 @@
 /**
  * Pure picker body for project status — single-select over the 5
- * ProjectStatus enum values. See issue/pickers/status-picker-body.tsx for
+ * ProjectStatus enum values. See task/pickers/status-picker-body.tsx for
  * the "extract body, route owns shell" rationale.
  */
 import { Pressable, ScrollView, View } from "react-native";

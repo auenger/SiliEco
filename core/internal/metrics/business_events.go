@@ -1,8 +1,8 @@
 package metrics
 
 import (
-	"github.com/silieco-ai/silieco/core/internal/analytics"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/silieco-ai/silieco/core/internal/analytics"
 )
 
 // PR3: funnel / commercial / community counters paired with PostHog events.
@@ -39,12 +39,12 @@ type businessEventMetrics struct {
 	onboardingSourceSubmit          *prometheus.CounterVec
 	onboardingCompleted             *prometheus.CounterVec
 	cloudWaitlistJoined             *prometheus.CounterVec
-	issueCreated                    *prometheus.CounterVec
+	taskCreated                     *prometheus.CounterVec
 	chatMessageSent                 *prometheus.CounterVec
 	agentCreated                    *prometheus.CounterVec
 	squadCreated                    *prometheus.CounterVec
 	autopilotCreated                *prometheus.CounterVec
-	issueExecuted                   *prometheus.CounterVec
+	taskExecuted                    *prometheus.CounterVec
 	runtimeRegistered               *prometheus.CounterVec
 	runtimeReady                    *prometheus.CounterVec
 	runtimeReadySeconds             *prometheus.HistogramVec
@@ -104,10 +104,10 @@ func newBusinessEventMetrics() *businessEventMetrics {
 			Name: "silieco_cloud_waitlist_joined_total",
 			Help: "Total users that joined the cloud waitlist.",
 		}, metricLabels("silieco_cloud_waitlist_joined_total")),
-		issueCreated: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "silieco_issue_created_total",
-			Help: "Total issues created (any source).",
-		}, metricLabels("silieco_issue_created_total")),
+		taskCreated: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "silieco_task_created_total",
+			Help: "Total tasks created (any source).",
+		}, metricLabels("silieco_task_created_total")),
 		chatMessageSent: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "silieco_chat_message_sent_total",
 			Help: "Total user chat messages sent (excludes agent replies).",
@@ -124,10 +124,10 @@ func newBusinessEventMetrics() *businessEventMetrics {
 			Name: "silieco_autopilot_created_total",
 			Help: "Total autopilots created.",
 		}, metricLabels("silieco_autopilot_created_total")),
-		issueExecuted: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "silieco_issue_executed_total",
-			Help: "First task completion per issue (per-issue exactly-once activation keystone).",
-		}, metricLabels("silieco_issue_executed_total")),
+		taskExecuted: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "silieco_task_executed_total",
+			Help: "First task completion per task (per-task exactly-once activation keystone).",
+		}, metricLabels("silieco_task_executed_total")),
 		runtimeRegistered: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "silieco_runtime_registered_total",
 			Help: "Total first-time runtime registrations.",
@@ -224,12 +224,12 @@ func (e *businessEventMetrics) collectors() []prometheus.Collector {
 		e.onboardingSourceSubmit,
 		e.onboardingCompleted,
 		e.cloudWaitlistJoined,
-		e.issueCreated,
+		e.taskCreated,
 		e.chatMessageSent,
 		e.agentCreated,
 		e.squadCreated,
 		e.autopilotCreated,
-		e.issueExecuted,
+		e.taskExecuted,
 		e.runtimeRegistered,
 		e.runtimeReady,
 		e.runtimeReadySeconds,
@@ -287,7 +287,7 @@ func (m *BusinessMetrics) IncForEvent(ev analytics.Event) {
 	case analytics.EventSignup:
 		m.events.signup.WithLabelValues(NormalizeSignupSource(stringProp(ev.Properties, "signup_source"))).Inc()
 	case analytics.EventWorkspaceCreated:
-		m.events.workspaceCreated.WithLabelValues(NormalizeTaskSource(stringProp(ev.Properties, "source"))).Inc()
+		m.events.workspaceCreated.WithLabelValues(NormalizeRunSource(stringProp(ev.Properties, "source"))).Inc()
 	case analytics.EventTeamInviteSent:
 		m.events.teamInviteSent.WithLabelValues().Inc()
 	case analytics.EventTeamInviteAccepted:
@@ -302,9 +302,9 @@ func (m *BusinessMetrics) IncForEvent(ev analytics.Event) {
 		m.events.onboardingCompleted.WithLabelValues(NormalizeOnboardingPath(stringProp(ev.Properties, "completion_path"))).Inc()
 	case analytics.EventCloudWaitlistJoined:
 		m.events.cloudWaitlistJoined.WithLabelValues().Inc()
-	case analytics.EventIssueCreated:
-		m.events.issueCreated.WithLabelValues(
-			NormalizeTaskSource(stringProp(ev.Properties, "source")),
+	case analytics.EventTaskCreated:
+		m.events.taskCreated.WithLabelValues(
+			NormalizeRunSource(stringProp(ev.Properties, "source")),
 			NormalizePlatform(stringProp(ev.Properties, "platform")),
 		).Inc()
 	case analytics.EventChatMessageSent:
@@ -312,14 +312,14 @@ func (m *BusinessMetrics) IncForEvent(ev analytics.Event) {
 	case analytics.EventAgentCreated:
 		m.events.agentCreated.WithLabelValues(
 			NormalizeRuntimeMode(stringProp(ev.Properties, "runtime_mode")),
-			NormalizeTaskSource(stringProp(ev.Properties, "source")),
+			NormalizeRunSource(stringProp(ev.Properties, "source")),
 		).Inc()
 	case analytics.EventSquadCreated:
 		m.events.squadCreated.WithLabelValues().Inc()
 	case analytics.EventAutopilotCreated:
 		m.events.autopilotCreated.WithLabelValues(NormalizeAutopilotCadence(stringProp(ev.Properties, "cadence"))).Inc()
-	case analytics.EventIssueExecuted:
-		m.events.issueExecuted.WithLabelValues(NormalizeTaskSource(stringProp(ev.Properties, "source"))).Inc()
+	case analytics.EventTaskExecuted:
+		m.events.taskExecuted.WithLabelValues(NormalizeRunSource(stringProp(ev.Properties, "source"))).Inc()
 	case analytics.EventRuntimeRegistered:
 		m.events.runtimeRegistered.WithLabelValues(
 			NormalizeRuntimeMode(stringProp(ev.Properties, "runtime_mode")),
@@ -369,7 +369,7 @@ func (m *BusinessMetrics) IncForEvent(ev analytics.Event) {
 	case analytics.EventContactSalesSubmitted:
 		m.events.contactSalesSubmitted.WithLabelValues(NormalizeContactSalesSource(stringProp(ev.Properties, "form_source"))).Inc()
 	default:
-		// agent_task_* lifecycle telemetry is recorded straight to Prometheus
+		// agent_run_* lifecycle telemetry is recorded straight to Prometheus
 		// via the typed BusinessMetrics.RecordTask* methods (they take
 		// queue/run/total seconds that an analytics.Event does not carry), so
 		// there is no analytics.Event to dispatch here. Anything else reaching

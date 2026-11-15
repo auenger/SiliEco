@@ -4,7 +4,7 @@ import type { FeedbackDraft, FeedbackItem } from "./draft-store";
 import { buildFeedbackDescription } from "./description";
 
 interface SubmitDependencies {
-  api: Pick<ApiClient, "uploadFile" | "createIssue" | "updateIssue" | "listAttachments">;
+  api: Pick<ApiClient, "uploadFile" | "createTask" | "updateTask" | "listAttachments">;
   guard: () => void;
   image: (item: FeedbackItem) => Promise<File>;
   checkpoint: (patch: Partial<FeedbackDraft>) => void;
@@ -38,7 +38,7 @@ export async function submitFeedbackTask(draft: FeedbackDraft, deps: SubmitDepen
   let taskId = draft.taskId;
   if (!taskId) {
     deps.guard();
-    const task = await deps.api.createIssue({ title: draft.title.trim(), description: [buildFeedbackDescription(draft, imageMarkdown), evidenceLink].filter(Boolean).join("\n\n"), status: "backlog", attachment_ids: attachmentIds });
+    const task = await deps.api.createTask({ title: draft.title.trim(), description: [buildFeedbackDescription(draft, imageMarkdown), evidenceLink].filter(Boolean).join("\n\n"), status: "backlog", attachment_ids: attachmentIds });
     taskId = task.id;
     deps.checkpoint({ taskId });
   }
@@ -47,7 +47,7 @@ export async function submitFeedbackTask(draft: FeedbackDraft, deps: SubmitDepen
     let attached = await deps.api.listAttachments(taskId);
     if (attachmentIds.some((id) => !attached.some((a) => a.id === id))) {
       deps.guard();
-      await deps.api.updateIssue(taskId, { attachment_ids: attachmentIds });
+      await deps.api.updateTask(taskId, { attachment_ids: attachmentIds });
       deps.guard();
       attached = await deps.api.listAttachments(taskId);
       if (attachmentIds.some((id) => !attached.some((a) => a.id === id))) throw new Error("Task created; some attachments are still missing. Retry to finish attaching them.");

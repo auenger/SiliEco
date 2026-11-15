@@ -30,16 +30,16 @@ func TestWorkflowManualRollbackStartsFreshAgentAttempt(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO workflow_instance_stage(workspace_id,workflow_instance_id,stable_key,name,position,execution_mode,rollback_stage_key) VALUES($1,$2,'manual_review','Manual review',1,'manual','requirements') RETURNING id`, p.WorkspaceID, p.InstanceID).Scan(&manualID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, first.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, first.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, first.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, first.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.AcceptAutomaticExecution(ctx, p.WorkspaceID, p.InstanceID, first.ID); err != nil {
 		t.Fatal(err)
 	}
-	manualIssue, err := svc.Queries.CreateIssue(ctx, db.CreateIssueParams{WorkspaceID: p.WorkspaceID, Title: "Manual evidence before rollback", Status: "done", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, Number: 9903, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualID})
+	manualTask, err := svc.Queries.CreateTask(ctx, db.CreateTaskParams{WorkspaceID: p.WorkspaceID, Title: "Manual evidence before rollback", Status: "done", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, Number: 9903, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,9 +85,9 @@ func TestWorkflowManualRollbackStartsFreshAgentAttempt(t *testing.T) {
 	if err != nil || old.Status != "cancelled" || old.FailureCode.String != "rework_invalidated" {
 		t.Fatalf("previous delivery still accepted: %+v %v", old, err)
 	}
-	issue, err := svc.Queries.GetIssue(ctx, manualIssue.ID)
-	if err != nil || issue.WorkflowInvalidatedByReworkID != effects.Record.ID || issue.Status != "done" {
-		t.Fatalf("manual history lost: %+v %v", issue, err)
+	task, err := svc.Queries.GetTask(ctx, manualTask.ID)
+	if err != nil || task.WorkflowInvalidatedByReworkID != effects.Record.ID || task.Status != "done" {
+		t.Fatalf("manual history lost: %+v %v", task, err)
 	}
 	var intents int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workflow_execution_action WHERE execution_id=$1 AND kind='dispatch' AND status='pending'`, next.ID).Scan(&intents); err != nil || intents != 1 {
@@ -103,7 +103,7 @@ func TestWorkflowReworkFailureRetryLocksRunBeforeCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='running',max_attempts=3 WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='running',max_attempts=3 WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)
@@ -121,7 +121,7 @@ func TestWorkflowReworkFailureRetryLocksRunBeforeCall(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := svc.TaskService.FailTask(ctx, execution.MainTaskID, "runtime offline", "", "", "runtime_offline", false, "")
+		_, err := svc.AgentRunService.FailRun(ctx, execution.MainRunID, "runtime offline", "", "", "runtime_offline", false, "")
 		done <- err
 	}()
 	blocked := false
@@ -140,13 +140,13 @@ func TestWorkflowReworkFailureRetryLocksRunBeforeCall(t *testing.T) {
 	}
 	// A task-first implementation already holds this row while waiting for
 	// the Run. Rework must be able to cancel it without a lock cycle.
-	if _, err := tx.Exec(ctx, `SELECT id FROM agent_task_queue WHERE id=$1 FOR UPDATE NOWAIT`, execution.MainTaskID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT id FROM agent_run WHERE id=$1 FOR UPDATE NOWAIT`, execution.MainRunID); err != nil {
 		t.Fatalf("failure retry locked its call before the Run: %v", err)
 	}
-	if err := q.InvalidateWorkflowStageIssuesForRework(ctx, db.InvalidateWorkflowStageIssuesForReworkParams{WorkspaceID: p.WorkspaceID, InstanceID: p.InstanceID, Position: 0, ReworkID: p.ExecutionID}); err != nil {
+	if err := q.InvalidateWorkflowStageTasksForRework(ctx, db.InvalidateWorkflowStageTasksForReworkParams{WorkspaceID: p.WorkspaceID, InstanceID: p.InstanceID, Position: 0, ReworkID: p.ExecutionID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE agent_task_queue SET status='cancelled' WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE agent_run SET status='cancelled' WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -156,7 +156,7 @@ func TestWorkflowReworkFailureRetryLocksRunBeforeCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	var children int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE parent_task_id=$1`, execution.MainTaskID).Scan(&children); err != nil || children != 0 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE parent_run_id=$1`, execution.MainRunID).Scan(&children); err != nil || children != 0 {
 		t.Fatalf("cancelled work retried: children=%d error=%v", children, err)
 	}
 }
@@ -181,10 +181,10 @@ func TestWorkflowReworkInvalidatesDownstreamAndCreatesOneAttempt(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO workflow_instance_stage(workspace_id,workflow_instance_id,stable_key,name,position,execution_mode,executor_id,output_spec,gate,rollback_stage_key) VALUES($1,$2,'implementation','Implementation',1,'agent',$3,'{"contract":{"schema_version":"silieco.stage/v1","data":{"type":"object"}}}','{"type":"none"}','requirements') RETURNING id`, p.WorkspaceID, p.InstanceID, first.ExecutorID).Scan(&secondStage); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, first.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, first.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, first.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, first.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.AcceptAutomaticExecution(ctx, p.WorkspaceID, p.InstanceID, first.ID); err != nil {
@@ -205,7 +205,7 @@ func TestWorkflowReworkInvalidatesDownstreamAndCreatesOneAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO task_token(token_hash,task_id,agent_id,workspace_id,user_id,expires_at) VALUES('rework-test-token',$1,$2,$3,$4,now()+interval '1 hour')`, second.MainTaskID, first.ExecutorID, p.WorkspaceID, p.ActorID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO agent_run_token(token_hash,run_id,agent_id,workspace_id,user_id,expires_at) VALUES('rework-test-token',$1,$2,$3,$4,now()+interval '1 hour')`, second.MainRunID, first.ExecutorID, p.WorkspaceID, p.ActorID); err != nil {
 		t.Fatal(err)
 	}
 	request := ReworkWorkflowExecutionParams{WorkspaceID: p.WorkspaceID, InstanceID: p.InstanceID, SourceExecutionID: second.ID, TargetStageID: first.WorkflowStageID, ActorID: p.ActorID, ExpectedRevision: 1, Reason: "Revise requirements"}
@@ -220,7 +220,7 @@ func TestWorkflowReworkInvalidatesDownstreamAndCreatesOneAttempt(t *testing.T) {
 	if err != nil || unchanged.Status != "succeeded" {
 		t.Fatalf("failed rework invalidated source: %+v %v", unchanged, err)
 	}
-	unchangedCall, err := svc.Queries.GetAgentTask(ctx, second.MainTaskID)
+	unchangedCall, err := svc.Queries.GetAgentRun(ctx, second.MainRunID)
 	if err != nil || unchangedCall.Status != "queued" {
 		t.Fatalf("failed rework cancelled call: %+v %v", unchangedCall, err)
 	}
@@ -252,7 +252,7 @@ func TestWorkflowReworkInvalidatesDownstreamAndCreatesOneAttempt(t *testing.T) {
 		}
 		next = row
 	}
-	if next.Attempt != 2 || next.Status != "pending" || next.ResultRevision != 0 || next.MainIssueID.Valid || next.ReworkSourceExecutionID != second.ID {
+	if next.Attempt != 2 || next.Status != "pending" || next.ResultRevision != 0 || next.MainTaskID.Valid || next.ReworkSourceExecutionID != second.ID {
 		t.Fatalf("invalid rework attempt: %+v", next)
 	}
 	for _, id := range []pgtype.UUID{first.ID, second.ID} {
@@ -261,12 +261,12 @@ func TestWorkflowReworkInvalidatesDownstreamAndCreatesOneAttempt(t *testing.T) {
 			t.Fatalf("old execution active: %+v %v", stale, err)
 		}
 	}
-	oldCall, err := svc.Queries.GetAgentTask(ctx, second.MainTaskID)
+	oldCall, err := svc.Queries.GetAgentRun(ctx, second.MainRunID)
 	if err != nil || oldCall.Status != "cancelled" {
 		t.Fatalf("old call active: %+v %v", oldCall, err)
 	}
 	var tokens int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM task_token WHERE task_id=$1`, second.MainTaskID).Scan(&tokens); err != nil || tokens != 0 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run_token WHERE run_id=$1`, second.MainRunID).Scan(&tokens); err != nil || tokens != 0 {
 		t.Fatalf("old credentials retained: %d %v", tokens, err)
 	}
 	if _, err := svc.SubmitResult(ctx, p); !errors.Is(err, ErrWorkflowExecutionConflict) {
@@ -296,8 +296,8 @@ func TestWorkflowReworkInvalidatesDownstreamAndCreatesOneAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	fresh, err := svc.Queries.GetWorkflowStageExecution(ctx, db.GetWorkflowStageExecutionParams{WorkspaceID: p.WorkspaceID, ID: next.ID})
-	if err != nil || fresh.MainIssueID == first.MainIssueID {
-		t.Fatalf("rework reused old task: %+v %v", fresh, err)
+	if err != nil || fresh.MainTaskID == first.MainTaskID {
+		t.Fatalf("rework reused old run: %+v %v", fresh, err)
 	}
 }
 
@@ -316,18 +316,18 @@ func TestWorkflowReworkInvalidatesManualDownstreamWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldIssue, err := svc.Queries.CreateIssue(ctx, db.CreateIssueParams{WorkspaceID: p.WorkspaceID, Title: "Manual delivery before rework", Status: "todo", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, Number: 9901, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualStage})
+	oldTask, err := svc.Queries.CreateTask(ctx, db.CreateTaskParams{WorkspaceID: p.WorkspaceID, Title: "Manual delivery before rework", Status: "todo", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, Number: 9901, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualStage})
 	if err != nil {
 		t.Fatal(err)
 	}
-	failed, err := svc.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{AgentID: current.ExecutorID, RuntimeID: agent.RuntimeID, IssueID: oldIssue.ID})
+	failed, err := svc.Queries.CreateAgentRun(ctx, db.CreateAgentRunParams{AgentID: current.ExecutorID, RuntimeID: agent.RuntimeID, TaskID: oldTask.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='failed',failure_reason='daemon_offline' WHERE id=$1`, failed.ID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='failed',failure_reason='daemon_offline' WHERE id=$1`, failed.ID); err != nil {
 		t.Fatal(err)
 	}
-	call, err := svc.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{AgentID: current.ExecutorID, RuntimeID: agent.RuntimeID, IssueID: oldIssue.ID})
+	call, err := svc.Queries.CreateAgentRun(ctx, db.CreateAgentRunParams{AgentID: current.ExecutorID, RuntimeID: agent.RuntimeID, TaskID: oldTask.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,11 +335,11 @@ func TestWorkflowReworkInvalidatesManualDownstreamWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO task_token(token_hash,task_id,agent_id,workspace_id,user_id,expires_at) VALUES('manual-rework-token',$1,$2,$3,$4,now()+interval '1 hour')`, call.ID, current.ExecutorID, p.WorkspaceID, p.ActorID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO agent_run_token(token_hash,run_id,agent_id,workspace_id,user_id,expires_at) VALUES('manual-rework-token',$1,$2,$3,$4,now()+interval '1 hour')`, call.ID, current.ExecutorID, p.WorkspaceID, p.ActorID); err != nil {
 		t.Fatal(err)
 	}
 	request := ReworkWorkflowExecutionParams{WorkspaceID: p.WorkspaceID, InstanceID: p.InstanceID, SourceExecutionID: current.ID, TargetStageID: current.WorkflowStageID, ActorID: p.ActorID, ExpectedRevision: 1, Reason: "Restart with new requirements"}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='running' WHERE id=$1`, call.ID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='running' WHERE id=$1`, call.ID); err != nil {
 		t.Fatal(err)
 	}
 	retryTx, err := pool.Begin(ctx)
@@ -347,7 +347,7 @@ func TestWorkflowReworkInvalidatesManualDownstreamWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer retryTx.Rollback(ctx)
-	child, err := svc.Queries.WithTx(retryTx).CreateRetryTask(ctx, db.CreateRetryTaskParams{ID: failed.ID})
+	child, err := svc.Queries.WithTx(retryTx).CreateRetryRun(ctx, db.CreateRetryRunParams{ID: failed.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestWorkflowReworkInvalidatesManualDownstreamWork(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if !blocked {
-		t.Fatal("rework did not wait for the concurrent retry's issue lock")
+		t.Fatal("rework did not wait for the concurrent retry's task lock")
 	}
 	if err := retryTx.Commit(ctx); err != nil {
 		t.Fatal(err)
@@ -379,21 +379,21 @@ func TestWorkflowReworkInvalidatesManualDownstreamWork(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	retried, err := svc.Queries.GetAgentTask(ctx, child.ID)
+	retried, err := svc.Queries.GetAgentRun(ctx, child.ID)
 	if err != nil || retried.Status != "cancelled" {
 		t.Fatalf("concurrent retry escaped rework: %+v %v", retried, err)
 	}
 
-	invalid, err := svc.Queries.GetIssue(ctx, oldIssue.ID)
+	invalid, err := svc.Queries.GetTask(ctx, oldTask.ID)
 	if err != nil || !invalid.WorkflowInvalidatedByReworkID.Valid || invalid.Status != "todo" {
-		t.Fatalf("manual issue history lost or not invalidated: %+v %v", invalid, err)
+		t.Fatalf("manual task history lost or not invalidated: %+v %v", invalid, err)
 	}
-	stopped, err := svc.Queries.GetAgentTask(ctx, call.ID)
+	stopped, err := svc.Queries.GetAgentRun(ctx, call.ID)
 	if err != nil || stopped.Status != "cancelled" {
 		t.Fatalf("manual downstream call not cancelled: %+v %v", stopped, err)
 	}
 	var tokens int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM task_token WHERE task_id=$1`, call.ID).Scan(&tokens); err != nil || tokens != 0 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run_token WHERE run_id=$1`, call.ID).Scan(&tokens); err != nil || tokens != 0 {
 		t.Fatalf("manual credentials survived: %d %v", tokens, err)
 	}
 	var invalidating pgtype.UUID
@@ -404,30 +404,30 @@ func TestWorkflowReworkInvalidatesManualDownstreamWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = LockIssueWorkflowMutation(ctx, svc.Queries.WithTx(tx), p.WorkspaceID, oldIssue.ID, pgtype.UUID{})
+	_, _, err = LockTaskWorkflowMutation(ctx, svc.Queries.WithTx(tx), p.WorkspaceID, oldTask.ID, pgtype.UUID{})
 	_ = tx.Rollback(ctx)
 	if !errors.Is(err, ErrWorkflowExecutionConflict) {
-		t.Fatalf("invalidated manual issue mutable: %v", err)
+		t.Fatalf("invalidated manual task mutable: %v", err)
 	}
-	issueSvc := &IssueService{Queries: svc.Queries, TxStarter: pool}
-	if _, err := issueSvc.Create(ctx, IssueCreateParams{WorkspaceID: p.WorkspaceID, Title: "Child of invalidated work", Status: "todo", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, ParentIssueID: oldIssue.ID}, IssueCreateOpts{}); !errors.Is(err, ErrWorkflowAssignmentInvalid) {
+	taskSvc := &TaskService{Queries: svc.Queries, TxStarter: pool}
+	if _, err := taskSvc.Create(ctx, TaskCreateParams{WorkspaceID: p.WorkspaceID, Title: "Child of invalidated work", Status: "todo", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, ParentTaskID: oldTask.ID}, TaskCreateOpts{}); !errors.Is(err, ErrWorkflowAssignmentInvalid) {
 		t.Fatalf("invalidated parent accepted new work: %v", err)
 	}
-	if _, err := svc.Queries.CreateRetryTask(ctx, db.CreateRetryTaskParams{ID: failed.ID}); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("invalidated manual issue retried: %v", err)
+	if _, err := svc.Queries.CreateRetryRun(ctx, db.CreateRetryRunParams{ID: failed.ID}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("invalidated manual task retried: %v", err)
 	}
-	fresh, err := svc.Queries.CreateIssue(ctx, db.CreateIssueParams{WorkspaceID: p.WorkspaceID, Title: "Manual delivery after rework", Status: "done", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, Number: 9902, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualStage})
+	fresh, err := svc.Queries.CreateTask(ctx, db.CreateTaskParams{WorkspaceID: p.WorkspaceID, Title: "Manual delivery after rework", Status: "done", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, Number: 9902, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualStage})
 	if err != nil || fresh.WorkflowInvalidatedByReworkID.Valid {
 		t.Fatalf("new manual work invalid: %+v %v", fresh, err)
 	}
-	tasks, err := svc.Queries.LockWorkflowStageIssues(ctx, db.LockWorkflowStageIssuesParams{WorkspaceID: p.WorkspaceID, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualStage})
-	if err != nil || len(tasks) != 1 || tasks[0].ID != fresh.ID {
-		t.Fatalf("stale manual issue counted as required delivery: %+v %v", tasks, err)
+	agentRuns, err := svc.Queries.LockWorkflowStageTasks(ctx, db.LockWorkflowStageTasksParams{WorkspaceID: p.WorkspaceID, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualStage})
+	if err != nil || len(agentRuns) != 1 || agentRuns[0].ID != fresh.ID {
+		t.Fatalf("stale manual task counted as required delivery: %+v %v", agentRuns, err)
 	}
 	if _, err := svc.ReworkExecution(ctx, request); err != nil {
 		t.Fatal(err)
 	}
-	fresh, err = svc.Queries.GetIssue(ctx, fresh.ID)
+	fresh, err = svc.Queries.GetTask(ctx, fresh.ID)
 	if err != nil || fresh.WorkflowInvalidatedByReworkID.Valid {
 		t.Fatal("idempotent replay invalidated newly created work")
 	}
@@ -450,7 +450,7 @@ func TestWorkflowAgentReworkToManualPreservesHistoryWithoutFakeExecution(t *test
 	if _, err := pool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=jsonb_set(config_snapshot,'{rollback_stage_key}','"manual_input"') WHERE id=$1`, source.ID); err != nil {
 		t.Fatal(err)
 	}
-	historical, err := svc.Queries.CreateIssue(ctx, db.CreateIssueParams{WorkspaceID: p.WorkspaceID, Title: "Previous manual input", Status: "done", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, Number: 9908, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualID})
+	historical, err := svc.Queries.CreateTask(ctx, db.CreateTaskParams{WorkspaceID: p.WorkspaceID, Title: "Previous manual input", Status: "done", Priority: "none", CreatorType: "member", CreatorID: p.ActorID, Number: 9908, WorkflowInstanceID: p.InstanceID, WorkflowStageID: manualID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,10 +493,10 @@ func TestWorkflowAgentReworkToManualPreservesHistoryWithoutFakeExecution(t *test
 	if err != nil || old.Status != "cancelled" || old.FailureCode.String != "rework_invalidated" {
 		t.Fatalf("old execution survived: %+v %v", old, err)
 	}
-	for _, id := range []pgtype.UUID{historical.ID, source.MainIssueID} {
-		issue, err := svc.Queries.GetIssue(ctx, id)
-		if err != nil || issue.WorkflowInvalidatedByReworkID != recordID {
-			t.Fatalf("old work still valid: %+v %v", issue, err)
+	for _, id := range []pgtype.UUID{historical.ID, source.MainTaskID} {
+		task, err := svc.Queries.GetTask(ctx, id)
+		if err != nil || task.WorkflowInvalidatedByReworkID != recordID {
+			t.Fatalf("old work still valid: %+v %v", task, err)
 		}
 	}
 	if _, err := svc.SubmitResult(ctx, p); !errors.Is(err, ErrWorkflowExecutionConflict) {

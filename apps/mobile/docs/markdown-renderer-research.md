@@ -8,8 +8,8 @@ matches the web/desktop feature set.
 **Target requirements:**
 
 1. Render the markdown that web/desktop already write to the database
-   (issue descriptions + comments) without losing semantic content.
-2. Make `@member` / `@agent` / `#issue` mentions tappable chips.
+   (task descriptions + comments) without losing semantic content.
+2. Make `@member` / `@agent` / `#task` mentions tappable chips.
 3. Make `![alt](url)` images inline + tappable to a lightbox.
 4. Make `!file[name](url)` file references tappable + open via the system.
 
@@ -23,14 +23,14 @@ matches the web/desktop feature set.
 
 ## Critical correction from initial research
 
-The initial draft of this doc claimed mentions were stored as bare `@user` / `#issue` patterns and that mobile needed a custom `marked` inline tokenizer extension to detect them. **This was wrong.**
+The initial draft of this doc claimed mentions were stored as bare `@user` / `#task` patterns and that mobile needed a custom `marked` inline tokenizer extension to detect them. **This was wrong.**
 
 The actual encoding (see `packages/views/editor/extensions/mention-extension.ts:73`):
 
 ```ts
 return `[${prefix}${safeLabel}](mention://${type}/${id})`;
 // emits e.g. [@naiyuan](mention://member/abc-123)
-//           [SILI-123](mention://issue/issue-uuid)
+//           [SILI-123](mention://task/task-uuid)
 ```
 
 Mentions are **already standard markdown links** with a custom URI scheme. So mobile does NOT need a custom tokenizer — overriding `Renderer.link()` to check `href.startsWith("mention://")` is enough. This makes the integration significantly simpler than the initial sketch.
@@ -101,12 +101,12 @@ apps/mobile/
 │   ├── markdown.tsx              # Wraps react-native-marked w/ our renderer + preprocess
 │   ├── renderer.tsx              # SiliecoRenderer extends Renderer — overrides link, image
 │   ├── preprocess.ts             # Mention-shortcode + file-card rewrite, idempotent
-│   ├── mention-chip.tsx          # member / agent / issue chip components
+│   ├── mention-chip.tsx          # member / agent / task chip components
 │   ├── markdown-image.tsx        # expo-image + auto aspect ratio + tap-to-lightbox dispatch
 │   └── lightbox-provider.tsx     # App-level provider + React Context for opening lightbox
-└── components/issue/
+└── components/task/
     ├── comment-card.tsx          # <Text>{content}</Text> → <Markdown content={content}/>
-    └── issue-description.tsx     # Same swap
+    └── task-description.tsx     # Same swap
 ```
 
 The adapter boundary stays thin so swapping the engine later (e.g. once `react-native-enriched-markdown` matures) is a localized change.
@@ -135,7 +135,7 @@ class SiliecoRenderer extends Renderer {
 // lib/markdown/mention-chip.tsx
 function MentionChip({ type, id, fallback }: Props) {
   const { getName, getAvatarUrl } = useActorLookup();   // already exists in mobile
-  const { issues } = useIssueListCache();                // mobile-local helper
+  const { tasks } = useTaskListCache();                // mobile-local helper
 
   if (type === "member" || type === "agent") {
     const name = getName(type, id);
@@ -143,13 +143,13 @@ function MentionChip({ type, id, fallback }: Props) {
       <Text className="text-primary font-medium">@{name ?? fallback.replace(/^@/, "")}</Text>
     );
   }
-  if (type === "issue") {
-    const issue = issues.find((i) => i.id === id);
+  if (type === "task") {
+    const task = tasks.find((i) => i.id === id);
     const onPress = () =>
-      router.push(`/${wsSlug}/issue/${id}`);
+      router.push(`/${wsSlug}/task/${id}`);
     return (
       <Text className="text-blue-500" onPress={onPress}>
-        {issue?.identifier ?? fallback}
+        {task?.identifier ?? fallback}
       </Text>
     );
   }
@@ -270,7 +270,7 @@ V1 only opens single images. V2 can extend to galleries (all images in one comme
 
 | Phase | Scope | Days |
 |---|---|---|
-| **V2.1** | preprocess (mention shortcodes + file cards) + plain markdown rendering (bold/italic/code/lists/quotes/headings/links/mention chips). Replaces `<Text>{content}</Text>` in comment-card and issue-description | ~1 |
+| **V2.1** | preprocess (mention shortcodes + file cards) + plain markdown rendering (bold/italic/code/lists/quotes/headings/links/mention chips). Replaces `<Text>{content}</Text>` in comment-card and task-description | ~1 |
 | **V2.2** | Inline images via `expo-image` + lightbox via `react-native-image-viewing` | ~0.5 |
 | **V2.3** | Tables (vertical degraded layout), task list checkboxes (read-only), strikethrough | ~0.5 |
 | **V3+** | LaTeX, Mermaid, syntax highlighting — only when product asks for them | per-feature |
@@ -299,7 +299,7 @@ We deliberately don't lift their `transform.ts` (heavy AST manipulations to make
 
 This section is the **single source of truth** for what does and does not work
 when styling markdown in React Native. Every rule below is backed by a
-reproducible RN issue thread — these are not design trade-offs, they are
+reproducible RN task thread — these are not design trade-offs, they are
 platform limits of how iOS TextKit + RN's nested-Text flattener interact.
 
 ### The nested-`<Text>` rule (the most important one)
@@ -379,7 +379,7 @@ Apple HIG Dynamic Type (Body 17pt, Title 3 20pt, Title 2 22pt, Title 1
 | Body / paragraph | `text-sm leading-6` | 14px on 24px line ≈ 1.71 — generous for CJK glyph height; HIG Body Compact. See *Body lineHeight stays at 24* below for why a 2026-05-19 reduction attempt was reverted |
 | Inline code | `text-sm font-mono` | Match body size, mono variant — chip identification is by bg, not size |
 | Block code | `text-sm font-mono` | Same as inline |
-| H1 | `text-xl font-bold` (20px) | HIG Title 3 — markdown H1 inside an issue card is structural, not a screen title |
+| H1 | `text-xl font-bold` (20px) | HIG Title 3 — markdown H1 inside an task card is structural, not a screen title |
 | H2 | `text-lg font-semibold` (18px) | One step down from H1; matches GitHub mobile |
 | H3 | `text-base font-semibold` (16px) | Body+1 |
 | H4–H6 | `text-sm font-semibold` | Body, weight to differentiate |
@@ -396,7 +396,7 @@ Falsifying evidence:
 1. **Discord / Slack / Telegram / Mattermost mobile all use background +
    monospace** for inline code with NO visible top-heavy artifact —
    confirming the artifact is not an RN+iOS platform-wide problem.
-2. **Upstream issue [#255](https://github.com/software-mansion-labs/react-native-enriched-markdown/issues/255)**
+2. **Upstream task [#255](https://github.com/software-mansion-labs/react-native-enriched-markdown/issues/255)**
    on `react-native-enriched-markdown` (filed 2026-04-20) is the same
    problem reported by another user: enriched applies hardcoded inline-
    code padding that cannot be turned off via `markdownStyle`. Maintainer
@@ -444,11 +444,11 @@ correctness one.
 
 ## Decision log
 
-- **2026-05-09 (initial)** — Picked `react-native-marked`. Sketched a mention pipeline with custom marked tokenizer for `@user` / `#issue` patterns.
+- **2026-05-09 (initial)** — Picked `react-native-marked`. Sketched a mention pipeline with custom marked tokenizer for `@user` / `#task` patterns.
 - **2026-05-09 (rewrite)** — Discovered `mention-extension.ts:73` actually emits markdown links with `mention://` URI scheme. Replaced the tokenizer-extension plan with a `Renderer.link` override (much simpler). Added image / file / lightbox plans now that the data shape is verified end-to-end. Confirmed `react-native-marked` and `react-native-svg` are still the right primitives in May 2026; chose `react-native-image-viewing` over `react-native-awesome-gallery` (the latter has been stale since 2024-07).
 - **2026-05-09 (engine actually shipped)** — Replaced planned `react-native-marked` adapter with a hand-rolled walker on raw `marked@18` (`render-block.tsx` / `render-inline.tsx` / `ast.ts`, ~450 LOC). Reason: `react-native-marked` v7.0 (Jun 2025) removed the `CustomToken` API needed for inline mention chips; v8 added React-component embedding back but custom inline tokenization is still constrained. Walker keeps total control over mention chips, file cards, and the inline-image-promotion AST pre-pass.
 - **2026-05-09 (Shiki + Expo Go assumption dropped)** — Project moved to dev client (custom native build) — Expo Go-compatible constraint no longer applies. Adopted `react-native-shiki-engine` (JSI Oniguruma + native engine) with reused web Shiki theme JSON (`github-light` / `github-dark`) for **byte-identical syntax highlighting** between web and mobile. Highlighter singleton lives in `lib/markdown/shiki.ts`, prewarmed at app boot.
-- **2026-05-09 (inline code chip incident)** — Shipped 3-layer styling (`bg + border + opacity`) ported from web. CJK paragraphs catastrophically broke into 6-7 lines per chip. Root cause: RN's 10-year-old nested-Text limitation (issues #10775 / #45925 / #6728 — `borderWidth` / `padding` / `margin` are not part of `NSAttributedString`'s expressible attribute set, so iOS TextKit either drops them or breaks the run out of inline flow; New Arch / Fabric flipped the failure mode from "silent drop" to "force break"). CJK amplified the symptom because UAX #14 / Kinsoku treat every ideograph as a soft-break opportunity around the non-flowable run. Fix: drop border + padding from inline code, bump background opacity from `/5` to `/10` to compensate. **Encoded the rule in *RN native rendering constraints* above so this never happens again.**
+- **2026-05-09 (inline code chip incident)** — Shipped 3-layer styling (`bg + border + opacity`) ported from web. CJK paragraphs catastrophically broke into 6-7 lines per chip. Root cause: RN's 10-year-old nested-Text limitation (tasks #10775 / #45925 / #6728 — `borderWidth` / `padding` / `margin` are not part of `NSAttributedString`'s expressible attribute set, so iOS TextKit either drops them or breaks the run out of inline flow; New Arch / Fabric flipped the failure mode from "silent drop" to "force break"). CJK amplified the symptom because UAX #14 / Kinsoku treat every ideograph as a soft-break opportunity around the non-flowable run. Fix: drop border + padding from inline code, bump background opacity from `/5` to `/10` to compensate. **Encoded the rule in *RN native rendering constraints* above so this never happens again.**
 
 - **2026-05-19 (RNR theme integration + enriched-markdown dark-default trap)** — Migrated `markdown-style.ts` from static hex constants to a `useMarkdownStyle()` hook driven by `THEME[scheme]` (from `lib/theme.ts`, mirroring `global.css` CSS variables). Non-prose layers (`CodeBlock` / `MarkdownImage`) were already className-driven and only needed dark-mode `--code-surface` (changed from light-mirror `240 4% 92%` to `240 4% 18%`). Two waves of dark-mode bugs uncovered the same root cause:
 
@@ -471,7 +471,7 @@ correctness one.
   - Upstream [`react-native-enriched-markdown#255`](https://github.com/software-mansion-labs/react-native-enriched-markdown/issues/255) — same user-reported problem, maintainer unresponsive — confirms enriched applies hardcoded inline-code padding that can't be turned off
   - Reducing `lineHeight` shrinks absolute padding but doesn't shift the asymmetry ratio (enriched's internal padding distribution is what sets the ratio). Net effect of the reduction: cost CJK leading, didn't fix the chip
   - Restored `MD_LINE.body: 24`. Heading values restored: h1 28, h2 24, h3 22, h4/h5 20, h6 18.
-  - **Lesson**: when a chip artifact appears in enriched-markdown output, check upstream issues BEFORE proposing a numeric fix on our side. Chip layout is library-controlled, not consumer-controlled. Now tracked in `docs/markdown-rendering-adr.md` → Known limitations.
+  - **Lesson**: when a chip artifact appears in enriched-markdown output, check upstream tasks BEFORE proposing a numeric fix on our side. Chip layout is library-controlled, not consumer-controlled. Now tracked in `docs/markdown-rendering-adr.md` → Known limitations.
 
 ---
 
@@ -508,7 +508,7 @@ correctness one.
 - [discussions-and-proposals #695 — "Inline code blocks"](https://github.com/react-native-community/discussions-and-proposals/issues/695) — Jul 2023, official statement that nested-Text padding/border is unsupported
 - [RN #19193 — Mixed CJK + Latin baseline drift](https://github.com/facebook/react-native/issues/19193) — adjacent CJK rendering quirk
 - [RN Text component docs (current)](https://reactnative.dev/docs/text)
-- [NativeWind 4 — Quirks](https://www.nativewind.dev/docs/core-concepts/quirks) (does not call out nested-Text limits — pure RN issue)
+- [NativeWind 4 — Quirks](https://www.nativewind.dev/docs/core-concepts/quirks) (does not call out nested-Text limits — pure RN task)
 - [Tiptap — HardBreak node docs](https://tiptap.dev/docs/editor/extensions/nodes/hard-break) — clipboardTextSerializer behavior
 - [Apple HIG — Typography](https://developer.apple.com/design/human-interface-guidelines/typography) — Dynamic Type sizing
 - [Material 3 — Typography scale](https://m3.material.io/styles/typography/applying-type)

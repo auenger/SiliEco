@@ -1,0 +1,1648 @@
+import { forwardRef, useImperativeHandle, useRef, useState, type ReactNode } from "react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { I18nProvider } from "@silieco/core/i18n/react";
+import enCommon from "../locales/en/common.json";
+import enModals from "../locales/en/modals.json";
+import enEditor from "../locales/en/editor.json";
+
+const TEST_RESOURCES = {
+  // `editor` carries the shared upload-gate copy ("Uploading…").
+  en: { common: enCommon, modals: enModals, editor: enEditor },
+};
+
+function I18nWrapper({ children }: { children: ReactNode }) {
+  return (
+    <I18nProvider locale="en" resources={TEST_RESOURCES}>
+      {children}
+    </I18nProvider>
+  );
+}
+
+const mockPush = vi.hoisted(() => vi.fn());
+const mockCreateTask = vi.hoisted(() => vi.fn());
+const mockAttachLabel = vi.hoisted(() => vi.fn());
+const mockListProperties = vi.hoisted(() => vi.fn());
+const mockSetTaskProperty = vi.hoisted(() => vi.fn());
+const mockSetShared = vi.hoisted(() => vi.fn());
+const mockSetManual = vi.hoisted(() => vi.fn());
+const mockSetAgent = vi.hoisted(() => vi.fn());
+const mockSetActiveMode = vi.hoisted(() => vi.fn());
+const mockClearDraft = vi.hoisted(() => vi.fn());
+const mockSetLastAssignee = vi.hoisted(() => vi.fn());
+const mockSetKeepOpen = vi.hoisted(() => vi.fn());
+const mockToastCustom = vi.hoisted(() => vi.fn());
+const mockToastDismiss = vi.hoisted(() => vi.fn());
+const mockToastError = vi.hoisted(() => vi.fn());
+// Uploads flow through the module-level coordinator, which calls
+// `api.uploadFile(file, ctx, signal)` (SILI-5181 L2). Tests drive uploads by
+// mocking that call; it resolves a plain server Attachment row.
+const mockApiUploadFile = vi.hoisted(() => vi.fn());
+
+type DraftAttachment = {
+  id: string;
+  workspace_id: string;
+  task_id: string | null;
+  comment_id: string | null;
+  chat_session_id: string | null;
+  chat_message_id: string | null;
+  uploader_type: string;
+  uploader_id: string;
+  filename: string;
+  url: string;
+  download_url: string;
+  markdown_url: string;
+  content_type: string;
+  size_bytes: number;
+  created_at: string;
+};
+
+// Coordinator-owned upload entry persisted in the shared pool (SILI-5181 L2).
+type DraftUploadEntry = {
+  clientUploadId: string;
+  status: "uploading" | "uploaded" | "failed" | "interrupted";
+  filename: string;
+  size: number;
+  contentType?: string;
+  attachment?: DraftAttachment;
+  error?: string;
+};
+
+const emptyTaskDraft = () => ({
+  shared: {
+    projectId: undefined as string | undefined,
+    priority: "none" as "none" | "low" | "medium" | "high" | "urgent",
+    dueDate: null as string | null,
+    attachments: [] as DraftUploadEntry[],
+  },
+  manual: {
+    title: "",
+    description: "",
+    status: "todo" as const,
+    startDate: null as string | null,
+    assigneeType: undefined as "agent" | "squad" | "member" | undefined,
+    assigneeId: undefined as string | undefined,
+    labelIds: [] as string[],
+    propertyValues: {} as Record<string, string | number | boolean | string[]>,
+  },
+  agent: {
+    prompt: "",
+    actorType: undefined as "agent" | "squad" | undefined,
+    actorId: undefined as string | undefined,
+  },
+  activeMode: "manual" as "manual" | "agent",
+});
+
+const mockDraftStore = {
+  draft: emptyTaskDraft(),
+  lastAssigneeType: undefined as "agent" | "squad" | "member" | undefined,
+  lastAssigneeId: undefined as string | undefined,
+  setShared: mockSetShared,
+  setManual: mockSetManual,
+  setAgent: mockSetAgent,
+  setActiveMode: mockSetActiveMode,
+  clearDraft: mockClearDraft,
+  setLastAssignee: mockSetLastAssignee,
+  hasDraft: () => false,
+};
+
+const mockQuickCreateStore = {
+  keepOpen: false,
+  setKeepOpen: mockSetKeepOpen,
+};
+
+type ManualCreateField =
+  | "status"
+  | "priority"
+  | "assignee"
+  | "labels"
+  | "project"
+  | "due_date"
+  | "start_date";
+
+const DEFAULT_MANUAL_FIELDS: ManualCreateField[] = [
+  "status",
+  "priority",
+  "assignee",
+  "labels",
+  "project",
+];
+
+const mockCreateSettingsStore = {
+  manualCreateFields: DEFAULT_MANUAL_FIELDS as ManualCreateField[],
+};
+
+// The real handle mints an id when it inserts the placeholder and hands it to
+// the uploader, which adopts it as the draft `clientUploadId`. Mocks must do
+// the same or the two records drift apart only in tests.
+let mockUploadIdSeq = 0;
+
+vi.mock("../navigation", () => ({
+  useNavigation: () => ({ push: mockPush }),
+}));
+
+vi.mock("@silieco/core/paths", () => ({
+  useCurrentWorkspace: () => ({ name: "Test Workspace" }),
+  useWorkspacePaths: () => ({
+    taskDetail: (id: string) => `/ws-test/tasks/${id}`,
+    settings: () => "/ws-test/settings",
+  }),
+}));
+
+vi.mock("@silieco/core/hooks", () => ({
+  useWorkspaceId: () => "ws-test",
+}));
+
+vi.mock("@silieco/core/tasks/queries", () => ({
+  taskDetailOptions: (wsId: string, id: string) => ({
+    queryKey: ["tasks", wsId, "detail", id],
+    queryFn: () => Promise.resolve(null),
+  }),
+  childTasksOptions: (wsId: string, id: string) => ({
+    queryKey: ["tasks", wsId, "children", id],
+    queryFn: () => Promise.resolve([]),
+  }),
+}));
+
+// CreateRunHint's pre-trigger preview + actor-name lookup are exercised in
+// their own suites; here we only need the create form to render without query
+// infra, so stub them to the inert "no run will start" state.
+vi.mock("../tasks/hooks/use-task-trigger-preview", () => ({
+  useTaskTriggerPreview: () => ({
+    triggers: [],
+    totalCount: 0,
+    isLoading: false,
+    handoffSupported: false,
+  }),
+}));
+
+vi.mock("@silieco/core/workspace/hooks", () => ({
+  useActorName: () => ({ getActorName: () => "Agent" }),
+}));
+
+// CreateRunHint now renders an ActorAvatar for agent/squad assignees. This
+// suite is about the create form, not the avatar (whose own workspace/presence/
+// navigation hook tree is exercised elsewhere), so stub it inert.
+vi.mock("../common/actor-avatar", () => ({
+  ActorAvatar: () => null,
+}));
+
+vi.mock("@silieco/core/tasks/stores/draft-store", () => ({
+  useTaskDraftStore: Object.assign(
+    (selector?: (state: typeof mockDraftStore) => unknown) =>
+      (selector ? selector(mockDraftStore) : mockDraftStore),
+    { getState: () => mockDraftStore },
+  ),
+}));
+
+vi.mock("@silieco/core/tasks/stores/quick-create-store", () => ({
+  useQuickCreateStore: (selector?: (state: typeof mockQuickCreateStore) => unknown) =>
+    (selector ? selector(mockQuickCreateStore) : mockQuickCreateStore),
+}));
+
+vi.mock("@silieco/core/tasks/stores/task-create-settings-store", () => ({
+  useTaskCreateSettingsStore: (
+    selector?: (state: typeof mockCreateSettingsStore) => unknown,
+  ) => (selector ? selector(mockCreateSettingsStore) : mockCreateSettingsStore),
+}));
+
+vi.mock("@silieco/core/tasks/mutations", () => ({
+  useCreateTask: () => ({ mutateAsync: mockCreateTask }),
+  useUpdateTask: () => ({ mutate: vi.fn() }),
+}));
+
+vi.mock("@silieco/core/labels", () => ({
+  useAttachLabelToTask: () => ({ mutateAsync: mockAttachLabel }),
+}));
+
+vi.mock("@silieco/core/properties", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@silieco/core/properties")>();
+  return {
+    ...actual,
+    useSetTaskProperty: () => ({
+      mutateAsync: ({ taskId, propertyId, value }: {
+        taskId: string;
+        propertyId: string;
+        value: string | number | boolean | string[];
+      }) => mockSetTaskProperty(taskId, propertyId, value),
+    }),
+  };
+});
+
+
+// Hoisted ApiError class so both the vi.mock factory and the tests below
+// can construct/instanceof-check the same identity. vi.mock is hoisted, so
+// a normal `class` declaration above it would still be in the TDZ at mock
+// evaluation time.
+const { ApiError } = vi.hoisted(() => {
+  class ApiErrorImpl extends Error {
+    readonly status: number;
+    readonly statusText: string;
+    readonly body?: unknown;
+    constructor(message: string, status: number, statusText: string, body?: unknown) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+      this.statusText = statusText;
+      this.body = body;
+    }
+  }
+  return { ApiError: ApiErrorImpl };
+});
+
+vi.mock("@silieco/core/api", async () => {
+  // Pull real `parseWithFallback` + `DuplicateTaskErrorBodySchema` from the
+  // schema modules so the drift-fallback branch in create-task.tsx runs the
+  // actual validation logic (not a stub). Only `ApiError` is local — the
+  // component imports it from this module and the cross-realm `instanceof`
+  // check requires a single class identity.
+  const { parseWithFallback } = await vi.importActual<typeof import("@silieco/core/api/schema")>(
+    "@silieco/core/api/schema",
+  );
+  const { DuplicateTaskErrorBodySchema } = await vi.importActual<
+    typeof import("@silieco/core/api/schemas")
+  >("@silieco/core/api/schemas");
+  return {
+    api: {
+      listProperties: mockListProperties,
+      setTaskProperty: mockSetTaskProperty,
+      uploadFile: mockApiUploadFile,
+    },
+    ApiError,
+    parseWithFallback,
+    DuplicateTaskErrorBodySchema,
+  };
+});
+
+vi.mock("../editor", async () => {
+  // Real submit gate (pure React) driven by the mock editor's
+  // `hasActiveUploads` / `onUploadingChange`.
+  const uploadGate = await vi.importActual<typeof import("../editor/use-upload-gate")>(
+    "../editor/use-upload-gate",
+  );
+  const composer = await vi.importActual<typeof import("../editor/use-composer-submit")>(
+    "../editor/use-composer-submit",
+  );
+  const ContentEditor = forwardRef(({ defaultValue, onUpdate, onSubmit, onUploadFile, onUploadingChange, placeholder, attachments }: any, ref: any) => {
+    const valueRef = useRef(defaultValue || "");
+    const [value, setValue] = useState(defaultValue || "");
+    // Mirrors the real editor's `uploading` node attrs: the placeholder is in
+    // the doc from before the await until the upload settles, and the host
+    // hears about it through onUploadingChange.
+    const inFlightRef = useRef(0);
+    useImperativeHandle(ref, () => ({
+      getMarkdown: () => valueRef.current,
+      clearContent: () => {
+        valueRef.current = "";
+        setValue("");
+      },
+      uploadFile: async (file: File) => {
+        inFlightRef.current += 1;
+        if (inFlightRef.current === 1) onUploadingChange?.(true);
+        try {
+          return await onUploadFile?.(file, `mock-upload-${++mockUploadIdSeq}`);
+        } finally {
+          inFlightRef.current -= 1;
+          if (inFlightRef.current === 0) onUploadingChange?.(false);
+        }
+      },
+      hasActiveUploads: () => inFlightRef.current > 0,
+      // Placeholder rebuild contract: the real handle draws a card for an
+      // upload the document is not showing and reports whether it landed.
+      // Mocks track ids only — no document to draw into.
+      insertUploadPlaceholder: () => true,
+      settleUploadPlaceholder: () => false,
+    }));
+    return (
+      <>
+        <textarea
+          value={value}
+          placeholder={placeholder}
+          data-attachments-count={attachments?.length ?? 0}
+          onChange={(e) => {
+            valueRef.current = e.target.value;
+            setValue(e.target.value);
+            onUpdate?.(e.target.value);
+          }}
+          // Stands in for createSubmitShortcutExtension with the default
+          // `send` binding (Mod+Enter). Plain Enter stays a newline.
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") onSubmit?.();
+          }}
+        />
+      </>
+    );
+  });
+  ContentEditor.displayName = "ContentEditor";
+
+  // Mirrors the real split: plain Enter is the keymap's `onSubmit` path, the
+  // configured `send` chord (default Mod+Enter) is `onSubmitShortcut`. The
+  // real component never routes plain Enter to onSubmitShortcut.
+  const TitleEditor = forwardRef(
+    ({ defaultValue, placeholder, onChange, onSubmit, onSubmitShortcut }: any, ref: any) => {
+      const [value, setValue] = useState(defaultValue || "");
+      const inputRef = useRef<HTMLInputElement>(null);
+      useImperativeHandle(ref, () => ({
+        getText: () => value,
+        focus: () => inputRef.current?.focus(),
+        focusAtCoords: () => inputRef.current?.focus(),
+      }));
+      return (
+        <input
+          ref={inputRef}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => {
+            setValue(e.target.value);
+            onChange?.(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            if (e.metaKey || e.ctrlKey) onSubmitShortcut?.();
+            else onSubmit?.();
+          }}
+        />
+      );
+    },
+  );
+  TitleEditor.displayName = "TitleEditor";
+
+  return {
+    ...uploadGate,
+    ...composer,
+    useFileDropZone: () => ({ isDragOver: false, dropZoneProps: {} }),
+    FileDropOverlay: () => null,
+    ContentEditor,
+    TitleEditor,
+  };
+});
+
+vi.mock("../tasks/components", () => ({
+  StatusIcon: ({ status }: { status: string }) => <span data-testid="status-icon">{status}</span>,
+  StatusPicker: () => <div data-testid="status-picker" />,
+  PriorityPicker: () => <div data-testid="priority-picker" />,
+  StagePicker: () => <div data-testid="stage-picker" />,
+  AssigneePicker: () => <div data-testid="assignee-picker" />,
+  // Surface open/onOpenChange so tests can assert progressive-disclosure
+  // behavior (mounted only when the user has opted in or has a value).
+  StartDatePicker: ({ open, onOpenChange }: { open?: boolean; onOpenChange?: (v: boolean) => void }) => (
+    <div
+      data-testid="start-date-picker"
+      data-open={open ? "true" : "false"}
+      onClick={() => onOpenChange?.(false)}
+    />
+  ),
+  // Due date now shares the start-date overflow pattern, so surface
+  // open/onOpenChange to assert it too.
+  DueDatePicker: ({ open, onOpenChange }: { open?: boolean; onOpenChange?: (v: boolean) => void }) => (
+    <div
+      data-testid="due-date-picker"
+      data-open={open ? "true" : "false"}
+      onClick={() => onOpenChange?.(false)}
+    />
+  ),
+  // Labels can now be hidden via Settings → Task and revealed from the
+  // overflow, so surface open/onOpenChange like the date pickers.
+  LabelPicker: ({ open, onOpenChange }: { open?: boolean; onOpenChange?: (v: boolean) => void }) => (
+    <div
+      data-testid="label-picker"
+      data-open={open ? "true" : "false"}
+      onClick={() => onOpenChange?.(false)}
+    />
+  ),
+}));
+
+vi.mock("../tasks/components/pickers/custom-property-picker", () => ({
+  CustomPropertyValueInput: ({ property, onChange }: any) => (
+    <button
+      type="button"
+      aria-label={`Edit ${property.name}`}
+      onClick={() => onChange("option-enterprise")}
+    >
+      {property.name}
+    </button>
+  ),
+  CustomPropertyValueDisplay: ({ value }: any) => <span>{String(value)}</span>,
+}));
+
+vi.mock("../projects/components/project-picker", () => ({
+  ProjectPicker: ({ projectId, onUpdate }: any) => (
+    <button
+      type="button"
+      data-testid="project-picker"
+      data-project-id={projectId ?? "none"}
+      onClick={() => onUpdate({ project_id: "proj-1" })}
+    >
+      Project {projectId ?? "none"}
+    </button>
+  ),
+}));
+
+vi.mock("../workflows/components", () => ({
+  WorkflowAssignmentPicker: () => null,
+}));
+
+vi.mock("@silieco/ui/components/ui/dialog", () => ({
+  Dialog: ({ children }: { children: React.ReactNode }) => <div data-testid="dialog-root">{children}</div>,
+  DialogContent: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+    <div className={className}>{children}</div>
+  ),
+  DialogTitle: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+    <div className={className}>{children}</div>
+  ),
+}));
+
+vi.mock("@silieco/ui/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuTrigger: ({ render }: { render: React.ReactNode }) => <>{render}</>,
+  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuItem: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
+    <button type="button" onClick={onClick}>{children}</button>
+  ),
+  DropdownMenuSeparator: () => null,
+  DropdownMenuSub: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuSubTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuSubContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("./task-picker-modal", () => ({
+  TaskPickerModal: () => null,
+}));
+
+vi.mock("@silieco/ui/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ render }: { render: React.ReactNode }) => <>{render}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("@silieco/ui/components/ui/button", () => ({
+  Button: ({
+    children,
+    disabled,
+    onClick,
+    type = "button",
+    ...rest
+  }: {
+    children: React.ReactNode;
+    disabled?: boolean;
+    onClick?: () => void;
+    type?: "button" | "submit" | "reset";
+    // The real Button spreads the rest onto the element; forwarding them keeps
+    // accessibility props (aria-busy / aria-disabled) assertable here.
+    [key: string]: unknown;
+  }) => (
+    <button type={type} disabled={disabled} onClick={onClick} {...rest}>
+      {children}
+    </button>
+  ),
+}));
+
+vi.mock("@silieco/ui/components/ui/switch", () => ({
+  Switch: ({
+    checked,
+    onCheckedChange,
+  }: {
+    checked: boolean;
+    onCheckedChange: (v: boolean) => void;
+  }) => (
+    <input
+      aria-label="Create another"
+      type="checkbox"
+      checked={checked}
+      onChange={(e) => onCheckedChange(e.target.checked)}
+    />
+  ),
+}));
+
+vi.mock("@silieco/ui/components/common/file-upload-button", () => ({
+  FileUploadButton: ({ onSelect }: { onSelect: (file: File) => void }) => (
+    <button type="button" onClick={() => onSelect(new File(["test"], "test.txt"))}>
+      Upload file
+    </button>
+  ),
+}));
+
+vi.mock("@silieco/ui/lib/utils", () => ({
+  cn: (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(" "),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    custom: mockToastCustom,
+    dismiss: mockToastDismiss,
+    error: mockToastError,
+  },
+}));
+
+import { CreateTaskModal, ManualCreatePanel } from "./create-task";
+
+function renderModal(element: React.ReactElement) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <I18nWrapper>
+      <QueryClientProvider client={qc}>{element}</QueryClientProvider>
+    </I18nWrapper>,
+  );
+}
+
+describe("CreateTaskModal", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockQuickCreateStore.keepOpen = false;
+    mockCreateSettingsStore.manualCreateFields = DEFAULT_MANUAL_FIELDS;
+    mockSetKeepOpen.mockImplementation((v: boolean) => {
+      mockQuickCreateStore.keepOpen = v;
+    });
+    // Reset the unified draft mock so per-test seeding (assignee, project, …)
+    // doesn't leak into the next test in the suite.
+    mockDraftStore.draft = emptyTaskDraft();
+    mockSetShared.mockImplementation((patch: Partial<typeof mockDraftStore.draft.shared>) => {
+      mockDraftStore.draft.shared = { ...mockDraftStore.draft.shared, ...patch };
+    });
+    mockSetManual.mockImplementation((patch: Partial<typeof mockDraftStore.draft.manual>) => {
+      mockDraftStore.draft.manual = { ...mockDraftStore.draft.manual, ...patch };
+    });
+    mockSetAgent.mockImplementation((patch: Partial<typeof mockDraftStore.draft.agent>) => {
+      mockDraftStore.draft.agent = { ...mockDraftStore.draft.agent, ...patch };
+    });
+    mockClearDraft.mockImplementation(() => {
+      const next = emptyTaskDraft();
+      next.manual.assigneeType = mockDraftStore.lastAssigneeType;
+      next.manual.assigneeId = mockDraftStore.lastAssigneeId;
+      mockDraftStore.draft = next;
+    });
+    mockApiUploadFile.mockResolvedValue({
+      id: "11111111-2222-3333-4444-555555555555",
+      workspace_id: "ws-test",
+      task_id: null,
+      comment_id: null,
+      chat_session_id: null,
+      chat_message_id: null,
+      uploader_type: "member",
+      uploader_id: "user-1",
+      filename: "shot.png",
+      url: "https://cdn.example.test/shot.png",
+      download_url: "https://cdn.example.test/shot.png?Signature=fresh",
+      markdown_url: "https://silieco-api.copilothub.ai/api/attachments/11111111-2222-3333-4444-555555555555/download",
+      content_type: "image/png",
+      size_bytes: 123,
+      created_at: "2026-06-12T00:00:00Z",
+    });
+    mockCreateTask.mockResolvedValue({
+      id: "task-123",
+      identifier: "TES-123",
+      title: "Ship create task regression coverage",
+      status: "todo",
+      // Current backend echoes the attached labels, so the create flow skips
+      // the legacy per-label attach fallback. Empty is enough — what matters
+      // is that the field is present (not undefined).
+      labels: [],
+    });
+    mockAttachLabel.mockResolvedValue({ labels: [] });
+    mockListProperties.mockResolvedValue({
+      properties: [
+        {
+          id: "property-tier",
+          workspace_id: "ws-test",
+          name: "Customer tier",
+          type: "select",
+          config: {
+            options: [
+              { id: "option-enterprise", name: "Enterprise", color: "#3b82f6" },
+            ],
+          },
+          position: 0,
+          archived: false,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      total: 1,
+    });
+    mockSetTaskProperty.mockResolvedValue({
+      properties: { "property-tier": "option-enterprise" },
+    });
+  });
+
+  it("shows success feedback with a direct path to the new task", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    renderModal(<CreateTaskModal onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Task title"), {
+      target: { value: "  Ship create task regression coverage  " },
+    });
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => {
+      expect(mockCreateTask).toHaveBeenCalledWith({
+        title: "Ship create task regression coverage",
+        description: undefined,
+        status: "todo",
+        priority: "none",
+        assignee_type: undefined,
+        assignee_id: undefined,
+        start_date: undefined,
+        due_date: undefined,
+        attachment_ids: undefined,
+        parent_task_id: undefined,
+        project_id: undefined,
+      });
+    });
+
+    expect(mockSetLastAssignee).toHaveBeenCalledWith(undefined, undefined);
+    expect(mockClearDraft).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+    expect(mockToastCustom).toHaveBeenCalledTimes(1);
+
+    const renderToast = mockToastCustom.mock.calls[0]?.[0];
+    expect(typeof renderToast).toBe("function");
+
+    render(renderToast("toast-1"));
+
+    expect(screen.getByText("Task created")).toBeInTheDocument();
+    expect(screen.getByText(/TES-123/)).toBeInTheDocument();
+    expect(screen.getByText(/Ship create task regression coverage/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "View task" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/ws-test/tasks/task-123");
+    expect(mockToastDismiss).toHaveBeenCalledWith("toast-1");
+  });
+
+  it("forwards selected labels in the create payload so they attach in the same transaction", async () => {
+    const user = userEvent.setup();
+    mockDraftStore.draft.manual.labelIds = [
+      "aaaaaaaa-1111-2222-3333-444444444444",
+      "bbbbbbbb-1111-2222-3333-444444444444",
+    ];
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Task title"), {
+      target: { value: "Labeled task" },
+    });
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => {
+      expect(mockCreateTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Labeled task",
+          label_ids: [
+            "aaaaaaaa-1111-2222-3333-444444444444",
+            "bbbbbbbb-1111-2222-3333-444444444444",
+          ],
+        }),
+      );
+    });
+    // Backend echoed `labels`, so the atomic path handled it — no legacy
+    // per-label attach fallback should run.
+    expect(mockAttachLabel).not.toHaveBeenCalled();
+  });
+
+  it("falls back to per-label attach when an older backend omits labels from the create response", async () => {
+    const user = userEvent.setup();
+    // Older backend: ignores label_ids and returns an task with no `labels`
+    // field (the rolling-deploy window where web is ahead of the backend).
+    mockCreateTask.mockResolvedValueOnce({
+      id: "task-123",
+      identifier: "TES-123",
+      title: "Labeled task",
+      status: "todo",
+    });
+    mockDraftStore.draft.manual.labelIds = [
+      "aaaaaaaa-1111-2222-3333-444444444444",
+      "bbbbbbbb-1111-2222-3333-444444444444",
+    ];
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Task title"), {
+      target: { value: "Labeled task" },
+    });
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => {
+      expect(mockAttachLabel).toHaveBeenCalledTimes(2);
+    });
+    expect(mockAttachLabel).toHaveBeenCalledWith({
+      taskId: "task-123",
+      labelId: "aaaaaaaa-1111-2222-3333-444444444444",
+    });
+    expect(mockAttachLabel).toHaveBeenCalledWith({
+      taskId: "task-123",
+      labelId: "bbbbbbbb-1111-2222-3333-444444444444",
+    });
+  });
+
+  it("keeps manual mode open and clears content when create another is enabled", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    mockQuickCreateStore.keepOpen = true;
+
+    renderModal(<CreateTaskModal onClose={onClose} />);
+
+    await user.type(screen.getByPlaceholderText("Task title"), "First follow-up task");
+    await user.type(screen.getByPlaceholderText("Add description..."), "Description to clear");
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => {
+      expect(mockCreateTask).toHaveBeenCalledWith({
+        title: "First follow-up task",
+        description: "Description to clear",
+        status: "todo",
+        priority: "none",
+        assignee_type: undefined,
+        assignee_id: undefined,
+        start_date: undefined,
+        due_date: undefined,
+        attachment_ids: undefined,
+        parent_task_id: undefined,
+        project_id: undefined,
+      });
+    });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("Task title")).toHaveValue("");
+    expect(screen.getByPlaceholderText("Add description...")).toHaveValue("");
+    expect(mockSetManual).toHaveBeenCalledWith({
+      title: "",
+      description: "",
+      status: "todo",
+      assigneeType: undefined,
+      assigneeId: undefined,
+      startDate: null,
+      labelIds: [],
+      propertyValues: {},
+    });
+    expect(mockSetShared).toHaveBeenCalledWith({
+      priority: "none",
+      projectId: undefined,
+      dueDate: null,
+      attachments: [],
+    });
+  });
+
+  it("sets configured custom property values after the task is created", async () => {
+    const user = userEvent.setup();
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    await screen.findByText("Customer tier");
+    await user.click(screen.getByText("Customer tier"));
+    await user.click(screen.getByRole("button", { name: "Edit Customer tier" }));
+    await user.type(screen.getByPlaceholderText("Task title"), "Enterprise follow-up");
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => {
+      expect(mockSetTaskProperty).toHaveBeenCalledWith(
+        "task-123",
+        "property-tier",
+        "option-enterprise",
+      );
+    });
+    expect(mockClearDraft).toHaveBeenCalled();
+  });
+
+  it("persists manual-mode uploads in the task draft", async () => {
+    const user = userEvent.setup();
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Upload file" }));
+
+    // Coordinator flow (SILI-5181 L2): a placeholder is written at pick time,
+    // then settles into an `uploaded` entry carrying the server row.
+    await waitFor(() => {
+      const uploads = mockDraftStore.draft.shared.attachments;
+      expect(uploads).toHaveLength(1);
+      expect(uploads[0]).toMatchObject({ status: "uploaded", filename: "shot.png" });
+      expect(uploads[0]?.attachment?.id).toBe("11111111-2222-3333-4444-555555555555");
+    });
+    // The response-scoped signed download_url must never be persisted — the
+    // draft survives dialog closes, and a stale signature would 403 the
+    // preview on reopen. Durable render paths re-resolve via markdown_url.
+    expect(mockDraftStore.draft.shared.attachments[0]?.attachment?.download_url).toBe("");
+  });
+
+  it("reuses draft attachments after reopening manual create so pasted images can render and bind", async () => {
+    const user = userEvent.setup();
+    const attachment = {
+      id: "11111111-2222-3333-4444-555555555555",
+      workspace_id: "ws-test",
+      task_id: null,
+      comment_id: null,
+      chat_session_id: null,
+      chat_message_id: null,
+      uploader_type: "member",
+      uploader_id: "user-1",
+      filename: "shot.png",
+      url: "https://cdn.example.test/shot.png",
+      download_url: "",
+      markdown_url: "https://silieco-api.copilothub.ai/api/attachments/11111111-2222-3333-4444-555555555555/download",
+      content_type: "image/png",
+      size_bytes: 123,
+      created_at: "2026-06-12T00:00:00Z",
+    };
+    mockDraftStore.draft.manual.title = "Image draft";
+    mockDraftStore.draft.manual.description = `![shot.png](${attachment.markdown_url})`;
+    mockDraftStore.draft.shared.attachments = [
+      {
+        clientUploadId: attachment.id,
+        status: "uploaded",
+        filename: attachment.filename,
+        size: attachment.size_bytes,
+        contentType: attachment.content_type,
+        attachment,
+      },
+    ];
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    expect(screen.getByPlaceholderText("Add description...")).toHaveAttribute(
+      "data-attachments-count",
+      "1",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => {
+      expect(mockCreateTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: `![shot.png](${attachment.markdown_url})`,
+          attachment_ids: ["11111111-2222-3333-4444-555555555555"],
+        }),
+      );
+    });
+  });
+
+  it("prunes draft attachments the reopened description no longer references", async () => {
+    const referenced = {
+      id: "11111111-2222-3333-4444-555555555555",
+      workspace_id: "ws-test",
+      task_id: null,
+      comment_id: null,
+      chat_session_id: null,
+      chat_message_id: null,
+      uploader_type: "member",
+      uploader_id: "user-1",
+      filename: "kept.png",
+      url: "https://cdn.example.test/kept.png",
+      download_url: "",
+      markdown_url: "https://silieco-api.copilothub.ai/api/attachments/11111111-2222-3333-4444-555555555555/download",
+      content_type: "image/png",
+      size_bytes: 123,
+      created_at: "2026-06-12T00:00:00Z",
+    };
+    const deleted = {
+      ...referenced,
+      id: "99999999-8888-7777-6666-555555555555",
+      filename: "deleted.png",
+      url: "https://cdn.example.test/deleted.png",
+      markdown_url: "https://silieco-api.copilothub.ai/api/attachments/99999999-8888-7777-6666-555555555555/download",
+    };
+    const wrap = (att: typeof referenced): DraftUploadEntry => ({
+      clientUploadId: att.id,
+      status: "uploaded",
+      filename: att.filename,
+      size: att.size_bytes,
+      contentType: att.content_type,
+      attachment: att,
+    });
+    mockDraftStore.draft.manual.title = "Image draft";
+    mockDraftStore.draft.manual.description = `![kept.png](${referenced.markdown_url})`;
+    mockDraftStore.draft.shared.attachments = [wrap(referenced), wrap(deleted)];
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(mockSetShared).toHaveBeenCalledWith({
+        attachments: [expect.objectContaining({ clientUploadId: referenced.id })],
+      });
+    });
+  });
+
+  it("mount prune keeps in-flight placeholders while dropping unreferenced uploaded rows", async () => {
+    // Reopen-while-uploading: the placeholder has no body reference yet (the
+    // chips are its only UI), so the mount prune must never touch it —
+    // dropping it here would let the settle hit the generation guard and
+    // silently discard the file.
+    const orphanRow = {
+      id: "99999999-8888-7777-6666-555555555555",
+      workspace_id: "ws-test",
+      task_id: null,
+      comment_id: null,
+      chat_session_id: null,
+      chat_message_id: null,
+      uploader_type: "member",
+      uploader_id: "user-1",
+      filename: "orphan.png",
+      url: "https://cdn.example.test/orphan.png",
+      download_url: "",
+      markdown_url: "https://silieco-api.copilothub.ai/api/attachments/99999999-8888-7777-6666-555555555555/download",
+      content_type: "image/png",
+      size_bytes: 5,
+      created_at: "2026-06-12T00:00:00Z",
+    };
+    mockDraftStore.draft.manual.title = "Reopened";
+    mockDraftStore.draft.shared.attachments = [
+      { clientUploadId: "c-flight", status: "uploading", filename: "mid.png", size: 9 },
+      {
+        clientUploadId: orphanRow.id,
+        status: "uploaded",
+        filename: orphanRow.filename,
+        size: orphanRow.size_bytes,
+        attachment: orphanRow,
+      },
+    ];
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(mockSetShared).toHaveBeenCalledWith({
+        attachments: [expect.objectContaining({ clientUploadId: "c-flight" })],
+      });
+    });
+  });
+
+  // Manual → agent must seed the agent actor from the picked squad. Without
+  // this the agent panel silently falls back to the persisted actor / first
+  // visible agent and the user loses the squad they just chose in manual.
+  it("seeds the agent actor from the picked squad when switching to agent mode", async () => {
+    mockDraftStore.draft.manual.assigneeType = "squad";
+    mockDraftStore.draft.manual.assigneeId = "squad-1";
+    const user = userEvent.setup();
+    const onSwitchMode = vi.fn();
+
+    renderModal(
+      <ManualCreatePanel
+        onClose={vi.fn()}
+        onSwitchMode={onSwitchMode}
+        isExpanded={false}
+        setIsExpanded={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Task title"), "Refactor auth");
+    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
+
+    expect(onSwitchMode).toHaveBeenCalledTimes(1);
+    // Prompt assist-init + squad actor land in the unified agent draft.
+    expect(mockSetAgent).toHaveBeenCalledWith({ prompt: "Refactor auth" });
+    expect(mockSetAgent).toHaveBeenCalledWith({
+      actorType: "squad",
+      actorId: "squad-1",
+    });
+    // Actor rides the store, not the carry; no parent here → carry is null.
+    expect(onSwitchMode.mock.calls[0]?.[0]).toBeNull();
+  });
+
+  // Manual → agent must forward the picked project so the new modal pins to
+  // the same target. Without this the agent panel re-seeds from its own
+  // persisted `lastProjectId` and silently routes the task to a stale one.
+  // Reporter scenario: backend rejects same-titled create with a 409 +
+  // structured duplicate body. The user should land on a duplicate toast
+  // pointing at the existing task, not a generic "create failed" message.
+  it("shows duplicate-task toast with a working view-existing link", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    mockCreateTask.mockRejectedValue(
+      new ApiError("An active task with this title already exists: SILI-7 – Login bug", 409, "Conflict", {
+        code: "active_duplicate_task",
+        error: "An active task with this title already exists: SILI-7 – Login bug",
+        task: {
+          id: "task-dup",
+          identifier: "SILI-7",
+          title: "Login bug",
+        },
+      }),
+    );
+
+    renderModal(<CreateTaskModal onClose={onClose} />);
+    await user.type(screen.getByPlaceholderText("Task title"), "Login bug");
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => expect(mockToastCustom).toHaveBeenCalledTimes(1));
+    expect(mockToastError).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    const renderToast = mockToastCustom.mock.calls[0]?.[0];
+    expect(typeof renderToast).toBe("function");
+    render(renderToast("toast-dup"));
+
+    expect(screen.getByText("Duplicate task")).toBeInTheDocument();
+    expect(screen.getByText(/SILI-7/)).toBeInTheDocument();
+    expect(screen.getByText(/Login bug/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "View existing task" }));
+    expect(mockPush).toHaveBeenCalledWith("/ws-test/tasks/task-dup");
+    expect(mockToastDismiss).toHaveBeenCalledWith("toast-dup");
+  });
+
+  // Schema drift safety: server returns a 409 with a body that doesn't match
+  // the duplicate schema (renamed code, missing task object, etc.). UI must
+  // not throw — it must fall back to a normal error toast carrying the
+  // backend message so the user still sees a useful reason.
+  it("falls back to a normal error toast when a 409 body does not match the duplicate schema", async () => {
+    const user = userEvent.setup();
+    mockCreateTask.mockRejectedValue(
+      new ApiError("Backend says title is taken", 409, "Conflict", {
+        code: "renamed_duplicate_marker",
+      }),
+    );
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+    await user.type(screen.getByPlaceholderText("Task title"), "Login bug");
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
+    expect(mockToastError).toHaveBeenCalledWith("Backend says title is taken");
+    expect(mockToastCustom).not.toHaveBeenCalled();
+  });
+
+  // Non-409 errors with a real message: surface the backend reason rather
+  // than the generic i18n fallback. This is the whole point of the task.
+  it("surfaces err.message verbatim for non-duplicate errors", async () => {
+    const user = userEvent.setup();
+    mockCreateTask.mockRejectedValue(new Error("Server is overloaded, try again"));
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+    await user.type(screen.getByPlaceholderText("Task title"), "Anything");
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
+    expect(mockToastError).toHaveBeenCalledWith("Server is overloaded, try again");
+  });
+
+  // Non-Error throws (string, plain object) have no `.message`. Fall back to
+  // the i18n key so the user always sees something readable.
+  it("falls back to the generic toast when the thrown value is not an Error", async () => {
+    const user = userEvent.setup();
+    mockCreateTask.mockRejectedValue("network exploded");
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+    await user.type(screen.getByPlaceholderText("Task title"), "Anything");
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
+    expect(mockToastError).toHaveBeenCalledWith("Failed to create task");
+  });
+
+  // Manual → agent must preserve the picked project. It now rides the shared
+  // draft slot rather than the carry: the switch commits the (data-seeded)
+  // project into `shared` so the agent panel reads it from there.
+  it("commits the picked project to the shared draft when switching to agent mode", async () => {
+    const user = userEvent.setup();
+    const onSwitchMode = vi.fn();
+
+    renderModal(
+      <ManualCreatePanel
+        onClose={vi.fn()}
+        onSwitchMode={onSwitchMode}
+        data={{ project_id: "proj-1" }}
+        isExpanded={false}
+        setIsExpanded={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Task title"), "Refactor auth");
+
+    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
+
+    expect(onSwitchMode).toHaveBeenCalledTimes(1);
+    expect(mockSetShared).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "proj-1" }),
+    );
+    expect(mockSetAgent).toHaveBeenCalledWith({ prompt: "Refactor auth" });
+  });
+
+  it("restores an unfinished project selection after manual create remounts", async () => {
+    const user = userEvent.setup();
+
+    const firstOpen = renderModal(<CreateTaskModal onClose={vi.fn()} />);
+    expect(screen.getByTestId("project-picker")).toHaveAttribute("data-project-id", "none");
+
+    await user.click(screen.getByTestId("project-picker"));
+    expect(mockSetShared).toHaveBeenCalledWith({ projectId: "proj-1" });
+
+    firstOpen.unmount();
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    expect(screen.getByTestId("project-picker")).toHaveAttribute("data-project-id", "proj-1");
+  });
+
+  // Manual → agent must forward parent_task_id when the modal was opened
+  // from "Add sub task". Before this, the agent panel received no parent
+  // context and the new task was filed as a standalone — silently dropping
+  // the sub-task intent set by openCreateSubTask. The parent_task_identifier
+  // tags along so the agent panel can render a "Sub-task of SILI-XX" chip
+  // without an extra round-trip.
+  //
+  // The identifier fallback matters here: the mocked taskDetailOptions
+  // resolves to null (parent query not hydrated), so without the
+  // `data.parent_task_identifier` fallback the agent chip would render as
+  // "Sub-task of " with an empty tail. The UUID alone still wires the
+  // sub-task relationship correctly, but the visible affordance breaks.
+  it("forwards parent_task_id and falls back to seeded identifier when switching to agent mode", async () => {
+    const user = userEvent.setup();
+    const onSwitchMode = vi.fn();
+
+    renderModal(
+      <ManualCreatePanel
+        onClose={vi.fn()}
+        onSwitchMode={onSwitchMode}
+        data={{
+          parent_task_id: "parent-uuid-1",
+          parent_task_identifier: "SILI-2534",
+        }}
+        isExpanded={false}
+        setIsExpanded={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Task title"), "Refactor auth");
+    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
+
+    expect(onSwitchMode).toHaveBeenCalledTimes(1);
+    // The parent context is not persisted (a per-invocation intent), so it
+    // still rides the carry channel. The prompt rides the store now.
+    expect(onSwitchMode.mock.calls[0]?.[0]).toEqual({
+      parent_task_id: "parent-uuid-1",
+      parent_task_identifier: "SILI-2534",
+    });
+    expect(mockSetAgent).toHaveBeenCalledWith({ prompt: "Refactor auth" });
+  });
+
+  // Start date is a low-frequency field — by default it lives behind the
+  // ⋯ overflow menu and is not rendered inline. Clicking the overflow
+  // entry opens it (and mounts the inline pill so the popover has an
+  // anchor); closing without picking returns it to the menu-only state.
+  it("hides start date behind the overflow menu and reveals it on demand", async () => {
+    const user = userEvent.setup();
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    expect(screen.queryByTestId("start-date-picker")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Set start date/i }));
+
+    const picker = await screen.findByTestId("start-date-picker");
+    expect(picker).toHaveAttribute("data-open", "true");
+
+    await user.click(picker);
+
+    expect(screen.queryByTestId("start-date-picker")).not.toBeInTheDocument();
+  });
+
+  it("exposes the label picker on the toolbar and keeps due date in the overflow menu", async () => {
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    // Label entry is now surfaced directly on the dialog...
+    expect(screen.getByTestId("label-picker")).toBeInTheDocument();
+    // ...while due date is collapsed into the ⋯ menu (no inline pill yet).
+    expect(screen.queryByTestId("due-date-picker")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Set due date/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides due date behind the overflow menu and reveals it on demand", async () => {
+    const user = userEvent.setup();
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    expect(screen.queryByTestId("due-date-picker")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Set due date/i }));
+
+    const picker = await screen.findByTestId("due-date-picker");
+    expect(picker).toHaveAttribute("data-open", "true");
+
+    await user.click(picker);
+
+    expect(screen.queryByTestId("due-date-picker")).not.toBeInTheDocument();
+  });
+
+  it("hides toolbar fields turned off in Settings → Task and re-reveals them from the overflow", async () => {
+    const user = userEvent.setup();
+    mockCreateSettingsStore.manualCreateFields = ["status", "priority", "assignee", "project"];
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    expect(screen.queryByTestId("label-picker")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Set labels/i }));
+
+    const picker = await screen.findByTestId("label-picker");
+    expect(picker).toHaveAttribute("data-open", "true");
+
+    await user.click(picker);
+
+    expect(screen.queryByTestId("label-picker")).not.toBeInTheDocument();
+  });
+
+  it("keeps a hidden field on the toolbar while it holds a value", () => {
+    mockCreateSettingsStore.manualCreateFields = ["status", "priority", "assignee", "project"];
+    mockDraftStore.draft.manual.labelIds = ["label-1"];
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    expect(screen.getByTestId("label-picker")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Set labels/i })).not.toBeInTheDocument();
+  });
+
+  it("renders due date inline when enabled in Settings → Task", () => {
+    mockCreateSettingsStore.manualCreateFields = [...DEFAULT_MANUAL_FIELDS, "due_date"];
+
+    renderModal(<CreateTaskModal onClose={vi.fn()} />);
+
+    expect(screen.getByTestId("due-date-picker")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Set due date/i })).not.toBeInTheDocument();
+  });
+
+  it("routes Customize fields to Settings → Task and closes the dialog", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    renderModal(<CreateTaskModal onClose={onClose} />);
+
+    await user.click(screen.getByRole("button", { name: /Customize fields/i }));
+
+    expect(onClose).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/ws-test/settings?tab=task");
+  });
+
+  // SILI-5181: switching to agent must PRESERVE the manual draft. The agent
+  // prompt is assist-init'd from title + description (a one-time convenience
+  // when the agent slot is empty), but the manual title/description are left
+  // untouched so a later agent→manual switch restores them verbatim — no
+  // concatenate-then-clear, no duplication on round-trips.
+  it("assist-inits the agent prompt from title and description without clearing the manual draft", async () => {
+    const user = userEvent.setup();
+
+    renderModal(
+      <ManualCreatePanel
+        onClose={vi.fn()}
+        onSwitchMode={vi.fn()}
+        isExpanded={false}
+        setIsExpanded={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Task title"), "Update");
+    await user.type(screen.getByPlaceholderText("Add description..."), "Some body");
+
+    mockSetManual.mockClear();
+    mockSetAgent.mockClear();
+    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
+
+    // Agent prompt seeded from the manual content...
+    expect(mockSetAgent).toHaveBeenCalledWith({ prompt: "Update\n\nSome body" });
+    // ...and the manual slot is never cleared.
+    expect(mockSetManual).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "" }),
+    );
+    expect(mockSetManual).not.toHaveBeenCalledWith(
+      expect.objectContaining({ description: "" }),
+    );
+  });
+
+  // SILI-4808 — manual create had no upload gate at all: Create, Enter on the
+  // title, and Switch to Agent would each fix the draft while an image was
+  // still uploading, dropping it from the description with no warning.
+  // SILI-5181 P0: the task draft is a SINGLETON store. A submit that outlives
+  // its dialog may only consume the draft it submitted — never one the user
+  // typed after closing and reopening.
+  describe("stale-submit draft guard", () => {
+    function renderManualPanel(onClose = vi.fn()) {
+      return renderModal(
+        <ManualCreatePanel
+          onClose={onClose}
+          onSwitchMode={vi.fn()}
+          isExpanded={false}
+          setIsExpanded={vi.fn()}
+        />,
+      );
+    }
+
+    async function startPendingCreate() {
+      let resolveCreate!: (v: unknown) => void;
+      mockCreateTask.mockImplementationOnce(
+        () => new Promise((resolve) => { resolveCreate = resolve; }),
+      );
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      const view = renderManualPanel(onClose);
+      await user.type(screen.getByPlaceholderText("Task title"), "Draft A");
+      fireEvent.keyDown(screen.getByPlaceholderText("Task title"), {
+        key: "Enter",
+        metaKey: true,
+      });
+      await waitFor(() => expect(mockCreateTask).toHaveBeenCalled());
+      return {
+        view,
+        onClose,
+        finish: () =>
+          act(async () => {
+            resolveCreate({ id: "task-9", identifier: "TES-9", title: "Draft A", status: "todo", labels: [] });
+            await Promise.resolve();
+          }),
+      };
+    }
+
+    it("typing draft B while draft A's submit is pending survives the success (mounted)", async () => {
+      const { onClose, finish } = await startPendingCreate();
+
+      // The editor stays interactive during the request; a store write during
+      // the flight replaces the singleton draft's object identity.
+      mockDraftStore.draft = {
+        ...emptyTaskDraft(),
+        manual: { ...emptyTaskDraft().manual, title: "Draft B" },
+      };
+
+      await finish();
+
+      expect(mockClearDraft).not.toHaveBeenCalled();
+      // The dialog must not close/reset over the newer draft either.
+      expect(onClose).not.toHaveBeenCalled();
+      expect(mockDraftStore.draft.manual.title).toBe("Draft B");
+    });
+
+    it("an untouched mounted submit still clears and closes", async () => {
+      const { onClose, finish } = await startPendingCreate();
+
+      await finish();
+
+      expect(mockClearDraft).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("a late success does NOT clear a draft replaced after the dialog closed", async () => {
+      const { view, finish } = await startPendingCreate();
+
+      view.unmount();
+      // The user reopened the dialog and typed draft B — the singleton store
+      // now holds a different draft object than the submit snapshot.
+      mockDraftStore.draft = {
+        ...emptyTaskDraft(),
+        manual: { ...emptyTaskDraft().manual, title: "Draft B" },
+      };
+
+      await finish();
+
+      expect(mockClearDraft).not.toHaveBeenCalled();
+      expect(mockDraftStore.draft.manual.title).toBe("Draft B");
+    });
+
+    it("a late success still clears an untouched draft", async () => {
+      const { view, finish } = await startPendingCreate();
+
+      view.unmount();
+      await finish();
+
+      expect(mockClearDraft).toHaveBeenCalled();
+    });
+  });
+
+  describe("upload submit gate", () => {
+    /** Attach a file whose upload stays in flight until the caller releases it.
+     *  Controls the coordinator's `api.uploadFile` promise (SILI-5181 L2). */
+    function startPendingUpload() {
+      let release!: (result: unknown) => void;
+      mockApiUploadFile.mockImplementationOnce(
+        () => new Promise((resolve) => { release = resolve; }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Upload file" }));
+      return { release: (result: unknown) => release(result) };
+    }
+
+    function renderManual(onSwitchMode = vi.fn()) {
+      const view = renderModal(
+        <ManualCreatePanel
+          onClose={vi.fn()}
+          onSwitchMode={onSwitchMode}
+          isExpanded={false}
+          setIsExpanded={vi.fn()}
+        />,
+      );
+      return { ...view, onSwitchMode };
+    }
+
+    it("disables Create and shows Uploading… while an upload is in flight", async () => {
+      const user = userEvent.setup();
+      renderManual();
+      await user.type(screen.getByPlaceholderText("Task title"), "Has a screenshot");
+
+      const pending = startPendingUpload();
+
+      const createButton = await screen.findByRole("button", { name: "Uploading…" });
+      await waitFor(() => expect(createButton).toBeDisabled());
+      expect(createButton).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        pending.release({
+          id: "att-1",
+          url: "https://cdn/x.png",
+          filename: "x.png",
+          size_bytes: 1,
+          content_type: "image/png",
+        });
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create Task" })).not.toBeDisabled(),
+      );
+    });
+
+    // Plain Enter in the title was removed as a create trigger in #5532 — it
+    // fired from a half-typed title. SILI-4931 adds the explicit `send` chord
+    // alongside it; plain Enter must stay inert.
+    it("never submits manual create from plain Enter in the title", async () => {
+      const user = userEvent.setup();
+      renderManual();
+      const title = screen.getByPlaceholderText("Task title");
+      await user.type(title, "Has a screenshot");
+
+      fireEvent.keyDown(title, { key: "Enter" });
+      await Promise.resolve();
+      expect(mockCreateTask).not.toHaveBeenCalled();
+    });
+
+    it("blocks the title send chord while an upload is in flight", async () => {
+      const user = userEvent.setup();
+      renderManual();
+      const title = screen.getByPlaceholderText("Task title");
+      await user.type(title, "Has a screenshot");
+
+      startPendingUpload();
+
+      // The chord bypasses the button, so the handler's own gate is what stops
+      // this from serializing a description whose image hasn't landed yet.
+      fireEvent.keyDown(title, { key: "Enter", metaKey: true });
+      await Promise.resolve();
+      expect(mockCreateTask).not.toHaveBeenCalled();
+    });
+
+    it("blocks Switch to Agent while an upload is in flight", async () => {
+      const user = userEvent.setup();
+      const onSwitchMode = vi.fn();
+      renderManual(onSwitchMode);
+      await user.type(screen.getByPlaceholderText("Task title"), "Has a screenshot");
+
+      startPendingUpload();
+
+      // The switch packs the description into an agent prompt and clears the
+      // manual draft — doing that mid-upload loses the image for good.
+      const switchButton = screen.getByRole("button", { name: /Switch to Agent/i });
+      await waitFor(() => expect(switchButton).toBeDisabled());
+      fireEvent.click(switchButton);
+      expect(onSwitchMode).not.toHaveBeenCalled();
+    });
+  });
+
+  // SILI-4931 — manual create had no submit shortcut at all, while agent create
+  // has had one all along.
+  describe("send shortcut", () => {
+    function renderManual() {
+      return renderModal(
+        <ManualCreatePanel
+          onClose={vi.fn()}
+          onSwitchMode={vi.fn()}
+          isExpanded={false}
+          setIsExpanded={vi.fn()}
+        />,
+      );
+    }
+
+    it("creates from the send chord in the title", async () => {
+      const user = userEvent.setup();
+      renderManual();
+      const title = screen.getByPlaceholderText("Task title");
+      await user.type(title, "Shortcut from title");
+
+      fireEvent.keyDown(title, { key: "Enter", metaKey: true });
+
+      await waitFor(() => expect(mockCreateTask).toHaveBeenCalledTimes(1));
+      expect(mockCreateTask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Shortcut from title" }),
+      );
+    });
+
+    it("creates from the send chord in the description", async () => {
+      const user = userEvent.setup();
+      renderManual();
+      await user.type(screen.getByPlaceholderText("Task title"), "Shortcut from body");
+      const description = screen.getByPlaceholderText("Add description...");
+      await user.type(description, "Body text");
+
+      fireEvent.keyDown(description, { key: "Enter", ctrlKey: true });
+
+      await waitFor(() => expect(mockCreateTask).toHaveBeenCalledTimes(1));
+      expect(mockCreateTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Shortcut from body",
+          description: "Body text",
+        }),
+      );
+    });
+
+    it("leaves plain Enter in the description as a newline, not a create", async () => {
+      const user = userEvent.setup();
+      renderManual();
+      await user.type(screen.getByPlaceholderText("Task title"), "Still typing");
+
+      fireEvent.keyDown(screen.getByPlaceholderText("Add description..."), { key: "Enter" });
+      await Promise.resolve();
+      expect(mockCreateTask).not.toHaveBeenCalled();
+    });
+
+    it("focuses the title instead of silently doing nothing when it is empty", async () => {
+      const user = userEvent.setup();
+      renderManual();
+      const description = screen.getByPlaceholderText("Add description...");
+      await user.type(description, "Body but no title");
+
+      fireEvent.keyDown(description, { key: "Enter", metaKey: true });
+
+      await Promise.resolve();
+      expect(mockCreateTask).not.toHaveBeenCalled();
+      // The shortcut path can't rely on the button's tooltip, so it has to say
+      // where the problem is some other way.
+      expect(screen.getByPlaceholderText("Task title")).toHaveFocus();
+    });
+
+    it("creates once when the chord is pressed twice in the same tick", async () => {
+      const user = userEvent.setup();
+      // Hold the create open so both presses land inside the in-flight window.
+      let release!: (v: unknown) => void;
+      mockCreateTask.mockImplementationOnce(
+        () => new Promise((resolve) => { release = resolve; }),
+      );
+      renderManual();
+      const title = screen.getByPlaceholderText("Task title");
+      await user.type(title, "Double tap");
+
+      // Both presses are dispatched inside ONE act, so React cannot re-render
+      // between them and the second handler still closes over `submitting ===
+      // false`. `fireEvent` would flush in between and hide the race — only a
+      // ref that flips synchronously stops the second create here.
+      await act(async () => {
+        const press = () =>
+          title.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }),
+          );
+        press();
+        press();
+      });
+
+      await act(async () => {
+        release({ id: "task-1", identifier: "SILI-1", title: "Double tap", status: "todo" });
+      });
+      expect(mockCreateTask).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the send keycaps on Create without renaming the button", async () => {
+      const user = userEvent.setup();
+      renderManual();
+
+      // Accessible name must stay the label alone — the keycaps are decorative.
+      expect(screen.getByRole("button", { name: "Create Task" })).toBeInTheDocument();
+      expect(document.querySelector("[data-slot='shortcut-keycaps']")).toBeInTheDocument();
+
+      // And the affordance survives the empty → filled transition.
+      await user.type(screen.getByPlaceholderText("Task title"), "Now valid");
+      expect(screen.getByRole("button", { name: "Create Task" })).toBeInTheDocument();
+      expect(document.querySelector("[data-slot='shortcut-keycaps']")).toBeInTheDocument();
+    });
+
+    it("keeps Create focusable via aria-disabled while the title is empty", () => {
+      renderManual();
+      const createButton = screen.getByRole("button", { name: "Create Task" });
+
+      // Native `disabled` would drop it out of the tab order, hiding the
+      // "Enter a title to create" tooltip from keyboard and SR users.
+      expect(createButton).toHaveAttribute("aria-disabled", "true");
+      expect(createButton).not.toBeDisabled();
+      createButton.focus();
+      expect(createButton).toHaveFocus();
+    });
+
+    it("carries its own disabled visuals, since the Button base only styles native disabled", () => {
+      renderManual();
+      const createButton = screen.getByRole("button", { name: "Create Task" });
+
+      // Without these the control reads as a live primary button while
+      // aria-disabled. `pointer-events-none` is deliberately absent: it would
+      // kill the tooltip hover and the click that focuses the title.
+      expect(createButton.className).toContain("aria-disabled:opacity-50");
+      expect(createButton.className).toContain("aria-disabled:cursor-not-allowed");
+      expect(createButton.className).toContain("aria-disabled:active:translate-y-0");
+      expect(createButton.className).not.toContain("aria-disabled:pointer-events-none");
+    });
+  });
+});

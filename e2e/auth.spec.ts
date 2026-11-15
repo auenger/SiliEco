@@ -12,11 +12,11 @@ test.describe("Authentication", () => {
     await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
   });
 
-  test("login and redirect to /issues", async ({ page }) => {
+  test("login and redirect to /tasks", async ({ page }) => {
     const workspaceSlug = await loginAsDefault(page);
 
-    await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/issues$`));
-    await expect(page.getByRole("button", { name: "New Issue" })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/tasks$`));
+    await expect(page.getByRole("button", { name: "New Task" })).toBeVisible();
   });
 
   test("unauthenticated user is redirected to /login", async ({ page }) => {
@@ -26,7 +26,7 @@ test.describe("Authentication", () => {
       throw new Error("E2E workspace was not created");
     }
 
-    await page.goto(`/${workspace.slug}/issues`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/${workspace.slug}/tasks`, { waitUntil: "domcontentloaded" });
     await page.waitForURL("**/login", { timeout: 10000, waitUntil: "domcontentloaded" });
     await waitForPageText(page, "Sign in to Silieco");
   });

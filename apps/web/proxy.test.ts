@@ -52,17 +52,17 @@ function withoutRuntimeUpstreams(run: () => void) {
 
 describe("proxy legacy workspace route redirects", () => {
   const sessionCookies = {
-    silieco_logged_in: "1",
+    silieco_tr1_logged_in: "1",
     last_workspace_slug: "acme",
   };
 
   it.each([
-    ["issues", "/acme/tasks"],
+    ["tasks", "/acme/tasks"],
     ["projects", "/acme/projects"],
     ["agents", "/acme/agents"],
     ["squads", "/acme/squads"],
     ["inbox", "/acme/inbox"],
-    ["my-issues", "/acme/my-tasks"],
+    ["my-tasks", "/acme/my-tasks"],
     ["autopilots", "/acme/autopilots"],
     ["runtimes", "/acme/runtimes"],
     ["skills", "/acme/skills"],
@@ -91,7 +91,7 @@ describe("proxy legacy workspace route redirects", () => {
 
   it("sends logged-in legacy URLs without a last workspace cookie to root", () => {
     expect(
-      redirectLocation("/squads", { silieco_logged_in: "1" }),
+      redirectLocation("/squads", { silieco_tr1_logged_in: "1" }),
     ).toBe("https://app.silieco.test/");
   });
 
@@ -225,7 +225,7 @@ describe("proxy root and locale handling", () => {
   it("redirects logged-in root visits to the last workspace", () => {
     const res = proxy(
       makeRequest("/", {
-        silieco_logged_in: "1",
+        silieco_tr1_logged_in: "1",
         last_workspace_slug: "acme",
       }),
     );

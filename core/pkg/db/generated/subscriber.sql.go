@@ -11,22 +11,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const addIssueSubscriber = `-- name: AddIssueSubscriber :exec
-INSERT INTO issue_subscriber (issue_id, user_type, user_id, reason)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (issue_id, user_type, user_id) DO NOTHING
+const addTaskSubscriber = `-- name: AddTaskSubscriber :exec
+INSERT INTO task_subscriber (task_id, user_type, user_id, reason) SELECT
+    $1 AS task_id,
+    $2 AS user_type,
+    $3 AS user_id,
+    $4 AS reason
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM task AS ref_task_id WHERE ref_task_id.id = ($1) FOR KEY SHARE))
+
+ON CONFLICT (task_id, user_type, user_id) DO NOTHING
 `
 
-type AddIssueSubscriberParams struct {
-	IssueID  pgtype.UUID `json:"issue_id"`
+type AddTaskSubscriberParams struct {
+	TaskID   pgtype.UUID `json:"task_id"`
 	UserType string      `json:"user_type"`
 	UserID   pgtype.UUID `json:"user_id"`
 	Reason   string      `json:"reason"`
 }
 
-func (q *Queries) AddIssueSubscriber(ctx context.Context, arg AddIssueSubscriberParams) error {
-	_, err := q.db.Exec(ctx, addIssueSubscriber,
-		arg.IssueID,
+func (q *Queries) AddTaskSubscriber(ctx context.Context, arg AddTaskSubscriberParams) error {
+	_, err := q.db.Exec(ctx, addTaskSubscriber,
+		arg.TaskID,
 		arg.UserType,
 		arg.UserID,
 		arg.Reason,
@@ -34,43 +39,43 @@ func (q *Queries) AddIssueSubscriber(ctx context.Context, arg AddIssueSubscriber
 	return err
 }
 
-const isIssueSubscriber = `-- name: IsIssueSubscriber :one
+const isTaskSubscriber = `-- name: IsTaskSubscriber :one
 SELECT EXISTS(
-    SELECT 1 FROM issue_subscriber
-    WHERE issue_id = $1 AND user_type = $2 AND user_id = $3
+    SELECT 1 FROM task_subscriber
+    WHERE task_id = $1 AND user_type = $2 AND user_id = $3
 ) AS subscribed
 `
 
-type IsIssueSubscriberParams struct {
-	IssueID  pgtype.UUID `json:"issue_id"`
+type IsTaskSubscriberParams struct {
+	TaskID   pgtype.UUID `json:"task_id"`
 	UserType string      `json:"user_type"`
 	UserID   pgtype.UUID `json:"user_id"`
 }
 
-func (q *Queries) IsIssueSubscriber(ctx context.Context, arg IsIssueSubscriberParams) (bool, error) {
-	row := q.db.QueryRow(ctx, isIssueSubscriber, arg.IssueID, arg.UserType, arg.UserID)
+func (q *Queries) IsTaskSubscriber(ctx context.Context, arg IsTaskSubscriberParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isTaskSubscriber, arg.TaskID, arg.UserType, arg.UserID)
 	var subscribed bool
 	err := row.Scan(&subscribed)
 	return subscribed, err
 }
 
-const listIssueSubscribers = `-- name: ListIssueSubscribers :many
-SELECT issue_id, user_type, user_id, reason, created_at FROM issue_subscriber
-WHERE issue_id = $1
+const listTaskSubscribers = `-- name: ListTaskSubscribers :many
+SELECT task_id, user_type, user_id, reason, created_at FROM task_subscriber
+WHERE task_id = $1
 ORDER BY created_at
 `
 
-func (q *Queries) ListIssueSubscribers(ctx context.Context, issueID pgtype.UUID) ([]IssueSubscriber, error) {
-	rows, err := q.db.Query(ctx, listIssueSubscribers, issueID)
+func (q *Queries) ListTaskSubscribers(ctx context.Context, taskID pgtype.UUID) ([]TaskSubscriber, error) {
+	rows, err := q.db.Query(ctx, listTaskSubscribers, taskID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []IssueSubscriber{}
+	items := []TaskSubscriber{}
 	for rows.Next() {
-		var i IssueSubscriber
+		var i TaskSubscriber
 		if err := rows.Scan(
-			&i.IssueID,
+			&i.TaskID,
 			&i.UserType,
 			&i.UserID,
 			&i.Reason,
@@ -86,18 +91,18 @@ func (q *Queries) ListIssueSubscribers(ctx context.Context, issueID pgtype.UUID)
 	return items, nil
 }
 
-const removeIssueSubscriber = `-- name: RemoveIssueSubscriber :exec
-DELETE FROM issue_subscriber
-WHERE issue_id = $1 AND user_type = $2 AND user_id = $3
+const removeTaskSubscriber = `-- name: RemoveTaskSubscriber :exec
+DELETE FROM task_subscriber
+WHERE task_id = $1 AND user_type = $2 AND user_id = $3
 `
 
-type RemoveIssueSubscriberParams struct {
-	IssueID  pgtype.UUID `json:"issue_id"`
+type RemoveTaskSubscriberParams struct {
+	TaskID   pgtype.UUID `json:"task_id"`
 	UserType string      `json:"user_type"`
 	UserID   pgtype.UUID `json:"user_id"`
 }
 
-func (q *Queries) RemoveIssueSubscriber(ctx context.Context, arg RemoveIssueSubscriberParams) error {
-	_, err := q.db.Exec(ctx, removeIssueSubscriber, arg.IssueID, arg.UserType, arg.UserID)
+func (q *Queries) RemoveTaskSubscriber(ctx context.Context, arg RemoveTaskSubscriberParams) error {
+	_, err := q.db.Exec(ctx, removeTaskSubscriber, arg.TaskID, arg.UserType, arg.UserID)
 	return err
 }

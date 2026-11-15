@@ -14,7 +14,7 @@ import { ActorAvatar } from "../../../common/actor-avatar";
 import {
   PickerItem,
   PropertyPicker,
-} from "../../../issues/components/pickers";
+} from "../../../tasks/components/pickers";
 import { ProviderLogo } from "../../../runtimes/components/provider-logo";
 import {
   buildRuntimeMachines,

@@ -339,7 +339,7 @@ html[data-sidebar-resizing="true"] * {
   }
 }
 
-/* In-page find (Cmd/Ctrl+F on the issue detail page). Matches are painted with
+/* In-page find (Cmd/Ctrl+F on the task detail page). Matches are painted with
  * the CSS Custom Highlight API — ranges only, no DOM mutation — so the tint
  * layers cleanly over React-rendered markdown and the contenteditable
  * title/description editors. `silieco-find-active` is registered with a higher

@@ -40,12 +40,12 @@ func isWorkspaceNotFoundError(err error) bool {
 	return strings.Contains(strings.ToLower(reqErr.Body), "workspace not found")
 }
 
-// isTaskNotFoundError returns true if the error is a 404 with "task not found"
+// isRunNotFoundError returns true if the error is a 404 with "run not found"
 // body. The daemon uses this to detect that a task was deleted server-side
-// (issue removed, agent reassigned, ...) while the local agent was still
+// (task removed, agent reassigned, ...) while the local agent was still
 // running, so it can interrupt the agent rather than letting it keep
 // emitting tool calls against a dead task.
-func isTaskNotFoundError(err error) bool {
+func isRunNotFoundError(err error) bool {
 	var reqErr *requestError
 	if !errors.As(err, &reqErr) {
 		return false
@@ -53,7 +53,7 @@ func isTaskNotFoundError(err error) bool {
 	if reqErr.StatusCode != http.StatusNotFound {
 		return false
 	}
-	return strings.Contains(strings.ToLower(reqErr.Body), "task not found")
+	return strings.Contains(strings.ToLower(reqErr.Body), "run not found")
 }
 
 // isUnauthorizedError returns true if the error is a 401 from the server.
@@ -111,8 +111,8 @@ type Client struct {
 	workspaceCache                 []WorkspaceInfo
 	workspaceCacheValid            bool
 	legacyWorkspaceEndpointEnabled bool
-	issueGCBatchMu                 sync.Mutex
-	legacyIssueGCBatchEnabled      bool
+	taskGCBatchMu                  sync.Mutex
+	legacyTaskGCBatchEnabled       bool
 }
 
 // NewClient creates a new daemon API client.
@@ -166,6 +166,7 @@ func (c *Client) SetVersion(v string) {
 
 // setIdentityHeaders attaches X-Client-Platform/Version/OS to req when set.
 func (c *Client) setIdentityHeaders(req *http.Request) {
+	req.Header.Set(protocol.GenerationHeader, protocol.Generation)
 	if c.platform != "" {
 		req.Header.Set("X-Client-Platform", c.platform)
 	}
@@ -201,14 +202,14 @@ func (c *Client) Token() string {
 	return c.token
 }
 
-func (c *Client) ClaimTask(ctx context.Context, runtimeID string) (*Task, error) {
+func (c *Client) ClaimRun(ctx context.Context, runtimeID string) (*AgentRun, error) {
 	var resp struct {
-		Task *Task `json:"task"`
+		AgentRun *AgentRun `json:"run"`
 	}
-	if err := c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/tasks/claim", runtimeID), map[string]any{}, &resp); err != nil {
+	if err := c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/runs/claim", runtimeID), map[string]any{}, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Task, nil
+	return resp.AgentRun, nil
 }
 
 // batchClaimRequestTimeout is the short, request-scoped deadline for the
@@ -233,24 +234,24 @@ const batchClaimRequestTimeout = 5 * time.Second
 // (batchClaimRequestTimeout) rather than the shared 30s control-plane timeout so
 // one slow claim cannot stall the whole batch; the deadline propagates to the
 // server and cancels the in-flight query there too.
-func (c *Client) ClaimTasks(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) ([]*Task, error) {
+func (c *Client) ClaimRuns(ctx context.Context, daemonID string, runtimeIDs []string, maxRuns int) ([]*AgentRun, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, batchClaimRequestTimeout)
 	defer cancel()
 	var resp struct {
-		Tasks []*Task `json:"tasks"`
+		Runs []*AgentRun `json:"runs"`
 	}
-	if err := c.postJSON(reqCtx, "/api/daemon/tasks/claim", map[string]any{
+	if err := c.postJSON(reqCtx, "/api/daemon/runs/claim", map[string]any{
 		"daemon_id":   daemonID,
 		"runtime_ids": runtimeIDs,
-		"max_tasks":   maxTasks,
+		"max_runs":    maxRuns,
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Tasks, nil
+	return resp.Runs, nil
 }
 
 // isBatchClaimUnsupported reports whether err is a 404 from the batch claim
-// endpoint — i.e. the server predates the /api/daemon/tasks/claim route and the
+// endpoint — i.e. the server predates the /api/daemon/runs/claim route and the
 // daemon must fall back to the legacy per-runtime claim (SILI-4257). The batch
 // handler itself never returns 404, so a 404 here means the route is
 // unregistered on an un-upgraded server.
@@ -263,29 +264,29 @@ func isBatchClaimUnsupported(err error) bool {
 }
 
 // claimTasksLegacy is the pre-batch compatibility fallback (SILI-4257): claim per
-// runtime via the legacy POST /api/daemon/runtimes/{id}/tasks/claim so a new
+// runtime via the legacy POST /api/daemon/runtimes/{id}/runs/claim so a new
 // daemon still works against a server that has no batch route. Returns up to
 // maxTasks tasks. A per-runtime error is only propagated when nothing has been
 // claimed yet; otherwise the partial result is returned and the next poll
 // retries the rest.
-func (c *Client) claimTasksLegacy(ctx context.Context, runtimeIDs []string, maxTasks int) ([]*Task, error) {
-	if maxTasks <= 0 {
+func (c *Client) claimRunsLegacy(ctx context.Context, runtimeIDs []string, maxRuns int) ([]*AgentRun, error) {
+	if maxRuns <= 0 {
 		return nil, nil
 	}
-	out := make([]*Task, 0, maxTasks)
+	out := make([]*AgentRun, 0, maxRuns)
 	for _, rid := range runtimeIDs {
-		if len(out) >= maxTasks {
+		if len(out) >= maxRuns {
 			break
 		}
-		task, err := c.ClaimTask(ctx, rid)
+		agentRun, err := c.ClaimRun(ctx, rid)
 		if err != nil {
 			if len(out) == 0 {
 				return nil, err
 			}
 			return out, nil
 		}
-		if task != nil {
-			out = append(out, task)
+		if agentRun != nil {
+			out = append(out, agentRun)
 		}
 	}
 	return out, nil
@@ -298,11 +299,11 @@ func (c *Client) claimTasksLegacy(ctx context.Context, runtimeIDs []string, maxT
 // agent's whole bundle in one atomic body read — lets each download fit its own
 // deadline and be cached independently, so a slow link makes incremental
 // progress instead of failing the entire set on every dispatch. (GitHub #4505)
-func (c *Client) ResolveSkillBundle(ctx context.Context, runtimeID, taskID string, ref SkillRefData) (SkillData, error) {
+func (c *Client) ResolveSkillBundle(ctx context.Context, runtimeID, runID string, ref SkillRefData) (SkillData, error) {
 	var resp struct {
 		Bundles []SkillData `json:"bundles"`
 	}
-	path := fmt.Sprintf("/api/daemon/runtimes/%s/tasks/%s/skill-bundles/resolve", runtimeID, taskID)
+	path := fmt.Sprintf("/api/daemon/runtimes/%s/runs/%s/skill-bundles/resolve", runtimeID, runID)
 	if err := c.postJSONViaWithRetry(ctx, c.bundleClient, path, map[string]any{
 		"skills": []SkillRefData{ref},
 	}, &resp, skillBundleResolveRetrySchedule); err != nil {
@@ -314,12 +315,12 @@ func (c *Client) ResolveSkillBundle(ctx context.Context, runtimeID, taskID strin
 	return resp.Bundles[0], nil
 }
 
-func (c *Client) ExtendTaskPrepareLease(ctx context.Context, runtimeID, taskID string) error {
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/tasks/%s/prepare-lease", runtimeID, taskID), map[string]any{}, nil)
+func (c *Client) ExtendRunPrepareLease(ctx context.Context, runtimeID, runID string) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/runs/%s/prepare-lease", runtimeID, runID), map[string]any{}, nil)
 }
 
-func (c *Client) StartTask(ctx context.Context, taskID string) error {
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/start", taskID), map[string]any{}, nil)
+func (c *Client) StartRun(ctx context.Context, runID string) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runs/%s/start", runID), map[string]any{}, nil)
 }
 
 // MarkTaskWaitingLocalDirectory parks a freshly-dispatched task in the
@@ -331,8 +332,8 @@ func (c *Client) StartTask(ctx context.Context, taskID string) error {
 // reason is a no-op once the row is already waiting_local_directory (the
 // underlying SQL filters on status='dispatched', so the second call is a
 // 400 the daemon swallows and proceeds to wait).
-func (c *Client) MarkTaskWaitingLocalDirectory(ctx context.Context, taskID, reason string) error {
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/wait-local-directory", taskID), map[string]any{
+func (c *Client) MarkRunWaitingLocalDirectory(ctx context.Context, runID, reason string) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runs/%s/wait-local-directory", runID), map[string]any{
 		"reason": reason,
 	}, nil)
 }
@@ -342,12 +343,12 @@ func (c *Client) MarkTaskWaitingLocalDirectory(ctx context.Context, taskID, reas
 // returns after executeAndDrain's drain wait), so the server can settle its
 // deferred chat finalization now instead of waiting out the sweeper grace
 // period (#5219). Idempotent server-side.
-func (c *Client) AckTaskCancelled(ctx context.Context, taskID string) error {
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/cancel-ack", taskID), map[string]any{}, nil)
+func (c *Client) AckRunCancelled(ctx context.Context, runID string) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runs/%s/cancel-ack", runID), map[string]any{}, nil)
 }
 
-func (c *Client) ReportProgress(ctx context.Context, taskID, summary string, step, total int) error {
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/progress", taskID), map[string]any{
+func (c *Client) ReportProgress(ctx context.Context, runID, summary string, step, total int) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runs/%s/progress", runID), map[string]any{
 		"summary": summary,
 		"step":    step,
 		"total":   total,
@@ -355,7 +356,7 @@ func (c *Client) ReportProgress(ctx context.Context, taskID, summary string, ste
 }
 
 // TaskMessageData represents a single agent execution message for batch reporting.
-type TaskMessageData struct {
+type AgentRunMessageData struct {
 	Seq     int            `json:"seq"`
 	Type    string         `json:"type"`
 	Tool    string         `json:"tool,omitempty"`
@@ -364,20 +365,20 @@ type TaskMessageData struct {
 	Output  string         `json:"output,omitempty"`
 }
 
-func (c *Client) ReportTaskMessages(ctx context.Context, taskID string, messages []TaskMessageData) error {
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/messages", taskID), map[string]any{
+func (c *Client) ReportAgentRunMessages(ctx context.Context, runID string, messages []AgentRunMessageData) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runs/%s/messages", runID), map[string]any{
 		"messages": messages,
 	}, nil)
 }
 
-type TaskWorktreeDelivery struct {
+type RunWorktreeDelivery struct {
 	Branch   string
 	BaseSHA  string
 	FinalSHA string
 	Status   string
 }
 
-func addTaskWorktreeDelivery(body map[string]any, delivery *TaskWorktreeDelivery) {
+func addRunWorktreeDelivery(body map[string]any, delivery *RunWorktreeDelivery) {
 	if delivery == nil {
 		return
 	}
@@ -395,7 +396,7 @@ func addTaskWorktreeDelivery(body map[string]any, delivery *TaskWorktreeDelivery
 	}
 }
 
-func (c *Client) CompleteTask(ctx context.Context, taskID, output, branchName, sessionID, workDir string, sessionRolloutMissing bool, retiredSessionID string, delivery ...*TaskWorktreeDelivery) error {
+func (c *Client) CompleteRun(ctx context.Context, runID, output, branchName, sessionID, workDir string, sessionRolloutMissing bool, retiredSessionID string, delivery ...*RunWorktreeDelivery) error {
 	body := map[string]any{"output": output}
 	if branchName != "" {
 		body["branch_name"] = branchName
@@ -413,21 +414,21 @@ func (c *Client) CompleteTask(ctx context.Context, taskID, output, branchName, s
 		body["retired_session_id"] = retiredSessionID
 	}
 	if len(delivery) > 0 {
-		addTaskWorktreeDelivery(body, delivery[0])
+		addRunWorktreeDelivery(body, delivery[0])
 	}
-	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/complete", taskID), body, nil, defaultTerminalRetrySchedule)
+	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/runs/%s/complete", runID), body, nil, defaultTerminalRetrySchedule)
 }
 
-func (c *Client) ReportTaskUsage(ctx context.Context, taskID string, usage []TaskUsageEntry) error {
+func (c *Client) ReportAgentRunUsage(ctx context.Context, runID string, usage []AgentRunUsageEntry) error {
 	if len(usage) == 0 {
 		return nil
 	}
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/usage", taskID), map[string]any{
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runs/%s/usage", runID), map[string]any{
 		"usage": usage,
 	}, nil)
 }
 
-func (c *Client) FailTask(ctx context.Context, taskID, errMsg, sessionID, workDir, failureReason string, sessionRolloutMissing bool, retiredSessionID string, delivery ...*TaskWorktreeDelivery) error {
+func (c *Client) FailRun(ctx context.Context, runID, errMsg, sessionID, workDir, failureReason string, sessionRolloutMissing bool, retiredSessionID string, delivery ...*RunWorktreeDelivery) error {
 	body := map[string]any{"error": errMsg}
 	if sessionID != "" {
 		body["session_id"] = sessionID
@@ -445,14 +446,14 @@ func (c *Client) FailTask(ctx context.Context, taskID, errMsg, sessionID, workDi
 		body["retired_session_id"] = retiredSessionID
 	}
 	if len(delivery) > 0 {
-		addTaskWorktreeDelivery(body, delivery[0])
+		addRunWorktreeDelivery(body, delivery[0])
 	}
-	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/fail", taskID), body, nil, defaultTerminalRetrySchedule)
+	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/runs/%s/fail", runID), body, nil, defaultTerminalRetrySchedule)
 }
 
 // PinTaskSession persists the agent's session_id and work_dir on the task
 // row mid-flight so a daemon crash doesn't lose the resume pointer.
-func (c *Client) PinTaskSession(ctx context.Context, taskID, sessionID, workDir string) error {
+func (c *Client) PinRunSession(ctx context.Context, runID, sessionID, workDir string) error {
 	if sessionID == "" && workDir == "" {
 		return nil
 	}
@@ -463,7 +464,7 @@ func (c *Client) PinTaskSession(ctx context.Context, taskID, sessionID, workDir 
 	if workDir != "" {
 		body["work_dir"] = workDir
 	}
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/session", taskID), body, nil)
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runs/%s/session", runID), body, nil)
 }
 
 // RecoverOrphans tells the server to fail any dispatched/running tasks the
@@ -476,11 +477,11 @@ func (c *Client) RecoverOrphans(ctx context.Context, runtimeID string) error {
 // GetTaskStatus returns the current status of a task. Used by the daemon to
 // detect terminal/interruption signals (cancelled, failed, completed, or a
 // 404 task-not-found) while a task is executing.
-func (c *Client) GetTaskStatus(ctx context.Context, taskID string) (string, error) {
+func (c *Client) GetRunStatus(ctx context.Context, runID string) (string, error) {
 	var resp struct {
 		Status string `json:"status"`
 	}
-	if err := c.getJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/status", taskID), &resp); err != nil {
+	if err := c.getJSON(ctx, fmt.Sprintf("/api/daemon/runs/%s/status", runID), &resp); err != nil {
 		return "", err
 	}
 	return resp.Status, nil
@@ -629,17 +630,17 @@ func (c *Client) usesLegacyWorkspaceEndpoint() bool {
 	return c.legacyWorkspaceEndpointEnabled
 }
 
-// IssueGCStatus holds the minimal issue info returned by the GC check endpoint.
-type IssueGCStatus struct {
+// TaskGCStatus holds the minimal task info returned by the GC check endpoint.
+type TaskGCStatus struct {
 	Status    string    `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// IssueGCCheckResult is one explicit issue result from the workspace batch
-// endpoint. Found=false deliberately covers both a deleted issue and an ID
+// TaskGCCheckResult is one explicit task result from the workspace batch
+// endpoint. Found=false deliberately covers both a deleted task and an ID
 // outside the requested workspace, preserving the server's anti-enumeration
-// contract. Err is only populated by the legacy per-issue fallback.
-type IssueGCCheckResult struct {
+// contract. Err is only populated by the legacy per-task fallback.
+type TaskGCCheckResult struct {
 	ID        string    `json:"id"`
 	Found     bool      `json:"found"`
 	Status    string    `json:"status,omitempty"`
@@ -647,68 +648,68 @@ type IssueGCCheckResult struct {
 	Err       error     `json:"-"`
 }
 
-type issueGCBatchResponse struct {
-	Issues []IssueGCCheckResult `json:"issues"`
+type taskGCBatchResponse struct {
+	Tasks []TaskGCCheckResult `json:"tasks"`
 }
 
-// isIssueGCBatchUnsupported distinguishes chi's unmatched-route response on an
+// isTaskGCBatchUnsupported distinguishes chi's unmatched-route response on an
 // older server from the JSON 404 returned by a current server when the caller
 // cannot access the requested workspace. Only the former is a compatibility
 // signal; falling back on an authorization 404 would turn one denied request
 // into hundreds of legacy probes.
-func isIssueGCBatchUnsupported(err error) bool {
+func isTaskGCBatchUnsupported(err error) bool {
 	var reqErr *requestError
 	return errors.As(err, &reqErr) &&
 		reqErr.StatusCode == http.StatusNotFound &&
 		strings.TrimSpace(reqErr.Body) == "404 page not found"
 }
 
-// GetIssueGCChecks reconciles a workspace's issue IDs in one request. When a
+// GetTaskGCChecks reconciles a workspace's task IDs in one request. When a
 // new daemon reaches an older server that does not have the batch route, the
-// first 404 permanently switches this client process to the legacy per-issue
+// first 404 permanently switches this client process to the legacy per-task
 // endpoint. Other batch failures are returned without fan-out so a transient
 // server problem cannot amplify request volume.
-func (c *Client) GetIssueGCChecks(ctx context.Context, workspaceID string, issueIDs []string) (map[string]IssueGCCheckResult, error) {
-	c.issueGCBatchMu.Lock()
-	defer c.issueGCBatchMu.Unlock()
+func (c *Client) GetTaskGCChecks(ctx context.Context, workspaceID string, taskIDs []string) (map[string]TaskGCCheckResult, error) {
+	c.taskGCBatchMu.Lock()
+	defer c.taskGCBatchMu.Unlock()
 
-	if c.legacyIssueGCBatchEnabled {
-		return c.getLegacyIssueGCChecks(ctx, issueIDs), nil
+	if c.legacyTaskGCBatchEnabled {
+		return c.getLegacyTaskGCChecks(ctx, taskIDs), nil
 	}
 
-	path := fmt.Sprintf("/api/daemon/workspaces/%s/issues/gc-check", workspaceID)
-	var resp issueGCBatchResponse
-	err := c.postJSON(ctx, path, map[string]any{"issue_ids": issueIDs}, &resp)
+	path := fmt.Sprintf("/api/daemon/workspaces/%s/tasks/gc-check", workspaceID)
+	var resp taskGCBatchResponse
+	err := c.postJSON(ctx, path, map[string]any{"task_ids": taskIDs}, &resp)
 	if err != nil {
-		if !isIssueGCBatchUnsupported(err) {
+		if !isTaskGCBatchUnsupported(err) {
 			return nil, err
 		}
-		c.legacyIssueGCBatchEnabled = true
-		return c.getLegacyIssueGCChecks(ctx, issueIDs), nil
+		c.legacyTaskGCBatchEnabled = true
+		return c.getLegacyTaskGCChecks(ctx, taskIDs), nil
 	}
 
-	results := make(map[string]IssueGCCheckResult, len(resp.Issues))
-	for _, result := range resp.Issues {
+	results := make(map[string]TaskGCCheckResult, len(resp.Tasks))
+	for _, result := range resp.Tasks {
 		results[result.ID] = result
 	}
 	return results, nil
 }
 
-func (c *Client) getLegacyIssueGCChecks(ctx context.Context, issueIDs []string) map[string]IssueGCCheckResult {
-	results := make(map[string]IssueGCCheckResult, len(issueIDs))
-	for _, issueID := range issueIDs {
-		status, err := c.GetIssueGCCheck(ctx, issueID)
+func (c *Client) getLegacyTaskGCChecks(ctx context.Context, taskIDs []string) map[string]TaskGCCheckResult {
+	results := make(map[string]TaskGCCheckResult, len(taskIDs))
+	for _, taskID := range taskIDs {
+		status, err := c.GetTaskGCCheck(ctx, taskID)
 		if err != nil {
 			var reqErr *requestError
 			if errors.As(err, &reqErr) && reqErr.StatusCode == http.StatusNotFound {
-				results[issueID] = IssueGCCheckResult{ID: issueID, Found: false}
+				results[taskID] = TaskGCCheckResult{ID: taskID, Found: false}
 			} else {
-				results[issueID] = IssueGCCheckResult{ID: issueID, Err: err}
+				results[taskID] = TaskGCCheckResult{ID: taskID, Err: err}
 			}
 			continue
 		}
-		results[issueID] = IssueGCCheckResult{
-			ID:        issueID,
+		results[taskID] = TaskGCCheckResult{
+			ID:        taskID,
 			Found:     true,
 			Status:    status.Status,
 			UpdatedAt: status.UpdatedAt,
@@ -717,16 +718,16 @@ func (c *Client) getLegacyIssueGCChecks(ctx context.Context, issueIDs []string) 
 	return results
 }
 
-// GetIssueGCCheck returns the status and updated_at of an issue for GC decisions.
-func (c *Client) GetIssueGCCheck(ctx context.Context, issueID string) (*IssueGCStatus, error) {
-	var resp IssueGCStatus
-	if err := c.getJSON(ctx, fmt.Sprintf("/api/daemon/issues/%s/gc-check", issueID), &resp); err != nil {
+// GetTaskGCCheck returns the status and updated_at of an task for GC decisions.
+func (c *Client) GetTaskGCCheck(ctx context.Context, taskID string) (*TaskGCStatus, error) {
+	var resp TaskGCStatus
+	if err := c.getJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/gc-check", taskID), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-// ChatSessionGCStatus mirrors IssueGCStatus for chat sessions.
+// ChatSessionGCStatus mirrors TaskGCStatus for chat sessions.
 type ChatSessionGCStatus struct {
 	Status    string    `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -763,18 +764,18 @@ func (c *Client) GetAutopilotRunGCCheck(ctx context.Context, runID string) (*Aut
 	return &resp, nil
 }
 
-// TaskGCStatus carries the agent_task_queue status for quick-create cleanup.
+// TaskGCStatus carries the agent_run status for quick-create cleanup.
 // Quick-create tasks have no separate parent record, so GC keys directly on
 // the task itself.
-type TaskGCStatus struct {
+type RunGCStatus struct {
 	Status      string    `json:"status"`
 	CompletedAt time.Time `json:"completed_at"`
 }
 
 // GetTaskGCCheck returns the status of an agent task for GC decisions.
-func (c *Client) GetTaskGCCheck(ctx context.Context, taskID string) (*TaskGCStatus, error) {
-	var resp TaskGCStatus
-	if err := c.getJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/gc-check", taskID), &resp); err != nil {
+func (c *Client) GetRunGCCheck(ctx context.Context, runID string) (*RunGCStatus, error) {
+	var resp RunGCStatus
+	if err := c.getJSON(ctx, fmt.Sprintf("/api/daemon/runs/%s/gc-check", runID), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -897,7 +898,7 @@ var retrySleep = func(ctx context.Context, d time.Duration) error {
 // (including client timeouts surfacing as context.DeadlineExceeded inside
 // http.Client.Do), 5xx server responses, and 408/429 rate-limit-style 4xx
 // codes. Other 4xx codes are treated as permanent — retrying a 400 (bad
-// body) or 404 (task not found) only burns time.
+// body) or 404 (run not found) only burns time.
 //
 // The caller is responsible for separately bailing on parent-context
 // cancellation; this predicate cannot distinguish "the daemon is shutting

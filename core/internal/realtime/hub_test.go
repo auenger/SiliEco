@@ -58,14 +58,14 @@ func newTestHub(t *testing.T) (*Hub, *httptest.Server) {
 func connectWS(t *testing.T, server *httptest.Server) *websocket.Conn {
 	t.Helper()
 	token := makeTestToken(t)
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?workspace_id=" + testWorkspaceID
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?protocol_generation=task-run-v1&workspace_id=" + testWorkspaceID
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("failed to connect WebSocket: %v", err)
 	}
 	authMsg, _ := json.Marshal(map[string]any{
 		"type":    "auth",
-		"payload": map[string]string{"token": token},
+		"payload": map[string]string{"token": token, "protocol_generation": "task-run-v1"},
 	})
 	if err := conn.WriteMessage(websocket.TextMessage, authMsg); err != nil {
 		t.Fatalf("failed to send auth message: %v", err)
@@ -100,7 +100,7 @@ func TestClientHandleSubscribeReportsLookupFailure(t *testing.T) {
 		subscriptions: make(map[scopeKey]bool),
 	}
 
-	client.handleSubscribe(ScopeTask, "task-id")
+	client.handleSubscribe(ScopeRun, "task-id")
 
 	select {
 	case raw := <-client.send:
@@ -117,8 +117,8 @@ func TestClientHandleSubscribeReportsLookupFailure(t *testing.T) {
 		if got := frame.Payload["error"]; got != "lookup_failed" {
 			t.Fatalf("error = %q, want lookup_failed", got)
 		}
-		if got := frame.Payload["scope"]; got != ScopeTask {
-			t.Fatalf("scope = %q, want %q", got, ScopeTask)
+		if got := frame.Payload["scope"]; got != ScopeRun {
+			t.Fatalf("scope = %q, want %q", got, ScopeRun)
 		}
 		if got := frame.Payload["id"]; got != "task-id" {
 			t.Fatalf("id = %q, want task-id", got)
@@ -165,7 +165,7 @@ func TestHub_Broadcast(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	msg := []byte(`{"type":"issue:created","data":"test"}`)
+	msg := []byte(`{"type":"task:created","data":"test"}`)
 	hub.Broadcast(msg)
 
 	conn1.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -252,9 +252,9 @@ func TestHub_MultipleBroadcasts(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	messages := []string{
-		`{"type":"issue:created"}`,
-		`{"type":"issue:updated"}`,
-		`{"type":"issue:deleted"}`,
+		`{"type":"task:created"}`,
+		`{"type":"task:updated"}`,
+		`{"type":"task:deleted"}`,
 	}
 
 	for _, msg := range messages {
@@ -291,7 +291,7 @@ func TestHandleWebSocket_ClientIdentityFromQuery(t *testing.T) {
 
 	token := makeTestToken(t)
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") +
-		"/ws?workspace_id=" + testWorkspaceID +
+		"/ws?protocol_generation=task-run-v1&workspace_id=" + testWorkspaceID +
 		"&client_platform=desktop&client_version=1.2.3&client_os=macos"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
@@ -301,7 +301,7 @@ func TestHandleWebSocket_ClientIdentityFromQuery(t *testing.T) {
 
 	authMsg, _ := json.Marshal(map[string]any{
 		"type":    "auth",
-		"payload": map[string]string{"token": token},
+		"payload": map[string]string{"token": token, "protocol_generation": "task-run-v1"},
 	})
 	if err := conn.WriteMessage(websocket.TextMessage, authMsg); err != nil {
 		t.Fatalf("write auth: %v", err)
@@ -461,5 +461,38 @@ func TestCheckOrigin(t *testing.T) {
 				t.Fatalf("checkOrigin(host=%q, origin=%q, X-Forwarded-Host=%q, remoteAddr=%q) = %v, want %v", tc.host, tc.origin, tc.fwdHost, tc.remoteAddr, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHandleWebSocketRejectsOldProtocolGeneration(t *testing.T) {
+	for _, generation := range []string{"", "issue-task-v1"} {
+		req := httptest.NewRequest(http.MethodGet, "/ws?workspace_id="+testWorkspaceID+"&protocol_generation="+generation, nil)
+		res := httptest.NewRecorder()
+		HandleWebSocket(nil, &mockMembershipChecker{}, nil, nil, res, req)
+		if res.Code != http.StatusUpgradeRequired {
+			t.Fatalf("generation=%q: status=%d", generation, res.Code)
+		}
+	}
+}
+
+func TestHandleWebSocketRejectsOldAuthFrameGeneration(t *testing.T) {
+	_, server := newTestHub(t)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?workspace_id=" + testWorkspaceID + "&protocol_generation=task-run-v1"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.WriteJSON(map[string]any{"type": "auth", "payload": map[string]string{"token": makeTestToken(t)}}); err != nil {
+		t.Fatal(err)
+	}
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "unsupported protocol generation") {
+		t.Fatalf("unexpected auth response: %s", raw)
 	}
 }

@@ -12,7 +12,7 @@ import (
 )
 
 const countProjectResources = `-- name: CountProjectResources :one
-SELECT count(*) FROM project_resource WHERE project_id = $1
+SELECT count(*) FROM project_resource WHERE project_resource.project_id = $1
 `
 
 func (q *Queries) CountProjectResources(ctx context.Context, projectID pgtype.UUID) (int64, error) {
@@ -25,9 +25,17 @@ func (q *Queries) CountProjectResources(ctx context.Context, projectID pgtype.UU
 const createProjectResource = `-- name: CreateProjectResource :one
 INSERT INTO project_resource (
     project_id, workspace_id, resource_type, resource_ref, label, position, created_by
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
-) RETURNING id, project_id, workspace_id, resource_type, resource_ref, label, position, created_at, created_by
+) SELECT
+    $1 AS project_id,
+    $2 AS workspace_id,
+    $3 AS resource_type,
+    $4 AS resource_ref,
+    $5 AS label,
+    $6 AS position,
+    $7 AS created_by
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM project AS ref_project_id WHERE ref_project_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($2) FOR KEY SHARE))
+ RETURNING id, project_id, workspace_id, resource_type, resource_ref, label, position, created_at, created_by
 `
 
 type CreateProjectResourceParams struct {
@@ -66,7 +74,7 @@ func (q *Queries) CreateProjectResource(ctx context.Context, arg CreateProjectRe
 }
 
 const deleteProjectResource = `-- name: DeleteProjectResource :exec
-DELETE FROM project_resource WHERE id = $1
+DELETE FROM project_resource WHERE project_resource.id = $1
 `
 
 func (q *Queries) DeleteProjectResource(ctx context.Context, id pgtype.UUID) error {

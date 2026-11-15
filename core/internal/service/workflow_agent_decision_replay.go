@@ -17,7 +17,7 @@ func (s *WorkflowExecutionService) replayAcceptedAgentDecision(ctx context.Conte
 	if err != nil {
 		return empty, err
 	}
-	if request.WorkflowInstanceID != run.ID || execution.WorkflowInstanceID != run.ID || request.ExecutionID != execution.ID || request.Status != "decided" || request.ReviewerID != p.ActorID || request.TaskID != p.TaskID {
+	if request.WorkflowInstanceID != run.ID || execution.WorkflowInstanceID != run.ID || request.ExecutionID != execution.ID || request.Status != "decided" || request.ReviewerID != p.ActorID || request.RunID != p.RunID {
 		return empty, ErrWorkflowReviewAccess
 	}
 	if _, err := q.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{WorkspaceID: p.WorkspaceID, UserID: run.CreatedBy}); err != nil {
@@ -34,14 +34,14 @@ func (s *WorkflowExecutionService) replayAcceptedAgentDecision(ctx context.Conte
 	if !allowed {
 		return empty, ErrWorkflowReviewAccess
 	}
-	task, err := q.GetWorkflowResultTask(ctx, db.GetWorkflowResultTaskParams{WorkspaceID: p.WorkspaceID, ID: p.TaskID})
+	agentRun, err := q.GetWorkflowResultRun(ctx, db.GetWorkflowResultRunParams{WorkspaceID: p.WorkspaceID, ID: p.RunID})
 	if err != nil {
 		return empty, err
 	}
-	if task.Status != "completed" || task.AgentID != p.ActorID || task.WorkflowReviewRequestID != request.ID || task.WorkflowStageExecutionID.Valid || task.IssueID != execution.MainIssueID {
+	if agentRun.Status != "completed" || agentRun.AgentID != p.ActorID || agentRun.WorkflowReviewRequestID != request.ID || agentRun.WorkflowStageExecutionID.Valid || agentRun.TaskID != execution.MainTaskID {
 		return empty, ErrWorkflowReviewAccess
 	}
-	decision, err := q.GetWorkflowAgentDecisionByBasis(ctx, db.GetWorkflowAgentDecisionByBasisParams{WorkspaceID: p.WorkspaceID, ExecutionID: execution.ID, BasisHash: pgtype.Text{String: request.BasisHash, Valid: true}, ReviewTaskID: request.TaskID})
+	decision, err := q.GetWorkflowAgentDecisionByBasis(ctx, db.GetWorkflowAgentDecisionByBasisParams{WorkspaceID: p.WorkspaceID, ExecutionID: execution.ID, BasisHash: pgtype.Text{String: request.BasisHash, Valid: true}, ReviewRunID: request.RunID})
 	if err != nil {
 		return empty, err
 	}

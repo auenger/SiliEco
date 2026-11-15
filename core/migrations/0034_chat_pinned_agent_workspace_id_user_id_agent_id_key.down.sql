@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.chat_pinned_agent_workspace_id_user_id_agent_id_key;

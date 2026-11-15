@@ -39,14 +39,14 @@ WHERE agent_id = $1 AND enabled = TRUE
 ORDER BY server_id;
 
 -- name: DeleteAgentMCPAssignments :exec
-DELETE FROM agent_mcp_server WHERE agent_id = $1;
+DELETE FROM agent_mcp_server WHERE agent_mcp_server.agent_id = $1;
 
 -- name: AssignAgentMCPServer :exec
 INSERT INTO agent_mcp_server (agent_id, server_id, enabled)
 VALUES ($1, $2, TRUE)
 ON CONFLICT (agent_id, server_id) DO UPDATE SET enabled = TRUE;
 
--- name: SetTaskExecutionManifest :exec
-UPDATE agent_task_queue
+-- name: SetRunExecutionManifest :exec
+UPDATE agent_run
 SET execution_manifest = $2
 WHERE id = $1 AND execution_manifest IS NULL;

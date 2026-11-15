@@ -248,7 +248,7 @@ done
 `
 }
 
-func TestQoderBackendSetModelFailureFailsTask(t *testing.T) {
+func TestQoderBackendSetModelFailureFailsRun(t *testing.T) {
 	t.Parallel()
 
 	fakePath := filepath.Join(t.TempDir(), "qodercli")
@@ -471,7 +471,7 @@ func TestQoderBackendToolTerminatedTurnFallsBackToLatestTextBlock(t *testing.T) 
 	fakePath := filepath.Join(t.TempDir(), "qodercli")
 	writeTestExecutable(t, fakePath, []byte(fakeQoderACPScriptWithNarrationAndFinalAnswer()))
 
-	const want = "Done. Posted the summary to the issue."
+	const want = "Done. Posted the summary to the task."
 	backend, err := New("qoder", Config{
 		ExecutablePath: fakePath,
 		Logger:         slog.Default(),

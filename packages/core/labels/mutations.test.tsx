@@ -8,10 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { setApiInstance } from "../api";
 import type { ApiClient } from "../api/client";
-import { issueKeys } from "../issues/queries";
+import { taskKeys } from "../tasks/queries";
 import type {
-  Issue,
-  IssueLabelsResponse,
+  Task,
+  TaskLabelsResponse,
   Label,
   ListLabelsResponse,
 } from "../types";
@@ -38,8 +38,8 @@ const labelB: Label = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-const issue: Issue = {
-  id: "issue-1",
+const task: Task = {
+  id: "task-1",
   workspace_id: "ws-1",
   number: 1,
   identifier: "SILI-1",
@@ -51,7 +51,7 @@ const issue: Issue = {
   assignee_id: null,
   creator_type: "member",
   creator_id: "member-1",
-  parent_issue_id: "parent-1",
+  parent_task_id: "parent-1",
   project_id: null,
   position: 1,
   stage: null,
@@ -79,27 +79,27 @@ function deferred<T>() {
 }
 
 function startStaleChildrenFetch(qc: QueryClient, labels: Label[]) {
-  const childKey = issueKeys.children("ws-1", "parent-1");
-  const response = deferred<Issue[]>();
+  const childKey = taskKeys.children("ws-1", "parent-1");
+  const response = deferred<Task[]>();
   const fetch = qc
     .fetchQuery({
       queryKey: childKey,
       queryFn: () => response.promise,
     })
     .catch(() => undefined);
-  return { childKey, response, fetch, staleIssue: { ...issue, labels } };
+  return { childKey, response, fetch, staleTask: { ...task, labels } };
 }
 
-describe("issue label mutations", () => {
+describe("task label mutations", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("prevents an older children fetch from overwriting an optimistic attach", async () => {
     const qc = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    const childKey = issueKeys.children("ws-1", "parent-1");
-    qc.setQueryData<Issue[]>(childKey, [issue]);
-    qc.setQueryData<IssueLabelsResponse>(labelKeys.byIssue("ws-1", issue.id), {
+    const childKey = taskKeys.children("ws-1", "parent-1");
+    qc.setQueryData<Task[]>(childKey, [task]);
+    qc.setQueryData<TaskLabelsResponse>(labelKeys.byTask("ws-1", task.id), {
       labels: [labelA],
     });
     qc.setQueryData<ListLabelsResponse>(labelKeys.list("ws-1"), {
@@ -111,25 +111,25 @@ describe("issue label mutations", () => {
       expect(qc.getQueryState(childKey)?.fetchStatus).toBe("fetching"),
     );
 
-    const write = deferred<IssueLabelsResponse>();
+    const write = deferred<TaskLabelsResponse>();
     setApiInstance({
       attachLabel: vi.fn(() => write.promise),
     } as unknown as ApiClient);
-    const { result } = renderHook(() => useAttachLabel(issue.id), {
+    const { result } = renderHook(() => useAttachLabel(task.id), {
       wrapper: wrapper(qc),
     });
 
     act(() => result.current.mutate(labelB.id));
     await waitFor(() =>
-      expect(qc.getQueryData<Issue[]>(childKey)?.[0]?.labels).toEqual([
+      expect(qc.getQueryData<Task[]>(childKey)?.[0]?.labels).toEqual([
         labelA,
         labelB,
       ]),
     );
 
-    stale.response.resolve([stale.staleIssue]);
+    stale.response.resolve([stale.staleTask]);
     await stale.fetch;
-    expect(qc.getQueryData<Issue[]>(childKey)?.[0]?.labels).toEqual([
+    expect(qc.getQueryData<Task[]>(childKey)?.[0]?.labels).toEqual([
       labelA,
       labelB,
     ]);
@@ -145,10 +145,10 @@ describe("issue label mutations", () => {
     const qc = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    const childKey = issueKeys.children("ws-1", "parent-1");
-    const labeledIssue = { ...issue, labels: [labelA, labelB] };
-    qc.setQueryData<Issue[]>(childKey, [labeledIssue]);
-    qc.setQueryData<IssueLabelsResponse>(labelKeys.byIssue("ws-1", issue.id), {
+    const childKey = taskKeys.children("ws-1", "parent-1");
+    const labeledTask = { ...task, labels: [labelA, labelB] };
+    qc.setQueryData<Task[]>(childKey, [labeledTask]);
+    qc.setQueryData<TaskLabelsResponse>(labelKeys.byTask("ws-1", task.id), {
       labels: [labelA, labelB],
     });
     const stale = startStaleChildrenFetch(qc, [labelA, labelB]);
@@ -156,22 +156,22 @@ describe("issue label mutations", () => {
       expect(qc.getQueryState(childKey)?.fetchStatus).toBe("fetching"),
     );
 
-    const write = deferred<IssueLabelsResponse>();
+    const write = deferred<TaskLabelsResponse>();
     setApiInstance({
       detachLabel: vi.fn(() => write.promise),
     } as unknown as ApiClient);
-    const { result } = renderHook(() => useDetachLabel(issue.id), {
+    const { result } = renderHook(() => useDetachLabel(task.id), {
       wrapper: wrapper(qc),
     });
 
     act(() => result.current.mutate(labelB.id));
     await waitFor(() =>
-      expect(qc.getQueryData<Issue[]>(childKey)?.[0]?.labels).toEqual([labelA]),
+      expect(qc.getQueryData<Task[]>(childKey)?.[0]?.labels).toEqual([labelA]),
     );
 
-    stale.response.resolve([stale.staleIssue]);
+    stale.response.resolve([stale.staleTask]);
     await stale.fetch;
-    expect(qc.getQueryData<Issue[]>(childKey)?.[0]?.labels).toEqual([labelA]);
+    expect(qc.getQueryData<Task[]>(childKey)?.[0]?.labels).toEqual([labelA]);
 
     await act(async () => {
       write.resolve({ labels: [labelA] });

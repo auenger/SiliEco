@@ -52,13 +52,13 @@ type localDirectoryAssignment struct {
 
 // localDirectoryAssignmentForTask returns the local_directory assignment a task
 // should execute inside. Squad-leader tasks are coordinators: they may create
-// child issues or comments, but should not bind to the user's repo worktree or
+// child tasks or comments, but should not bind to the user's repo worktree or
 // hold the path mutex while downstream workers are ready to write.
-func localDirectoryAssignmentForTask(task Task, daemonID string) (*localDirectoryAssignment, error) {
-	if task.IsLeaderTask {
+func localDirectoryAssignmentForRun(agentRun AgentRun, daemonID string) (*localDirectoryAssignment, error) {
+	if agentRun.IsLeaderRun {
 		return nil, nil
 	}
-	return findLocalDirectoryAssignment(task.ProjectResources, daemonID)
+	return findLocalDirectoryAssignment(agentRun.ProjectResources, daemonID)
 }
 
 // findLocalDirectoryAssignment scans the task's project resources for one of
@@ -210,7 +210,7 @@ func resolveRealPath(absPath string) (string, error) {
 //     into $HOME;
 //   - the path exists, is a directory (not a regular file or device);
 //   - the daemon process can read and write inside it (the agent will need
-//     both — read for context discovery, write for the issue's edits).
+//     both — read for context discovery, write for the task's edits).
 //
 // Each failure returns a typed error message so the daemon can forward it
 // onto the task's fail comment verbatim.
@@ -468,7 +468,7 @@ func normalizeGitRemoteParts(host, path string) string {
 // Implementation: per-key sync.Mutex inside a map guarded by mu. When a
 // task can't take the lock immediately, the waiter blocks on the per-key
 // Mutex itself — that gives FIFO-ish behaviour from the Go scheduler
-// (sufficient for our load; the issue body asks for a wait queue, not a
+// (sufficient for our load; the task body asks for a wait queue, not a
 // strict-priority queue). Holder bookkeeping (current holder task id) is
 // surfaced via Holder so callers can build a UI-friendly wait_reason.
 type LocalPathLocker struct {
@@ -503,7 +503,7 @@ func (l *LocalPathLocker) Holder(realPath string) string {
 	return entry.holderID
 }
 
-// Acquire takes the lock for realPath on behalf of taskID. If the lock is
+// Acquire takes the lock for realPath on behalf of runID. If the lock is
 // already held, onWait is invoked (synchronously, before this goroutine
 // blocks) with the current holder id so callers can flip the task into the
 // server-side waiting_local_directory state. onWait may be nil for callers
@@ -517,12 +517,12 @@ func (l *LocalPathLocker) Holder(realPath string) string {
 // taken. This is the same contract as sync.Mutex.Lock paired with
 // context-aware cancellation — a daemon shutdown won't wedge inside the
 // per-path wait queue.
-func (l *LocalPathLocker) Acquire(ctx context.Context, realPath, taskID string, onWait func(holder string)) (func(), error) {
+func (l *LocalPathLocker) Acquire(ctx context.Context, realPath, runID string, onWait func(holder string)) (func(), error) {
 	if realPath == "" {
 		return nil, errors.New("local_directory: realpath required for lock")
 	}
-	if taskID == "" {
-		return nil, errors.New("local_directory: taskID required for lock")
+	if runID == "" {
+		return nil, errors.New("local_directory: runID required for lock")
 	}
 
 	l.mu.Lock()
@@ -536,7 +536,7 @@ func (l *LocalPathLocker) Acquire(ctx context.Context, realPath, taskID string, 
 	// Try the fast path first — no allocation, no waiter goroutine.
 	if entry.mu.TryLock() {
 		entry.mu2.Lock()
-		entry.holderID = taskID
+		entry.holderID = runID
 		entry.mu2.Unlock()
 		return l.releaser(realPath, entry), nil
 	}
@@ -560,7 +560,7 @@ func (l *LocalPathLocker) Acquire(ctx context.Context, realPath, taskID string, 
 	select {
 	case <-acquired:
 		entry.mu2.Lock()
-		entry.holderID = taskID
+		entry.holderID = runID
 		entry.mu2.Unlock()
 		return l.releaser(realPath, entry), nil
 	case <-ctx.Done():

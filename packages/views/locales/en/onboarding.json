@@ -231,9 +231,9 @@
     "name_placeholder": "Acme Inc, My Lab, Side Projects…",
     "url_label": "URL",
     "slug_placeholder": "acme",
-    "issue_prefix_label": "Task prefix",
-    "issue_prefix_prefix": "Tasks will look like ",
-    "issue_prefix_suffix": ". You can change this later in settings.",
+    "task_prefix_label": "Task prefix",
+    "task_prefix_prefix": "Tasks will look like ",
+    "task_prefix_suffix": ". You can change this later in settings.",
     "create_new_title": "Create a new workspace",
     "create_new_subtitle": "Start fresh — a separate space for a different side of your work.",
     "hint_opening": "Opening {{name}}.",
@@ -267,8 +267,8 @@
     "preview": {
       "inbox_label": "Inbox",
       "inbox_meta": "your notifications",
-      "issues_label": "Tasks",
-      "issues_meta": "shared task board",
+      "tasks_label": "Tasks",
+      "tasks_meta": "shared task board",
       "agents_label": "Agents",
       "agents_meta": "your AI teammates",
       "projects_label": "Projects",
@@ -357,5 +357,7 @@
   },
   "errors": {
     "skip_failed": "Failed to finish onboarding"
-  }
+  },
+  "skip_all": "Skip all for now",
+  "skip_all_pending": "Skipping…"
 }

@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY IF EXISTS workflow_gate_decision_instance_index;

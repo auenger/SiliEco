@@ -38,7 +38,7 @@ func allowlistFixture(t *testing.T) (agentID, agentOwnerID string) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id,
+			runtime_id, visibility, max_concurrent_runs, owner_id,
 			instructions, custom_env, custom_args
 		)
 		VALUES ($1, 'allowlist-test-agent', '', 'cloud', '{}'::jsonb,

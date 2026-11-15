@@ -3,9 +3,9 @@
 import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { selectRecentContexts, useRecentContextStore, type RecentContextEntry } from "@silieco/core/chat";
-import { issueDetailOptions } from "@silieco/core/issues/queries";
+import { taskDetailOptions } from "@silieco/core/tasks/queries";
 import { projectDetailOptions } from "@silieco/core/projects/queries";
-import type { Issue, Project } from "@silieco/core/types";
+import type { Task, Project } from "@silieco/core/types";
 import type { MentionItem } from "../../editor/extensions/mention-suggestion";
 import { useNavigation } from "../../navigation";
 
@@ -15,13 +15,13 @@ function mentionKey(item: Pick<MentionItem, "type" | "id">): string {
   return `${item.type}:${item.id}`;
 }
 
-function issueToMentionItem(issue: Pick<Issue, "id" | "identifier" | "title" | "status">, group: "current" | "recent"): MentionItem {
+function taskToMentionItem(task: Pick<Task, "id" | "identifier" | "title" | "status">, group: "current" | "recent"): MentionItem {
   return {
-    id: issue.id,
-    label: issue.identifier,
-    type: "issue",
-    description: issue.title,
-    status: issue.status,
+    id: task.id,
+    label: task.identifier,
+    type: "task",
+    description: task.title,
+    status: task.status,
     group,
   };
 }
@@ -51,23 +51,23 @@ function recentEntryToMentionItem(entry: RecentContextEntry): MentionItem {
   };
 }
 
-function hydrateRecentEntry(entry: RecentContextEntry, data: Issue | Project | undefined): MentionItem {
+function hydrateRecentEntry(entry: RecentContextEntry, data: Task | Project | undefined): MentionItem {
   if (!data) return recentEntryToMentionItem(entry);
-  return entry.type === "issue"
-    ? issueToMentionItem(data as Issue, "recent")
+  return entry.type === "task"
+    ? taskToMentionItem(data as Task, "recent")
     : projectToMentionItem(data as Project, "recent");
 }
 
-export function parseCurrentContextRoute(pathname: string, searchParams: URLSearchParams): { type: "issue" | "project"; id: string } | null {
-  const issueMatch = pathname.match(/^\/[^/]+\/(?:tasks|issues)\/([^/]+)$/);
-  if (issueMatch?.[1]) return { type: "issue", id: decodeURIComponent(issueMatch[1]) };
+export function parseCurrentContextRoute(pathname: string, searchParams: URLSearchParams): { type: "task" | "project"; id: string } | null {
+  const taskMatch = pathname.match(/^\/[^/]+\/(?:runs|tasks)\/([^/]+)$/);
+  if (taskMatch?.[1]) return { type: "task", id: decodeURIComponent(taskMatch[1]) };
 
   const projectMatch = pathname.match(/^\/[^/]+\/projects\/([^/]+)$/);
   if (projectMatch?.[1]) return { type: "project", id: decodeURIComponent(projectMatch[1]) };
 
   const inboxMatch = pathname.match(/^\/[^/]+\/inbox$/);
-  const inboxIssueId = searchParams.get("issue");
-  if (inboxMatch && inboxIssueId) return { type: "issue", id: inboxIssueId };
+  const inboxTaskId = searchParams.get("task");
+  if (inboxMatch && inboxTaskId) return { type: "task", id: inboxTaskId };
 
   return null;
 }
@@ -81,9 +81,9 @@ export function useChatContextItems(wsId: string): MentionItem[] {
     [recentEntries],
   );
 
-  const { data: currentIssue } = useQuery({
-    ...issueDetailOptions(wsId, currentRoute?.type === "issue" ? currentRoute.id : ""),
-    enabled: currentRoute?.type === "issue",
+  const { data: currentTask } = useQuery({
+    ...taskDetailOptions(wsId, currentRoute?.type === "task" ? currentRoute.id : ""),
+    enabled: currentRoute?.type === "task",
   });
 
   const { data: currentProject } = useQuery({
@@ -93,8 +93,8 @@ export function useChatContextItems(wsId: string): MentionItem[] {
 
   const recentQueries = useQueries({
     queries: visibleRecentEntries.map((entry) => ({
-      ...(entry.type === "issue"
-        ? issueDetailOptions(wsId, entry.id)
+      ...(entry.type === "task"
+        ? taskDetailOptions(wsId, entry.id)
         : projectDetailOptions(wsId, entry.id)),
       staleTime: 30_000,
     })),
@@ -102,15 +102,15 @@ export function useChatContextItems(wsId: string): MentionItem[] {
 
   return useMemo(() => {
     const currentItems: MentionItem[] = [];
-    if (currentIssue) currentItems.push(issueToMentionItem(currentIssue, "current"));
+    if (currentTask) currentItems.push(taskToMentionItem(currentTask, "current"));
     if (currentProject) currentItems.push(projectToMentionItem(currentProject, "current"));
 
     const hidden = new Set(currentItems.map(mentionKey));
     const recentItems = visibleRecentEntries
-      .map((entry, index) => hydrateRecentEntry(entry, recentQueries[index]?.data as Issue | Project | undefined))
+      .map((entry, index) => hydrateRecentEntry(entry, recentQueries[index]?.data as Task | Project | undefined))
       .filter((item) => !hidden.has(mentionKey(item)))
       .slice(0, MAX_RECENT_MENTION_ITEMS);
 
     return [...currentItems, ...recentItems];
-  }, [currentIssue, currentProject, recentQueries, visibleRecentEntries]);
+  }, [currentTask, currentProject, recentQueries, visibleRecentEntries]);
 }

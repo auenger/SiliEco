@@ -96,7 +96,7 @@ func findLocalPathLinks(body string) []localPathLinkFinding {
 //
 // Everything else is allowed through, and the omissions are the point. A bare
 // `/foo` is a valid origin-relative URI reference (RFC 3986 §4.2) and is exactly
-// how `/acme/issues/123` is written, so an absolute-looking target that neither
+// how `/acme/tasks/123` is written, so an absolute-looking target that neither
 // lives in the workdir nor exists on disk is indistinguishable from a legitimate
 // in-app link and must not be guessed at. Relative targets are left alone for
 // the same reason. The prompt contract in the runtime brief — not this lint — is
@@ -131,7 +131,7 @@ func classifyLocalPathTarget(target string) string {
 //
 // deliveryHint is the caller's own fix instruction. It is a parameter rather
 // than a constant because the right answer differs per command, and one of them
-// is a trap: `silieco issue update` has no --attachment flag, so a shared
+// is a trap: `silieco task update` has no --attachment flag, so a shared
 // "pass --attachment" message would send the agent to an argument that does not
 // exist and turn one failure into two.
 func guardLocalPathLinks(body, field, deliveryHint string) error {

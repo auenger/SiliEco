@@ -38,14 +38,14 @@ const RESTRICTED_BUCKET_ROWS = vi.hoisted(
           output_tokens: 500,
           cache_read_tokens: 0,
           cache_write_tokens: 0,
-          task_count: 4,
+          run_count: 4,
         },
       ],
       "agent-runtime": [
         {
           agent_id: "__restricted_agents__",
           total_seconds: 2 * 3_600,
-          task_count: 4,
+          run_count: 4,
           failed_count: 2,
         },
       ],
@@ -98,13 +98,13 @@ vi.mock("@tanstack/react-query", async () => {
                   output_tokens: 0,
                   cache_read_tokens: 0,
                   cache_write_tokens: 0,
-                  task_count: 12 - i,
+                  run_count: 12 - i,
                 }))
               : kind === "agent-runtime"
                 ? Array.from({ length: 12 }, (_, i) => ({
                     agent_id: `bulk-${i}`,
                     total_seconds: (12 - i) * 600,
-                    task_count: 12 - i,
+                    run_count: 12 - i,
                     failed_count: 12 - i,
                   }))
                 : kind === "failures-by-agent"
@@ -112,12 +112,12 @@ vi.mock("@tanstack/react-query", async () => {
                       {
                         agent_id: `bulk-${i}`,
                         failure_reason: "",
-                        task_count: 100,
+                        run_count: 100,
                       },
                       {
                         agent_id: `bulk-${i}`,
                         failure_reason: "timeout",
-                        task_count: 12 - i,
+                        run_count: 12 - i,
                       },
                     ]).flat()
                   : null;
@@ -135,7 +135,7 @@ vi.mock("@tanstack/react-query", async () => {
                   output_tokens: 2_000,
                   cache_read_tokens: 0,
                   cache_write_tokens: 0,
-                  task_count: 2,
+                  run_count: 2,
                 },
               ]
             : kind === "agent-runtime"
@@ -143,7 +143,7 @@ vi.mock("@tanstack/react-query", async () => {
                   {
                     agent_id: "agent-1",
                     total_seconds: 3 * 3_600 + 17 * 60,
-                    task_count: 12,
+                    run_count: 12,
                     failed_count: 1,
                   },
                 ]
@@ -152,7 +152,7 @@ vi.mock("@tanstack/react-query", async () => {
                     {
                       date: todayIso(),
                       total_seconds: 3 * 3_600 + 17 * 60,
-                      task_count: 12,
+                      run_count: 12,
                       failed_count: 1,
                     },
                   ]
@@ -160,26 +160,26 @@ vi.mock("@tanstack/react-query", async () => {
                   // denominator behind every rate the Errors surface shows.
                   kind === "failures-daily"
                   ? [
-                      { date: todayIso(), failure_reason: "", task_count: 6 },
+                      { date: todayIso(), failure_reason: "", run_count: 6 },
                       {
                         date: todayIso(),
                         failure_reason: "agent_error.provider_auth_or_access",
-                        task_count: 3,
+                        run_count: 3,
                       },
-                      { date: todayIso(), failure_reason: "timeout", task_count: 1 },
+                      { date: todayIso(), failure_reason: "timeout", run_count: 1 },
                     ]
                   : kind === "failures-by-agent"
                     ? [
-                        { agent_id: "agent-1", failure_reason: "", task_count: 6 },
+                        { agent_id: "agent-1", failure_reason: "", run_count: 6 },
                         {
                           agent_id: "agent-1",
                           failure_reason: "agent_error.provider_auth_or_access",
-                          task_count: 3,
+                          run_count: 3,
                         },
                         {
                           agent_id: "agent-1",
                           failure_reason: "timeout",
-                          task_count: 1,
+                          run_count: 1,
                         },
                         // Not in the agent list below — a private agent this
                         // member cannot see, or a deleted one. The rollup
@@ -187,7 +187,7 @@ vi.mock("@tanstack/react-query", async () => {
                         {
                           agent_id: "0f9d1c2e-private-agent-uuid",
                           failure_reason: "agent_error.provider_auth_or_access",
-                          task_count: 2,
+                          run_count: 2,
                         },
                       ]
                     : [];
@@ -390,7 +390,7 @@ describe("DashboardPage — failure visibility", () => {
 
     const byAgent = within(screen.getByRole("list", { name: "Top offenders" }));
     const link = byAgent.getByRole("link", { name: /Agent One/ });
-    // Overview, NOT ?view=work: Work lists the issues assigned to the agent,
+    // Overview, NOT ?view=work: Work lists the tasks assigned to the agent,
     // while its recent runs (and each failure's reason) live in the Overview
     // pane's ActivityTab.
     expect(link).toHaveAttribute("href", "/acme/agents/agent-1?view=overview");

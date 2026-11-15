@@ -18,11 +18,11 @@ import (
 // This file is the SHARED, channel-agnostic chat-session service every IM
 // adapter reuses (SILI-3516). It was lifted out of the Feishu-specific
 // lark.chatSessionService so that adding an IM never re-implements the
-// session/append/`/issue` machinery — the platform adapter contributes only a
+// session/append/`/task` machinery — the platform adapter contributes only a
 // channel_type, its session titles, and (because enrichment is
 // platform-specific) the command-parse source. The logic — find-or-create
 // session + binding, append message + touch + reply-target + in-tx dedup mark,
-// `/issue` parse — is identical across platforms and carries the channel_type
+// `/task` parse — is identical across platforms and carries the channel_type
 // discriminator through the generalized channel_* tables.
 
 const pgSQLStateUniqueViolation = "23505"
@@ -249,7 +249,7 @@ func (s *ChatSession) createSessionAndBinding(ctx context.Context, in EnsureSess
 
 // AppendInput is the channel-agnostic input for AppendUserMessage. Body is the
 // full stored text (including any platform enrichment); CommandText is the
-// user's OWN typed text used for `/issue` parsing (empty falls back to Body) —
+// user's OWN typed text used for `/task` parsing (empty falls back to Body) —
 // the adapter supplies it because enrichment is platform-specific. ClaimToken
 // is the dedup owner-fence: when valid, the Mark runs inside this method's tx.
 //
@@ -283,7 +283,7 @@ type BindMediaInput struct {
 
 // AppendUserMessage writes the user message into the chat_session (touching it
 // and recording the reply target), runs the in-tx dedup Mark when a claim token
-// is supplied, and returns the durable message id plus the parsed `/issue`
+// is supplied, and returns the durable message id plus the parsed `/task`
 // command when present. Returns ErrClaimLost when a concurrent reclaim rotated
 // the dedup token mid-flight, in which case the whole transaction rolls back
 // (no chat_message lands).
@@ -295,13 +295,13 @@ func (s *ChatSession) AppendUserMessage(ctx context.Context, in AppendInput) (Ap
 	defer tx.Rollback(ctx)
 	qtx := s.q.WithTx(tx)
 
-	// Parse before the insert so the bare-`/issue` previous-message fallback
+	// Parse before the insert so the bare-`/task` previous-message fallback
 	// queries the message set that does NOT yet include this message.
 	commandSource := in.CommandText
 	if commandSource == "" {
 		commandSource = in.Body
 	}
-	cmd, _ := ParseIssueCommand(commandSource)
+	cmd, _ := ParseTaskCommand(commandSource)
 	if cmd != nil && cmd.Title == "" {
 		prev, err := qtx.GetMostRecentUserChatMessage(ctx, in.SessionID)
 		if err == nil {
@@ -361,7 +361,7 @@ func (s *ChatSession) AppendUserMessage(ctx context.Context, in AppendInput) (Ap
 	if err := tx.Commit(ctx); err != nil {
 		return AppendResult{}, fmt.Errorf("commit: %w", err)
 	}
-	return AppendResult{MessageID: msg.ID, IssueCommand: cmd, DedupMarked: markedInTx}, nil
+	return AppendResult{MessageID: msg.ID, TaskCommand: cmd, DedupMarked: markedInTx}, nil
 }
 
 // BindMediaRefs creates attachment rows, links them to an existing durable chat

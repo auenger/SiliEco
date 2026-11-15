@@ -7,13 +7,13 @@
     "commands": "命令",
     "members": "成员",
     "projects": "项目",
-    "issues": "Tasks",
+    "tasks": "Tasks",
     "recent": "最近"
   },
   "pages": {
     "inbox": "收件箱",
-    "my_issues": "我的 task",
-    "issues": "Tasks",
+    "my_tasks": "我的 task",
+    "tasks": "Tasks",
     "projects": "项目",
     "agents": "智能体",
     "runtimes": "运行时",
@@ -22,9 +22,9 @@
   },
   "commands": {
     "current_theme_aria": "当前主题",
-    "new_issue": "新建 task",
+    "new_task": "新建 task",
     "new_project": "新建项目",
-    "copy_issue_link": "复制 task 链接",
+    "copy_task_link": "复制 task 链接",
     "copy_identifier": "复制标识符 ({{identifier}})",
     "fold_all_comments": "收起全部评论",
     "unfold_all_comments": "展开全部评论",

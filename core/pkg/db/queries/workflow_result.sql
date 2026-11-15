@@ -21,14 +21,14 @@ UPDATE workflow_artifact_upload SET status='deleting', expires_at=now()+INTERVAL
 WHERE id=$1 AND workspace_id=$2 AND status IN ('deleting','pending') AND expires_at <= now();
 
 -- name: DeleteWorkflowArtifactUploadTombstone :exec
-DELETE FROM workflow_artifact_upload WHERE id=$1 AND workspace_id=$2 AND status='deleting' AND created_at < now()-INTERVAL '2 days';
+DELETE FROM workflow_artifact_upload WHERE workflow_artifact_upload.id=$1 AND workspace_id=$2 AND status='deleting' AND created_at < now()-INTERVAL '2 days';
 
 -- name: CreateWorkflowExecutionResult :one
 INSERT INTO workflow_execution_result (workspace_id,workflow_instance_id,execution_id,revision,data,submitted_by_type,submitted_by_id)
 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *;
 
 -- name: GetWorkflowExecutionResult :one
-SELECT * FROM workflow_execution_result WHERE workspace_id=$1 AND execution_id=$2 AND revision=$3;
+SELECT * FROM workflow_execution_result WHERE workflow_execution_result.workspace_id=$1 AND execution_id=$2 AND revision=$3;
 
 -- name: GetOrCreateWorkflowArtifact :one
 INSERT INTO workflow_artifact (workspace_id,workflow_instance_id,workflow_stage_id,name)
@@ -60,9 +60,9 @@ RETURNING *;
 -- name: GetWorkflowExecutionAttachment :one
 SELECT attachment.* FROM attachment
 WHERE attachment.id=sqlc.arg(attachment_id) AND attachment.workspace_id=sqlc.arg(workspace_id)
-AND (attachment.issue_id=sqlc.arg(issue_id) OR attachment.task_id=sqlc.arg(task_id)
+AND (attachment.task_id=sqlc.arg(task_id) OR attachment.run_id=sqlc.arg(run_id)
  OR EXISTS (SELECT 1 FROM comment WHERE comment.id=attachment.comment_id
- AND comment.workspace_id=attachment.workspace_id AND comment.issue_id=sqlc.arg(issue_id)));
+ AND comment.workspace_id=attachment.workspace_id AND comment.task_id=sqlc.arg(task_id)));
 
 -- name: DeleteProjectWorkflowResults :exec
 WITH runs AS (
@@ -81,13 +81,13 @@ DELETE FROM workflow_execution_result WHERE workflow_execution_result.workspace_
 UPDATE workflow_artifact_upload SET expires_at=now()+INTERVAL '1 hour'
 WHERE id=$1 AND workspace_id=$2 AND status='deleting';
 
--- name: GetWorkflowResultIssue :one
-SELECT * FROM issue WHERE id=$1 AND workspace_id=$2 FOR SHARE;
-
 -- name: GetWorkflowResultTask :one
-SELECT task.* FROM agent_task_queue AS task
-JOIN agent ON agent.id=task.agent_id
-WHERE task.id=$1 AND agent.workspace_id=$2 FOR SHARE OF task;
+SELECT * FROM task WHERE task.id=$1 AND workspace_id=$2 FOR SHARE;
+
+-- name: GetWorkflowResultRun :one
+SELECT run.* FROM agent_run AS run
+JOIN agent ON agent.id=run.agent_id
+WHERE run.id=$1 AND agent.workspace_id=$2 FOR SHARE OF run;
 
 -- name: GetWorkflowResultArtifact :one
 SELECT revision.*, artifact.name, upload.storage_key
@@ -111,29 +111,29 @@ SELECT execution.id, execution.result_revision, execution.status,
        EXISTS (SELECT 1 FROM workflow_execution_result result
          WHERE result.workspace_id=execution.workspace_id AND result.execution_id=execution.id
          AND result.revision=execution.result_revision) AS has_result,
-       EXISTS (SELECT 1 FROM issue main_issue
-         WHERE main_issue.workspace_id=execution.workspace_id AND main_issue.id=execution.main_issue_id
-         AND main_issue.workflow_instance_id=execution.workflow_instance_id
-         AND main_issue.workflow_stage_id=execution.workflow_stage_id AND main_issue.status='done') AS main_issue_done,
-       EXISTS (SELECT 1 FROM agent_task_queue task
-         WHERE task.id=execution.main_task_id AND task.workflow_stage_execution_id=execution.id
-         AND task.issue_id=execution.main_issue_id AND task.agent_id=execution.executor_id
-         AND task.status='completed') AS main_task_completed,
-       (SELECT count(*) FROM issue required_issue
-         WHERE required_issue.workspace_id=execution.workspace_id
-         AND required_issue.workflow_instance_id=execution.workflow_instance_id
-         AND required_issue.workflow_stage_id=execution.workflow_stage_id
-         AND (required_issue.workflow_stage_execution_id IS NULL OR required_issue.workflow_stage_execution_id=execution.id)
-         AND required_issue.workflow_invalidated_by_rework_id IS NULL
-         AND required_issue.status <> 'done')::bigint AS incomplete_issues,
-       (SELECT count(*) FROM agent_task_queue task
-         JOIN issue task_issue ON task_issue.id=task.issue_id AND task_issue.workspace_id=execution.workspace_id
-         WHERE task.workflow_review_request_id IS NULL AND (task.workflow_stage_execution_id=execution.id OR
-           (task.workflow_stage_execution_id IS NULL AND task_issue.workflow_instance_id=execution.workflow_instance_id
-             AND task_issue.workflow_stage_id=execution.workflow_stage_id
-             AND task_issue.workflow_invalidated_by_rework_id IS NULL
-             AND (task_issue.workflow_stage_execution_id IS NULL OR task_issue.workflow_stage_execution_id=execution.id)))
-         AND task.status IN ('queued','dispatched','running','waiting_local_directory','deferred'))::bigint AS active_calls
+       EXISTS (SELECT 1 FROM task main_task
+         WHERE main_task.workspace_id=execution.workspace_id AND main_task.id=execution.main_task_id
+         AND main_task.workflow_instance_id=execution.workflow_instance_id
+         AND main_task.workflow_stage_id=execution.workflow_stage_id AND main_task.status='done') AS main_task_done,
+       EXISTS (SELECT 1 FROM agent_run run
+         WHERE run.id=execution.main_run_id AND run.workflow_stage_execution_id=execution.id
+         AND run.task_id=execution.main_task_id AND run.agent_id=execution.executor_id
+         AND run.status='completed') AS main_run_completed,
+       (SELECT count(*) FROM task required_task
+         WHERE required_task.workspace_id=execution.workspace_id
+         AND required_task.workflow_instance_id=execution.workflow_instance_id
+         AND required_task.workflow_stage_id=execution.workflow_stage_id
+         AND (required_task.workflow_stage_execution_id IS NULL OR required_task.workflow_stage_execution_id=execution.id)
+         AND required_task.workflow_invalidated_by_rework_id IS NULL
+         AND required_task.status <> 'done')::bigint AS incomplete_tasks,
+       (SELECT count(*) FROM agent_run run
+         JOIN task run_task ON run_task.id=run.task_id AND run_task.workspace_id=execution.workspace_id
+         WHERE run.workflow_review_request_id IS NULL AND (run.workflow_stage_execution_id=execution.id OR
+           (run.workflow_stage_execution_id IS NULL AND run_task.workflow_instance_id=execution.workflow_instance_id
+             AND run_task.workflow_stage_id=execution.workflow_stage_id
+             AND run_task.workflow_invalidated_by_rework_id IS NULL
+             AND (run_task.workflow_stage_execution_id IS NULL OR run_task.workflow_stage_execution_id=execution.id)))
+         AND run.status IN ('queued','dispatched','running','waiting_local_directory','deferred'))::bigint AS active_calls
 FROM workflow_stage_execution execution
 JOIN workflow_instance instance ON instance.id=execution.workflow_instance_id AND instance.workspace_id=execution.workspace_id
 WHERE execution.workspace_id=$1 AND execution.workflow_instance_id=$2 AND execution.id=$3;

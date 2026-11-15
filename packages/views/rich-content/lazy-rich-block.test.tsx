@@ -160,7 +160,7 @@ describe("LazyRichBlock", () => {
   });
 
   it("falls back to the viewport root for page-scrolled surfaces", () => {
-    // Issue description / Comment scroll with the page; a null root is correct.
+    // Task description / Comment scroll with the page; a null root is correct.
     render(
       <LazyRichBlock reservedHeightPx={280}>
         <Expensive />

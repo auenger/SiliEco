@@ -250,7 +250,7 @@ func emitAutopilotPausedNotifications(
 			RecipientID:   r.ID,
 			Type:          "autopilot_paused",
 			Severity:      "attention",
-			IssueID:       pgtype.UUID{},
+			TaskID:        pgtype.UUID{},
 			Title:         title,
 			Body:          util.StrToText(body),
 			ActorType:     util.StrToText("system"),
@@ -323,19 +323,19 @@ func resolveAutopilotPausedRecipients(
 // service which we're sitting alongside in cmd/server).
 func autopilotEventPayload(a db.Autopilot) map[string]any {
 	return map[string]any{
-		"id":                   util.UUIDToString(a.ID),
-		"workspace_id":         util.UUIDToString(a.WorkspaceID),
-		"title":                a.Title,
-		"description":          util.TextToPtr(a.Description),
-		"assignee_id":          util.UUIDToString(a.AssigneeID),
-		"status":               a.Status,
-		"execution_mode":       a.ExecutionMode,
-		"issue_title_template": util.TextToPtr(a.IssueTitleTemplate),
-		"created_by_type":      a.CreatedByType,
-		"created_by_id":        util.UUIDToString(a.CreatedByID),
-		"last_run_at":          util.TimestampToPtr(a.LastRunAt),
-		"created_at":           util.TimestampToString(a.CreatedAt),
-		"updated_at":           util.TimestampToString(a.UpdatedAt),
+		"id":                  util.UUIDToString(a.ID),
+		"workspace_id":        util.UUIDToString(a.WorkspaceID),
+		"title":               a.Title,
+		"description":         util.TextToPtr(a.Description),
+		"assignee_id":         util.UUIDToString(a.AssigneeID),
+		"status":              a.Status,
+		"execution_mode":      a.ExecutionMode,
+		"task_title_template": util.TextToPtr(a.TaskTitleTemplate),
+		"created_by_type":     a.CreatedByType,
+		"created_by_id":       util.UUIDToString(a.CreatedByID),
+		"last_run_at":         util.TimestampToPtr(a.LastRunAt),
+		"created_at":          util.TimestampToString(a.CreatedAt),
+		"updated_at":          util.TimestampToString(a.UpdatedAt),
 	}
 }
 

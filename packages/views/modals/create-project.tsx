@@ -48,7 +48,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@silieco/ui/components/
 import { Button } from "@silieco/ui/components/ui/button";
 import { EmojiPicker } from "@silieco/ui/components/common/emoji-picker";
 import { ContentEditor, type ContentEditorRef, TitleEditor } from "../editor";
-import { PriorityIcon } from "../issues/components/priority-icon";
+import { PriorityIcon } from "../tasks/components/priority-icon";
 import { ActorAvatar } from "../common/actor-avatar";
 import { useNavigation } from "../navigation";
 import { useT } from "../i18n";
@@ -118,7 +118,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const [startDate, setStartDate] = useState<string>(draft.startDate ?? "");
   const [dueDate, setDueDate] = useState<string>(draft.dueDate ?? "");
   // Dates are collapsed into the ⋯ overflow by default (progressive
-  // disclosure, mirroring create-issue); these flip a pill inline + open.
+  // disclosure, mirroring create-task); these flip a pill inline + open.
   const [startDatePickerOpen, setStartDatePickerOpen] = useState(false);
   const [dueDatePickerOpen, setDueDatePickerOpen] = useState(false);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
@@ -390,7 +390,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
           </p>
         </div>
 
-        {/* Property toolbar — mirrors the create-issue footer: a wrapping pill
+        {/* Property toolbar — mirrors the create-task footer: a wrapping pill
             row whose low-frequency fields (start/due date) collapse into a ⋯
             overflow, with the primary action in a separate bar below.
             Repos lives here alongside the property pills for now. Once we
@@ -833,7 +833,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Footer action bar — primary action in its own strip, matching
-            create-issue. */}
+            create-task. */}
         <div className="flex items-center justify-end border-t px-4 py-3 shrink-0">
           <Button
             size="sm"

@@ -30,6 +30,7 @@ async function authedFetch(api: TestApiClient, path: string, init?: RequestInit)
   if (!token) throw new Error("test api client not logged in");
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
+    "X-Silieco-Protocol": "task-run-v1",
     ...((init?.headers as Record<string, string>) ?? {}),
   };
   return fetch(`${API_BASE}${path}`, { ...init, headers });
@@ -105,7 +106,7 @@ test.describe("Chat attachments", () => {
     const agentIns = await pgc.query(
       `INSERT INTO agent (
          workspace_id, name, description, runtime_mode, runtime_config,
-         runtime_id, visibility, max_concurrent_tasks, owner_id
+         runtime_id, visibility, max_concurrent_runs, owner_id
        )
        VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'workspace', 1, $4)
        RETURNING id`,
@@ -153,7 +154,7 @@ test.describe("Chat attachments", () => {
       }),
     });
     expect(sendRes.status).toBe(201);
-    const sendBody = (await sendRes.json()) as { message_id: string; task_id: string };
+    const sendBody = (await sendRes.json()) as { message_id: string; run_id: string };
     expect(sendBody.message_id).toBeTruthy();
 
     // 3. DB check: the attachment row's chat_message_id matches the new message.

@@ -10,7 +10,7 @@ import { registerDraftCleanup } from "./cleanup-registry";
 /**
  * Factory for singleton draft stores. Before this existed, every simple draft
  * store (`projects/draft-store`, `feedback/draft-store`, and structurally the
- * issue draft store) hand-copied the identical shape: a `draft` object,
+ * task draft store) hand-copied the identical shape: a `draft` object,
  * `setDraft(patch)`, `clearDraft()`, `hasDraft()`, a `persist` config wired to
  * `createWorkspaceAwareStorage`, and a `registerForWorkspaceRehydration` call.
  * The only per-store differences are the data shape, the persist key, and the

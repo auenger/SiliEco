@@ -295,7 +295,7 @@ This runs:
 Notes:
 
 - Go tests create their own fixture data
-- E2E tests create their own workspace and issue fixtures
+- E2E tests create their own workspace and task fixtures
 - the check flow starts backend/frontend only if they are not already running
 
 ## Local Codex Daemon

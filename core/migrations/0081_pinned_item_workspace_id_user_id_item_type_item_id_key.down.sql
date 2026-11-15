@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.pinned_item_workspace_id_user_id_item_type_item_id_key;

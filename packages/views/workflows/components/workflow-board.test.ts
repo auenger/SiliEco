@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { Issue, IssueStatus } from "@silieco/core/types";
+import type { Task, TaskStatus } from "@silieco/core/types";
 import { sortWorkflowTasksByLifecycle } from "./workflow-task-sort";
 
 function task(
   id: string,
-  status: IssueStatus,
+  status: TaskStatus,
   position: number,
-): Issue {
+): Task {
   return {
     id,
     workspace_id: "workspace-1",
@@ -20,7 +20,7 @@ function task(
     assignee_id: null,
     creator_type: "member",
     creator_id: "member-1",
-    parent_issue_id: null,
+    parent_task_id: null,
     project_id: "project-1",
     position,
     stage: null,

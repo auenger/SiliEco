@@ -6,12 +6,12 @@ import type { RuntimeModelThinkingLevel } from "@silieco/core/types";
 import { I18nProvider } from "@silieco/core/i18n/react";
 import enCommon from "../../../locales/en/common.json";
 import enAgents from "../../../locales/en/agents.json";
-import enIssues from "../../../locales/en/issues.json";
+import enTasks from "../../../locales/en/tasks.json";
 
 import { ThinkingPicker } from "./thinking-picker";
 
 const TEST_RESOURCES = {
-  en: { common: enCommon, agents: enAgents, issues: enIssues },
+  en: { common: enCommon, agents: enAgents, tasks: enTasks },
 };
 
 const CODEX_LEVELS: RuntimeModelThinkingLevel[] = [

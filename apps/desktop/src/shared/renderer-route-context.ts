@@ -4,7 +4,7 @@ export type RendererRouteSurface = "login" | "overlay" | "tab";
 
 // This context exists only to be attached to a freeze/crash report, and those
 // reports leave the machine. Every field here must therefore be safe to ship:
-// route TEMPLATES (`/:slug/issues/:id`), never a workspace slug, tab id, or any
+// route TEMPLATES (`/:slug/tasks/:id`), never a workspace slug, tab id, or any
 // other raw identifier. Keeping the raw values out at the source is what makes
 // the egress side impossible to get wrong.
 export type RendererRouteContextInput = {

@@ -32,7 +32,7 @@
     "filters": {
       "all": "すべて",
       "online": "オンライン",
-      "issues": "問題"
+      "tasks": "問題"
     },
     "section_local": "ローカル",
     "section_remote": "リモート",
@@ -55,7 +55,7 @@
       "runtimes_hint_other": "オンライン {{count}} 個",
       "health": "状態",
       "health_clear": "問題なし",
-      "health_issues_other": "問題 {{count}} 件",
+      "health_tasks_other": "問題 {{count}} 件",
       "workload": "作業量",
       "workload_value_idle": "アイドル",
       "workload_idle": "すべてアイドル",

@@ -50,7 +50,7 @@ describe("useLazyEditor", () => {
     const editorRef = { current: makeHandle() as LazyEditorHandle };
     const { result, rerender } = renderHook(
       ({ key }: { key: string }) => useLazyEditor({ editorRef, resetKey: key }),
-      { initialProps: { key: "issue-1" } },
+      { initialProps: { key: "task-1" } },
     );
 
     act(() => result.current.activate());
@@ -60,7 +60,7 @@ describe("useLazyEditor", () => {
     // Same-render reset: after the rerender that carries the new key, the
     // hook must already report the stand-in state — an effect-based reset
     // would let a keyed editor mount once for the new subject first.
-    rerender({ key: "issue-2" });
+    rerender({ key: "task-2" });
     expect(result.current.active).toBe(false);
     expect(result.current.ready).toBe(false);
   });

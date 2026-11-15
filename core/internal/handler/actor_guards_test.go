@@ -52,7 +52,7 @@ func TestRequireHumanActor_BlocksMachineCredentials(t *testing.T) {
 		// mat_ task token — set in middleware/auth.go's mat_ branch.
 		// An agent process holding its task-scoped token must not be
 		// able to read its owner's billing data.
-		{name: "task_token", actorSource: "task_token"},
+		{name: "agent_run_token", actorSource: "agent_run_token"},
 		// mcn_ cloud-node PAT — set in BOTH middleware/auth.go and
 		// middleware/daemon_auth.go's mcn_ branches. A cloud-runtime
 		// EC2 node operating on the owner's behalf is the same kind
@@ -88,14 +88,14 @@ func TestRequireHumanActor_BlocksMachineCredentials(t *testing.T) {
 
 // TestRequireHumanActor_IgnoresUnknownActorSource pins the gate's
 // scope: it is an explicit denylist against the known-bad
-// "task_token" value, NOT an allowlist against "human only / empty".
+// "agent_run_token" value, NOT an allowlist against "human only / empty".
 //
 // Why the denylist shape:
 //
 //   - The Auth middleware today sets X-Actor-Source for exactly one
 //     case: mat_ task tokens. Every other authenticated path (JWT,
 //     sili_ PAT) leaves the header empty. So "non-empty AND not
-//     task_token" is unreachable in current production.
+//     agent_run_token" is unreachable in current production.
 //
 //   - If a future actor kind is added (say a hypothetical
 //     `service_account` token), this gate's silence on the new value
@@ -126,13 +126,12 @@ func TestRequireHumanActor_IgnoresUnknownActorSource(t *testing.T) {
 	mw.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 — gate should only block exact 'task_token'", w.Code)
+		t.Fatalf("status = %d, want 200 — gate should only block exact 'agent_run_token'", w.Code)
 	}
 	if !called {
 		t.Fatal("inner handler must run for unknown actor sources")
 	}
 }
-
 
 // TestRequireHumanActor_AppliedViaChiRouterUse pins the wiring side of
 // the contract: when the guard is attached to a chi route group via
@@ -152,7 +151,7 @@ func TestRequireHumanActor_AppliedViaChiRouterUse(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/billing/probe", nil)
-	req.Header.Set("X-Actor-Source", "task_token")
+	req.Header.Set("X-Actor-Source", "agent_run_token")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

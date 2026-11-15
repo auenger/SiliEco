@@ -1,5 +1,5 @@
 /**
- * New project modal. Mirrors `new-issue.tsx` shape — vertical form, header
+ * New project modal. Mirrors `new-task.tsx` shape — vertical form, header
  * Cancel / Create buttons. Title is required; everything else has a default
  * (status=planned, priority=none, no lead, no description, no icon).
  *
@@ -10,10 +10,10 @@
  *
  * Status / priority cross-route through `useNewProjectDraftStore` so the
  * formSheet picker routes can read/write them — same pattern as
- * new-issue.tsx + new-issue-picker/* (see new-project-draft-store.ts).
+ * new-task.tsx + new-task-picker/* (see new-project-draft-store.ts).
  *
  * On success: dismiss modal → navigate to the new project's detail page so
- * the user can immediately add a lead / attach issues / configure properties.
+ * the user can immediately add a lead / attach tasks / configure properties.
  */
 import { useCallback, useState } from "react";
 import {

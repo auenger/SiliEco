@@ -57,7 +57,7 @@ const maxPreviewTextSize = 2 << 20 // 2 MB
 type AttachmentResponse struct {
 	ID            string  `json:"id"`
 	WorkspaceID   string  `json:"workspace_id"`
-	IssueID       *string `json:"issue_id"`
+	TaskID        *string `json:"task_id"`
 	CommentID     *string `json:"comment_id"`
 	ChatSessionID *string `json:"chat_session_id"`
 	ChatMessageID *string `json:"chat_message_id"`
@@ -67,7 +67,7 @@ type AttachmentResponse struct {
 	URL           string  `json:"url"`
 	DownloadURL   string  `json:"download_url"`
 	// MarkdownURL is the durable, absolute-when-possible URL the client
-	// SHOULD persist into markdown bodies (issue descriptions, comments,
+	// SHOULD persist into markdown bodies (task descriptions, comments,
 	// chat messages). It is computed per deployment policy by
 	// buildMarkdownURL — preferring the storage URL when it is already a
 	// public, durable absolute URL (public CDN / LocalStorage with
@@ -167,9 +167,9 @@ func (h *Handler) attachmentToResponse(a db.Attachment, mode attachmentURLMode) 
 	if h.CFSigner != nil && mode != attachmentURLModeStable {
 		resp.DownloadURL = h.CFSigner.SignedURL(a.Url, time.Now().Add(h.attachmentDownloadURLTTL()))
 	}
-	if a.IssueID.Valid {
-		s := uuidToString(a.IssueID)
-		resp.IssueID = &s
+	if a.TaskID.Valid {
+		s := uuidToString(a.TaskID)
+		resp.TaskID = &s
 	}
 	if a.CommentID.Valid {
 		s := uuidToString(a.CommentID)
@@ -452,20 +452,20 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 			SizeBytes:    int64(len(data)),
 		}
 
-		if issueID := r.FormValue("issue_id"); issueID != "" {
-			issueUUID, ok := parseUUIDOrBadRequest(w, issueID, "issue_id")
+		if taskID := r.FormValue("task_id"); taskID != "" {
+			taskUUID, ok := parseUUIDOrBadRequest(w, taskID, "task_id")
 			if !ok {
 				return
 			}
-			issue, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
-				ID:          issueUUID,
+			task, err := h.Queries.GetTaskInWorkspace(r.Context(), db.GetTaskInWorkspaceParams{
+				ID:          taskUUID,
 				WorkspaceID: parseUUID(workspaceID),
 			})
 			if err != nil {
-				writeError(w, http.StatusForbidden, "invalid issue_id")
+				writeError(w, http.StatusForbidden, "invalid task_id")
 				return
 			}
-			params.IssueID = issue.ID
+			params.TaskID = task.ID
 		}
 		if commentID := r.FormValue("comment_id"); commentID != "" {
 			commentUUID, ok := parseUUIDOrBadRequest(w, commentID, "comment_id")
@@ -489,61 +489,61 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 			}
 			params.ChatSessionID = session.ID
 		}
-		// task_id upload: an agent producing an image/file for its chat reply.
+		// run_id upload: an agent producing an image/file for its chat reply.
 		// The row is tagged with the producing task and its chat session so
 		// CompleteTask can bind it to the assistant message it synthesizes.
-		// Gate: the request must come from a task-scoped token, the form task_id
+		// Gate: the request must come from a task-scoped token, the form run_id
 		// must equal that token's task, the caller must be that task's agent,
 		// and it must be a chat task (has a chat_session_id).
-		if taskID := r.FormValue("task_id"); taskID != "" {
+		if runID := r.FormValue("run_id"); runID != "" {
 			// Authoritative task-token boundary (load-bearing, mirrors
-			// chat_history.go:chatHistorySession). X-Task-ID is only trustworthy
+			// chat_history.go:chatHistorySession). X-Run-ID is only trustworthy
 			// when the auth middleware set it from a task-scoped `mat_` token —
-			// that path is also the ONLY one that stamps X-Actor-Source=task_token
-			// and strips a client-forged X-Task-ID. A normal JWT / `sili_` PAT
-			// leaves X-Actor-Source empty and does NOT strip a forged X-Task-ID,
+			// that path is also the ONLY one that stamps X-Actor-Source=agent_run_token
+			// and strips a client-forged X-Run-ID. A normal JWT / `sili_` PAT
+			// leaves X-Actor-Source empty and does NOT strip a forged X-Run-ID,
 			// and resolveActor's fallback will accept a real X-Agent-ID +
-			// X-Task-ID pair. So without this gate a member who learns a task ID
+			// X-Run-ID pair. So without this gate a member who learns a task ID
 			// could forge both headers and inject an attachment onto another chat
 			// task's assistant reply — a cross-session/privacy leak.
-			if r.Header.Get("X-Actor-Source") != "task_token" {
-				writeError(w, http.StatusForbidden, "task_id upload is only available from within an agent task")
+			if r.Header.Get("X-Actor-Source") != "agent_run_token" {
+				writeError(w, http.StatusForbidden, "run_id upload is only available from within an agent task")
 				return
 			}
-			taskUUID, ok := parseUUIDOrBadRequest(w, taskID, "task_id")
+			runUUID, ok := parseUUIDOrBadRequest(w, runID, "run_id")
 			if !ok {
 				return
 			}
-			// Pin to the run's own task: the middleware-injected X-Task-ID is the
+			// Pin to the run's own run: the middleware-injected X-Run-ID is the
 			// single source of truth for which task this token may act on, so a
 			// run authorized for task A cannot tag an attachment onto task B —
 			// even another chat task of the same agent, whose session may belong
 			// to a different user.
-			boundTaskID := strings.TrimSpace(r.Header.Get("X-Task-ID"))
-			if boundTaskID == "" || !strings.EqualFold(boundTaskID, strings.TrimSpace(taskID)) {
-				writeError(w, http.StatusForbidden, "task_id must match the request's task token")
+			boundRunID := strings.TrimSpace(r.Header.Get("X-Run-ID"))
+			if boundRunID == "" || !strings.EqualFold(boundRunID, strings.TrimSpace(runID)) {
+				writeError(w, http.StatusForbidden, "run_id must match the request's task token")
 				return
 			}
-			task, err := h.Queries.GetAgentTaskInWorkspace(r.Context(), db.GetAgentTaskInWorkspaceParams{
-				ID:          taskUUID,
+			agentRun, err := h.Queries.GetAgentRunInWorkspace(r.Context(), db.GetAgentRunInWorkspaceParams{
+				ID:          runUUID,
 				WorkspaceID: parseUUID(workspaceID),
 			})
 			if err != nil {
-				writeError(w, http.StatusForbidden, "invalid task_id")
+				writeError(w, http.StatusForbidden, "invalid run_id")
 				return
 			}
-			if uploaderType != "agent" || uuidToString(task.AgentID) != uploaderID {
-				writeError(w, http.StatusForbidden, "task_id upload requires the task's own agent")
+			if uploaderType != "agent" || uuidToString(agentRun.AgentID) != uploaderID {
+				writeError(w, http.StatusForbidden, "run_id upload requires the task's own agent")
 				return
 			}
-			if !task.ChatSessionID.Valid {
-				writeError(w, http.StatusBadRequest, "task_id upload requires a chat task")
+			if !agentRun.ChatSessionID.Valid {
+				writeError(w, http.StatusBadRequest, "run_id upload requires a chat task")
 				return
 			}
-			params.TaskID = task.ID
+			params.RunID = agentRun.ID
 			// Bind the session too so reads (groupChatMessageAttachments) and
 			// GC classify the row consistently before it gains a message id.
-			params.ChatSessionID = task.ChatSessionID
+			params.ChatSessionID = agentRun.ChatSessionID
 		}
 
 		link, err := h.Storage.Upload(r.Context(), key, data, contentType, header.Filename)
@@ -587,19 +587,19 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// ListAttachments — GET /api/issues/{id}/attachments
+// ListAttachments — GET /api/tasks/{id}/attachments
 // ---------------------------------------------------------------------------
 
 func (h *Handler) ListAttachments(w http.ResponseWriter, r *http.Request) {
-	issueID := chi.URLParam(r, "id")
-	issue, ok := h.loadIssueForUser(w, r, issueID)
+	taskID := chi.URLParam(r, "id")
+	task, ok := h.loadTaskForUser(w, r, taskID)
 	if !ok {
 		return
 	}
 
-	attachments, err := h.Queries.ListAttachmentsByIssue(r.Context(), db.ListAttachmentsByIssueParams{
-		IssueID:     issue.ID,
-		WorkspaceID: issue.WorkspaceID,
+	attachments, err := h.Queries.ListAttachmentsByTask(r.Context(), db.ListAttachmentsByTaskParams{
+		TaskID:      task.ID,
+		WorkspaceID: task.WorkspaceID,
 	})
 	if err != nil {
 		slog.Error("failed to list attachments", "error", err)
@@ -1406,24 +1406,24 @@ func (h *Handler) DeleteAttachment(w http.ResponseWriter, r *http.Request) {
 // Attachment linking
 // ---------------------------------------------------------------------------
 
-// linkAttachmentsByIssueIDs links the given attachment IDs to an issue.
-// Only updates attachments that have no issue_id yet.
-func (h *Handler) linkAttachmentsByIssueIDs(ctx context.Context, issueID, workspaceID pgtype.UUID, ids []pgtype.UUID) {
-	if err := h.Queries.LinkAttachmentsToIssue(ctx, db.LinkAttachmentsToIssueParams{
-		IssueID:     issueID,
+// linkAttachmentsByTaskIDs links the given attachment IDs to an task.
+// Only updates attachments that have no task_id yet.
+func (h *Handler) linkAttachmentsByTaskIDs(ctx context.Context, taskID, workspaceID pgtype.UUID, ids []pgtype.UUID) {
+	if err := h.Queries.LinkAttachmentsToTask(ctx, db.LinkAttachmentsToTaskParams{
+		TaskID:      taskID,
 		WorkspaceID: workspaceID,
 		Column3:     ids,
 	}); err != nil {
-		slog.Error("failed to link attachments to issue", "error", err)
+		slog.Error("failed to link attachments to task", "error", err)
 	}
 }
 
 // linkAttachmentsByIDs links the given attachment IDs to a comment.
-// Only updates attachments that belong to the same issue and have no comment_id yet.
-func (h *Handler) linkAttachmentsByIDs(ctx context.Context, commentID, issueID pgtype.UUID, ids []pgtype.UUID) {
+// Only updates attachments that belong to the same task and have no comment_id yet.
+func (h *Handler) linkAttachmentsByIDs(ctx context.Context, commentID, taskID pgtype.UUID, ids []pgtype.UUID) {
 	if err := h.Queries.LinkAttachmentsToComment(ctx, db.LinkAttachmentsToCommentParams{
 		CommentID: commentID,
-		IssueID:   issueID,
+		TaskID:    taskID,
 		Column3:   ids,
 	}); err != nil {
 		slog.Error("failed to link attachments to comment", "error", err)

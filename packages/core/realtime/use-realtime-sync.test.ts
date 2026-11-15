@@ -4,13 +4,13 @@ import { setApiInstance } from "../api";
 import type { ApiClient } from "../api/client";
 import { chatKeys } from "../chat/queries";
 import { inboxKeys } from "../inbox/queries";
-import { issueKeys } from "../issues/queries";
+import { taskKeys } from "../tasks/queries";
 import { notificationPreferenceKeys } from "../notification-preferences/queries";
 import { workspaceKeys } from "../workspace/queries";
 import type {
   ChatDonePayload,
   ChatMessage,
-  ChatPendingTask,
+  ChatPendingRun,
   ChatMessagesPage,
   ChatSession,
   InboxItem,
@@ -28,9 +28,9 @@ import {
 } from "./use-realtime-sync";
 
 const sessionId = "session-1";
-const taskId = "task-1";
+const runId = "task-1";
 const messagesKey = chatKeys.messages(sessionId);
-const pendingKey = chatKeys.pendingTask(sessionId);
+const pendingKey = chatKeys.pendingRun(sessionId);
 
 function createQueryClient() {
   return new QueryClient({
@@ -46,7 +46,7 @@ function userMessage(): ChatMessage {
     chat_session_id: sessionId,
     role: "user",
     content: "hello",
-    task_id: null,
+    run_id: null,
     created_at: "2026-05-13T05:00:00Z",
   };
 }
@@ -54,7 +54,7 @@ function userMessage(): ChatMessage {
 function donePayload(overrides: Partial<ChatDonePayload> = {}): ChatDonePayload {
   return {
     chat_session_id: sessionId,
-    task_id: taskId,
+    run_id: runId,
     message_id: "msg-assistant",
     content: "done",
     elapsed_ms: 1234,
@@ -67,8 +67,8 @@ describe("applyChatDoneToCache", () => {
   it("writes the assistant message before clearing pending task", () => {
     const qc = createQueryClient();
     qc.setQueryData<ChatMessage[]>(messagesKey, [userMessage()]);
-    qc.setQueryData<ChatPendingTask>(pendingKey, {
-      task_id: taskId,
+    qc.setQueryData<ChatPendingRun>(pendingKey, {
+      run_id: runId,
       status: "running",
     });
 
@@ -78,7 +78,7 @@ describe("applyChatDoneToCache", () => {
 
     expect(setQueryData.mock.calls[0]?.[0]).toEqual(messagesKey);
     expect(setQueryData.mock.calls[2]?.[0]).toEqual(pendingKey);
-    expect(qc.getQueryData<ChatPendingTask>(pendingKey)).toEqual({});
+    expect(qc.getQueryData<ChatPendingRun>(pendingKey)).toEqual({});
     expect(qc.getQueryData<ChatMessage[]>(messagesKey)).toEqual([
       userMessage(),
       {
@@ -86,7 +86,7 @@ describe("applyChatDoneToCache", () => {
         chat_session_id: sessionId,
         role: "assistant",
         content: "done",
-        task_id: taskId,
+        run_id: runId,
         created_at: "2026-05-13T05:00:02Z",
         elapsed_ms: 1234,
         sender_agent_id: null,
@@ -118,13 +118,13 @@ describe("applyChatDoneToCache", () => {
       chat_session_id: sessionId,
       role: "assistant",
       content: "done",
-      task_id: taskId,
+      run_id: runId,
       created_at: "2026-05-13T05:00:02Z",
       elapsed_ms: 1234,
     };
     qc.setQueryData<ChatMessage[]>(messagesKey, [userMessage(), assistant]);
-    qc.setQueryData<ChatPendingTask>(pendingKey, {
-      task_id: taskId,
+    qc.setQueryData<ChatPendingRun>(pendingKey, {
+      run_id: runId,
       status: "running",
     });
 
@@ -134,14 +134,14 @@ describe("applyChatDoneToCache", () => {
       userMessage(),
       assistant,
     ]);
-    expect(qc.getQueryData<ChatPendingTask>(pendingKey)).toEqual({});
+    expect(qc.getQueryData<ChatPendingRun>(pendingKey)).toEqual({});
   });
 
   it("falls back to invalidation-only when older servers omit message fields", () => {
     const qc = createQueryClient();
     qc.setQueryData<ChatMessage[]>(messagesKey, [userMessage()]);
-    qc.setQueryData<ChatPendingTask>(pendingKey, {
-      task_id: taskId,
+    qc.setQueryData<ChatPendingRun>(pendingKey, {
+      run_id: runId,
       status: "running",
     });
 
@@ -153,7 +153,7 @@ describe("applyChatDoneToCache", () => {
     expect(qc.getQueryData<ChatMessage[]>(messagesKey)).toEqual([
       userMessage(),
     ]);
-    expect(qc.getQueryData<ChatPendingTask>(pendingKey)).toEqual({});
+    expect(qc.getQueryData<ChatPendingRun>(pendingKey)).toEqual({});
   });
 });
 
@@ -272,7 +272,7 @@ describe("applyChatCancelFinalizedToCache", () => {
       chat_session_id: sessionId,
       role: "user",
       content: "run the thing",
-      task_id: taskId,
+      run_id: runId,
       created_at: "2026-05-13T05:00:00Z",
     };
   }
@@ -286,7 +286,7 @@ describe("applyChatCancelFinalizedToCache", () => {
     applyChatCancelFinalizedToCache(qc, {
       outcome: "stopped",
       chat_session_id: sessionId,
-      task_id: taskId,
+      run_id: runId,
       message_id: "msg-stopped",
       content: "Stopped.",
       created_at: "2026-05-13T05:00:05Z",
@@ -300,7 +300,7 @@ describe("applyChatCancelFinalizedToCache", () => {
         chat_session_id: sessionId,
         role: "assistant",
         content: "Stopped.",
-        task_id: taskId,
+        run_id: runId,
         created_at: "2026-05-13T05:00:05Z",
         elapsed_ms: 5000,
         sender_agent_id: null,
@@ -312,20 +312,20 @@ describe("applyChatCancelFinalizedToCache", () => {
   it("removes the user message and clears the pending task on a restored outcome", () => {
     const qc = createQueryClient();
     qc.setQueryData<ChatMessage[]>(messagesKey, [cancelledUserMessage()]);
-    qc.setQueryData<ChatPendingTask>(pendingKey, {
-      task_id: taskId,
+    qc.setQueryData<ChatPendingRun>(pendingKey, {
+      run_id: runId,
       status: "running",
     });
 
     applyChatCancelFinalizedToCache(qc, {
       outcome: "restored",
       chat_session_id: sessionId,
-      task_id: taskId,
+      run_id: runId,
       message_id: "msg-cancelled-user",
     });
 
     expect(qc.getQueryData<ChatMessage[]>(messagesKey)).toEqual([]);
-    expect(qc.getQueryData<ChatPendingTask>(pendingKey)).toEqual({});
+    expect(qc.getQueryData<ChatPendingRun>(pendingKey)).toEqual({});
   });
 
   it("invalidates the draft-restores query for the initiator", () => {
@@ -337,7 +337,7 @@ describe("applyChatCancelFinalizedToCache", () => {
       {
         outcome: "restored",
         chat_session_id: sessionId,
-        task_id: taskId,
+        run_id: runId,
         message_id: "msg-cancelled-user",
         initiator_user_id: "user-initiator",
       },
@@ -357,7 +357,7 @@ describe("applyChatCancelFinalizedToCache", () => {
       {
         outcome: "restored",
         chat_session_id: sessionId,
-        task_id: taskId,
+        run_id: runId,
         message_id: "msg-cancelled-user",
         initiator_user_id: "user-initiator",
       },
@@ -379,7 +379,7 @@ describe("applyChatCancelFinalizedToCache", () => {
       {
         outcome: "restored",
         chat_session_id: sessionId,
-        task_id: taskId,
+        run_id: runId,
         message_id: "msg-cancelled-user",
       },
       "user-initiator",
@@ -393,35 +393,35 @@ describe("applyChatCancelFinalizedToCache", () => {
   it("still settles the caches when a restored outcome carries no message id", () => {
     const qc = createQueryClient();
     qc.setQueryData<ChatMessage[]>(messagesKey, [cancelledUserMessage()]);
-    qc.setQueryData<ChatPendingTask>(pendingKey, {
-      task_id: taskId,
+    qc.setQueryData<ChatPendingRun>(pendingKey, {
+      run_id: runId,
       status: "running",
     });
 
     applyChatCancelFinalizedToCache(qc, {
       outcome: "restored",
       chat_session_id: sessionId,
-      task_id: taskId,
+      run_id: runId,
     });
 
     // No id to surgically remove — the list is left to the invalidation
     // refetch — but the pending indicator still clears.
     expect(qc.getQueryData<ChatMessage[]>(messagesKey)).toEqual([cancelledUserMessage()]);
-    expect(qc.getQueryData<ChatPendingTask>(pendingKey)).toEqual({});
+    expect(qc.getQueryData<ChatPendingRun>(pendingKey)).toEqual({});
   });
 });
 
 describe("refetchPendingChatAggregate (cross-session pending leak guard)", () => {
   const wsId = "ws-1";
 
-  it("invalidates the aggregate instead of optimistically writing it, so another member's workspace-broadcast task:* event can't flip this user's has_pending", () => {
-    // Regression for the PR #5018 security review: task:* events are a
+  it("invalidates the aggregate instead of optimistically writing it, so another member's workspace-broadcast run:* event can't flip this user's has_pending", () => {
+    // Regression for the PR #5018 security review: run:* events are a
     // workspace fanout with no creator/visibility, so member B's task must not
     // be able to set member A's FAB to has_pending=true client-side. A's
     // aggregate currently (correctly) says "nothing pending".
     const qc = createQueryClient();
-    qc.setQueryData(chatKeys.pendingTasksHasAny(wsId), { has_pending: false });
-    qc.setQueryData(chatKeys.pendingTasks(wsId), { tasks: [] });
+    qc.setQueryData(chatKeys.pendingRunsHasAny(wsId), { has_pending: false });
+    qc.setQueryData(chatKeys.pendingRuns(wsId), { tasks: [] });
     const invalidate = vi.spyOn(qc, "invalidateQueries");
     const setData = vi.spyOn(qc, "setQueryData");
 
@@ -429,17 +429,17 @@ describe("refetchPendingChatAggregate (cross-session pending leak guard)", () =>
 
     // MUST NOT optimistically flip the boolean or inject a task from the
     // untrusted event — the cached values are left untouched.
-    expect(qc.getQueryData(chatKeys.pendingTasksHasAny(wsId))).toEqual({
+    expect(qc.getQueryData(chatKeys.pendingRunsHasAny(wsId))).toEqual({
       has_pending: false,
     });
-    expect(qc.getQueryData(chatKeys.pendingTasks(wsId))).toEqual({ tasks: [] });
+    expect(qc.getQueryData(chatKeys.pendingRuns(wsId))).toEqual({ tasks: [] });
     expect(setData).not.toHaveBeenCalled();
 
     // Instead it marks the aggregate stale for an authoritative, server-side
     // permission-filtered refetch. The has-any key is nested under
-    // pendingTasks, so this one invalidation refreshes both caches.
+    // pendingRuns, so this one invalidation refreshes both caches.
     expect(invalidate).toHaveBeenCalledWith({
-      queryKey: chatKeys.pendingTasks(wsId),
+      queryKey: chatKeys.pendingRuns(wsId),
     });
   });
 
@@ -465,7 +465,7 @@ describe("applyWorkspaceUpdatedToCache", () => {
       context: null,
       settings: {},
       repos: [],
-      issue_prefix: "TES",
+      task_prefix: "TES",
       avatar_url: null,
       created_at: "2026-05-18T00:00:00Z",
       updated_at: "2026-05-18T00:00:00Z",
@@ -473,41 +473,41 @@ describe("applyWorkspaceUpdatedToCache", () => {
     };
   }
 
-  it("invalidates issue cache when issue_prefix changes", () => {
+  it("invalidates task cache when task_prefix changes", () => {
     const qc = createQueryClient();
     qc.setQueryData<Workspace[]>(workspaceKeys.list(), [
-      workspace({ issue_prefix: "TES" }),
+      workspace({ task_prefix: "TES" }),
     ]);
     const invalidate = vi.spyOn(qc, "invalidateQueries");
 
     applyWorkspaceUpdatedToCache(qc, {
-      workspace: workspace({ issue_prefix: "NEW" }),
+      workspace: workspace({ task_prefix: "NEW" }),
     });
 
     expect(invalidate).toHaveBeenCalledWith({
-      queryKey: issueKeys.all(wsId),
+      queryKey: taskKeys.all(wsId),
     });
     expect(invalidate).not.toHaveBeenCalledWith({
       queryKey: workspaceKeys.list(),
     });
     expect(
-      qc.getQueryData<Workspace[]>(workspaceKeys.list())?.[0]?.issue_prefix,
+      qc.getQueryData<Workspace[]>(workspaceKeys.list())?.[0]?.task_prefix,
     ).toBe("NEW");
   });
 
-  it("does not invalidate issue cache when only non-prefix fields change", () => {
+  it("does not invalidate task cache when only non-prefix fields change", () => {
     const qc = createQueryClient();
     qc.setQueryData<Workspace[]>(workspaceKeys.list(), [
-      workspace({ issue_prefix: "TES", name: "Old name" }),
+      workspace({ task_prefix: "TES", name: "Old name" }),
     ]);
     const invalidate = vi.spyOn(qc, "invalidateQueries");
 
     applyWorkspaceUpdatedToCache(qc, {
-      workspace: workspace({ issue_prefix: "TES", name: "New name" }),
+      workspace: workspace({ task_prefix: "TES", name: "New name" }),
     });
 
     expect(invalidate).not.toHaveBeenCalledWith({
-      queryKey: issueKeys.all(wsId),
+      queryKey: taskKeys.all(wsId),
     });
     expect(invalidate).not.toHaveBeenCalledWith({
       queryKey: workspaceKeys.list(),
@@ -517,20 +517,20 @@ describe("applyWorkspaceUpdatedToCache", () => {
     );
   });
 
-  it("invalidates issue cache when the workspace isn't in the cached list yet", () => {
+  it("invalidates task cache when the workspace isn't in the cached list yet", () => {
     // Conservative: a workspace appearing for the first time may correspond
-    // to issue queries that were primed without ever seeing the (possibly
+    // to task queries that were primed without ever seeing the (possibly
     // changing) prefix. Erring on the side of refresh keeps identifiers
     // accurate at minimal cost.
     const qc = createQueryClient();
     const invalidate = vi.spyOn(qc, "invalidateQueries");
 
     applyWorkspaceUpdatedToCache(qc, {
-      workspace: workspace({ issue_prefix: "NEW" }),
+      workspace: workspace({ task_prefix: "NEW" }),
     });
 
     expect(invalidate).toHaveBeenCalledWith({
-      queryKey: issueKeys.all(wsId),
+      queryKey: taskKeys.all(wsId),
     });
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: workspaceKeys.list(),
@@ -548,7 +548,7 @@ describe("applyChatDoneToCache paged messages", () => {
       chat_session_id: sessionId,
       role: "user",
       content: "latest",
-      task_id: null,
+      run_id: null,
       created_at: "2026-05-13T05:00:01Z",
     };
     qc.setQueryData<InfiniteData<ChatMessagesPage>>(chatKeys.messagesPage(sessionId), {
@@ -578,7 +578,7 @@ describe("resolveInboxSourceSlug", () => {
       context: null,
       settings: {},
       repos: [],
-      issue_prefix: "WSA",
+      task_prefix: "WSA",
       avatar_url: null,
       created_at: "2026-05-18T00:00:00Z",
       updated_at: "2026-05-18T00:00:00Z",
@@ -633,7 +633,7 @@ describe("handleInboxNew", () => {
       context: null,
       settings: {},
       repos: [],
-      issue_prefix: "WSA",
+      task_prefix: "WSA",
       avatar_url: null,
       created_at: "2026-05-18T00:00:00Z",
       updated_at: "2026-05-18T00:00:00Z",
@@ -651,10 +651,10 @@ describe("handleInboxNew", () => {
       actor_id: "member-2",
       type: "mentioned",
       severity: "info",
-      issue_id: "issue-1",
+      task_id: "task-1",
       title: "Mentioned you",
       body: "in a comment",
-      issue_status: null,
+      task_status: null,
       read: false,
       archived: false,
       created_at: "2026-05-18T00:00:00Z",
@@ -689,7 +689,7 @@ describe("handleInboxNew", () => {
     expect(showNotification).toHaveBeenCalledWith({
       slug: "",
       itemId: "item-1",
-      issueKey: "issue-1",
+      taskKey: "task-1",
       title: "Mentioned you",
       body: "in a comment",
     });
@@ -710,7 +710,7 @@ describe("handleInboxNew", () => {
     await handleInboxNew(qc, inboxItem());
 
     // The workspace prefix, which covers both the main list and the archived
-    // one: a new notification on an archived issue revives it into the main
+    // one: a new notification on an archived task revives it into the main
     // inbox, so the archived list has to drop it in the same pass (SILI-3736).
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: inboxKeys.all("ws-a"),

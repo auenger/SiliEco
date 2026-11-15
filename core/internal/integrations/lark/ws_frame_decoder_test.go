@@ -557,7 +557,7 @@ func TestLarkJSONFrameDecoderCapturesReplyLinkage(t *testing.T) {
 		t.Errorf("MessageType = %q want text", msg.MessageType)
 	}
 	// CommandBody snapshots the user's own text (pre-enrichment) so
-	// /issue parsing survives the enricher's prepended context blocks.
+	// /task parsing survives the enricher's prepended context blocks.
 	if msg.CommandBody != "去实现" {
 		t.Errorf("CommandBody = %q want 去实现", msg.CommandBody)
 	}

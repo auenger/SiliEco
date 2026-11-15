@@ -440,7 +440,7 @@ describe("MermaidViewer source and export", () => {
     });
   });
 
-  it("toggles to the source view and back, because Issue/Comment is where agent output gets audited", async () => {
+  it("toggles to the source view and back, because Task/Comment is where agent output gets audited", async () => {
     render(<Harness />);
 
     fireEvent.click(screen.getByRole("button", { name: "Show source" }));

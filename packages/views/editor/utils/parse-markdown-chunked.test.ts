@@ -5,7 +5,7 @@ import {
 } from "./parse-markdown-chunked";
 
 describe("parseMarkdownChunked", () => {
-  it("routes a typical 22k issue through the chunked parse path", () => {
+  it("routes a typical 22k task through the chunked parse path", () => {
     expect(MARKDOWN_CHUNK_THRESHOLD).toBeLessThan(22_000);
   });
 

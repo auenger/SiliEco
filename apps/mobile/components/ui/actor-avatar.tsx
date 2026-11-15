@@ -30,9 +30,9 @@ import { THEME } from "@/lib/theme";
 // `system` actors are server-side automation (state changes triggered by the
 // platform itself, not a member or an agent). InboxItem.actor_type carries
 // this third value (packages/core/types/inbox.ts:28). `squad` is a third
-// assignee polymorph (packages/core/types/issue.ts IssueAssigneeType) — when
+// assignee polymorph (packages/core/types/task.ts TaskAssigneeType) — when
 // a squad has an avatar_url we render it; otherwise fall back to a generic
-// group glyph so squad-assigned issues from web never render blank.
+// group glyph so squad-assigned tasks from web never render blank.
 interface Props {
   type: "member" | "agent" | "system" | "squad" | null | undefined;
   id: string | null | undefined;

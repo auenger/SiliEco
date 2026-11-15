@@ -1,1 +1,0 @@
-CREATE INDEX CONCURRENTLY workflow_review_recovery_instance_idx ON workflow_review_recovery (workspace_id, workflow_instance_id);

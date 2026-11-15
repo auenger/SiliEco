@@ -25,7 +25,7 @@ import type { RendererRouteContextInput } from "../../../shared/renderer-route-c
  * are overlay state, not tab routes), and otherwise the active tab's path.
  *
  * Paths are bucketed to route templates before publishing, so telemetry
- * carries `/:slug/issues/:id` rather than a workspace slug and issue id.
+ * carries `/:slug/tasks/:id` rather than a workspace slug and task id.
  */
 export function DiagnosticRouteReporter() {
   const user = useAuthStore((s) => s.user);
@@ -95,6 +95,8 @@ function resolveSurface({
 
 function overlayPath(overlay: WindowOverlay): string {
   switch (overlay.type) {
+    case "workspaces":
+      return "/workspaces";
     case "new-workspace":
       return "/workspaces/new";
     case "onboarding":

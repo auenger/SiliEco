@@ -206,7 +206,7 @@ export function AgentListToolbar({
       <div className="flex h-full w-max min-w-full items-center justify-between gap-2">
         {/* Left: local search + scope buttons + result count. Scope mixes the
           ownership lens (mine/all) with the archived lifecycle stage. Button
-          styling and the <md dropdown collapse follow the issues header's
+          styling and the <md dropdown collapse follow the tasks header's
           scope buttons. */}
       <div className="flex min-w-0 items-center gap-2">
         <div className="relative hidden shrink-0 md:block">

@@ -34,7 +34,7 @@ function HoverCardContent({
   // the popup to <body> so the DOM is detached, but React's synthetic event
   // system still bubbles through the React component tree — without this,
   // events on the popup would also fire on any ancestor of the trigger
-  // (e.g. a clickable issue list row, a wrapping <a>).
+  // (e.g. a clickable task list row, a wrapping <a>).
   //
   // We stop the safe set: click / contextmenu / auxclick / dblclick.
   // We deliberately do NOT stop pointerdown / mousedown — Base UI's

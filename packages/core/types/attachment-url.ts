@@ -1,6 +1,6 @@
 /**
  * Stable URL helpers for attachment references that get persisted into
- * markdown bodies (issue descriptions, comment bodies, chat messages).
+ * markdown bodies (task descriptions, comment bodies, chat messages).
  *
  * Background — SILI-3130:
  *

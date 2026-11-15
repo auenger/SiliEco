@@ -80,12 +80,12 @@ export function RevisionConflictDialog() {
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {conflict?.kind === "issue"
+            {conflict?.kind === "task"
               ? t(($) => $.revision_conflict.task_title)
               : t(($) => $.revision_conflict.title)}
           </DialogTitle>
           <DialogDescription>
-            {conflict?.kind === "issue"
+            {conflict?.kind === "task"
               ? t(($) => $.revision_conflict.task_description)
               : t(($) => $.revision_conflict.description)}
           </DialogDescription>

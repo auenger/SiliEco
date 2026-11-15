@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY idx_github_pending_check_suite_received_at ON public.github_pending_check_suite USING btree (received_at);

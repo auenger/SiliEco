@@ -4,15 +4,15 @@ import { create } from "zustand";
 
 type ModalType =
   | "create-workspace"
-  | "create-issue"
-  | "quick-create-issue"
+  | "create-task"
+  | "quick-create-task"
   | "create-project"
   | "create-squad"
   | "feedback"
-  | "issue-set-parent"
-  | "issue-add-child"
-  | "issue-delete-confirm"
-  | "issue-run-confirm"
+  | "task-set-parent"
+  | "task-add-child"
+  | "task-delete-confirm"
+  | "task-run-confirm"
   | null;
 
 interface ModalStore {

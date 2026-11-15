@@ -54,7 +54,7 @@ func TestCreateInvitation_BlocksWhilePending(t *testing.T) {
 	}
 }
 
-// Regression for issue #2055: an expired pending invitation must NOT block a
+// Regression for task #2055: an expired pending invitation must NOT block a
 // new invitation to the same email. The stale row should be flipped to
 // 'expired' and a fresh pending row should be created.
 func TestCreateInvitation_AllowsAfterExpiry(t *testing.T) {

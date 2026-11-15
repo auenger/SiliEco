@@ -15,7 +15,7 @@ describe("parseLogLine", () => {
     expect(r.message).toBe("task completed");
     expect(r.fields).toEqual({
       component: "daemon",
-      task: "c45266e5",
+      run: "c45266e5",
       status: "completed",
     });
   });
@@ -47,16 +47,16 @@ describe("parseLogLine", () => {
       1,
     );
     expect(r.message).toBe("tool #1: Skill");
-    expect(r.fields).toEqual({ component: "daemon", task: "8791b717" });
+    expect(r.fields).toEqual({ component: "daemon", run: "8791b717" });
   });
 
   it("unquotes a double-quoted value containing escaped quotes", () => {
     // Real sample with escaped quotes inside the agent's emitted text.
     const line =
-      '17:53:06.644 DBG agent component=daemon task=8791b717 text="The issue is just \\"ping\\" with no description."';
+      '17:53:06.644 DBG agent component=daemon task=8791b717 text="The task is just \\"ping\\" with no description."';
     const r = parseLogLine(line, 1);
     expect(r.message).toBe("agent");
-    expect(r.fields.text).toBe('The issue is just "ping" with no description.');
+    expect(r.fields.text).toBe('The task is just "ping" with no description.');
     expect(r.fields.task).toBe("8791b717");
   });
 

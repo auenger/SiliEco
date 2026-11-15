@@ -21,6 +21,7 @@ import (
 	skillpkg "github.com/silieco-ai/silieco/core/internal/skill"
 	"github.com/silieco-ai/silieco/core/internal/util"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 	"golang.org/x/sync/errgroup"
 )
@@ -550,6 +551,11 @@ func (h *Handler) DeleteSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
+
+	if err := relational.LockForDelete(r.Context(), tx, relational.DeleteSkill, skill.ID, skill.WorkspaceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock deletion dependencies")
+		return
+	}
 	if err := qtx.DeleteSkillLabelAssignmentsBySkill(r.Context(), skill.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to remove skill label assignments")
 		return

@@ -12,7 +12,7 @@ import (
 //	 无重复窗口写入"
 //
 // The legacy `pg_cron` tick and the in-process scheduler both call
-// `rollup_task_usage_hourly()`, so the SQL function's advisory lock
+// `rollup_agent_run_usage_hourly()`, so the SQL function's advisory lock
 // 4246 prevents double-writes of the rollup itself. The scheduler adds
 // a second layer via `sys_cron_executions`: even if multiple ticks (a
 // scheduler in a second replica, a manual SQL call, a leftover

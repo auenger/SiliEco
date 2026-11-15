@@ -14,10 +14,10 @@ import {
 import { toast } from "sonner";
 import { useAuthStore } from "@silieco/core/auth";
 import {
-  agentCompletedIssueCountOptions,
+  agentCompletedTaskCountOptions,
   needsSourceBackfill,
   saveQuestionnaire,
-  SOURCE_BACKFILL_MIN_AGENT_DONE_ISSUES,
+  SOURCE_BACKFILL_MIN_AGENT_DONE_TASKS,
   type QuestionnaireAnswers,
   type Source,
 } from "@silieco/core/onboarding";
@@ -66,7 +66,7 @@ const EMPTY_BACKFILL: Pick<
  *   1. User-level: `needsSourceBackfill(user, dismissCount)` — no
  *      source recorded, never declined, dismiss cap not reached.
  *   2. Workspace-level: agents (or squads) have completed at least
- *      SOURCE_BACKFILL_MIN_AGENT_DONE_ISSUES issues here. Attribution
+ *      SOURCE_BACKFILL_MIN_AGENT_DONE_TASKS tasks here. Attribution
  *      is a zero-payoff ask for the user, so it waits until Silieco
  *      has visibly delivered value. The count query only runs while
  *      gate 1 passes, so settled users never pay for it.
@@ -94,18 +94,18 @@ export function SourceBackfillModal() {
   const [dismissCount, bumpDismissCount] =
     useSourceBackfillDismissCount(userId);
 
-  // Gate 1 first: it's pure and free. Gate 2 costs a (tiny) issues
+  // Gate 1 first: it's pure and free. Gate 2 costs a (tiny) tasks
   // query, so it's `enabled` only while gate 1 says this user still
   // owes an answer and we know which workspace to count in.
   const userEligible = needsSourceBackfill(user, dismissCount);
   const wsId = useCurrentWorkspace()?.id ?? null;
   const { data: agentDoneCount } = useQuery({
-    ...agentCompletedIssueCountOptions(wsId ?? ""),
+    ...agentCompletedTaskCountOptions(wsId ?? ""),
     enabled: userEligible && wsId !== null,
   });
   const shouldPrompt =
     userEligible &&
-    (agentDoneCount ?? 0) >= SOURCE_BACKFILL_MIN_AGENT_DONE_ISSUES;
+    (agentDoneCount ?? 0) >= SOURCE_BACKFILL_MIN_AGENT_DONE_TASKS;
 
   // Decide once per (user, gate delta) whether the prompt should
   // open. After it opens we stop reconsulting the predicate so a

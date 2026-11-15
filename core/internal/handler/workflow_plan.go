@@ -34,7 +34,7 @@ type workflowInstancePlanSnapshot struct {
 }
 
 func (h *Handler) canManageWorkflowInstance(r *http.Request, userID string, projectID pgtype.UUID) bool {
-	if !projectID.Valid || r.Header.Get("X-Actor-Source") == "task_token" {
+	if !projectID.Valid || r.Header.Get("X-Actor-Source") == "agent_run_token" {
 		return false
 	}
 	member, ok := ctxMember(r.Context())
@@ -221,16 +221,16 @@ func (h *Handler) UpdateWorkflowInstancePlan(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusConflict, "workflow instance has no valid current stage")
 		return
 	}
-	taskRows, err := qtx.CountIssuesByWorkflowStage(r.Context(), db.CountIssuesByWorkflowStageParams{
+	runRows, err := qtx.CountTasksByWorkflowStage(r.Context(), db.CountTasksByWorkflowStageParams{
 		WorkspaceID: wsUUID, WorkflowInstanceID: instanceID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to validate workflow tasks")
 		return
 	}
-	taskCounts := make(map[string]int64, len(taskRows))
-	for _, row := range taskRows {
-		taskCounts[uuidToString(row.WorkflowStageID)] = row.TaskCount
+	runCounts := make(map[string]int64, len(runRows))
+	for _, row := range runRows {
+		runCounts[uuidToString(row.WorkflowStageID)] = row.TaskCount
 	}
 	decisions, err := qtx.ListWorkflowGateDecisions(r.Context(), db.ListWorkflowGateDecisionsParams{
 		WorkflowInstanceID: instanceID, WorkspaceID: wsUUID,
@@ -283,7 +283,7 @@ func (h *Handler) UpdateWorkflowInstancePlan(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		if old.Position > current.Position && int32(position) != old.Position &&
-			(taskCounts[id] > 0 || decisionCounts[id] > 0) {
+			(runCounts[id] > 0 || decisionCounts[id] > 0) {
 			writeError(w, http.StatusConflict, "stages with tasks or gate decisions cannot be reordered")
 			return
 		}
@@ -302,7 +302,7 @@ func (h *Handler) UpdateWorkflowInstancePlan(w http.ResponseWriter, r *http.Requ
 			writeError(w, http.StatusConflict, "the current and completed stages cannot be deleted")
 			return
 		}
-		if taskCounts[id] > 0 || decisionCounts[id] > 0 {
+		if runCounts[id] > 0 || decisionCounts[id] > 0 {
 			writeError(w, http.StatusConflict, "stages with tasks or gate decisions cannot be deleted")
 			return
 		}
@@ -350,7 +350,7 @@ func (h *Handler) UpdateWorkflowInstancePlan(w http.ResponseWriter, r *http.Requ
 			// Editing plan metadata must not hot-update pinned skill content.
 			snapshots = previous.RequiredSkillSnapshots
 		} else {
-			required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), wsUUID, requiredSkills)
+			required, missing := h.AgentRunService.ResolveRequiredSkills(r.Context(), wsUUID, requiredSkills)
 			if len(missing) > 0 {
 				writeError(w, http.StatusConflict, "required SOP skill is unavailable: "+strings.Join(missing, ", "))
 				return

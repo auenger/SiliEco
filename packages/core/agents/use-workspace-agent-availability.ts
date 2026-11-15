@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "../hooks";
 import { useAuthStore } from "../auth";
 import { agentListOptions, memberListOptions } from "../workspace/queries";
-import { canAssignAgentToIssue } from "../permissions";
+import { canAssignAgentToTask } from "../permissions";
 
 /**
  * Three-state availability for "does the current user have any agent
@@ -28,7 +28,7 @@ export type WorkspaceAgentAvailability = "loading" | "none" | "available";
  * and the chat agent dropdown, so the three pickers can never disagree on
  * "is this agent reachable?".
  *
- * Members are queried because `canAssignAgentToIssue` reads the caller's
+ * Members are queried because `canAssignAgentToTask` reads the caller's
  * role to decide visibility for `private` agents — without member data,
  * a freshly-loaded agent list could still produce wrong answers.
  */
@@ -53,7 +53,7 @@ export function useWorkspaceAgentAvailability(): WorkspaceAgentAvailability {
   const hasVisibleAgent = (agents ?? []).some(
     (a) =>
       !a.archived_at &&
-      canAssignAgentToIssue(a, { userId: userId ?? null, role }).allowed,
+      canAssignAgentToTask(a, { userId: userId ?? null, role }).allowed,
   );
 
   return hasVisibleAgent ? "available" : "none";

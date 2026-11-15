@@ -1,6 +1,6 @@
 // Package attribution implements the accountable-human resolution contract for
 // agent task runs (SILI-4302, "Human Attribution"). Every run enqueued into
-// agent_task_queue must be traceable to exactly one accountable human, and the
+// agent_run must be traceable to exactly one accountable human, and the
 // attribution must be EXPLAINABLE: it records not just who, but at which
 // waterfall level the human was resolved (a direct member action, a delegation
 // copy across an agent hop, the comment-source chain, an autopilot rule owner,
@@ -23,7 +23,7 @@ package attribution
 import "github.com/jackc/pgx/v5/pgtype"
 
 // Source is the waterfall level that resolved the accountable human for a run.
-// Stored verbatim in agent_task_queue.originator_source. Kept as free strings
+// Stored verbatim in agent_run.originator_source. Kept as free strings
 // (no DB CHECK) so a newly-modeled trigger path can introduce a source without
 // a schema migration (SILI-4302 §7).
 type Source string
@@ -34,13 +34,13 @@ const (
 	// accountable human.
 	SourceDirectHuman Source = "direct_human"
 	// SourceDelegation — an agent running on behalf of a human caused the
-	// enqueue (agent @-mentions another agent, agent creates a sub-issue,
+	// enqueue (agent @-mentions another agent, agent creates a sub-task,
 	// stage-completion wakeup). The parent task's accountable human is COPIED,
 	// not chained, so delegation cycles stay harmless (SILI-4302 §3.2).
 	SourceDelegation Source = "delegation"
-	// SourceCommentSource — the issue's standing assignee reacted to an
+	// SourceCommentSource — the task's standing assignee reacted to an
 	// agent/system-authored comment; the human is resolved through
-	// comment.source_task_id (a special case of delegation, SILI-4302 §3.3).
+	// comment.source_run_id (a special case of delegation, SILI-4302 §3.3).
 	SourceCommentSource Source = "comment_source"
 	// SourceTriggerOwner — an autopilot schedule/webhook trigger enqueued the run;
 	// the accountable human is the member who CREATED that specific trigger (set up
@@ -95,12 +95,12 @@ type EvidenceKind string
 
 const (
 	EvidenceComment         EvidenceKind = "comment"
-	EvidenceIssueAssignment EvidenceKind = "issue_assignment"
+	EvidenceTaskAssignment EvidenceKind = "task_assignment"
 	EvidenceAutopilotRun    EvidenceKind = "autopilot_run"
 	EvidenceRuleVersion     EvidenceKind = "rule_version"
 	EvidenceRerun           EvidenceKind = "rerun"
 	// EvidenceChat points the uniform evidence pair at the chat session that
-	// triggered the run — the chat analogue of autopilot_run/issue_assignment.
+	// triggered the run — the chat analogue of autopilot_run/task_assignment.
 	// The dedicated chat_session_id column still exists for its own consumers;
 	// this makes the attribution UI's jump-to-evidence path uniform (SILI-4302 §2).
 	EvidenceChat EvidenceKind = "chat"
@@ -118,7 +118,7 @@ const (
 	KindMemberAssign      TriggerKind = "member_assign"
 	KindAgentMention      TriggerKind = "agent_mention"
 	KindAgentComment      TriggerKind = "agent_comment"
-	KindSubIssueCreate    TriggerKind = "sub_issue_create"
+	KindSubTaskCreate    TriggerKind = "sub_task_create"
 	KindStageWakeup       TriggerKind = "stage_wakeup"
 	KindQuickCreate       TriggerKind = "quick_create"
 	KindChat              TriggerKind = "chat"
@@ -150,10 +150,10 @@ type Result struct {
 	UserID              pgtype.UUID
 	AccountableUserID   pgtype.UUID
 	Source              Source
-	DelegatedFromTaskID pgtype.UUID
+	DelegatedFromRunID pgtype.UUID
 	RuleVersionID       pgtype.UUID
-	RetryOfTaskID       pgtype.UUID
-	RerunOfTaskID       pgtype.UUID
+	RetryOfRunID       pgtype.UUID
+	RerunOfRunID       pgtype.UUID
 	EvidenceKind        EvidenceKind
 	EvidenceRefID       pgtype.UUID
 }
@@ -182,10 +182,10 @@ type CommentFacts struct {
 	AuthorID   pgtype.UUID
 
 	// For agent-authored comments: the source task the comment was written
-	// from (comment.source_task_id) and that task's originator_user_id. The
+	// from (comment.source_run_id) and that task's originator_user_id. The
 	// caller resolves ParentOriginator by loading the source task; it is left
 	// invalid when the source task is missing or itself unattributed.
-	SourceTaskID     pgtype.UUID
+	SourceRunID     pgtype.UUID
 	ParentOriginator pgtype.UUID
 
 	// ParentAccountable is the source task's accountable_user_id (SILI-4302 §3.2).
@@ -200,7 +200,7 @@ type CommentFacts struct {
 // ClassifyComment resolves attribution for a comment-triggered run from
 // already-fetched comment facts. agentAuthoredSource selects the label used
 // when the trigger comment is agent-authored: SourceCommentSource for the
-// issue-assignee-reacting path, SourceDelegation for an explicit mention /
+// task-assignee-reacting path, SourceDelegation for an explicit mention /
 // thread-parent / squad-leader path. The returned UserID is byte-identical to
 // the legacy originator resolution so authorization behavior is unchanged.
 func ClassifyComment(f CommentFacts, agentAuthoredSource Source) Result {
@@ -214,12 +214,12 @@ func ClassifyComment(f CommentFacts, agentAuthoredSource Source) Result {
 		})
 	case "agent":
 		r := Result{EvidenceKind: EvidenceComment, EvidenceRefID: f.CommentID}
-		if !f.SourceTaskID.Valid {
-			// Agent comment with no source task: cannot walk the chain.
+		if !f.SourceRunID.Valid {
+			// Agent comment with no source run: cannot walk the chain.
 			r.Source = SourceUnattributed
 			return finalizeAttribution(r)
 		}
-		r.DelegatedFromTaskID = f.SourceTaskID
+		r.DelegatedFromRunID = f.SourceRunID
 		if f.ParentOriginator.Valid {
 			r.UserID = f.ParentOriginator
 			r.Source = agentAuthoredSource
@@ -242,34 +242,34 @@ func ClassifyComment(f CommentFacts, agentAuthoredSource Source) Result {
 	}
 }
 
-// DirectFacts are the facts for a run with no trigger comment: a direct issue
-// assignment/creation, or an agent-created issue with a quick-create origin.
+// DirectFacts are the facts for a run with no trigger comment: a direct task
+// assignment/creation, or an agent-created task with a quick-create origin.
 type DirectFacts struct {
-	IssueID     pgtype.UUID
+	TaskID     pgtype.UUID
 	CreatorType string
 	CreatorID   pgtype.UUID
 
 	// ActorUserID is the member who PERFORMED the action that enqueued this run
-	// (assigned the issue, promoted the backlog child, created-with-assignee).
+	// (assigned the task, promoted the backlog child, created-with-assignee).
 	// When valid it is the accountable human per SILI-4302 §4 ("执行 assign /
-	// promote 的成员") and takes precedence over the issue creator: the person who
-	// acted, not whoever happened to file the issue, is on the hook. Left invalid
+	// promote 的成员") and takes precedence over the task creator: the person who
+	// acted, not whoever happened to file the task, is on the hook. Left invalid
 	// by non-actor paths (comment chain, rerun, autopilot) which resolve the human
 	// elsewhere and fall back to the creator. Because a direct action is the human
 	// lending authority, the actor becomes BOTH originator (authorization) and
 	// accountable — finalizeAttribution keeps them equal, honoring the invariant.
 	ActorUserID pgtype.UUID
 
-	// OriginType/OriginTaskID describe an agent-created issue's provenance
+	// OriginType/OriginTaskID describe an agent-created task's provenance
 	// ("quick_create" or "agent_create"); OriginOriginator is that origin task's
 	// originator_user_id, loaded by the caller. Empty OriginType means none.
 	OriginType       string
-	OriginTaskID     pgtype.UUID
+	OriginRunID     pgtype.UUID
 	OriginOriginator pgtype.UUID
 
 	// OriginAccountable is the origin task's accountable_user_id — the DirectFacts
 	// analogue of CommentFacts.ParentAccountable (SILI-4302 §3.2). An agent-created
-	// sub-issue whose origin task is autopilot-rooted (OriginOriginator NULL,
+	// sub-task whose origin task is autopilot-rooted (OriginOriginator NULL,
 	// accountable set) inherits that accountable via delegation instead of dropping
 	// to unattributed.
 	OriginAccountable pgtype.UUID
@@ -277,37 +277,37 @@ type DirectFacts struct {
 
 // ClassifyDirect resolves attribution for a run with no trigger comment.
 func ClassifyDirect(f DirectFacts) Result {
-	// A member who directly assigned/promoted the issue is the accountable human,
-	// ahead of the issue's creator (SILI-4302 §4). Evidence points at the issue the
+	// A member who directly assigned/promoted the task is the accountable human,
+	// ahead of the task's creator (SILI-4302 §4). Evidence points at the task the
 	// action targeted.
 	if f.ActorUserID.Valid {
 		return finalizeAttribution(Result{
 			UserID:        f.ActorUserID,
 			Source:        SourceDirectHuman,
-			EvidenceKind:  EvidenceIssueAssignment,
-			EvidenceRefID: f.IssueID,
+			EvidenceKind:  EvidenceTaskAssignment,
+			EvidenceRefID: f.TaskID,
 		})
 	}
 	if f.CreatorType == "member" && f.CreatorID.Valid {
 		return finalizeAttribution(Result{
 			UserID:        f.CreatorID,
 			Source:        SourceDirectHuman,
-			EvidenceKind:  EvidenceIssueAssignment,
-			EvidenceRefID: f.IssueID,
+			EvidenceKind:  EvidenceTaskAssignment,
+			EvidenceRefID: f.TaskID,
 		})
 	}
 	switch f.OriginType {
 	case "quick_create", "agent_create":
 		r := Result{
-			DelegatedFromTaskID: f.OriginTaskID,
-			EvidenceKind:        EvidenceIssueAssignment,
-			EvidenceRefID:       f.IssueID,
+			DelegatedFromRunID: f.OriginRunID,
+			EvidenceKind:        EvidenceTaskAssignment,
+			EvidenceRefID:       f.TaskID,
 		}
 		if f.OriginOriginator.Valid {
 			r.UserID = f.OriginOriginator
 			r.Source = SourceDelegation
 		} else if f.OriginAccountable.Valid {
-			// Autopilot-rooted origin task: no authorizing human, but accountable
+			// Autopilot-rooted origin run: no authorizing human, but accountable
 			// to the trigger creator / rule publisher. Copy accountable down so the
 			// chain root stays stable; originator stays NULL (SILI-4302 §3.2).
 			r.AccountableUserID = f.OriginAccountable
@@ -317,12 +317,12 @@ func ClassifyDirect(f DirectFacts) Result {
 		}
 		return finalizeAttribution(r)
 	default:
-		return finalizeAttribution(Result{Source: SourceUnattributed, EvidenceKind: EvidenceIssueAssignment, EvidenceRefID: f.IssueID})
+		return finalizeAttribution(Result{Source: SourceUnattributed, EvidenceKind: EvidenceTaskAssignment, EvidenceRefID: f.TaskID})
 	}
 }
 
 // DirectHumanRun builds attribution for a run a member triggered directly through
-// a path that carries no issue and no trigger comment — a chat message or a
+// a path that carries no task and no trigger comment — a chat message or a
 // quick-create request. userID is the member who acted (the chat sender / the
 // quick-create requester) and becomes both originator and accountable. An invalid
 // userID (e.g. a Lark group message whose sender could not be resolved) yields an
@@ -358,7 +358,7 @@ func Unattributed(evidenceKind EvidenceKind, evidenceRefID pgtype.UUID) Result {
 // rule version — which is THE divergence the two-column split exists for
 // (accountable set, originator NULL). ruleVersionID records which snapshot
 // resolved it; evidence points the caller supplies (autopilot_run for run_only,
-// the issue for create_issue). A missing publisher (system-published rule, or no
+// the task for create_task). A missing publisher (system-published rule, or no
 // version resolved yet) degrades to unattributed so we never fabricate a human.
 func RuleOwner(publisherUserID, ruleVersionID pgtype.UUID, evidenceKind EvidenceKind, evidenceRefID pgtype.UUID) Result {
 	r := Result{
@@ -379,8 +379,8 @@ func RuleOwner(publisherUserID, ruleVersionID pgtype.UUID, evidenceKind Evidence
 // the human who created the firing trigger (SILI-4302; Bohan's refinement). Like
 // RuleOwner, no human authorized the run, so UserID (originator) stays NULL and
 // only the audit-accountable side is set — to creatorUserID, the trigger's member
-// creator. Evidence is caller-supplied (autopilot_run for run_only, the issue for
-// create_issue). An invalid creator degrades to unattributed so callers that lost
+// creator. Evidence is caller-supplied (autopilot_run for run_only, the task for
+// create_task). An invalid creator degrades to unattributed so callers that lost
 // the creator fall back to rule_owner rather than fabricating a human.
 func TriggerOwner(creatorUserID pgtype.UUID, evidenceKind EvidenceKind, evidenceRefID pgtype.UUID) Result {
 	r := Result{

@@ -148,7 +148,7 @@ function makeAgent(id: string, overrides: Partial<Agent> = {}): Agent {
     permission_mode: "private",
     invocation_targets: [],
     status: "idle",
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     model: "claude-sonnet-4-5",
     owner_id: "user-me",
     skills: [],

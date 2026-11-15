@@ -22,7 +22,7 @@ Silieco のコードを書く、翻訳を変更する、あるいは中国語の
 
 ### ワークスペーススコープのルート
 
-常に `/{slug}/{section}` の下に置きます — `/{slug}/issues`、`/{slug}/agents`、`/{slug}/settings`。ワークスペースのルーティングロジックを絶対に重複させず、共有コードではフレームワーク固有の link API ではなく `useNavigation().push()` を使用してください。
+常に `/{slug}/{section}` の下に置きます — `/{slug}/tasks`、`/{slug}/agents`、`/{slug}/settings`。ワークスペースのルーティングロジックを絶対に重複させず、共有コードではフレームワーク固有の link API ではなく `useNavigation().push()` を使用してください。
 
 ### パッケージとモジュール
 
@@ -66,21 +66,22 @@ Silieco のコードを書く、翻訳を変更する、あるいは中国語の
 
 ### TypeScript
 
-- ネットワーク上の API レスポンスは `snake_case` で、api client が境界で `camelCase` に変換します。TS コード内部では**常に camelCase**。
-- 型: `PascalCase`（`Issue`, `AgentRuntime`）；`IPrefix` は禁止、`_t` サフィックスも禁止。
+- API の DTO はネットワークと TypeScript の両方で `snake_case` を維持します。ローカル変数、関数、クライアント状態には `camelCase` を使います。
+- 型: `PascalCase`（`Task`, `AgentRuntime`）；`IPrefix` は禁止、`_t` サフィックスも禁止。
 - 列挙: string literal union を推奨し、ランタイムで反復処理が必要な場合にのみ `enum` を使用。
-- TanStack Query のキー: `<feature>/queries.ts` 内のファクトリ関数、例: `issueKeys.detail(id)`。
+- TanStack Query のキー: `<feature>/queries.ts` 内のファクトリ関数、例: `taskKeys.detail(wsId, id)`。
 
 ### API 境界
+
+クライアントとサーバーは同じプロトコル世代を使用します。廃止したエンティティの互換処理は追加せず、現在の契約内で欠落・不正・未知の値を検証します。
 
 - ネットワークレスポンスは `packages/core/api/schema.ts` の `parseWithFallback` と zod schema で解析し、`as T` で直接キャストしない
 - endpoint を追加または変更するときは schema も更新し、フィールド欠落や形式不正をテストで網羅する
 - 下流 UI は任意フィールドにデフォルト値を用意し、サーバー enum の `switch` には必ず `default` 分岐を設ける
-- インストール済みの Desktop がより新しい backend に接続する場合があるため、フロントエンドとバックエンドが常に同じバージョンだと仮定しない
 
-### イシューキー
+### Taskキー
 
-すべてのイシューには `SILI-123` のような人が読めるキーがあります。ワークスペースの `issue_prefix`（大文字と数字、通常 3 文字、最大 10 文字）+ 連番です。ワークスペースの admin は Settings → General で接頭辞を変更できますが、変更すると既存のすべてのイシューが番号を振り直されるため、古い接頭辞が埋め込まれた外部参照（PR タイトル、ブランチ名、ドキュメントやチャット内のリンク）は解決されなくなります。
+すべてのTaskには `SILI-123` のような人が読めるキーがあります。ワークスペースの `task_prefix`（大文字と数字、通常 3 文字、最大 10 文字）+ 連番です。ワークスペースの admin は Settings → General で接頭辞を変更できますが、変更すると既存のすべてのTaskが番号を振り直されるため、古い接頭辞が埋め込まれた外部参照（PR タイトル、ブランチ名、ドキュメントやチャット内のリンク）は解決されなくなります。
 
 ### コード内のコメント
 
@@ -105,29 +106,15 @@ Silieco の製品名詞は 2 つのカテゴリに分かれます。
 
 このルールは `apps/docs/content/docs/*.zh.mdx` と整合しています — これらのドキュメントは事実上の中国語ボイス標準であり、20 ページ以上で実戦検証されています。
 
-### エンティティ — 混合ルール（`issue` / `skill` / `task`）
+### Task、AgentRun、Skill の用語
 
-`issue` / `skill` / `task` は Silieco の中核エンティティです。スキーマのカラム、API のフィールド、製品 UI のラベルがすべて英語です。中国語のテキストでは**混合ルール**に従い、何を使うかは単語がどこに現れるかによって変わります。
+Task は業務上の作業項目で、AgentRun はエージェントによる 1 回の実行記録です。1 つの Task に複数の AgentRun を関連付けられます。チャットや自動化の実行には Task がない場合もあります。
 
-| 文脈 | 表記 | 例 |
-| --- | --- | --- |
-| **UI 文字列、状態名、コード参照** | 小文字の英語 | "排队中的 task"、"创建子 issue"、"为智能体注入 skill" |
-| **ドキュメントのタイトル / セクション見出し** | Title-case の英語 **または** 中国語の用語 | "Issue 与 project"、"Skills"、"执行任务" |
-| **長文ドキュメントの本文で、エンティティが文の主語になっている場合** | 中国語の用語、初出時に括弧内に英語 | "**执行任务**（task）是智能体每一次工作的单位" |
-| **API / DB フィールド** | 常に `task` / `issue` / `skill` | `task_id`, `issue_status`, `skill_uuid` |
-
-中国語の用語の参考:
-
-- `task` ↔ `执行任务`（文脈が明確になれば `任务` に短縮）
-- `issue` には定着した中国語訳がありません — 英語のまま；タイトルでは `Issue` のように大文字にできます
-- `skill` には定着した中国語訳がありません — 英語のまま；タイトルでは `Skills` のように大文字にできます
-
-**`issue` / `skill` / `task` が `project` / `autopilot` のように中国語へ強制的に翻訳されない理由**:
-
-- **`issue` / `task`**: 開発チームは英語で会話します。中国語の候補（"任务" — あいまいすぎて "工作" とほぼ同義；"工单" — IT チケットのニュアンス；"议题" — GitHub 風だが製品の感覚に合わない）はいずれも `issue` よりも読みづらくなります。**ただし**、長文ドキュメントの本文で小文字の `task` を 50 回繰り返すとリズムが崩れるため、本文では `执行任务` を許容しつつ、UI 文字列と状態名は小文字の英語のままにします。
-- **`skill`**: 定着した中国語の用語がない Silieco 固有の概念です。
-- **`project` → "项目"**: 定着した主流の中国語の単語です。Feishu / Tower / Teambition / PingCode / GitHub Projects — すべての中国語製品がこれを翻訳します。中国語の文脈で `project` をそのまま残す製品はありません。
-- **`autopilot` → "自动化"**: 中国語で "autopilot" は Tesla の "自动驾驶" を連想させ、この機能が行うこと（スケジュールに従ってタスクを実行する）と合いません。Notion も Feishu も "自动化" を使っており、それが業界の合意です。
+- 業務 ID は `task_id`、実行 ID は `run_id` を使用します。
+- 業務の親子関係は `parent_task_id`、実行の再試行は `parent_run_id` です。
+- 中国語では Task を「业务任务」、AgentRun を「执行记录」と表記します。実行を別の Task と呼ばないでください。
+- `skill` は製品のエンティティ名として保持します。`project` は「项目」、`autopilot` は「自动化」です。
+- UI とドキュメントの型名には Task / AgentRun を使用し、内部の旧エンティティ別名は追加しません。
 
 ### 翻訳しない — ブランドと頭字語
 
@@ -189,7 +176,7 @@ Silieco の製品名詞は 2 つのカテゴリに分かれます。
 これらはスキーマレベルの識別子です。中国語の文脈でも小文字の英語で表記します。
 
 - ロール: `owner` / `admin` / `member`
-- イシューの状態: `backlog` / `todo` / `in_progress` / `in_review` / `done` / `blocked` / `cancelled`
+- Taskの状態: `backlog` / `todo` / `in_progress` / `in_review` / `done` / `blocked` / `cancelled`
 
 UI ではこれらの値を英語で表示します（必要に応じて `code-style` で囲む）。
 
@@ -200,7 +187,7 @@ UI ではこれらの値を英語で表示します（必要に応じて `code-s
 
 英語の単語（エンティティ / ブランド / 頭字語）と周囲の中国語の間には、常に**単一の空白**を入れます。
 
-- "Create new issue" → "新建 issue"
+- "Create new task" → "新建 task"
 - "Assign to agent" → "分配给智能体"
 - "Configure runtime" → "配置运行时"
 - "Stop daemon" → "停止守护进程"
@@ -210,21 +197,21 @@ UI ではこれらの値を英語で表示します（必要に応じて `code-s
 i18next は `_one` / `_other` を使います。中国語には文法的な数がないため、`_other` のみを埋めます。
 
 ```json
-// en/issues.json
+// en/tasks.json
 {
-  "issue_count_one": "{{count}} issue",
-  "issue_count_other": "{{count}} issues"
+  "task_count_one": "{{count}} task",
+  "task_count_other": "{{count}} tasks"
 }
 
-// zh-Hans/issues.json
+// zh-Hans/tasks.json
 {
-  "issue_count_other": "{{count}} 个 issue"
+  "task_count_other": "{{count}} 个 task"
 }
 ```
 
 一般的な数の形式:
 
-- `{{count}} issues` → `{{count}} 个 issue`
+- `{{count}} tasks` → `{{count}} 个 task`
 - `{{count}} agents` → `{{count}} 个智能体`
 - `{{count}} workspaces` → `{{count}} 个工作区`
 - `{{count}} comments` → `{{count}} 条评论`
@@ -259,8 +246,8 @@ i18next は `_one` / `_other` を使います。中国語には文法的な数�
 
 例:
 
-- `issues.toolbar.batch_update_success`
-- `issues.detail.comment_form.placeholder`
+- `tasks.toolbar.batch_update_success`
+- `tasks.detail.comment_form.placeholder`
 - `inbox.empty.title`
 - `settings.preferences.language.title`
 
@@ -289,7 +276,7 @@ i18next は `_one` / `_other` を使います。中国語には文法的な数�
 - **エラーメッセージ**: 穏やかだが明確に。"无法保存修改" は "保存修改失败了！" よりも優れています。
 - **ボタン**: 動詞を先頭に、2〜4 文字。"取消"、"保存修改"、"立即同步"。
 - **ツールチップ**: 完結した短い文。"复制链接到剪贴板"。
-- **プレースホルダー**: 例の形式。"输入 issue 标题..."。
+- **プレースホルダー**: 例の形式。"输入 task 标题..."。
 
 ### 迷ったときに参照する場所
 

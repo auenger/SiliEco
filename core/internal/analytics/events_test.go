@@ -32,7 +32,7 @@ func TestIsMetricsOnly(t *testing.T) {
 		EventRuntimeRegistered, EventRuntimeReady, EventRuntimeFailed, EventRuntimeOffline,
 		EventAutopilotRunStarted, EventAutopilotRunCompleted, EventAutopilotRunFailed,
 		// product-behaviour events (now DB + Grafana only)
-		EventSignup, EventWorkspaceCreated, EventIssueCreated, EventIssueExecuted,
+		EventSignup, EventWorkspaceCreated, EventTaskCreated, EventTaskExecuted,
 		EventChatMessageSent, EventTeamInviteSent, EventTeamInviteAccepted,
 		EventOnboardingStarted, EventOnboardingQuestionnaireSubmit, EventOnboardingSourceSubmit,
 		EventAgentCreated,

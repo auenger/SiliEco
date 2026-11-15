@@ -105,7 +105,7 @@ func TestTypingIndicator_SkipsStaleAndEmpty(t *testing.T) {
 	}
 }
 
-func TestTypingIndicator_ClearsOnTaskFailed(t *testing.T) {
+func TestTypingIndicator_ClearsOnRunFailed(t *testing.T) {
 	sessionID := uid(7)
 	q := &fakeOutboundQueries{
 		binding: db.ChannelChatSessionBinding{InstallationID: uid(1)},
@@ -118,7 +118,7 @@ func TestTypingIndicator_ClearsOnTaskFailed(t *testing.T) {
 	// EventTaskFailed carries the session id only in the broadcast payload map,
 	// not on the envelope — the clear handler must read it from there.
 	m.handleEvent(events.Event{
-		Type:    protocol.EventTaskFailed,
+		Type:    protocol.EventRunFailed,
 		Payload: map[string]any{"chat_session_id": util.UUIDToString(sessionID)},
 	})
 	if len(fr.removed) != 1 {
@@ -129,9 +129,9 @@ func TestTypingIndicator_ClearsOnTaskFailed(t *testing.T) {
 func TestTypingIndicator_IgnoresNonChatEvent(t *testing.T) {
 	fr := &fakeReactor{}
 	m := newTestTyping(&fakeOutboundQueries{}, fr)
-	// An issue/autopilot event with no chat session must not even reach a binding
+	// An task/autopilot event with no chat session must not even reach a binding
 	// lookup, let alone a reaction removal.
-	m.handleEvent(events.Event{Type: protocol.EventTaskFailed, Payload: map[string]any{"task_id": "t1"}})
+	m.handleEvent(events.Event{Type: protocol.EventRunFailed, Payload: map[string]any{"run_id": "t1"}})
 	if len(fr.removed) != 0 {
 		t.Errorf("non-chat event must be ignored, removed %d", len(fr.removed))
 	}

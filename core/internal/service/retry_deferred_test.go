@@ -17,13 +17,13 @@ import (
 // backed-off attempt) and an immediately-claimable 'queued' child when it is
 // NULL (every other retry). Both continue the resume chain — force_fresh_session
 // stays false for a provider_network parent.
-func TestCreateRetryTaskFireAtControlsDeferral(t *testing.T) {
+func TestCreateRetryRunFireAtControlsDeferral(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
-	_, _, agentID, issueID := seedAttributionFixture(t, pool)
+	_, _, agentID, taskID := seedAttributionFixture(t, pool)
 
-	// agent_task_queue.runtime_id is NOT NULL; reuse the fixture agent's runtime.
+	// agent_run.runtime_id is NOT NULL; reuse the fixture agent's runtime.
 	var runtimeID string
 	if err := pool.QueryRow(ctx, `SELECT runtime_id::text FROM agent WHERE id = $1`, agentID).Scan(&runtimeID); err != nil {
 		t.Fatalf("read agent runtime: %v", err)
@@ -33,14 +33,14 @@ func TestCreateRetryTaskFireAtControlsDeferral(t *testing.T) {
 	// which the schedule wants the next (final) retry deferred.
 	var parentID pgtype.UUID
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, attempt, max_attempts, failure_reason, session_id, work_dir)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, attempt, max_attempts, failure_reason, session_id, work_dir)
 		VALUES ($1, $2, $3, 'failed', 0, 2, 2, 'agent_error.provider_network', 'src-session', '/tmp/src-workdir')
 		RETURNING id
-	`, agentID, runtimeID, issueID).Scan(&parentID); err != nil {
-		t.Fatalf("insert parent task: %v", err)
+	`, agentID, runtimeID, taskID).Scan(&parentID); err != nil {
+		t.Fatalf("insert parent run: %v", err)
 	}
 	t.Cleanup(func() {
-		pool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE parent_task_id = $1 OR id = $1`, parentID)
+		pool.Exec(context.Background(), `DELETE FROM agent_run WHERE parent_run_id = $1 OR id = $1`, parentID)
 	})
 
 	cases := []struct {
@@ -59,11 +59,11 @@ func TestCreateRetryTaskFireAtControlsDeferral(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			child, err := q.CreateRetryTask(ctx, db.CreateRetryTaskParams{ID: parentID, FireAt: tc.fireAt, MaxAttempts: tc.maxAttempts})
+			child, err := q.CreateRetryRun(ctx, db.CreateRetryRunParams{ID: parentID, FireAt: tc.fireAt, MaxAttempts: tc.maxAttempts})
 			if err != nil {
 				t.Fatalf("CreateRetryTask: %v", err)
 			}
-			t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, child.ID) })
+			t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, child.ID) })
 
 			if child.Status != tc.wantStatus {
 				t.Errorf("status = %q, want %q", child.Status, tc.wantStatus)
@@ -89,12 +89,12 @@ func TestCreateRetryTaskFireAtControlsDeferral(t *testing.T) {
 // (SILI-4910): FailTask must (1) grant provider_network its raised budget and
 // persist a self-consistent child (attempt=3, max_attempts=3), and (2) still
 // honour max_attempts=1 as "auto-retry disabled" — no child at all.
-func TestFailTaskProviderNetworkBudget(t *testing.T) {
+func TestFailRunProviderNetworkBudget(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
-	_, _, agentID, issueID := seedAttributionFixture(t, pool)
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
+	_, _, agentID, taskID := seedAttributionFixture(t, pool)
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
 
 	var runtimeID string
 	if err := pool.QueryRow(ctx, `SELECT runtime_id::text FROM agent WHERE id = $1`, agentID).Scan(&runtimeID); err != nil {
@@ -122,17 +122,17 @@ func TestFailTaskProviderNetworkBudget(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var parentID pgtype.UUID
 			if err := pool.QueryRow(ctx, `
-				INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, attempt, max_attempts, session_id, work_dir)
+				INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, attempt, max_attempts, session_id, work_dir)
 				VALUES ($1, $2, $3, 'running', 0, $4, $5, 'src-session', '/tmp/src-workdir')
 				RETURNING id
-			`, agentID, runtimeID, issueID, tc.attempt, tc.maxAttempts).Scan(&parentID); err != nil {
-				t.Fatalf("insert parent task: %v", err)
+			`, agentID, runtimeID, taskID, tc.attempt, tc.maxAttempts).Scan(&parentID); err != nil {
+				t.Fatalf("insert parent run: %v", err)
 			}
 			t.Cleanup(func() {
-				pool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE parent_task_id = $1 OR id = $1`, parentID)
+				pool.Exec(context.Background(), `DELETE FROM agent_run WHERE parent_run_id = $1 OR id = $1`, parentID)
 			})
 
-			if _, err := svc.FailTask(ctx, parentID, "API Error: Connection closed mid-response.", "src-session", "/tmp/src-workdir", "agent_error.provider_network", false, ""); err != nil {
+			if _, err := svc.FailRun(ctx, parentID, "API Error: Connection closed mid-response.", "src-session", "/tmp/src-workdir", "agent_error.provider_network", false, ""); err != nil {
 				t.Fatalf("FailTask: %v", err)
 			}
 
@@ -141,7 +141,7 @@ func TestFailTaskProviderNetworkBudget(t *testing.T) {
 				childStatus            string
 				n                      int
 			)
-			row := pool.QueryRow(ctx, `SELECT count(*), coalesce(max(attempt),0), coalesce(max(max_attempts),0), coalesce(max(status),'') FROM agent_task_queue WHERE parent_task_id = $1`, parentID)
+			row := pool.QueryRow(ctx, `SELECT count(*), coalesce(max(attempt),0), coalesce(max(max_attempts),0), coalesce(max(status),'') FROM agent_run WHERE parent_run_id = $1`, parentID)
 			if err := row.Scan(&n, &childAttempt, &childMax, &childStatus); err != nil {
 				t.Fatalf("read child: %v", err)
 			}

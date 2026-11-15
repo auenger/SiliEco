@@ -15,23 +15,23 @@
  */
 import type {
   Agent,
-  AgentTask,
+  AgentRun,
   Attachment,
   ChatMessage,
-  ChatPendingTask,
+  ChatPendingRun,
   ChatSession,
   Comment,
-  CreateIssueRequest,
+  CreateTaskRequest,
   CreateLabelRequest,
   CreateProjectRequest,
   CreateProjectResourceRequest,
   InboxItem,
-  Issue,
-  IssueLabelsResponse,
+  Task,
+  TaskLabelsResponse,
   Label,
-  IssueReaction,
-  ListIssuesParams,
-  ListIssuesResponse,
+  TaskReaction,
+  ListTasksParams,
+  ListTasksResponse,
   ListLabelsResponse,
   ListProjectResourcesResponse,
   ListProjectsResponse,
@@ -43,48 +43,48 @@ import type {
   Reaction,
   ReorderPinsRequest,
   RuntimeDevice,
-  SearchIssuesResponse,
+  SearchTasksResponse,
   SearchProjectsResponse,
   SendChatMessageResponse,
   Squad,
   NotificationPreferenceResponse,
   NotificationPreferences,
-  TaskMessagePayload,
+  AgentRunMessagePayload,
   TimelineEntry,
-  UpdateIssueRequest,
+  UpdateTaskRequest,
   UpdateMeRequest,
   UpdateProjectRequest,
   User,
   Workspace,
 } from "@silieco/core/types";
 import {
-  EMPTY_LIST_ISSUES_RESPONSE,
+  EMPTY_LIST_TASKS_RESPONSE,
   EMPTY_TIMELINE_ENTRIES,
-  IssueSchema,
-  ListIssuesResponseSchema,
+  TaskSchema,
+  ListTasksResponseSchema,
   TimelineEntriesSchema,
 } from "@silieco/core/api/schemas";
 import {
-  ActiveTasksResponseSchema,
+  ActiveRunsResponseSchema,
   AgentListSchema,
-  AgentTaskListSchema,
+  AgentRunListSchema,
   AttachmentListSchema,
   AttachmentSchema,
   ChatMessageListSchema,
   CommentSchema,
-  ChatPendingTaskSchema,
+  ChatPendingRunSchema,
   ChatSessionListSchema,
   ChatSessionSchema,
-  EMPTY_ACTIVE_TASKS_RESPONSE,
+  EMPTY_ACTIVE_RUNS_RESPONSE,
   EMPTY_AGENT_LIST,
-  EMPTY_AGENT_TASK_LIST,
+  EMPTY_AGENT_RUN_LIST,
   EMPTY_ATTACHMENT_LIST,
   EMPTY_CHAT_MESSAGE_LIST,
-  EMPTY_CHAT_PENDING_TASK,
+  EMPTY_CHAT_PENDING_RUN,
   EMPTY_CHAT_SESSION_LIST,
   EMPTY_COMMENT,
   EMPTY_INBOX_LIST,
-  EMPTY_ISSUE_FALLBACK,
+  EMPTY_TASK_FALLBACK,
   EMPTY_LIST_LABELS_RESPONSE,
   EMPTY_LIST_PROJECT_RESOURCES_RESPONSE,
   EMPTY_LIST_PROJECTS_RESPONSE,
@@ -93,7 +93,7 @@ import {
   EMPTY_PIN_LIST,
   EMPTY_PROJECT,
   EMPTY_RUNTIME_LIST,
-  EMPTY_SEARCH_ISSUES_RESPONSE,
+  EMPTY_SEARCH_TASKS_RESPONSE,
   EMPTY_SEARCH_PROJECTS_RESPONSE,
   EMPTY_SQUAD_LIST,
   EMPTY_USER,
@@ -108,16 +108,17 @@ import {
   PinnedItemSchema,
   ProjectSchema,
   RuntimeListSchema,
-  SearchIssuesResponseSchema,
+  SearchTasksResponseSchema,
   SearchProjectsResponseSchema,
   SendChatMessageResponseSchema,
   SquadListSchema,
-  TaskMessageListSchema,
-  EMPTY_TASK_MESSAGE_LIST,
+  AgentRunMessageListSchema,
+  EMPTY_AGENT_RUN_MESSAGE_LIST,
   UserSchema,
   WorkspaceListSchema,
 } from "./schemas";
 import type { ZodType } from "zod";
+import { PROTOCOL_GENERATION } from "./protocol";
 import { getCurrentSlug } from "./workspace-store";
 import { parseWithFallback } from "@/lib/parse-response";
 import { createRequestId } from "@/lib/request-id";
@@ -200,6 +201,7 @@ class ApiClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Client-Platform": "mobile",
+      "X-Silieco-Protocol": PROTOCOL_GENERATION,
       "X-Client-OS": "ios",
       "X-Client-Version": "0.1.0",
       "X-Request-ID": rid,
@@ -522,19 +524,19 @@ class ApiClient {
     });
   }
 
-  // Workspace-wide active agent tasks + each agent's most recent terminal —
+  // Workspace-wide active agent runs + each agent's most recent terminal run —
   // feeds the workload dimension of presence (currently unused in the mobile
   // dot; reserved for the P1 long-press peek sheet). Listed here now so the
   // realtime invalidation path can be wired in one PR. Backend route at
-  // core/cmd/core/router.go:539 (GET /api/agent-task-snapshot).
-  async listAgentTaskSnapshot(
+  // core/cmd/core/router.go:539 (GET /api/agent-run-snapshot).
+  async getAgentRunSnapshot(
     opts?: { signal?: AbortSignal },
-  ): Promise<AgentTask[]> {
-    const raw = await this.fetch<unknown>("/api/agent-task-snapshot", {
+  ): Promise<AgentRun[]> {
+    const raw = await this.fetch<unknown>("/api/agent-run-snapshot", {
       signal: opts?.signal,
     });
-    return parseWithFallback(raw, AgentTaskListSchema, EMPTY_AGENT_TASK_LIST, {
-      endpoint: "listAgentTaskSnapshot",
+    return parseWithFallback(raw, AgentRunListSchema, EMPTY_AGENT_RUN_LIST, {
+      endpoint: "getAgentRunSnapshot",
     });
   }
 
@@ -547,16 +549,16 @@ class ApiClient {
     });
   }
 
-  // --- Issues ---
-  async listIssues(
-    params: ListIssuesParams = {},
+  // --- Tasks ---
+  async listTasks(
+    params: ListTasksParams = {},
     opts?: { signal?: AbortSignal },
-  ): Promise<ListIssuesResponse> {
+  ): Promise<ListTasksResponse> {
     const search = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
       if (v == null) continue;
       if (Array.isArray(v)) {
-        // Backend parses comma-separated lists (core/internal/handler/issue.go
+        // Backend parses comma-separated lists (core/internal/handler/task.go
         // uses strings.Split on a single query value). Match web's serialization
         // in packages/core/api/client.ts:407 — repeated keys would silently
         // collapse to the first value only.
@@ -570,20 +572,20 @@ class ApiClient {
       `/api/tasks${qs ? `?${qs}` : ""}`,
       { signal: opts?.signal },
     );
-    return parseWithFallback(raw, ListIssuesResponseSchema, EMPTY_LIST_ISSUES_RESPONSE, {
+    return parseWithFallback(raw, ListTasksResponseSchema, EMPTY_LIST_TASKS_RESPONSE, {
       endpoint: "GET /api/tasks",
     });
   }
 
-  /** Workspace-wide issue search. Backend `GET /api/tasks/search` with
+  /** Workspace-wide task search. Backend `GET /api/tasks/search` with
    *  workspace resolved by the `X-Workspace-Slug` middleware (same as
-   *  `listIssues`). Caller passes its own `AbortController.signal` so the
+   *  `listTasks`). Caller passes its own `AbortController.signal` so the
    *  search modal can cancel an in-flight request when the user types
    *  again — see app/(app)/[workspace]/search.tsx. */
-  async searchIssues(
+  async searchTasks(
     params: { q: string; limit?: number; include_closed?: boolean; offset?: number },
     opts?: { signal?: AbortSignal },
-  ): Promise<SearchIssuesResponse> {
+  ): Promise<SearchTasksResponse> {
     const search = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
       if (v == null) continue;
@@ -593,46 +595,46 @@ class ApiClient {
       `/api/tasks/search?${search.toString()}`,
       { signal: opts?.signal },
     );
-    return parseWithFallback(raw, SearchIssuesResponseSchema, EMPTY_SEARCH_ISSUES_RESPONSE, {
+    return parseWithFallback(raw, SearchTasksResponseSchema, EMPTY_SEARCH_TASKS_RESPONSE, {
       endpoint: "GET /api/tasks/search",
     });
   }
 
-  async getIssue(
+  async getTask(
     id: string,
     opts?: { signal?: AbortSignal },
-  ): Promise<Issue> {
+  ): Promise<Task> {
     return this.fetchValidated(
       `/api/tasks/${id}`,
-      IssueSchema,
-      EMPTY_ISSUE_FALLBACK,
-      { ...opts, endpoint: "getIssue" },
+      TaskSchema,
+      EMPTY_TASK_FALLBACK,
+      { ...opts, endpoint: "getTask" },
     );
   }
 
   // Write endpoint — mirrors POST /api/tasks
-  // (core/cmd/core/router.go:320, core/internal/handler/issue.go
-  // CreateIssue). Mobile sends only the fields the form fills in; backend
+  // (core/cmd/core/router.go:320, core/internal/handler/task.go
+  // CreateTask). Mobile sends only the fields the form fills in; backend
   // applies its own defaults for anything omitted.
-  async createIssue(body: CreateIssueRequest): Promise<Issue> {
-    return this.fetch<Issue>("/api/tasks", {
+  async createTask(body: CreateTaskRequest): Promise<Task> {
+    return this.fetch<Task>("/api/tasks", {
       method: "POST",
       body: JSON.stringify(body),
     });
   }
 
   // Timeline returns the full ASC entry list in one shot — server-side
-  // pagination was dropped in #2322 (p99 ~30 entries per issue, cursors
+  // pagination was dropped in #2322 (p99 ~30 entries per task, cursors
   // were pure overhead and split reply threads at page boundaries).
   // Call WITHOUT pagination params: the legacy `limit/before/after/around`
   // path returns the old wrapped shape for back-compat, which mobile must
   // NOT trigger. See core/internal/handler/activity.go:60-69.
   async listTimeline(
-    issueId: string,
+    taskId: string,
     opts?: { signal?: AbortSignal },
   ): Promise<TimelineEntry[]> {
     return this.fetchValidated(
-      `/api/tasks/${issueId}/timeline`,
+      `/api/tasks/${taskId}/timeline`,
       TimelineEntriesSchema,
       EMPTY_TIMELINE_ENTRIES,
       { ...opts, endpoint: "GET /api/tasks/:id/timeline" },
@@ -640,55 +642,54 @@ class ApiClient {
   }
 
   // GET /api/tasks/:id/attachments — list of file attachments hooked to
-  // the issue (or its comments). Mobile uses this to resolve `mc://file/<id>`
+  // the task (or its comments). Mobile uses this to resolve `mc://file/<id>`
   // markdown image URIs to their `download_url` HTTPS endpoint; without it,
   // iOS image loader doesn't understand the mc: scheme and renders broken.
   async listAttachments(
-    issueId: string,
+    taskId: string,
     opts?: { signal?: AbortSignal },
   ): Promise<Attachment[]> {
     return this.fetchValidated(
-      `/api/tasks/${issueId}/attachments`,
+      `/api/tasks/${taskId}/attachments`,
       AttachmentListSchema,
       EMPTY_ATTACHMENT_LIST,
       { ...opts, endpoint: "GET /api/tasks/:id/attachments" },
     );
   }
 
-  // Active tasks for an issue (status in queued/dispatched/running). Returns
-  // the inner `tasks` array directly — handler wraps it in `{ tasks: [] }`
+  // Active runs for a task (status in queued/dispatched/running). Returns
+  // the inner `runs` array directly — handler wraps it in `{ runs: [] }`
   // (core/internal/handler/daemon.go:1866) so the response object survives
   // future field additions without breaking the cache shape.
-  async listActiveTasksForIssue(
-    issueId: string,
+  async getActiveRunsForTask(
+    taskId: string,
     opts?: { signal?: AbortSignal },
-  ): Promise<AgentTask[]> {
+  ): Promise<AgentRun[]> {
     const parsed = await this.fetchValidated(
-      `/api/tasks/${issueId}/active-run`,
-      ActiveTasksResponseSchema,
-      EMPTY_ACTIVE_TASKS_RESPONSE,
+      `/api/tasks/${taskId}/active-run`,
+      ActiveRunsResponseSchema,
+      EMPTY_ACTIVE_RUNS_RESPONSE,
       { ...opts, endpoint: "GET /api/tasks/:id/active-run" },
     );
-    return parsed.tasks;
+    return parsed.runs;
   }
 
-  // All tasks (any status) for an issue — drives the "Runs" history section.
-  // Path is `/task-runs` (core/cmd/core/router.go:353), NOT `/tasks` —
-  // the latter doesn't exist on this scope.
-  async listTasksByIssue(
-    issueId: string,
+  // All runs (any status) for a task — drives the "Runs" history section.
+  // Execution history is a subresource of the business task.
+  async listRunsByTask(
+    taskId: string,
     opts?: { signal?: AbortSignal },
-  ): Promise<AgentTask[]> {
+  ): Promise<AgentRun[]> {
     return this.fetchValidated(
-      `/api/tasks/${issueId}/runs`,
-      AgentTaskListSchema,
-      EMPTY_AGENT_TASK_LIST,
+      `/api/tasks/${taskId}/runs`,
+      AgentRunListSchema,
+      EMPTY_AGENT_RUN_LIST,
       { ...opts, endpoint: "GET /api/tasks/:id/runs" },
     );
   }
 
   async createComment(
-    issueId: string,
+    taskId: string,
     content: string,
     opts?: { parentId?: string; type?: string; attachmentIds?: string[] },
   ): Promise<Comment> {
@@ -697,7 +698,7 @@ class ApiClient {
     // when present so top-level comments don't carry an explicit null.
     // `type` defaults to "comment" matching web client.ts:686.
     return this.fetchValidatedWith(
-      `/api/tasks/${issueId}/comments`,
+      `/api/tasks/${taskId}/comments`,
       CommentSchema,
       EMPTY_COMMENT,
       {
@@ -765,7 +766,7 @@ class ApiClient {
 
   // --- Reactions ---
   // Comment reactions: POST/DELETE /api/comments/{id}/reactions
-  // Issue reactions:   POST/DELETE /api/tasks/{id}/reactions
+  // Task reactions:   POST/DELETE /api/tasks/{id}/reactions
   // Mirror surface from packages/core/api/client.ts:541-573.
   async addReaction(commentId: string, emoji: string): Promise<Reaction> {
     return this.fetch<Reaction>(`/api/comments/${commentId}/reactions`, {
@@ -781,39 +782,39 @@ class ApiClient {
     });
   }
 
-  async addIssueReaction(
-    issueId: string,
+  async addTaskReaction(
+    taskId: string,
     emoji: string,
-  ): Promise<IssueReaction> {
-    return this.fetch<IssueReaction>(`/api/tasks/${issueId}/reactions`, {
+  ): Promise<TaskReaction> {
+    return this.fetch<TaskReaction>(`/api/tasks/${taskId}/reactions`, {
       method: "POST",
       body: JSON.stringify({ emoji }),
     });
   }
 
-  async removeIssueReaction(issueId: string, emoji: string): Promise<void> {
-    await this.fetch<void>(`/api/tasks/${issueId}/reactions`, {
+  async removeTaskReaction(taskId: string, emoji: string): Promise<void> {
+    await this.fetch<void>(`/api/tasks/${taskId}/reactions`, {
       method: "DELETE",
       body: JSON.stringify({ emoji }),
     });
   }
 
-  // --- Issue update ---
+  // --- Task update ---
   // Write endpoint — the mutation surface handles errors via rollback, so
   // we let bad responses surface naturally (no parseWithFallback).
   // Method is PUT to match backend router (core/cmd/core/router.go:327)
   // and web client (packages/core/api/client.ts:465).
-  async updateIssue(id: string, body: UpdateIssueRequest): Promise<Issue> {
-    return this.fetch<Issue>(`/api/tasks/${id}`, {
+  async updateTask(id: string, body: UpdateTaskRequest): Promise<Task> {
+    return this.fetch<Task>(`/api/tasks/${id}`, {
       method: "PUT",
       body: JSON.stringify(body),
     });
   }
 
   // Backend returns 204 No Content on success
-  // (core/internal/handler/issue.go DeleteIssue). this.fetch already
+  // (core/internal/handler/task.go DeleteTask). this.fetch already
   // short-circuits 204 → undefined (api.ts:270), so no body parsing needed.
-  async deleteIssue(id: string): Promise<void> {
+  async deleteTask(id: string): Promise<void> {
     await this.fetch<void>(`/api/tasks/${id}`, { method: "DELETE" });
   }
 
@@ -844,11 +845,11 @@ class ApiClient {
   }
 
   async attachLabel(
-    issueId: string,
+    taskId: string,
     labelId: string,
-  ): Promise<IssueLabelsResponse> {
-    return this.fetch<IssueLabelsResponse>(
-      `/api/tasks/${issueId}/labels`,
+  ): Promise<TaskLabelsResponse> {
+    return this.fetch<TaskLabelsResponse>(
+      `/api/tasks/${taskId}/labels`,
       {
         method: "POST",
         body: JSON.stringify({ label_id: labelId }),
@@ -857,11 +858,11 @@ class ApiClient {
   }
 
   async detachLabel(
-    issueId: string,
+    taskId: string,
     labelId: string,
-  ): Promise<IssueLabelsResponse> {
-    return this.fetch<IssueLabelsResponse>(
-      `/api/tasks/${issueId}/labels/${labelId}`,
+  ): Promise<TaskLabelsResponse> {
+    return this.fetch<TaskLabelsResponse>(
+      `/api/tasks/${taskId}/labels/${labelId}`,
       { method: "DELETE" },
     );
   }
@@ -881,7 +882,7 @@ class ApiClient {
     );
   }
 
-  /** Workspace-wide project search. See `searchIssues` for the signal
+  /** Workspace-wide project search. See `searchTasks` for the signal
    *  contract. */
   async searchProjects(
     params: { q: string; limit?: number; include_closed?: boolean; offset?: number },
@@ -919,7 +920,7 @@ class ApiClient {
     });
   }
 
-  // Write endpoints — no parseWithFallback (mirrors updateIssue:430). A
+  // Write endpoints — no parseWithFallback (mirrors updateTask:430). A
   // malformed write response surfaces as an error so the optimistic
   // patch rolls back; pretending the write succeeded with empty data
   // would silently desync caches.
@@ -1048,10 +1049,10 @@ class ApiClient {
     content: string,
     opts?: { attachmentIds?: string[] },
   ): Promise<SendChatMessageResponse> {
-    // Strict parse — we need task_id + created_at to anchor the optimistic
+    // Strict parse — we need run_id + created_at to anchor the optimistic
     // StatusPill. Fallback would silently break the elapsed-time timer.
     //
-    // `attachment_ids` mirrors the comment / issue create payloads —
+    // `attachment_ids` mirrors the comment / task create payloads —
     // server-side `chat.go` back-fills `chat_message_id` on the listed
     // attachments after the message row is inserted (see
     // core/internal/handler/chat.go:410-456).
@@ -1076,19 +1077,19 @@ class ApiClient {
     return parsed.data;
   }
 
-  async getPendingChatTask(
+  async getPendingChatRun(
     sessionId: string,
     opts?: { signal?: AbortSignal },
-  ): Promise<ChatPendingTask> {
+  ): Promise<ChatPendingRun> {
     const raw = await this.fetch<unknown>(
-      `/api/chat/sessions/${sessionId}/pending-task`,
+      `/api/chat/sessions/${sessionId}/pending-run`,
       { signal: opts?.signal },
     );
     return parseWithFallback(
       raw,
-      ChatPendingTaskSchema,
-      EMPTY_CHAT_PENDING_TASK,
-      { endpoint: "GET /api/chat/sessions/:id/pending-task" },
+      ChatPendingRunSchema,
+      EMPTY_CHAT_PENDING_RUN,
+      { endpoint: "GET /api/chat/sessions/:id/pending-run" },
     );
   }
 
@@ -1099,23 +1100,23 @@ class ApiClient {
     );
   }
 
-  async cancelTaskById(taskId: string): Promise<void> {
-    await this.fetch<void>(`/api/runs/${taskId}/cancel`, { method: "POST" });
+  async cancelRunById(runId: string): Promise<void> {
+    await this.fetch<void>(`/api/runs/${runId}/cancel`, { method: "POST" });
   }
 
-  /** Live execution timeline for a task — used by the chat screen to
+  /** Live execution timeline for a run — used by the chat screen to
    *  render the "thinking → tool_use → tool_result → final text" trace
-   *  beneath an in-flight assistant bubble. `task:message` WS events
+   *  beneath an in-flight assistant bubble. `run:message` WS events
    *  append to the same cache key in real time (see
    *  use-chat-session-realtime.ts). */
-  async listTaskMessages(
-    taskId: string,
+  async listAgentRunMessages(
+    runId: string,
     opts?: { signal?: AbortSignal },
-  ): Promise<TaskMessagePayload[]> {
+  ): Promise<AgentRunMessagePayload[]> {
     return this.fetchValidated(
-      `/api/runs/${taskId}/messages`,
-      TaskMessageListSchema,
-      EMPTY_TASK_MESSAGE_LIST,
+      `/api/runs/${runId}/messages`,
+      AgentRunMessageListSchema,
+      EMPTY_AGENT_RUN_MESSAGE_LIST,
       { ...opts, endpoint: "GET /api/runs/:id/messages" },
     );
   }
@@ -1123,7 +1124,7 @@ class ApiClient {
   // --- Pins ---
   //
   // Pin metadata only — title / status / icon for each row come from
-  // `issueDetailOptions` / `projectDetailOptions` on the consumer side.
+  // `taskDetailOptions` / `projectDetailOptions` on the consumer side.
   // Endpoints mirror packages/core/api/client.ts:1551-1572.
 
   async listPins(opts?: { signal?: AbortSignal }): Promise<PinnedItem[]> {
@@ -1179,10 +1180,10 @@ class ApiClient {
    * RN-shaped `FileAsset` instead of a browser `File`. The fetch FormData
    * polyfill recognises `{ uri, name, type }` and reads the file off disk.
    *
-   * `opts.issueId` / `opts.commentId` link the attachment record. Pass
-   * `issueId` when uploading from a comment composer / reply input; leave
-   * both empty when uploading from a not-yet-created issue (the attachment
-   * is hooked to the issue once it's created — same flow as web).
+   * `opts.taskId` / `opts.commentId` link the attachment record. Pass
+   * `taskId` when uploading from a comment composer / reply input; leave
+   * both empty when uploading from a not-yet-created task (the attachment
+   * is hooked to the task once it's created — same flow as web).
    *
    * Does NOT use `this.fetch` because:
    *   - FormData must not have a `Content-Type` header preset (the browser /
@@ -1193,7 +1194,7 @@ class ApiClient {
    */
   async uploadFile(
     asset: FileAsset,
-    opts?: { issueId?: string; commentId?: string },
+    opts?: { taskId?: string; commentId?: string },
   ): Promise<Attachment> {
     const rid = createRequestId();
     const start = Date.now();
@@ -1202,6 +1203,7 @@ class ApiClient {
     const headers: Record<string, string> = {
       // No Content-Type — let fetch set the multipart boundary.
       "X-Client-Platform": "mobile",
+      "X-Silieco-Protocol": PROTOCOL_GENERATION,
       "X-Client-OS": "ios",
       "X-Client-Version": "0.1.0",
       "X-Request-ID": rid,
@@ -1217,7 +1219,7 @@ class ApiClient {
       "file",
       { uri: asset.uri, name: asset.name, type: asset.type } as never,
     );
-    if (opts?.issueId) formData.append("issue_id", opts.issueId);
+    if (opts?.taskId) formData.append("task_id", opts.taskId);
     if (opts?.commentId) formData.append("comment_id", opts.commentId);
 
     console.log(`[api] → POST ${path}`, { rid, filename: asset.name });

@@ -3,7 +3,7 @@ title: Project architecture
 description: Learn how Silieco's clients, Go service, execution daemon, and shared frontend packages work together.
 ---
 
-Silieco consists of a Go backend, multiple clients, and a daemon that runs on execution computers. PostgreSQL stores collaboration data; the daemon claims tasks and invokes local AI coding tools.
+Silieco consists of a Go backend, multiple clients, and a daemon that runs on execution computers. PostgreSQL stores collaboration data; the daemon claims AgentRuns and invokes local AI coding tools.
 
 ```text
 Web / Desktop / Mobile / CLI
@@ -45,11 +45,11 @@ Web and Desktop share three layers:
 
 Platform capabilities such as routing, cookies, and Electron IPC stay in the application layer. Shared pages navigate through `NavigationAdapter` and do not import `next/*` or `react-router-dom` directly.
 
-For example, an issue feature needed by both Web and Desktop usually touches:
+For example, a task feature needed by both Web and Desktop usually touches:
 
 ```text
-packages/core/issues/      queries, mutations, cache updates
-packages/views/issues/     pages and business components
+packages/core/tasks/      queries, mutations, cache updates
+packages/views/tasks/     pages and business components
 apps/web/platform/         Next.js routing adapter
 apps/desktop/.../platform/ Electron routing adapter
 ```
@@ -60,14 +60,14 @@ Mobile does not reuse these React pages. It may import types and pure functions 
 
 Server data and client state are managed separately:
 
-- **TanStack Query** owns server data such as issues, agents, members, and inbox items.
+- **TanStack Query** owns server data such as tasks, agents, members, and inbox items.
 - **Zustand** owns client state such as filters, drafts, dialogs, and layout.
 - The current workspace is route-driven and is mirrored at the platform layer only where requests, persisted namespaces, or reconnection require it.
 - React Context carries only platform plumbing such as the workspace ID and navigation adapter.
 
 WebSocket events should update or invalidate the TanStack Query cache. Do not copy server objects into Zustand. Mutations that navigate, such as creating, deleting, or leaving a workspace, must wait for server confirmation before clearing local state.
 
-API responses are parsed with zod schemas at the `packages/core/api/` boundary. An installed Desktop client may connect to a newer backend, so network JSON must not be asserted directly as a TypeScript type.
+API responses are parsed with zod schemas at the `packages/core/api/` boundary. Clients and servers must use the same supported protocol generation; network JSON still requires schema validation rather than direct TypeScript assertions.
 
 ## Backend layers
 
@@ -100,20 +100,20 @@ PostgreSQL is the source of truth for business data. Redis is optional and is us
 
 Silieco has two distinct WebSocket paths:
 
-- `internal/realtime/` pushes issue, comment, inbox, and other changes to user clients.
+- `internal/realtime/` pushes task, comment, inbox, and other changes to user clients.
 - `internal/daemonws/` connects daemons to wake runtimes and perform daemon RPC.
 
-WebSocket reduces latency, but the database remains the final state. Clients must recalibrate through queries after reconnecting. The daemon also keeps a polling path so that one disconnect cannot leave a queued task stuck forever.
+WebSocket reduces latency, but the database remains the final state. Clients must recalibrate through queries after reconnecting. The daemon also keeps a polling path so that one disconnect cannot leave a queued AgentRun stuck forever.
 
 ## Code path for one execution
 
-1. A user assigns an issue, mentions an agent, or an automation triggers.
-2. `TaskService` creates a queued task and notifies the corresponding runtime.
-3. The daemon claims the task through the daemon API.
-4. The server issues temporary credentials bound to the task and agent.
+1. A user assigns a task, mentions an agent, or an automation triggers.
+2. `AgentRunService` creates a queued AgentRun and notifies the corresponding runtime.
+3. The daemon claims the AgentRun through the daemon API.
+4. The server issues temporary credentials bound to the AgentRun and agent.
 5. The daemon prepares a local directory and invokes the matching provider backend in `pkg/agent`.
 6. The tool runs locally while the daemon uploads progress, messages, and final status.
-7. The server updates the task and issue, then refreshes clients through realtime events.
+7. The server updates the AgentRun and Task, then refreshes clients through realtime events.
 
 The provider adapter layer normalizes startup, streaming events, cancellation, and usage data across AI coding tools, while the daemon still owns local directories and sessions.
 
@@ -121,7 +121,7 @@ The provider adapter layer normalizes startup, streaming events, cancellation, a
 
 Business queries must be scoped by `workspace_id`, and membership is checked before a request enters a workspace route. `X-Workspace-ID` selects the current workspace but does not replace authorization checks.
 
-An issue's assignee is polymorphic and may point to a member, agent, or squad. New queries, cache keys, and realtime events must preserve both the workspace and assignee type instead of assuming that a resource ID is globally unique context.
+A task's assignee is polymorphic and may point to a member, agent, or squad. New queries, cache keys, and realtime events must preserve both the workspace and assignee type instead of assuming that a resource ID is globally unique context.
 
 ## Next steps
 

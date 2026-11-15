@@ -7,7 +7,7 @@ function makeFile(overrides: Partial<Attachment> = {}): Attachment {
   return {
     id: "att-1",
     workspace_id: "ws-1",
-    issue_id: null,
+    task_id: null,
     comment_id: null,
     chat_session_id: null,
     chat_message_id: null,

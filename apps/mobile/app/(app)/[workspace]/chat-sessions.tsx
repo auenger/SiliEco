@@ -7,7 +7,7 @@
  * Why a tiny dedicated store: the chat tab's `activeSessionId` used to live
  * as a `useState` inside `chat.tsx`, but now that session picking happens
  * on a separate route screen, we need a cross-screen channel. Same minimum
- * pattern as `useNewIssueDraftStore` for the new-issue form.
+ * pattern as `useNewTaskDraftStore` for the new-task form.
  */
 import { Alert, Pressable, ScrollView, View } from "react-native";
 import { router } from "expo-router";

@@ -7,7 +7,7 @@
 // Each provider only contributes the parts that actually differ between
 // providers: how a webhook is authenticated, how its event/payload shapes map to
 // the normalized PR/CI structs below, and how a token is validated. The shared
-// storage, issue auto-link / auto-close, and broadcast logic live once in the
+// storage, task auto-link / auto-close, and broadcast logic live once in the
 // handler layer and consume the normalized types.
 package vcs
 

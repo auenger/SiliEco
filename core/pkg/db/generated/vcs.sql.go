@@ -16,7 +16,7 @@ WITH target AS (
     SELECT vcs_connection.id FROM vcs_connection WHERE vcs_connection.id = $1 AND vcs_connection.workspace_id = $2
 ),
 cleared_links AS (
-    DELETE FROM issue_vcs_pull_request
+    DELETE FROM task_vcs_pull_request
     WHERE pull_request_id IN (
         SELECT vcs_pull_request.id FROM vcs_pull_request
         WHERE vcs_pull_request.connection_id IN (SELECT target.id FROM target)
@@ -37,7 +37,7 @@ type DeleteVCSConnectionParams struct {
 }
 
 // These tables carry no FKs, so the cascade that once removed the connection's
-// mirrored PRs, their issue links, and CI statuses is gone (migration 213). Do
+// mirrored PRs, their task links, and CI statuses is gone (migration 213). Do
 // that cleanup explicitly here, in one statement so it commits or rolls back
 // atomically with the connection row. The target CTE also scopes every child
 // delete to a connection that actually belongs to the workspace, so a wrong
@@ -47,17 +47,17 @@ func (q *Queries) DeleteVCSConnection(ctx context.Context, arg DeleteVCSConnecti
 	return err
 }
 
-const getIssueCombinedPullRequestCloseAggregate = `-- name: GetIssueCombinedPullRequestCloseAggregate :one
+const getTaskCombinedPullRequestCloseAggregate = `-- name: GetTaskCombinedPullRequestCloseAggregate :one
 WITH combined AS (
     SELECT pr.state AS state, ipr.close_intent AS close_intent
     FROM github_pull_request pr
-    JOIN issue_pull_request ipr ON ipr.pull_request_id = pr.id
-    WHERE ipr.issue_id = $1 AND NOT ipr.reference_only
+    JOIN task_pull_request ipr ON ipr.pull_request_id = pr.id
+    WHERE ipr.task_id = $1 AND NOT ipr.reference_only
     UNION ALL
     SELECT pr.state AS state, ipr.close_intent AS close_intent
     FROM vcs_pull_request pr
-    JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
-    WHERE ipr.issue_id = $1 AND NOT ipr.reference_only
+    JOIN task_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
+    WHERE ipr.task_id = $1 AND NOT ipr.reference_only
 )
 SELECT
     COALESCE(SUM(CASE WHEN state IN ('open', 'draft') THEN 1 ELSE 0 END), 0)::bigint AS open_count,
@@ -65,23 +65,23 @@ SELECT
 FROM combined
 `
 
-type GetIssueCombinedPullRequestCloseAggregateRow struct {
+type GetTaskCombinedPullRequestCloseAggregateRow struct {
 	OpenCount                  int64 `json:"open_count"`
 	MergedWithCloseIntentCount int64 `json:"merged_with_close_intent_count"`
 }
 
-// Cross-provider close gate. An issue can carry PRs from GitHub AND a
+// Cross-provider close gate. An task can carry PRs from GitHub AND a
 // self-hosted VCS provider at the same time, so auto-advance has to see BOTH
 // table pairs. Reading only one (as the per-provider aggregates do) lets a
-// merged close-intent PR/MR on one provider advance an issue that still has an
+// merged close-intent PR/MR on one provider advance an task that still has an
 // open PR on the other — either webhook is blind to the other's in-flight work.
 // Sum the in-flight (open/draft) and merged-with-close-intent counts across
-// github_pull_request+issue_pull_request and vcs_pull_request+
-// issue_vcs_pull_request. reference_only links are excluded on both sides, so a
+// github_pull_request+task_pull_request and vcs_pull_request+
+// task_vcs_pull_request. reference_only links are excluded on both sides, so a
 // bare body mention neither counts as in-flight nor gates advance.
-func (q *Queries) GetIssueCombinedPullRequestCloseAggregate(ctx context.Context, issueID pgtype.UUID) (GetIssueCombinedPullRequestCloseAggregateRow, error) {
-	row := q.db.QueryRow(ctx, getIssueCombinedPullRequestCloseAggregate, issueID)
-	var i GetIssueCombinedPullRequestCloseAggregateRow
+func (q *Queries) GetTaskCombinedPullRequestCloseAggregate(ctx context.Context, taskID pgtype.UUID) (GetTaskCombinedPullRequestCloseAggregateRow, error) {
+	row := q.db.QueryRow(ctx, getTaskCombinedPullRequestCloseAggregate, taskID)
+	var i GetTaskCombinedPullRequestCloseAggregateRow
 	err := row.Scan(&i.OpenCount, &i.MergedWithCloseIntentCount)
 	return i, err
 }
@@ -109,26 +109,26 @@ func (q *Queries) GetVCSConnectionByID(ctx context.Context, id pgtype.UUID) (Vcs
 	return i, err
 }
 
-const linkIssueToVCSPullRequest = `-- name: LinkIssueToVCSPullRequest :exec
+const linkTaskToVCSPullRequest = `-- name: LinkTaskToVCSPullRequest :exec
 
-INSERT INTO issue_vcs_pull_request (
-    issue_id, pull_request_id, linked_by_type, linked_by_id, close_intent, reference_only
+INSERT INTO task_vcs_pull_request (
+    task_id, pull_request_id, linked_by_type, linked_by_id, close_intent, reference_only
 ) VALUES (
     $1, $2, $4, $5, $3, $6
 )
-ON CONFLICT (issue_id, pull_request_id) DO UPDATE SET
+ON CONFLICT (task_id, pull_request_id) DO UPDATE SET
     close_intent = CASE
-        WHEN $7 THEN issue_vcs_pull_request.close_intent
+        WHEN $7 THEN task_vcs_pull_request.close_intent
         ELSE EXCLUDED.close_intent
     END,
     reference_only = CASE
-        WHEN $7 THEN issue_vcs_pull_request.reference_only
+        WHEN $7 THEN task_vcs_pull_request.reference_only
         ELSE EXCLUDED.reference_only
     END
 `
 
-type LinkIssueToVCSPullRequestParams struct {
-	IssueID             pgtype.UUID `json:"issue_id"`
+type LinkTaskToVCSPullRequestParams struct {
+	TaskID              pgtype.UUID `json:"task_id"`
 	PullRequestID       pgtype.UUID `json:"pull_request_id"`
 	CloseIntent         bool        `json:"close_intent"`
 	LinkedByType        pgtype.Text `json:"linked_by_type"`
@@ -138,15 +138,15 @@ type LinkIssueToVCSPullRequestParams struct {
 }
 
 // =====================
-// Issue ↔ VCS PR link
+// Task ↔ VCS PR link
 // =====================
 // reference_only marks a link justified ONLY by a bare body mention (no closing
 // keyword and no title/branch reference), mirroring the GitHub link upsert.
 // preserve_close_intent freezes both close_intent and reference_only once a
 // terminal merge/close event has been recorded.
-func (q *Queries) LinkIssueToVCSPullRequest(ctx context.Context, arg LinkIssueToVCSPullRequestParams) error {
-	_, err := q.db.Exec(ctx, linkIssueToVCSPullRequest,
-		arg.IssueID,
+func (q *Queries) LinkTaskToVCSPullRequest(ctx context.Context, arg LinkTaskToVCSPullRequestParams) error {
+	_, err := q.db.Exec(ctx, linkTaskToVCSPullRequest,
+		arg.TaskID,
 		arg.PullRequestID,
 		arg.CloseIntent,
 		arg.LinkedByType,
@@ -157,33 +157,33 @@ func (q *Queries) LinkIssueToVCSPullRequest(ctx context.Context, arg LinkIssueTo
 	return err
 }
 
-const listIssueIDsForVCSPRHead = `-- name: ListIssueIDsForVCSPRHead :many
-SELECT DISTINCT ipr.issue_id
+const listTaskIDsForVCSPRHead = `-- name: ListTaskIDsForVCSPRHead :many
+SELECT DISTINCT ipr.task_id
 FROM vcs_pull_request pr
-JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
+JOIN task_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
 WHERE pr.connection_id = $1 AND pr.head_sha = $2 AND pr.head_sha <> ''
 `
 
-type ListIssueIDsForVCSPRHeadParams struct {
+type ListTaskIDsForVCSPRHeadParams struct {
 	ConnectionID pgtype.UUID `json:"connection_id"`
 	HeadSha      string      `json:"head_sha"`
 }
 
-// Issues linked to any PR whose head sha matches the given status, so a
-// commit-status event can fan out a PR-card refresh to the right issues.
-func (q *Queries) ListIssueIDsForVCSPRHead(ctx context.Context, arg ListIssueIDsForVCSPRHeadParams) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, listIssueIDsForVCSPRHead, arg.ConnectionID, arg.HeadSha)
+// Tasks linked to any PR whose head sha matches the given status, so a
+// commit-status event can fan out a PR-card refresh to the right tasks.
+func (q *Queries) ListTaskIDsForVCSPRHead(ctx context.Context, arg ListTaskIDsForVCSPRHeadParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listTaskIDsForVCSPRHead, arg.ConnectionID, arg.HeadSha)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := []pgtype.UUID{}
 	for rows.Next() {
-		var issue_id pgtype.UUID
-		if err := rows.Scan(&issue_id); err != nil {
+		var task_id pgtype.UUID
+		if err := rows.Scan(&task_id); err != nil {
 			return nil, err
 		}
-		items = append(items, issue_id)
+		items = append(items, task_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -232,7 +232,7 @@ func (q *Queries) ListVCSConnectionsByWorkspace(ctx context.Context, workspaceID
 	return items, nil
 }
 
-const listVCSPullRequestsByIssue = `-- name: ListVCSPullRequestsByIssue :many
+const listVCSPullRequestsByTask = `-- name: ListVCSPullRequestsByTask :many
 WITH checks AS (
     SELECT
         pr.id AS pr_id,
@@ -241,12 +241,12 @@ WITH checks AS (
         SUM(CASE WHEN cs.state = 'passed'  THEN 1 ELSE 0 END)::bigint AS passed,
         SUM(CASE WHEN cs.state = 'pending' THEN 1 ELSE 0 END)::bigint AS pending
     FROM vcs_pull_request pr
-    JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
+    JOIN task_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
     JOIN vcs_commit_status cs
         ON cs.connection_id = pr.connection_id
        AND cs.sha = pr.head_sha
        AND pr.head_sha <> ''
-    WHERE ipr.issue_id = $1 AND NOT ipr.reference_only
+    WHERE ipr.task_id = $1 AND NOT ipr.reference_only
     GROUP BY pr.id
 )
 SELECT
@@ -256,13 +256,13 @@ SELECT
     COALESCE(c.failed, 0)::bigint  AS checks_failed,
     COALESCE(c.pending, 0)::bigint AS checks_pending
 FROM vcs_pull_request pr
-JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
+JOIN task_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
 LEFT JOIN checks c ON c.pr_id = pr.id
-WHERE ipr.issue_id = $1 AND NOT ipr.reference_only
+WHERE ipr.task_id = $1 AND NOT ipr.reference_only
 ORDER BY pr.pr_created_at DESC
 `
 
-type ListVCSPullRequestsByIssueRow struct {
+type ListVCSPullRequestsByTaskRow struct {
 	ID              pgtype.UUID        `json:"id"`
 	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
 	ConnectionID    pgtype.UUID        `json:"connection_id"`
@@ -297,15 +297,15 @@ type ListVCSPullRequestsByIssueRow struct {
 // (connection, sha, context) with a normalized state, so a count by state is
 // correct. Statuses for an old head sha stay stored but are excluded by the
 // head_sha join, so a stale run can't pollute the bar.
-func (q *Queries) ListVCSPullRequestsByIssue(ctx context.Context, issueID pgtype.UUID) ([]ListVCSPullRequestsByIssueRow, error) {
-	rows, err := q.db.Query(ctx, listVCSPullRequestsByIssue, issueID)
+func (q *Queries) ListVCSPullRequestsByTask(ctx context.Context, taskID pgtype.UUID) ([]ListVCSPullRequestsByTaskRow, error) {
+	rows, err := q.db.Query(ctx, listVCSPullRequestsByTask, taskID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListVCSPullRequestsByIssueRow{}
+	items := []ListVCSPullRequestsByTaskRow{}
 	for rows.Next() {
-		var i ListVCSPullRequestsByIssueRow
+		var i ListVCSPullRequestsByTaskRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -540,7 +540,7 @@ type UpsertVCSPullRequestParams struct {
 // mutable column is applied only when the incoming event is at least as new as
 // the stored row; a stale event keeps the existing values. The row is still
 // touched (and thus RETURNED) either way, so callers always get the current PR
-// — the webhook needs pr.id to link the issue even on a stale redelivery.
+// — the webhook needs pr.id to link the task even on a stale redelivery.
 func (q *Queries) UpsertVCSPullRequest(ctx context.Context, arg UpsertVCSPullRequestParams) (VcsPullRequest, error) {
 	row := q.db.QueryRow(ctx, upsertVCSPullRequest,
 		arg.WorkspaceID,

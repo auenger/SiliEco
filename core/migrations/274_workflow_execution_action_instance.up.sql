@@ -1,1 +1,0 @@
-CREATE INDEX CONCURRENTLY workflow_execution_action_instance_idx ON workflow_execution_action (workspace_id, workflow_instance_id);

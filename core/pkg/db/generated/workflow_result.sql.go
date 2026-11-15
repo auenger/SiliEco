@@ -217,7 +217,7 @@ func (q *Queries) DeleteProjectWorkflowResults(ctx context.Context, arg DeletePr
 }
 
 const deleteWorkflowArtifactUploadTombstone = `-- name: DeleteWorkflowArtifactUploadTombstone :exec
-DELETE FROM workflow_artifact_upload WHERE id=$1 AND workspace_id=$2 AND status='deleting' AND created_at < now()-INTERVAL '2 days'
+DELETE FROM workflow_artifact_upload WHERE workflow_artifact_upload.id=$1 AND workspace_id=$2 AND status='deleting' AND created_at < now()-INTERVAL '2 days'
 `
 
 type DeleteWorkflowArtifactUploadTombstoneParams struct {
@@ -263,32 +263,32 @@ func (q *Queries) GetOrCreateWorkflowArtifact(ctx context.Context, arg GetOrCrea
 }
 
 const getWorkflowExecutionAttachment = `-- name: GetWorkflowExecutionAttachment :one
-SELECT attachment.id, attachment.workspace_id, attachment.issue_id, attachment.comment_id, attachment.uploader_type, attachment.uploader_id, attachment.filename, attachment.url, attachment.content_type, attachment.size_bytes, attachment.created_at, attachment.chat_session_id, attachment.chat_message_id, attachment.task_id FROM attachment
+SELECT attachment.id, attachment.workspace_id, attachment.task_id, attachment.comment_id, attachment.uploader_type, attachment.uploader_id, attachment.filename, attachment.url, attachment.content_type, attachment.size_bytes, attachment.created_at, attachment.chat_session_id, attachment.chat_message_id, attachment.run_id FROM attachment
 WHERE attachment.id=$1 AND attachment.workspace_id=$2
-AND (attachment.issue_id=$3 OR attachment.task_id=$4
+AND (attachment.task_id=$3 OR attachment.run_id=$4
  OR EXISTS (SELECT 1 FROM comment WHERE comment.id=attachment.comment_id
- AND comment.workspace_id=attachment.workspace_id AND comment.issue_id=$3))
+ AND comment.workspace_id=attachment.workspace_id AND comment.task_id=$3))
 `
 
 type GetWorkflowExecutionAttachmentParams struct {
 	AttachmentID pgtype.UUID `json:"attachment_id"`
 	WorkspaceID  pgtype.UUID `json:"workspace_id"`
-	IssueID      pgtype.UUID `json:"issue_id"`
 	TaskID       pgtype.UUID `json:"task_id"`
+	RunID        pgtype.UUID `json:"run_id"`
 }
 
 func (q *Queries) GetWorkflowExecutionAttachment(ctx context.Context, arg GetWorkflowExecutionAttachmentParams) (Attachment, error) {
 	row := q.db.QueryRow(ctx, getWorkflowExecutionAttachment,
 		arg.AttachmentID,
 		arg.WorkspaceID,
-		arg.IssueID,
 		arg.TaskID,
+		arg.RunID,
 	)
 	var i Attachment
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
-		&i.IssueID,
+		&i.TaskID,
 		&i.CommentID,
 		&i.UploaderType,
 		&i.UploaderID,
@@ -299,7 +299,7 @@ func (q *Queries) GetWorkflowExecutionAttachment(ctx context.Context, arg GetWor
 		&i.CreatedAt,
 		&i.ChatSessionID,
 		&i.ChatMessageID,
-		&i.TaskID,
+		&i.RunID,
 	)
 	return i, err
 }
@@ -312,29 +312,29 @@ SELECT execution.id, execution.result_revision, execution.status,
        EXISTS (SELECT 1 FROM workflow_execution_result result
          WHERE result.workspace_id=execution.workspace_id AND result.execution_id=execution.id
          AND result.revision=execution.result_revision) AS has_result,
-       EXISTS (SELECT 1 FROM issue main_issue
-         WHERE main_issue.workspace_id=execution.workspace_id AND main_issue.id=execution.main_issue_id
-         AND main_issue.workflow_instance_id=execution.workflow_instance_id
-         AND main_issue.workflow_stage_id=execution.workflow_stage_id AND main_issue.status='done') AS main_issue_done,
-       EXISTS (SELECT 1 FROM agent_task_queue task
-         WHERE task.id=execution.main_task_id AND task.workflow_stage_execution_id=execution.id
-         AND task.issue_id=execution.main_issue_id AND task.agent_id=execution.executor_id
-         AND task.status='completed') AS main_task_completed,
-       (SELECT count(*) FROM issue required_issue
-         WHERE required_issue.workspace_id=execution.workspace_id
-         AND required_issue.workflow_instance_id=execution.workflow_instance_id
-         AND required_issue.workflow_stage_id=execution.workflow_stage_id
-         AND (required_issue.workflow_stage_execution_id IS NULL OR required_issue.workflow_stage_execution_id=execution.id)
-         AND required_issue.workflow_invalidated_by_rework_id IS NULL
-         AND required_issue.status <> 'done')::bigint AS incomplete_issues,
-       (SELECT count(*) FROM agent_task_queue task
-         JOIN issue task_issue ON task_issue.id=task.issue_id AND task_issue.workspace_id=execution.workspace_id
-         WHERE task.workflow_review_request_id IS NULL AND (task.workflow_stage_execution_id=execution.id OR
-           (task.workflow_stage_execution_id IS NULL AND task_issue.workflow_instance_id=execution.workflow_instance_id
-             AND task_issue.workflow_stage_id=execution.workflow_stage_id
-             AND task_issue.workflow_invalidated_by_rework_id IS NULL
-             AND (task_issue.workflow_stage_execution_id IS NULL OR task_issue.workflow_stage_execution_id=execution.id)))
-         AND task.status IN ('queued','dispatched','running','waiting_local_directory','deferred'))::bigint AS active_calls
+       EXISTS (SELECT 1 FROM task main_task
+         WHERE main_task.workspace_id=execution.workspace_id AND main_task.id=execution.main_task_id
+         AND main_task.workflow_instance_id=execution.workflow_instance_id
+         AND main_task.workflow_stage_id=execution.workflow_stage_id AND main_task.status='done') AS main_task_done,
+       EXISTS (SELECT 1 FROM agent_run run
+         WHERE run.id=execution.main_run_id AND run.workflow_stage_execution_id=execution.id
+         AND run.task_id=execution.main_task_id AND run.agent_id=execution.executor_id
+         AND run.status='completed') AS main_run_completed,
+       (SELECT count(*) FROM task required_task
+         WHERE required_task.workspace_id=execution.workspace_id
+         AND required_task.workflow_instance_id=execution.workflow_instance_id
+         AND required_task.workflow_stage_id=execution.workflow_stage_id
+         AND (required_task.workflow_stage_execution_id IS NULL OR required_task.workflow_stage_execution_id=execution.id)
+         AND required_task.workflow_invalidated_by_rework_id IS NULL
+         AND required_task.status <> 'done')::bigint AS incomplete_tasks,
+       (SELECT count(*) FROM agent_run run
+         JOIN task run_task ON run_task.id=run.task_id AND run_task.workspace_id=execution.workspace_id
+         WHERE run.workflow_review_request_id IS NULL AND (run.workflow_stage_execution_id=execution.id OR
+           (run.workflow_stage_execution_id IS NULL AND run_task.workflow_instance_id=execution.workflow_instance_id
+             AND run_task.workflow_stage_id=execution.workflow_stage_id
+             AND run_task.workflow_invalidated_by_rework_id IS NULL
+             AND (run_task.workflow_stage_execution_id IS NULL OR run_task.workflow_stage_execution_id=execution.id)))
+         AND run.status IN ('queued','dispatched','running','waiting_local_directory','deferred'))::bigint AS active_calls
 FROM workflow_stage_execution execution
 JOIN workflow_instance instance ON instance.id=execution.workflow_instance_id AND instance.workspace_id=execution.workspace_id
 WHERE execution.workspace_id=$1 AND execution.workflow_instance_id=$2 AND execution.id=$3
@@ -347,15 +347,15 @@ type GetWorkflowExecutionReadinessParams struct {
 }
 
 type GetWorkflowExecutionReadinessRow struct {
-	ID                pgtype.UUID `json:"id"`
-	ResultRevision    int32       `json:"result_revision"`
-	Status            string      `json:"status"`
-	CurrentExecution  pgtype.Bool `json:"current_execution"`
-	HasResult         bool        `json:"has_result"`
-	MainIssueDone     bool        `json:"main_issue_done"`
-	MainTaskCompleted bool        `json:"main_task_completed"`
-	IncompleteIssues  int64       `json:"incomplete_issues"`
-	ActiveCalls       int64       `json:"active_calls"`
+	ID               pgtype.UUID `json:"id"`
+	ResultRevision   int32       `json:"result_revision"`
+	Status           string      `json:"status"`
+	CurrentExecution pgtype.Bool `json:"current_execution"`
+	HasResult        bool        `json:"has_result"`
+	MainTaskDone     bool        `json:"main_task_done"`
+	MainRunCompleted bool        `json:"main_run_completed"`
+	IncompleteTasks  int64       `json:"incomplete_tasks"`
+	ActiveCalls      int64       `json:"active_calls"`
 }
 
 // One statement provides a consistent diagnostic snapshot. It is not an
@@ -369,16 +369,16 @@ func (q *Queries) GetWorkflowExecutionReadiness(ctx context.Context, arg GetWork
 		&i.Status,
 		&i.CurrentExecution,
 		&i.HasResult,
-		&i.MainIssueDone,
-		&i.MainTaskCompleted,
-		&i.IncompleteIssues,
+		&i.MainTaskDone,
+		&i.MainRunCompleted,
+		&i.IncompleteTasks,
 		&i.ActiveCalls,
 	)
 	return i, err
 }
 
 const getWorkflowExecutionResult = `-- name: GetWorkflowExecutionResult :one
-SELECT id, workspace_id, workflow_instance_id, execution_id, revision, data, submitted_by_type, submitted_by_id, created_at FROM workflow_execution_result WHERE workspace_id=$1 AND execution_id=$2 AND revision=$3
+SELECT id, workspace_id, workflow_instance_id, execution_id, revision, data, submitted_by_type, submitted_by_id, created_at FROM workflow_execution_result WHERE workflow_execution_result.workspace_id=$1 AND execution_id=$2 AND revision=$3
 `
 
 type GetWorkflowExecutionResultParams struct {
@@ -476,18 +476,94 @@ func (q *Queries) GetWorkflowResultArtifact(ctx context.Context, arg GetWorkflow
 	return i, err
 }
 
-const getWorkflowResultIssue = `-- name: GetWorkflowResultIssue :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id FROM issue WHERE id=$1 AND workspace_id=$2 FOR SHARE
+const getWorkflowResultRun = `-- name: GetWorkflowResultRun :one
+SELECT run.id, run.agent_id, run.task_id, run.status, run.priority, run.dispatched_at, run.started_at, run.completed_at, run.result, run.error, run.created_at, run.context, run.runtime_id, run.session_id, run.work_dir, run.trigger_comment_id, run.chat_session_id, run.autopilot_run_id, run.attempt, run.max_attempts, run.parent_run_id, run.failure_reason, run.trigger_summary, run.force_fresh_session, run.is_leader_run, run.wait_reason, run.initiator_user_id, run.handoff_note, run.prepare_lease_expires_at, run.squad_id, run.runtime_mcp_overlay, run.escalation_for_run_id, run.fire_at, run.originator_user_id, run.runtime_connected_apps, run.coalesced_comment_ids, run.delivered_comment_ids, run.chat_input_run_id, run.chat_finalize_deferred_at, run.originator_source, run.delegated_from_run_id, run.retry_of_run_id, run.rerun_of_run_id, run.rule_version_id, run.trigger_evidence_kind, run.trigger_evidence_ref_id, run.accountable_user_id, run.session_rollout_missing, run.retired_session_id, run.trigger_chat_message_id, run.execution_manifest, run.worktree_branch, run.worktree_base_sha, run.worktree_final_sha, run.worktree_delivery_status, run.workflow_stage_execution_id, run.workflow_review_request_id FROM agent_run AS run
+JOIN agent ON agent.id=run.agent_id
+WHERE run.id=$1 AND agent.workspace_id=$2 FOR SHARE OF run
 `
 
-type GetWorkflowResultIssueParams struct {
+type GetWorkflowResultRunParams struct {
 	ID          pgtype.UUID `json:"id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 }
 
-func (q *Queries) GetWorkflowResultIssue(ctx context.Context, arg GetWorkflowResultIssueParams) (Issue, error) {
-	row := q.db.QueryRow(ctx, getWorkflowResultIssue, arg.ID, arg.WorkspaceID)
-	var i Issue
+func (q *Queries) GetWorkflowResultRun(ctx context.Context, arg GetWorkflowResultRunParams) (AgentRun, error) {
+	row := q.db.QueryRow(ctx, getWorkflowResultRun, arg.ID, arg.WorkspaceID)
+	var i AgentRun
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.TaskID,
+		&i.Status,
+		&i.Priority,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Result,
+		&i.Error,
+		&i.CreatedAt,
+		&i.Context,
+		&i.RuntimeID,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.TriggerCommentID,
+		&i.ChatSessionID,
+		&i.AutopilotRunID,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.ParentRunID,
+		&i.FailureReason,
+		&i.TriggerSummary,
+		&i.ForceFreshSession,
+		&i.IsLeaderRun,
+		&i.WaitReason,
+		&i.InitiatorUserID,
+		&i.HandoffNote,
+		&i.PrepareLeaseExpiresAt,
+		&i.SquadID,
+		&i.RuntimeMcpOverlay,
+		&i.EscalationForRunID,
+		&i.FireAt,
+		&i.OriginatorUserID,
+		&i.RuntimeConnectedApps,
+		&i.CoalescedCommentIds,
+		&i.DeliveredCommentIds,
+		&i.ChatInputRunID,
+		&i.ChatFinalizeDeferredAt,
+		&i.OriginatorSource,
+		&i.DelegatedFromRunID,
+		&i.RetryOfRunID,
+		&i.RerunOfRunID,
+		&i.RuleVersionID,
+		&i.TriggerEvidenceKind,
+		&i.TriggerEvidenceRefID,
+		&i.AccountableUserID,
+		&i.SessionRolloutMissing,
+		&i.RetiredSessionID,
+		&i.TriggerChatMessageID,
+		&i.ExecutionManifest,
+		&i.WorktreeBranch,
+		&i.WorktreeBaseSha,
+		&i.WorktreeFinalSha,
+		&i.WorktreeDeliveryStatus,
+		&i.WorkflowStageExecutionID,
+		&i.WorkflowReviewRequestID,
+	)
+	return i, err
+}
+
+const getWorkflowResultTask = `-- name: GetWorkflowResultTask :one
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_task_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id FROM task WHERE task.id=$1 AND workspace_id=$2 FOR SHARE
+`
+
+type GetWorkflowResultTaskParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetWorkflowResultTask(ctx context.Context, arg GetWorkflowResultTaskParams) (Task, error) {
+	row := q.db.QueryRow(ctx, getWorkflowResultTask, arg.ID, arg.WorkspaceID)
+	var i Task
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -499,7 +575,7 @@ func (q *Queries) GetWorkflowResultIssue(ctx context.Context, arg GetWorkflowRes
 		&i.AssigneeID,
 		&i.CreatorType,
 		&i.CreatorID,
-		&i.ParentIssueID,
+		&i.ParentTaskID,
 		&i.AcceptanceCriteria,
 		&i.ContextRefs,
 		&i.Position,
@@ -519,82 +595,6 @@ func (q *Queries) GetWorkflowResultIssue(ctx context.Context, arg GetWorkflowRes
 		&i.WorkflowStageID,
 		&i.WorkflowStageExecutionID,
 		&i.WorkflowInvalidatedByReworkID,
-	)
-	return i, err
-}
-
-const getWorkflowResultTask = `-- name: GetWorkflowResultTask :one
-SELECT task.id, task.agent_id, task.issue_id, task.status, task.priority, task.dispatched_at, task.started_at, task.completed_at, task.result, task.error, task.created_at, task.context, task.runtime_id, task.session_id, task.work_dir, task.trigger_comment_id, task.chat_session_id, task.autopilot_run_id, task.attempt, task.max_attempts, task.parent_task_id, task.failure_reason, task.trigger_summary, task.force_fresh_session, task.is_leader_task, task.wait_reason, task.initiator_user_id, task.handoff_note, task.prepare_lease_expires_at, task.squad_id, task.runtime_mcp_overlay, task.escalation_for_task_id, task.fire_at, task.originator_user_id, task.runtime_connected_apps, task.coalesced_comment_ids, task.delivered_comment_ids, task.chat_input_task_id, task.chat_finalize_deferred_at, task.originator_source, task.delegated_from_task_id, task.retry_of_task_id, task.rerun_of_task_id, task.rule_version_id, task.trigger_evidence_kind, task.trigger_evidence_ref_id, task.accountable_user_id, task.session_rollout_missing, task.retired_session_id, task.trigger_chat_message_id, task.execution_manifest, task.worktree_branch, task.worktree_base_sha, task.worktree_final_sha, task.worktree_delivery_status, task.workflow_stage_execution_id, task.workflow_review_request_id FROM agent_task_queue AS task
-JOIN agent ON agent.id=task.agent_id
-WHERE task.id=$1 AND agent.workspace_id=$2 FOR SHARE OF task
-`
-
-type GetWorkflowResultTaskParams struct {
-	ID          pgtype.UUID `json:"id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-}
-
-func (q *Queries) GetWorkflowResultTask(ctx context.Context, arg GetWorkflowResultTaskParams) (AgentTaskQueue, error) {
-	row := q.db.QueryRow(ctx, getWorkflowResultTask, arg.ID, arg.WorkspaceID)
-	var i AgentTaskQueue
-	err := row.Scan(
-		&i.ID,
-		&i.AgentID,
-		&i.IssueID,
-		&i.Status,
-		&i.Priority,
-		&i.DispatchedAt,
-		&i.StartedAt,
-		&i.CompletedAt,
-		&i.Result,
-		&i.Error,
-		&i.CreatedAt,
-		&i.Context,
-		&i.RuntimeID,
-		&i.SessionID,
-		&i.WorkDir,
-		&i.TriggerCommentID,
-		&i.ChatSessionID,
-		&i.AutopilotRunID,
-		&i.Attempt,
-		&i.MaxAttempts,
-		&i.ParentTaskID,
-		&i.FailureReason,
-		&i.TriggerSummary,
-		&i.ForceFreshSession,
-		&i.IsLeaderTask,
-		&i.WaitReason,
-		&i.InitiatorUserID,
-		&i.HandoffNote,
-		&i.PrepareLeaseExpiresAt,
-		&i.SquadID,
-		&i.RuntimeMcpOverlay,
-		&i.EscalationForTaskID,
-		&i.FireAt,
-		&i.OriginatorUserID,
-		&i.RuntimeConnectedApps,
-		&i.CoalescedCommentIds,
-		&i.DeliveredCommentIds,
-		&i.ChatInputTaskID,
-		&i.ChatFinalizeDeferredAt,
-		&i.OriginatorSource,
-		&i.DelegatedFromTaskID,
-		&i.RetryOfTaskID,
-		&i.RerunOfTaskID,
-		&i.RuleVersionID,
-		&i.TriggerEvidenceKind,
-		&i.TriggerEvidenceRefID,
-		&i.AccountableUserID,
-		&i.SessionRolloutMissing,
-		&i.RetiredSessionID,
-		&i.TriggerChatMessageID,
-		&i.ExecutionManifest,
-		&i.WorktreeBranch,
-		&i.WorktreeBaseSha,
-		&i.WorktreeFinalSha,
-		&i.WorktreeDeliveryStatus,
-		&i.WorkflowStageExecutionID,
-		&i.WorkflowReviewRequestID,
 	)
 	return i, err
 }
@@ -741,7 +741,7 @@ func (q *Queries) RescheduleWorkflowArtifactCleanup(ctx context.Context, arg Res
 const submitWorkflowExecutionResult = `-- name: SubmitWorkflowExecutionResult :one
 UPDATE workflow_stage_execution SET result_revision=$3, status='awaiting_review', updated_at=now()
 WHERE workspace_id=$1 AND id=$2 AND result_revision=$4 AND status IN ('queued','running','awaiting_review')
-RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_issue_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_task_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
+RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_task_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_run_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
 `
 
 type SubmitWorkflowExecutionResultParams struct {
@@ -767,7 +767,7 @@ func (q *Queries) SubmitWorkflowExecutionResult(ctx context.Context, arg SubmitW
 		&i.Attempt,
 		&i.PlanRevision,
 		&i.ExecutorID,
-		&i.MainIssueID,
+		&i.MainTaskID,
 		&i.ConfigSnapshot,
 		&i.InputSnapshot,
 		&i.Status,
@@ -777,7 +777,7 @@ func (q *Queries) SubmitWorkflowExecutionResult(ctx context.Context, arg SubmitW
 		&i.UpdatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.MainTaskID,
+		&i.MainRunID,
 		&i.ResultRevision,
 		&i.Acceptance,
 		&i.ReworkSourceExecutionID,

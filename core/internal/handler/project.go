@@ -17,6 +17,7 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/logger"
 	"github.com/silieco-ai/silieco/core/internal/util"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
@@ -31,13 +32,13 @@ type ProjectResponse struct {
 	LeadType    *string `json:"lead_type"`
 	LeadID      *string `json:"lead_id"`
 	// StartDate / DueDate are calendar days ("YYYY-MM-DD"), no time-of-day or
-	// timezone — same contract as issue.start_date / issue.due_date.
-	StartDate  *string `json:"start_date"`
-	DueDate    *string `json:"due_date"`
-	CreatedAt  string  `json:"created_at"`
-	UpdatedAt  string  `json:"updated_at"`
-	IssueCount int64   `json:"issue_count"`
-	DoneCount  int64   `json:"done_count"`
+	// timezone — same contract as task.start_date / task.due_date.
+	StartDate *string `json:"start_date"`
+	DueDate   *string `json:"due_date"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
+	TaskCount int64   `json:"task_count"`
+	DoneCount int64   `json:"done_count"`
 	// ResourceCount is a breadcrumb pointing at the sub-collection at
 	// /api/projects/{id}/resources. Resources themselves stay out of this
 	// payload to keep parent metadata and child collections separate; clients
@@ -63,8 +64,8 @@ func projectToResponse(p db.Project) ProjectResponse {
 	}
 }
 
-func (h *Handler) loadProjectIssueStats(ctx context.Context, projectID pgtype.UUID) (int64, int64) {
-	stats, err := h.Queries.GetProjectIssueStats(ctx, []pgtype.UUID{projectID})
+func (h *Handler) loadProjectTaskStats(ctx context.Context, projectID pgtype.UUID) (int64, int64) {
+	stats, err := h.Queries.GetProjectTaskStats(ctx, []pgtype.UUID{projectID})
 	if err != nil || len(stats) == 0 {
 		return 0, 0
 	}
@@ -138,15 +139,15 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Batch-fetch issue stats and resource counts for all projects
-	statsMap := make(map[string]db.GetProjectIssueStatsRow)
+	// Batch-fetch task stats and resource counts for all projects
+	statsMap := make(map[string]db.GetProjectTaskStatsRow)
 	resourceCountMap := make(map[string]int64)
 	if len(projects) > 0 {
 		projectIDs := make([]pgtype.UUID, len(projects))
 		for i, p := range projects {
 			projectIDs[i] = p.ID
 		}
-		stats, err := h.Queries.GetProjectIssueStats(r.Context(), projectIDs)
+		stats, err := h.Queries.GetProjectTaskStats(r.Context(), projectIDs)
 		if err == nil {
 			for _, s := range stats {
 				statsMap[uuidToString(s.ProjectID)] = s
@@ -164,7 +165,7 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
 	for i, p := range projects {
 		resp[i] = projectToResponse(p)
 		if s, ok := statsMap[resp[i].ID]; ok {
-			resp[i].IssueCount = s.TotalCount
+			resp[i].TaskCount = s.TotalCount
 			resp[i].DoneCount = s.DoneCount
 		}
 		resp[i].ResourceCount = resourceCountMap[resp[i].ID]
@@ -191,7 +192,7 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := projectToResponse(project)
-	resp.IssueCount, resp.DoneCount = h.loadProjectIssueStats(r.Context(), project.ID)
+	resp.TaskCount, resp.DoneCount = h.loadProjectTaskStats(r.Context(), project.ID)
 	resp.ResourceCount = h.loadProjectResourceCount(r.Context(), project.ID)
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -278,7 +279,7 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// start_date / due_date are optional calendar days; an absent or empty
-	// value leaves the column NULL. Mirrors CreateIssue's date handling.
+	// value leaves the column NULL. Mirrors CreateTask's date handling.
 	var startDate pgtype.Date
 	if req.StartDate != nil && *req.StartDate != "" {
 		d, err := util.ParseCalendarDate(*req.StartDate)
@@ -526,7 +527,7 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 			params.LeadID = pgtype.UUID{Valid: false}
 		}
 	}
-	// Dates follow the issue contract: a present key with an empty/null value
+	// Dates follow the task contract: a present key with an empty/null value
 	// clears the date; an absent key leaves the prior value untouched.
 	if _, ok := rawFields["start_date"]; ok {
 		if req.StartDate != nil && *req.StartDate != "" {
@@ -558,7 +559,7 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := projectToResponse(project)
-	resp.IssueCount, resp.DoneCount = h.loadProjectIssueStats(r.Context(), project.ID)
+	resp.TaskCount, resp.DoneCount = h.loadProjectTaskStats(r.Context(), project.ID)
 	resp.ResourceCount = h.loadProjectResourceCount(r.Context(), project.ID)
 	h.publish(protocol.EventProjectUpdated, workspaceID, "member", userID, map[string]any{"project": resp})
 	writeJSON(w, http.StatusOK, resp)
@@ -594,6 +595,11 @@ func (h *Handler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
+
+	if err := relational.LockForDelete(r.Context(), tx, relational.DeleteProject, project.ID, project.WorkspaceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock deletion dependencies")
+		return
+	}
 
 	if _, err := qtx.LockProjectForDelete(r.Context(), db.LockProjectForDeleteParams{
 		ID:          project.ID,
@@ -911,7 +917,7 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		// Statement-timeout surfaces as SQLSTATE 57014 — same
-		// fail-fast contract as SearchIssues (see runSearchQuery).
+		// fail-fast contract as SearchTasks (see runSearchQuery).
 		if isSearchStatementTimeout(err) {
 			slog.Warn("search projects timed out",
 				"workspace_id", workspaceID,
@@ -930,15 +936,15 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 		total = results[0].totalCount
 	}
 
-	// Batch-fetch issue stats and resource counts
-	statsMap := make(map[string]db.GetProjectIssueStatsRow)
+	// Batch-fetch task stats and resource counts
+	statsMap := make(map[string]db.GetProjectTaskStatsRow)
 	resourceCountMap := make(map[string]int64)
 	if len(results) > 0 {
 		projectIDs := make([]pgtype.UUID, len(results))
 		for i, r := range results {
 			projectIDs[i] = r.project.ID
 		}
-		stats, err := h.Queries.GetProjectIssueStats(ctx, projectIDs)
+		stats, err := h.Queries.GetProjectTaskStats(ctx, projectIDs)
 		if err == nil {
 			for _, s := range stats {
 				statsMap[uuidToString(s.ProjectID)] = s
@@ -956,7 +962,7 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 	for i, row := range results {
 		pr := projectToResponse(row.project)
 		if s, ok := statsMap[pr.ID]; ok {
-			pr.IssueCount = s.TotalCount
+			pr.TaskCount = s.TotalCount
 			pr.DoneCount = s.DoneCount
 		}
 		pr.ResourceCount = resourceCountMap[pr.ID]

@@ -32,7 +32,7 @@ import {
 } from "@silieco/core/agents";
 import { agentListOptions } from "@/data/queries/agents";
 import { runtimeListOptions } from "@/data/queries/runtimes";
-import { agentTaskSnapshotOptions } from "@/data/queries/agent-task-snapshot";
+import { agentRunSnapshotOptions } from "@/data/queries/agent-run-snapshot";
 
 const PRESENCE_TICK_MS = 30_000;
 
@@ -102,7 +102,7 @@ export function useWorkspacePresenceMap(wsId: string | null | undefined): {
     isPending: snapshotPending,
     isError: snapshotErr,
   } = useQuery({
-    ...agentTaskSnapshotOptions(wsId ?? null),
+    ...agentRunSnapshotOptions(wsId ?? null),
     enabled: !!wsId,
   });
   const tick = usePresenceTick();
@@ -166,7 +166,7 @@ export function useAgentPresence(
     enabled: !!wsId,
   });
   const { data: snapshot, isError: snapshotErr } = useQuery({
-    ...agentTaskSnapshotOptions(wsId ?? null),
+    ...agentRunSnapshotOptions(wsId ?? null),
     enabled: !!wsId,
   });
   const tick = usePresenceTick();
@@ -184,11 +184,11 @@ export function useAgentPresence(
     const runtime =
       safeRuntimes.find((r) => r.id === agent.runtime_id) ?? null;
 
-    const tasks = safeSnapshot.filter((t) => t.agent_id === agentId);
+    const runs = safeSnapshot.filter((t) => t.agent_id === agentId);
     return deriveAgentPresenceDetail({
       agent,
       runtime,
-      tasks,
+      runs,
       now: Date.now(),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick is intentional

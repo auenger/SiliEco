@@ -28,10 +28,10 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
     actor_id: "agent-1",
     type: "new_comment",
     severity: "info",
-    issue_id: "issue-1",
-    title: "Issue title",
+    task_id: "task-1",
+    title: "Task title",
     body: null,
-    issue_status: null,
+    task_status: null,
     read: false,
     archived: true,
     created_at: "2026-06-15T08:00:00Z",
@@ -64,13 +64,13 @@ describe("useUnarchiveInbox", () => {
     setApiInstance({ unarchiveInbox } as unknown as ApiClient);
   });
 
-  it("drops the whole issue group out of the archived list optimistically", async () => {
-    // Archiving is issue-level, so restoring has to bring every sibling back —
-    // leaving one behind would keep the issue in the archived list.
+  it("drops the whole task group out of the archived list optimistically", async () => {
+    // Archiving is task-level, so restoring has to bring every sibling back —
+    // leaving one behind would keep the task in the archived list.
     queryClient.setQueryData<InboxItem[]>(inboxKeys.archived(WORKSPACE_ID), [
-      item({ id: "sibling-a", issue_id: "issue-1" }),
-      item({ id: "sibling-b", issue_id: "issue-1" }),
-      item({ id: "other-issue", issue_id: "issue-2" }),
+      item({ id: "sibling-a", task_id: "task-1" }),
+      item({ id: "sibling-b", task_id: "task-1" }),
+      item({ id: "other-task", task_id: "task-2" }),
     ]);
 
     const { result } = renderHook(() => useUnarchiveInbox(), {
@@ -80,7 +80,7 @@ describe("useUnarchiveInbox", () => {
 
     await waitFor(() => {
       const stillArchived = archivedCache(queryClient).filter((i) => i.archived);
-      expect(stillArchived.map((i) => i.id)).toEqual(["other-issue"]);
+      expect(stillArchived.map((i) => i.id)).toEqual(["other-task"]);
     });
   });
 

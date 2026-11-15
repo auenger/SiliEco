@@ -17,21 +17,21 @@ import (
 // — users cannot audit or edit the contents from any Silieco UI.
 //
 // This conflicts with the Silieco daemon's context model. Silieco
-// already keeps per-(agent, issue) state via PriorSessionID, the issue
-// description / comments, issue metadata, and CLAUDE.md skill memory —
+// already keeps per-(agent, task) state via PriorSessionID, the task
+// description / comments, task metadata, and CLAUDE.md skill memory —
 // each channel is explicit, user-visible, and editable. Layering Codex
 // native memory on top introduces an opaque, daemon-uncontrolled second
 // store that can leak across tasks and (worse) across workspaces:
 //
 //   - Per-task `codex-home/memories/` is preserved across `Reuse()` and
 //     is never cleared by `prepareCodexHomeWithOpts`, so stale memories
-//     from a prior turn on the same (agent, issue) feed into the next.
+//     from a prior turn on the same (agent, task) feed into the next.
 //   - Codex CLI may also read user-level state from `~/.codex/memories/`
 //     entirely outside the daemon's per-task isolation, dragging
 //     unrelated host-project context into Silieco tasks. The reproduction
 //     in github.com/silieco-ai/silieco#3130 saw Raw Memories from
 //     `D:\Project\MoHaYu\WowChat` (a host-local project) injected into a
-//     brand-new Silieco issue's first Codex turn.
+//     brand-new Silieco task's first Codex turn.
 //
 // Mitigation: write a managed block into the per-task `config.toml` that
 // disables both the `features.memories` flag and the `memories.*`
@@ -44,7 +44,7 @@ import (
 // (and accept the leak risk) can keep the feature enabled by setting
 // `SILIECO_CODEX_MEMORY=1` in the daemon environment. The long-term
 // answer for durable agent context is a Silieco-owned, user-visible,
-// project- or issue-scoped memory store — not re-enabling Codex's
+// project- or task-scoped memory store — not re-enabling Codex's
 // hidden auto-memory.
 //
 // Layout note

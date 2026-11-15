@@ -42,7 +42,7 @@ func TestWorkflowReviewBrowserFixture(t *testing.T) {
 	}
 	runtimeName := "review-browser-" + runText
 	if os.Getenv("SILIECO_REVIEW_BROWSER_MODE") == "cleanup" {
-		for _, sql := range []string{`DELETE FROM agent_task_queue WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id=$1 AND name=$2)`, `DELETE FROM agent WHERE workspace_id=$1 AND name=$2`, `DELETE FROM agent_runtime WHERE workspace_id=$1 AND name=$2`} {
+		for _, sql := range []string{`DELETE FROM agent_run WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id=$1 AND name=$2)`, `DELETE FROM agent WHERE workspace_id=$1 AND name=$2`, `DELETE FROM agent_runtime WHERE workspace_id=$1 AND name=$2`} {
 			if _, err := pool.Exec(ctx, sql, wsID, runtimeName); err != nil {
 				t.Fatal(err)
 			}
@@ -56,7 +56,7 @@ func TestWorkflowReviewBrowserFixture(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO agent_runtime (workspace_id,name,runtime_mode,provider,status,visibility,owner_id) VALUES($1,$2,'cloud','sop_browser_fixture','online','private',$3) RETURNING id`, wsID, runtimeName, run.CreatedBy).Scan(&runtimeID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO agent (workspace_id,name,description,runtime_mode,runtime_config,runtime_id,visibility,max_concurrent_tasks,owner_id) VALUES($1,$2,'Controlled browser fixture','cloud','{}',$3,'private',1,$4) RETURNING id`, wsID, runtimeName, runtimeID, run.CreatedBy).Scan(&agentID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO agent (workspace_id,name,description,runtime_mode,runtime_config,runtime_id,visibility,max_concurrent_runs,owner_id) VALUES($1,$2,'Controlled browser fixture','cloud','{}',$3,'private',1,$4) RETURNING id`, wsID, runtimeName, runtimeID, run.CreatedBy).Scan(&agentID); err != nil {
 		t.Fatal(err)
 	}
 	gate, _ := json.Marshal(map[string]string{"type": "agent", "decider": util.UUIDToString(agentID)})
@@ -72,11 +72,11 @@ func TestWorkflowReviewBrowserFixture(t *testing.T) {
 		if err := pool.QueryRow(ctx, `INSERT INTO workflow_instance_stage(workspace_id,workflow_instance_id,stable_key,name,position,execution_mode) VALUES($1,$2,'manual_input','Manual input',0,'manual') RETURNING id`, wsID, runID).Scan(&manualID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := q.CreateIssue(ctx, db.CreateIssueParams{WorkspaceID: wsID, Title: "Previous manual input", Status: "done", Priority: "none", CreatorType: "member", CreatorID: run.CreatedBy, Number: 9908, WorkflowInstanceID: runID, WorkflowStageID: manualID}); err != nil {
+		if _, err := q.CreateTask(ctx, db.CreateTaskParams{WorkspaceID: wsID, Title: "Previous manual input", Status: "done", Priority: "none", CreatorType: "member", CreatorID: run.CreatedBy, Number: 9908, WorkflowInstanceID: runID, WorkflowStageID: manualID}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	svc := WorkflowExecutionService{Queries: q, TxStarter: pool, TaskService: NewTaskService(q, pool, nil, events.New())}
+	svc := WorkflowExecutionService{Queries: q, TxStarter: pool, AgentRunService: NewAgentRunService(q, pool, nil, events.New())}
 	e, err := svc.EnsureStageExecution(ctx, EnsureWorkflowExecutionParams{WorkspaceID: wsID, InstanceID: runID, StageID: run.CurrentStageID, ExecutorID: agentID, ExpectedRevision: run.Revision, InputSnapshot: []byte(`{}`)})
 	if err != nil {
 		t.Fatal(err)
@@ -95,10 +95,10 @@ func TestWorkflowReviewBrowserFixture(t *testing.T) {
 	if _, err := svc.SubmitResult(ctx, SubmitWorkflowResultParams{WorkspaceID: wsID, InstanceID: runID, ExecutionID: e.ID, ActorType: "member", ActorID: run.CreatedBy, Submission: []byte(`{"data":{},"artifacts":[]}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, e.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, e.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, e.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, e.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	request, err := svc.PrepareAgentReview(ctx, wsID, runID, e.ID)
@@ -109,11 +109,11 @@ func TestWorkflowReviewBrowserFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='failed',failure_reason='agent_error.provider_network',attempt=3,max_attempts=3,completed_at=now() WHERE id=$1`, request.TaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='failed',failure_reason='agent_error.provider_network',attempt=3,max_attempts=3,completed_at=now() WHERE id=$1`, request.RunID); err != nil {
 		t.Fatal(err)
 	}
 	if os.Getenv("SILIECO_REVIEW_BROWSER_MODE") == "missing" {
-		if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed',failure_reason=NULL WHERE id=$1`, request.TaskID); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed',failure_reason=NULL WHERE id=$1`, request.RunID); err != nil {
 			t.Fatal(err)
 		}
 	}

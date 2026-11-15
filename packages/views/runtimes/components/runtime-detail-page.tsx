@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@silieco/core/auth";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { useWorkspacePaths } from "@silieco/core/paths";
-import { agentTaskSnapshotOptions } from "@silieco/core/agents";
+import { agentRunSnapshotOptions } from "@silieco/core/agents";
 import { runtimeProfileListOptions } from "@silieco/core/runtimes";
 import { runtimeKeys, runtimeListOptions } from "@silieco/core/runtimes/queries";
 import { useWSEvent } from "@silieco/core/realtime";
@@ -95,7 +95,7 @@ export function RuntimeDetailPage({
   const currentUserId = useAuthStore((state) => state.user?.id);
   const { data: runtimes = [], isLoading } = useQuery(runtimeListOptions(wsId));
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
-  const { data: tasks = [] } = useQuery(agentTaskSnapshotOptions(wsId));
+  const { data: tasks = [] } = useQuery(agentRunSnapshotOptions(wsId));
   const { data: members = [] } = useQuery(memberListOptions(wsId));
   const { data: runtimeProfiles = [] } = useQuery(
     runtimeProfileListOptions(wsId),

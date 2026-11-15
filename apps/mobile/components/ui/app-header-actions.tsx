@@ -1,11 +1,11 @@
 /**
- * Header utility buttons shared across primary tabs (Inbox / My Issues).
- * Provides two global actions on the right: search and create-issue.
+ * Header utility buttons shared across primary tabs (Inbox / My Tasks).
+ * Provides two global actions on the right: search and create-task.
  *
  * The workspace menu (global nav, workspace switcher, settings) is reached
  * via the "More" tab in the bottom bar.
  *
- * Tab-specific actions (e.g. My Issues filter) MUST NOT live here — they
+ * Tab-specific actions (e.g. My Tasks filter) MUST NOT live here — they
  * mix scope levels with global actions and would clutter the strip.
  */
 import { router } from "expo-router";
@@ -19,7 +19,7 @@ export function HeaderActions() {
     if (slug) router.push(`/${slug}/search`);
   };
   const onCreate = () => {
-    if (slug) router.push(`/${slug}/new-issue`);
+    if (slug) router.push(`/${slug}/new-task`);
   };
 
   return (
@@ -33,7 +33,7 @@ export function HeaderActions() {
         name="add"
         iconSize={24}
         onPress={onCreate}
-        accessibilityLabel="New issue"
+        accessibilityLabel="New task"
       />
     </>
   );

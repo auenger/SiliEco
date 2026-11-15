@@ -75,11 +75,11 @@ type ConnectedAppData = runtimeapps.ConnectedApp
 
 // Task represents a claimed task from the server.
 // Agent data (name, skills) is populated by the claim endpoint.
-type Task struct {
+type AgentRun struct {
 	ID          string `json:"id"`
 	AgentID     string `json:"agent_id"`
 	RuntimeID   string `json:"runtime_id"`
-	IssueID     string `json:"issue_id"`
+	TaskID      string `json:"task_id"`
 	WorkspaceID string `json:"workspace_id"`
 	// WorkspaceContext mirrors workspace.context (the per-workspace system
 	// prompt set in Settings → General). Server populates this on every claim
@@ -94,9 +94,9 @@ type Task struct {
 	ProjectTitle                  string                    `json:"project_title,omitempty"`                    // human-readable project title for context injection
 	ProjectDescription            string                    `json:"project_description,omitempty"`              // durable project-level context injected into the brief
 	ProjectResources              []ProjectResourceData     `json:"project_resources,omitempty"`                // project-scoped resources to expose to the agent
-	IsLeaderTask                  bool                      `json:"is_leader_task,omitempty"`                   // true when executing in the squad-leader coordinator role
-	PriorSessionID                string                    `json:"prior_session_id,omitempty"`                 // Claude session ID from a previous task on this issue
-	PriorWorkDir                  string                    `json:"prior_work_dir,omitempty"`                   // work_dir from a previous task on this issue
+	IsLeaderRun                   bool                      `json:"is_leader_run,omitempty"`                   // true when executing in the squad-leader coordinator role
+	PriorSessionID                string                    `json:"prior_session_id,omitempty"`                 // Claude session ID from a previous task on this task
+	PriorWorkDir                  string                    `json:"prior_work_dir,omitempty"`                   // work_dir from a previous task on this task
 	PriorSessionResumeUnavailable bool                      `json:"prior_session_resume_unavailable,omitempty"` // SILI-5305: server signals a more recent Codex session was withheld (rollout missing) and PriorSessionID (if any) is an older fallback; the run must disclose the continuity gap even if that older session resumes cleanly. Absent/false on old servers.
 	TriggerCommentID              string                    `json:"trigger_comment_id,omitempty"`               // comment that triggered this task
 	CoalescedCommentIDs           []string                  `json:"coalesced_comment_ids,omitempty"`            // SILI-4195: earlier comments folded into this run while it was still queued; the agent must address these in addition to the (newest) triggering comment. Empty for old servers / non-merged runs
@@ -105,7 +105,7 @@ type Task struct {
 	TriggerCommentContent         string                    `json:"trigger_comment_content,omitempty"`          // content of the triggering comment
 	TriggerAuthorType             string                    `json:"trigger_author_type,omitempty"`              // "agent" or "member" — author kind for the triggering comment
 	TriggerAuthorName             string                    `json:"trigger_author_name,omitempty"`              // display name of the triggering comment author
-	NewCommentCount               int                       `json:"new_comment_count,omitempty"`                // issue-wide comments since this agent's last run (excludes its own and the injected trigger); 0/omitted for old daemons or cold start
+	NewCommentCount               int                       `json:"new_comment_count,omitempty"`                // task-wide comments since this agent's last run (excludes its own and the injected trigger); 0/omitted for old daemons or cold start
 	NewCommentsSince              string                    `json:"new_comments_since,omitempty"`               // RFC3339 anchor (last run's started_at) the count is measured from; empty on cold start
 	ChatSessionID                 string                    `json:"chat_session_id,omitempty"`                  // non-empty for chat tasks
 	ChatKind                      string                    `json:"chat_kind,omitempty"`                        // direct or group
@@ -123,16 +123,16 @@ type Task struct {
 	QuickCreatePrompt             string                    `json:"quick_create_prompt,omitempty"`              // user's natural-language input for quick-create tasks
 	QuickCreatePriority           string                    `json:"quick_create_priority,omitempty"`            // explicit priority selected in quick-create
 	QuickCreateDueDate            string                    `json:"quick_create_due_date,omitempty"`            // explicit calendar due date selected in quick-create
-	QuickCreateAttachmentIDs      []string                  `json:"quick_create_attachment_ids,omitempty"`      // attachments uploaded in the quick-create prompt and bound by issue create
-	WorkflowInstanceID            string                    `json:"workflow_instance_id,omitempty"`             // SOP run selected for a quick-created or issue-bound task
+	QuickCreateAttachmentIDs      []string                  `json:"quick_create_attachment_ids,omitempty"`      // attachments uploaded in the quick-create prompt and bound by task create
+	WorkflowInstanceID            string                    `json:"workflow_instance_id,omitempty"`             // SOP run selected for a quick-created or task-bound task
 	WorkflowStageID               string                    `json:"workflow_stage_id,omitempty"`                // Stage selected within WorkflowInstanceID
 	WorkflowStage                 *WorkflowStageContextData `json:"workflow_stage,omitempty"`                   // claim-time SOP Stage snapshot and mandatory skills
-	HandoffNote                   string                    `json:"handoff_note,omitempty"`                     // assignment handoff instruction; rendered into the opening prompt + issue_context.md
+	HandoffNote                   string                    `json:"handoff_note,omitempty"`                     // assignment handoff instruction; rendered into the opening prompt + task_context.md
 
-	SquadID               string `json:"squad_id,omitempty"`                // when the picker was a squad, the squad's UUID; Agent is still the resolved leader
-	SquadName             string `json:"squad_name,omitempty"`              // display name for the picker squad, used in prompt text
-	ParentIssueID         string `json:"parent_issue_id,omitempty"`         // for quick-create tasks opened from "Add sub issue" — UUID of the parent issue the new issue should be filed under
-	ParentIssueIdentifier string `json:"parent_issue_identifier,omitempty"` // human-readable identifier (e.g. SILI-123) of the quick-create parent issue, used in prompt context
+	SquadID              string `json:"squad_id,omitempty"`               // when the picker was a squad, the squad's UUID; Agent is still the resolved leader
+	SquadName            string `json:"squad_name,omitempty"`             // display name for the picker squad, used in prompt text
+	ParentTaskID         string `json:"parent_task_id,omitempty"`         // for quick-create tasks opened from "Add sub task" — UUID of the parent task the new task should be filed under
+	ParentTaskIdentifier string `json:"parent_task_identifier,omitempty"` // human-readable identifier (e.g. SILI-123) of the quick-create parent task, used in prompt context
 	// RequestingUserName + RequestingUserProfileDescription describe the human
 	// the agent is working on behalf of. v1 sources them from the runtime
 	// owner (the user who registered the daemon). Empty when the runtime has
@@ -205,7 +205,7 @@ type AgentData struct {
 	// RuntimeConfig is the per-provider runtime_config JSON as stored on
 	// the agent record, forwarded verbatim by the claim endpoint. The
 	// daemon decodes provider-specific fields (e.g. openclaw mode +
-	// gateway endpoint, see issue #3260); other backends ignore it.
+	// gateway endpoint, see task #3260); other backends ignore it.
 	RuntimeConfig json.RawMessage `json:"runtime_config,omitempty"`
 }
 
@@ -258,7 +258,7 @@ type SkillFileRefData struct {
 }
 
 // TaskUsageEntry represents token usage for a single model during a task execution.
-type TaskUsageEntry struct {
+type AgentRunUsageEntry struct {
 	Provider         string `json:"provider"`
 	Model            string `json:"model"`
 	InputTokens      int64  `json:"input_tokens"`
@@ -273,7 +273,7 @@ type TaskUsageEntry struct {
 }
 
 // TaskResult is the outcome of executing a task.
-type TaskResult struct {
+type RunResult struct {
 	Status                 string `json:"status"`
 	Comment                string `json:"comment"`
 	BranchName             string `json:"branch_name,omitempty"`
@@ -295,6 +295,6 @@ type TaskResult struct {
 	// abandoned as unresumable (GH #6066). Forwarded on every terminal path,
 	// including the completed one: a fresh-session retry that SUCCEEDS is
 	// precisely when the abandoned id would otherwise stay selectable.
-	RetiredSessionID string           `json:"-"`
-	Usage            []TaskUsageEntry `json:"usage,omitempty"` // per-model token usage
+	RetiredSessionID string               `json:"-"`
+	Usage            []AgentRunUsageEntry `json:"usage,omitempty"` // per-model token usage
 }

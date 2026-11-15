@@ -5,20 +5,20 @@
  *
  * Architecture invariant (matches web): `PinnedItem` only carries metadata
  * (`item_type` + `item_id`). Title / status / icon are fetched per-row via
- * `issueDetailOptions` / `projectDetailOptions`, so when an issue's status
- * or a project's title changes via `issue:updated` / `project:updated`,
+ * `taskDetailOptions` / `projectDetailOptions`, so when a task's status
+ * or a project's title changes via `task:updated` / `project:updated`,
  * this list updates automatically — no cross-entity invalidate on pinKeys
  * is needed. Do NOT inline the display fields into the pin row; that
  * couples this view to a stale snapshot. See packages/core/types/pin.ts
  * top comment.
  *
  * Rendering split by `item_type`:
- *   - issue → existing `<IssueRow>` (used by my-issues / more/issues /
- *     project-related-issues), `showStatus` because pins are heterogeneous
+ *   - task → existing `<TaskRow>` (used by my-tasks / more/tasks /
+ *     project-related-tasks), `showStatus` because pins are heterogeneous
  *     (no section grouping by status).
  *   - project → existing `<ProjectRow>` (used by more/projects).
  *
- * Missing / no-permission rows: the detail query may 404 (issue/project
+ * Missing / no-permission rows: the detail query may 404 (task/project
  * deleted, user lost access, server returned a parseWithFallback fallback
  * with an empty id). We render a low-emphasis placeholder so the user can
  * unpin it from here — otherwise a dead pin stays forever.
@@ -34,14 +34,14 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import type { Issue, PinnedItem, Project } from "@silieco/core/types";
+import type { Task, PinnedItem, Project } from "@silieco/core/types";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
-import { IssueRow } from "@/components/issue/issue-row";
+import { TaskRow } from "@/components/task/task-row";
 import { ProjectRow } from "@/components/project/project-row";
 import { pinListOptions } from "@/data/queries/pins";
 import { useDeletePin } from "@/data/mutations/pins";
-import { issueDetailOptions } from "@/data/queries/issues";
+import { taskDetailOptions } from "@/data/queries/tasks";
 import { projectDetailOptions } from "@/data/queries/projects";
 import { useAuthStore } from "@/data/auth-store";
 import { useWorkspaceStore } from "@/data/workspace-store";
@@ -90,7 +90,7 @@ export default function PinsPage() {
     return (
       <View className="flex-1 items-center justify-center bg-background px-6">
         <Text className="text-sm text-muted-foreground text-center">
-          No pins yet. Pin an issue or project from its actions menu to
+          No pins yet. Pin a task or project from its actions menu to
           surface it here.
         </Text>
       </View>
@@ -128,15 +128,15 @@ function PinRow({
   wsId: string | null;
   wsSlug: string | null;
 }) {
-  if (pin.item_type === "issue") {
+  if (pin.item_type === "task") {
     return (
-      <IssuePinRow pin={pin} wsId={wsId} wsSlug={wsSlug} />
+      <TaskPinRow pin={pin} wsId={wsId} wsSlug={wsSlug} />
     );
   }
   return <ProjectPinRow pin={pin} wsId={wsId} wsSlug={wsSlug} />;
 }
 
-function IssuePinRow({
+function TaskPinRow({
   pin,
   wsId,
   wsSlug,
@@ -145,20 +145,20 @@ function IssuePinRow({
   wsId: string | null;
   wsSlug: string | null;
 }) {
-  const { data, isLoading } = useQuery(issueDetailOptions(wsId, pin.item_id));
-  // EMPTY_ISSUE_FALLBACK has an empty id — treat as deleted/no-access.
-  const issue = data && data.id ? (data as Issue) : null;
+  const { data, isLoading } = useQuery(taskDetailOptions(wsId, pin.item_id));
+  // EMPTY_TASK_FALLBACK has an empty id — treat as deleted/no-access.
+  const task = data && data.id ? (data as Task) : null;
 
   if (isLoading) return <SkeletonRow />;
-  if (!issue)
-    return <MissingPinRow itemType="issue" itemId={pin.item_id} />;
+  if (!task)
+    return <MissingPinRow itemType="task" itemId={pin.item_id} />;
 
   return (
-    <IssueRow
-      issue={issue}
+    <TaskRow
+      task={task}
       showStatus
       onPress={() => {
-        if (wsSlug) router.push(`/${wsSlug}/issue/${issue.id}`);
+        if (wsSlug) router.push(`/${wsSlug}/task/${task.id}`);
       }}
     />
   );
@@ -202,7 +202,7 @@ function SkeletonRow() {
 }
 
 /**
- * Renders for pins whose target issue/project was deleted or revoked.
+ * Renders for pins whose target task/project was deleted or revoked.
  * Tapping triggers unpin so the user can clean it up; no destination
  * navigation since there's nothing to navigate to. Subtle styling so
  * it doesn't dominate the list of live pins.
@@ -211,7 +211,7 @@ function MissingPinRow({
   itemType,
   itemId,
 }: {
-  itemType: "issue" | "project";
+  itemType: "task" | "project";
   itemId: string;
 }) {
   const { colorScheme } = useColorScheme();

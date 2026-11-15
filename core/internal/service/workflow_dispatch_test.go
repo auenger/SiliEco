@@ -16,20 +16,20 @@ import (
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
-func TestWorkflowDispatchCreatesIssueAndTaskExactlyOnce(t *testing.T) {
+func TestWorkflowDispatchCreatesTaskAndRunExactlyOnce(t *testing.T) {
 	pool, svc, params := workflowExecutionFixture(t)
 	ctx := context.Background()
 	bus := events.New()
-	svc.TaskService = NewTaskService(svc.Queries, pool, nil, bus)
+	svc.AgentRunService = NewAgentRunService(svc.Queries, pool, nil, bus)
 	execution, err := svc.EnsureStageExecution(ctx, params)
 	if err != nil {
 		t.Fatal(err)
 	}
 	notifications := 0
-	bus.Subscribe(protocol.EventIssueCreated, func(event events.Event) {
+	bus.Subscribe(protocol.EventTaskCreated, func(event events.Event) {
 		notifications++
 		var count int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE workflow_stage_execution_id = $1`, execution.ID).Scan(&count); err != nil || count != 1 {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE workflow_stage_execution_id = $1`, execution.ID).Scan(&count); err != nil || count != 1 {
 			t.Errorf("notification preceded task commit: %d %v", count, err)
 		}
 	})
@@ -47,12 +47,12 @@ func TestWorkflowDispatchCreatesIssueAndTaskExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if execution.Status != "queued" || !execution.MainIssueID.Valid || !execution.MainTaskID.Valid || notifications != 1 {
+	if execution.Status != "queued" || !execution.MainTaskID.Valid || !execution.MainRunID.Valid || notifications != 1 {
 		t.Fatalf("incomplete delivery: %+v, notifications=%d", execution, notifications)
 	}
-	var tasks int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE workflow_stage_execution_id = $1 AND issue_id = $2 AND originator_user_id = accountable_user_id`, execution.ID, execution.MainIssueID).Scan(&tasks); err != nil || tasks != 1 {
-		t.Fatalf("wrong task binding/attribution: %d %v", tasks, err)
+	var agentRuns int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE workflow_stage_execution_id = $1 AND task_id = $2 AND originator_user_id = accountable_user_id`, execution.ID, execution.MainTaskID).Scan(&agentRuns); err != nil || agentRuns != 1 {
+		t.Fatalf("wrong task binding/attribution: %d %v", agentRuns, err)
 	}
 	if err := svc.DispatchPending(ctx); err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestWorkflowDispatchRollbackAndRetry(t *testing.T) {
 	pool, svc, params := workflowExecutionFixture(t)
 	ctx := context.Background()
 	bus := events.New()
-	svc.TaskService = NewTaskService(svc.Queries, pool, nil, bus)
+	svc.AgentRunService = NewAgentRunService(svc.Queries, pool, nil, bus)
 	execution, err := svc.EnsureStageExecution(ctx, params)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestWorkflowDispatchRollbackAndRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	notifications := 0
-	bus.Subscribe(protocol.EventIssueCreated, func(events.Event) { notifications++ })
+	bus.Subscribe(protocol.EventTaskCreated, func(events.Event) { notifications++ })
 	constraint := fmt.Sprintf("workflow_dispatch_%x", params.WorkspaceID.Bytes)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE workflow_stage_execution ADD CONSTRAINT %s CHECK (workspace_id <> '%s'::uuid OR status <> 'queued')`, constraint, util.UUIDToString(params.WorkspaceID))); err != nil {
 		t.Fatal(err)
@@ -84,9 +84,9 @@ func TestWorkflowDispatchRollbackAndRetry(t *testing.T) {
 	if err := svc.DispatchStageAction(ctx, params.WorkspaceID, action.ID, action.ClaimToken); err == nil {
 		t.Fatal("expected dispatch rollback")
 	}
-	for _, query := range []string{`SELECT count(*) FROM issue WHERE workflow_instance_id = $1`, `SELECT count(*) FROM agent_task_queue WHERE workflow_stage_execution_id = $1`} {
+	for _, query := range []string{`SELECT count(*) FROM task WHERE workflow_instance_id = $1`, `SELECT count(*) FROM agent_run WHERE workflow_stage_execution_id = $1`} {
 		id := params.InstanceID
-		if strings.Contains(query, "agent_task_queue") {
+		if strings.Contains(query, "agent_run") {
 			id = execution.ID
 		}
 		var count int
@@ -108,10 +108,10 @@ func TestWorkflowDispatchRollbackAndRetry(t *testing.T) {
 	}
 }
 
-func TestWorkflowQueuedTaskHonorsRunAndIssueGuards(t *testing.T) {
+func TestWorkflowQueuedRunHonorsRunAndTaskGuards(t *testing.T) {
 	pool, svc, params := workflowExecutionFixture(t)
 	ctx := context.Background()
-	svc.TaskService = NewTaskService(svc.Queries, pool, nil, events.New())
+	svc.AgentRunService = NewAgentRunService(svc.Queries, pool, nil, events.New())
 	execution, err := svc.EnsureStageExecution(ctx, params)
 	if err != nil {
 		t.Fatal(err)
@@ -127,28 +127,28 @@ func TestWorkflowQueuedTaskHonorsRunAndIssueGuards(t *testing.T) {
 		if _, err := pool.Exec(ctx, `UPDATE workflow_instance SET status = $2 WHERE id = $1`, params.InstanceID, status); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := svc.Queries.ClaimAgentTask(ctx, db.ClaimAgentTaskParams{AgentID: params.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
+		if _, err := svc.Queries.ClaimAgentRun(ctx, db.ClaimAgentRunParams{AgentID: params.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
 			t.Fatalf("claimed %s Run: %v", status, err)
 		}
 	}
 	if _, err := pool.Exec(ctx, `UPDATE workflow_instance SET status = 'active', revision = 2 WHERE id = $1`, params.InstanceID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Queries.ClaimAgentTask(ctx, db.ClaimAgentTaskParams{AgentID: params.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := svc.Queries.ClaimAgentRun(ctx, db.ClaimAgentRunParams{AgentID: params.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("claimed stale plan: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE workflow_instance SET revision = 1 WHERE id = $1`, params.InstanceID); err != nil {
 		t.Fatal(err)
 	}
 	for _, status := range []string{"backlog", "done", "cancelled"} {
-		if _, err := pool.Exec(ctx, `UPDATE issue SET status = $2 WHERE id = $1`, execution.MainIssueID, status); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE task SET status = $2 WHERE id = $1`, execution.MainTaskID, status); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := svc.Queries.ClaimAgentTask(ctx, db.ClaimAgentTaskParams{AgentID: params.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
-			t.Fatalf("claimed %s issue: %v", status, err)
+		if _, err := svc.Queries.ClaimAgentRun(ctx, db.ClaimAgentRunParams{AgentID: params.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("claimed %s task: %v", status, err)
 		}
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status = 'todo' WHERE id = $1`, execution.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status = 'todo' WHERE id = $1`, execution.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
 	instance, err := svc.Queries.GetWorkflowInstanceInWorkspace(ctx, db.GetWorkflowInstanceInWorkspaceParams{ID: params.InstanceID, WorkspaceID: params.WorkspaceID})
@@ -158,13 +158,13 @@ func TestWorkflowQueuedTaskHonorsRunAndIssueGuards(t *testing.T) {
 	if _, err := pool.Exec(ctx, `DELETE FROM member WHERE workspace_id = $1 AND user_id = $2`, params.WorkspaceID, instance.CreatedBy); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Queries.ClaimAgentTask(ctx, db.ClaimAgentTaskParams{AgentID: params.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := svc.Queries.ClaimAgentRun(ctx, db.ClaimAgentRunParams{AgentID: params.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("claimed after membership revocation: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO member (workspace_id,user_id,role) VALUES ($1,$2,'owner')`, params.WorkspaceID, instance.CreatedBy); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err := svc.TaskService.ClaimTask(ctx, params.ExecutorID)
+	claimed, err := svc.AgentRunService.ClaimRun(ctx, params.ExecutorID)
 	if err != nil || claimed == nil || claimed.WorkflowStageExecutionID != execution.ID {
 		t.Fatalf("valid task not claimable: %+v %v", claimed, err)
 	}
@@ -173,7 +173,7 @@ func TestWorkflowQueuedTaskHonorsRunAndIssueGuards(t *testing.T) {
 func TestWorkflowDispatchBlocksMissingRuntime(t *testing.T) {
 	pool, svc, params := workflowExecutionFixture(t)
 	ctx := context.Background()
-	svc.TaskService = NewTaskService(svc.Queries, pool, nil, events.New())
+	svc.AgentRunService = NewAgentRunService(svc.Queries, pool, nil, events.New())
 	execution, err := svc.EnsureStageExecution(ctx, params)
 	if err != nil {
 		t.Fatal(err)
@@ -188,15 +188,15 @@ func TestWorkflowDispatchBlocksMissingRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if execution.Status != "blocked" || execution.FailureCode.String != "missing_runtime" || execution.MainIssueID.Valid {
-		t.Fatalf("missing runtime did not block before issue creation: %+v", execution)
+	if execution.Status != "blocked" || execution.FailureCode.String != "missing_runtime" || execution.MainTaskID.Valid {
+		t.Fatalf("missing runtime did not block before task creation: %+v", execution)
 	}
 }
 
 func TestWorkflowDispatchHasNoAdminInvocationBypass(t *testing.T) {
 	pool, svc, params := workflowExecutionFixture(t)
 	ctx := context.Background()
-	svc.TaskService = NewTaskService(svc.Queries, pool, nil, events.New())
+	svc.AgentRunService = NewAgentRunService(svc.Queries, pool, nil, events.New())
 	var adminID string
 	if err := pool.QueryRow(ctx, `INSERT INTO "user" (name,email) VALUES ('Workflow admin',$1) RETURNING id`, "workflow-admin-"+util.UUIDToString(params.InstanceID)+"@example.com").Scan(&adminID); err != nil {
 		t.Fatal(err)
@@ -219,15 +219,15 @@ func TestWorkflowDispatchHasNoAdminInvocationBypass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if execution.Status != "blocked" || execution.FailureCode.String != "permission_denied" || execution.MainIssueID.Valid {
+	if execution.Status != "blocked" || execution.FailureCode.String != "permission_denied" || execution.MainTaskID.Valid {
 		t.Fatalf("admin invoked private executor: %+v", execution)
 	}
 }
 
-func TestWorkflowTranscriptKeepsExecutionIdentityAfterIssueMove(t *testing.T) {
+func TestWorkflowTranscriptKeepsExecutionIdentityAfterTaskMove(t *testing.T) {
 	pool, svc, params := workflowExecutionFixture(t)
 	ctx := context.Background()
-	svc.TaskService = NewTaskService(svc.Queries, pool, nil, events.New())
+	svc.AgentRunService = NewAgentRunService(svc.Queries, pool, nil, events.New())
 	execution, err := svc.EnsureStageExecution(ctx, params)
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestWorkflowTranscriptKeepsExecutionIdentityAfterIssueMove(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO workflow_instance_stage(id,workspace_id,workflow_instance_id,stable_key,name,position) VALUES ($1,$2,$3,'moved','Moved',1)`, newStage, params.WorkspaceID, params.InstanceID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET workflow_stage_id=$2 WHERE id=$1`, execution.MainIssueID, newStage); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET workflow_stage_id=$2 WHERE id=$1`, execution.MainTaskID, newStage); err != nil {
 		t.Fatal(err)
 	}
 	assertCount := func(stage pgtype.UUID, want int64) {
@@ -263,14 +263,14 @@ func TestWorkflowTranscriptKeepsExecutionIdentityAfterIssueMove(t *testing.T) {
 	}
 	assertCount(params.StageID, 1)
 	assertCount(newStage, 0)
-	// Manual, unbound invocations still use the issue's current stage.
-	if _, err := pool.Exec(ctx, `INSERT INTO agent_task_queue(agent_id,issue_id,runtime_id,status) SELECT agent_id,issue_id,runtime_id,'completed' FROM agent_task_queue WHERE id=$1`, execution.MainTaskID); err != nil {
+	// Manual, unbound invocations still use the task's current stage.
+	if _, err := pool.Exec(ctx, `INSERT INTO agent_run(agent_id,task_id,runtime_id,status) SELECT agent_id,task_id,runtime_id,'completed' FROM agent_run WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	assertCount(params.StageID, 1)
 	assertCount(newStage, 1)
 	// A dangling execution pointer must not silently become a manual invocation.
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET workflow_stage_execution_id=$2 WHERE id=$1`, execution.MainTaskID, util.MustParseUUID(uuid.NewString())); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET workflow_stage_execution_id=$2 WHERE id=$1`, execution.MainRunID, util.MustParseUUID(uuid.NewString())); err != nil {
 		t.Fatal(err)
 	}
 	assertCount(params.StageID, 0)
@@ -284,21 +284,21 @@ func TestWorkflowManualQueueWaitsForCurrentStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET workflow_stage_execution_id=NULL WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET workflow_stage_execution_id=NULL WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	claim := func(want bool) {
 		t.Helper()
-		task, err := svc.Queries.ClaimAgentTask(ctx, db.ClaimAgentTaskParams{AgentID: execution.ExecutorID, PrepareLeaseSecs: 60})
+		agentRun, err := svc.Queries.ClaimAgentRun(ctx, db.ClaimAgentRunParams{AgentID: execution.ExecutorID, PrepareLeaseSecs: 60})
 		if want {
-			if err != nil || task.ID != execution.MainTaskID {
-				t.Fatalf("claim current stage: %+v %v", task, err)
+			if err != nil || agentRun.ID != execution.MainRunID {
+				t.Fatalf("claim current stage: %+v %v", agentRun, err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='queued',prepare_lease_expires_at=NULL WHERE id=$1`, task.ID); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='queued',prepare_lease_expires_at=NULL WHERE id=$1`, agentRun.ID); err != nil {
 				t.Fatal(err)
 			}
 		} else if !errors.Is(err, pgx.ErrNoRows) {
-			t.Fatalf("ineligible task claimed: %+v %v", task, err)
+			t.Fatalf("ineligible task claimed: %+v %v", agentRun, err)
 		}
 	}
 	// An automatic stage cannot bypass the execution binding by enqueuing manually.
@@ -328,17 +328,17 @@ func TestWorkflowManualQueueWaitsForCurrentStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, status := range []string{"backlog", "done", "cancelled"} {
-		if _, err := pool.Exec(ctx, `UPDATE issue SET status=$2 WHERE id=$1`, execution.MainIssueID, status); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE task SET status=$2 WHERE id=$1`, execution.MainTaskID, status); err != nil {
 			t.Fatal(err)
 		}
 		claim(false)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='todo' WHERE id=$1`, execution.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='todo' WHERE id=$1`, execution.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
 	claim(true)
 	// Ordinary tasks retain their existing claim behavior outside an SOP.
-	if _, err := pool.Exec(ctx, `UPDATE issue SET workflow_instance_id=NULL,workflow_stage_id=NULL WHERE id=$1`, execution.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET workflow_instance_id=NULL,workflow_stage_id=NULL WHERE id=$1`, execution.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
 	claim(true)
@@ -349,7 +349,7 @@ func TestWorkflowDispatchUsesFrozenInitialRetryBudget(t *testing.T) {
 		t.Run(fmt.Sprint(limit), func(t *testing.T) {
 			pool, svc, params := workflowExecutionFixture(t)
 			ctx := context.Background()
-			svc.TaskService = NewTaskService(svc.Queries, pool, nil, events.New())
+			svc.AgentRunService = NewAgentRunService(svc.Queries, pool, nil, events.New())
 			if _, err := pool.Exec(ctx, `UPDATE workflow_instance_stage SET retry_policy=jsonb_build_object('max_attempts',$2::int) WHERE id=$1`, params.StageID, limit); err != nil {
 				t.Fatal(err)
 			}
@@ -368,7 +368,7 @@ func TestWorkflowDispatchUsesFrozenInitialRetryBudget(t *testing.T) {
 				t.Fatal(err)
 			}
 			var actual, attempt int
-			if err := pool.QueryRow(ctx, `SELECT max_attempts,attempt FROM agent_task_queue WHERE workflow_stage_execution_id=$1`, execution.ID).Scan(&actual, &attempt); err != nil {
+			if err := pool.QueryRow(ctx, `SELECT max_attempts,attempt FROM agent_run WHERE workflow_stage_execution_id=$1`, execution.ID).Scan(&actual, &attempt); err != nil {
 				t.Fatal(err)
 			}
 			if actual != limit || attempt != 1 {

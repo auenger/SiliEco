@@ -5,7 +5,7 @@
 export interface VersionCheckHealth {
   status?: string;
   cli_version?: string;
-  active_task_count?: number;
+  active_run_count?: number;
 }
 
 export type VersionAction = "restart" | "defer" | "ok" | "not_running";
@@ -31,7 +31,7 @@ export function decideVersionAction(
   if (!bundled || !runningVersion) return "ok";
   if (runningVersion === bundled) return "ok";
 
-  const activeTasks = running.active_task_count ?? 0;
-  if (activeTasks > 0) return "defer";
+  const activeRuns = running.active_run_count ?? 0;
+  if (activeRuns > 0) return "defer";
   return "restart";
 }

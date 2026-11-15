@@ -5,38 +5,38 @@
  *
  * Two cross-cutting events that change inbox state without firing an
  * `inbox:*` event:
- *   - `issue:updated` carrying a new status → the inbox row's StatusIcon
+ *   - `task:updated` carrying a new status → the inbox row's StatusIcon
  *     must update inline. Without this patch the row keeps showing the
  *     prior status until the next inbox event triggers a full refetch.
- *   - `issue:deleted` → all inbox items pointing at that issue are gone
- *     server-side (FK ON DELETE CASCADE in the DB); the cache should drop
- *     them too, otherwise tapping an inbox row navigates to a 404 issue.
+ *   - `task:deleted` → all inbox items pointing at that task are gone
+ *     server-side through application cleanup; the cache should drop
+ *     them too, otherwise tapping an inbox row navigates to a 404 task.
  *
  * Listing-level only; use-inbox-realtime wires these into the WS layer.
  */
 import type { QueryClient } from "@tanstack/react-query";
-import type { InboxItem, IssueStatus } from "@silieco/core/types";
+import type { InboxItem, TaskStatus } from "@silieco/core/types";
 import { inboxKeys } from "@/data/queries/inbox";
 
-export function patchInboxIssueStatus(
+export function patchInboxTaskStatus(
   qc: QueryClient,
   wsId: string,
-  issueId: string,
-  status: IssueStatus,
+  taskId: string,
+  status: TaskStatus,
 ) {
   qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), (old) =>
     old?.map((i) =>
-      i.issue_id === issueId ? { ...i, issue_status: status } : i,
+      i.task_id === taskId ? { ...i, task_status: status } : i,
     ),
   );
 }
 
-export function dropInboxItemsByIssue(
+export function dropInboxItemsByTask(
   qc: QueryClient,
   wsId: string,
-  issueId: string,
+  taskId: string,
 ) {
   qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), (old) =>
-    old?.filter((i) => i.issue_id !== issueId),
+    old?.filter((i) => i.task_id !== taskId),
   );
 }

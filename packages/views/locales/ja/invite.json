@@ -48,6 +48,8 @@
     "row_workspace_fallback": "ワークスペース",
     "row_inviter_fallback": "誰か",
     "row_invited_admin": "{{inviter}}さんがあなたをadminとして招待しました",
-    "row_invited_member": "{{inviter}}さんがあなたをmemberとして招待しました"
+    "row_invited_member": "{{inviter}}さんがあなたをmemberとして招待しました",
+    "back_workspaces": "ワークスペースに戻る",
+    "wait_hint": "招待を待つか、いつでもワークスペースを作成できます。"
   }
 }

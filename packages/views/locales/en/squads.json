@@ -65,8 +65,8 @@
     "status_offline": "Offline",
     "status_unstable": "Unstable",
     "status_archived": "Archived",
-    "issue_status_blocked": "blocked",
-    "active_issue_more": "and {{count}} more",
+    "task_status_blocked": "blocked",
+    "active_task_more": "and {{count}} more",
     "last_active_label": "last active {{time}}"
   },
   "profile_card": {

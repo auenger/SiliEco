@@ -23,8 +23,8 @@ import (
 // outboundQueries is the slice of generated queries the Slack outbound
 // subscriber needs. *db.Queries satisfies it.
 type outboundQueries interface {
-	GetAgentTask(ctx context.Context, id pgtype.UUID) (db.AgentTaskQueue, error)
-	TaskHasChannelIngestedMessages(ctx context.Context, taskID pgtype.UUID) (bool, error)
+	GetAgentRun(ctx context.Context, id pgtype.UUID) (db.AgentRun, error)
+	RunHasChannelIngestedMessages(ctx context.Context, runID pgtype.UUID) (bool, error)
 	GetChannelChatSessionBindingBySession(ctx context.Context, arg db.GetChannelChatSessionBindingBySessionParams) (db.ChannelChatSessionBinding, error)
 	GetChannelInstallation(ctx context.Context, arg db.GetChannelInstallationParams) (db.ChannelInstallation, error)
 }
@@ -82,7 +82,7 @@ func (o *Outbound) handleEvent(e events.Event) {
 func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 	sessionID, err := util.ParseUUID(e.ChatSessionID)
 	if err != nil || !sessionID.Valid {
-		// Issue / autopilot tasks carry no chat_session.
+		// Task / autopilot tasks carry no chat_session.
 		return nil
 	}
 	binding, err := o.q.GetChannelChatSessionBindingBySession(ctx, db.GetChannelChatSessionBindingBySessionParams{
@@ -105,17 +105,17 @@ func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 	// Silieco. Outbound delivery fails closed when the origin cannot be
 	// established. Sealed channel tasks own an input batch just like direct
 	// tasks, so the discriminator is the immutable channel_ingested provenance
-	// of that batch, not chat_input_task_id presence (which #5645 originally
+	// of that batch, not chat_input_run_id presence (which #5645 originally
 	// used).
-	taskID, ok := chatDoneTaskID(e)
+	runID, ok := chatDoneRunID(e)
 	if !ok {
 		return nil
 	}
-	task, err := o.q.GetAgentTask(ctx, taskID)
+	agentRun, err := o.q.GetAgentRun(ctx, runID)
 	if err != nil {
-		return fmt.Errorf("load agent task: %w", err)
+		return fmt.Errorf("load agent run: %w", err)
 	}
-	deliver, err := engine.TaskInputIsChannelIngested(ctx, o.q, task)
+	deliver, err := engine.RunInputIsChannelIngested(ctx, o.q, agentRun)
 	if err != nil {
 		return fmt.Errorf("classify task input origin: %w", err)
 	}
@@ -150,14 +150,14 @@ func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 // chatDoneTaskID extracts the task id from the event envelope or the typed/map
 // payload emitted by TaskService. Outbound delivery fails closed when the task
 // origin cannot be established.
-func chatDoneTaskID(e events.Event) (pgtype.UUID, bool) {
-	raw := e.TaskID
+func chatDoneRunID(e events.Event) (pgtype.UUID, bool) {
+	raw := e.RunID
 	if raw == "" {
 		switch p := e.Payload.(type) {
 		case protocol.ChatDonePayload:
-			raw = p.TaskID
+			raw = p.RunID
 		case map[string]any:
-			raw, _ = p["task_id"].(string)
+			raw, _ = p["run_id"].(string)
 		}
 	}
 	id, err := util.ParseUUID(raw)

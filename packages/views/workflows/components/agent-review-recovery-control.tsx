@@ -54,7 +54,7 @@ export function AgentReviewRecoveryControl({instance, execution}: {instance: Wor
     submitted.current = true;
     try {
       await mutation.mutateAsync({instanceId: instance.id, executionId: execution.id, requestId: snapshot.request_id,
-        data: {failed_task_id: snapshot.call.id, expected_result_revision: snapshot.result_revision, expected_basis_hash: snapshot.basis_hash, reason: reason.trim()}});
+        data: {failed_run_id: snapshot.call.id, expected_result_revision: snapshot.result_revision, expected_basis_hash: snapshot.basis_hash, reason: reason.trim()}});
       toast.success(t(($) => $.agent_review_recovery.recovered));
       setSnapshot(null);
     } catch {setFailed(true);setConfirmed(false);} finally {submitted.current = false;}

@@ -3,7 +3,7 @@
 // for every other provider so a user can't save a value the runtime will
 // silently ignore. Keep this list in sync with the backends in
 // `core/pkg/agent/` that read `ExecOptions.McpConfig`, plus providers whose
-// per-task preparers in `core/internal/daemon/execenv/` materialise MCP
+// per-run preparers in `core/internal/daemon/execenv/` materialise MCP
 // config for CLIs that do not receive it through ExecOptions.
 const MCP_SUPPORTED_PROVIDERS = new Set([
   "claude",

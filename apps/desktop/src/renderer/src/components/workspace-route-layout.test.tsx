@@ -116,7 +116,7 @@ function renderLayout() {
   qc.setQueryData(["workspace-list"], state.wsList);
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={["/acme/issues"]}>
+      <MemoryRouter initialEntries={["/acme/tasks"]}>
         <Routes>
           <Route path=":workspaceSlug/*" element={<WorkspaceRouteLayout />}>
             <Route path="*" element={<div data-testid="outlet" />} />
@@ -156,7 +156,7 @@ describe("WorkspaceRouteLayout across a tab swap", () => {
     qc.setQueryData(["workspace-list"], state.wsList);
     return (
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={[`/${slug}/issues`]}>
+        <MemoryRouter initialEntries={[`/${slug}/tasks`]}>
           <Routes>
             <Route path=":workspaceSlug/*" element={<WorkspaceRouteLayout />}>
               <Route path="*" element={<ChildQuery />} />

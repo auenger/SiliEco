@@ -42,7 +42,7 @@ function payload(
   return {
     slug: "workspace-a",
     itemId: "item-1",
-    issueKey: "issue-1",
+    taskKey: "task-1",
     title: "Mentioned you",
     body: "in a comment",
     ...overrides,

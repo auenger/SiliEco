@@ -3,7 +3,7 @@
  * tapped. Mounted as a sibling to the Tabs view, NOT as the tab button
  * itself: that way the real More tab button stays a standard React
  * Navigation `PlatformPressable` (icon + "More" label, full visual
- * parity with Inbox / My Issues / Chat).
+ * parity with Inbox / My Tasks / Chat).
  *
  * The wrapper View is absolute-positioned over the More tab's screen
  * rect (right 25%, bottom = safe-area, height = tab bar). It uses
@@ -75,7 +75,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Pinned", icon: "pin", path: "/more/pins" },
-  { label: "Tasks", icon: "list.bullet", path: "/more/issues" },
+  { label: "Tasks", icon: "list.bullet", path: "/more/tasks" },
   { label: "Projects", icon: "square.stack", path: "/more/projects" },
 ];
 

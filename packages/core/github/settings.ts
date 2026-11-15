@@ -3,11 +3,11 @@ import type { Workspace } from "../types";
 export interface GitHubSettings {
   /** Master switch. When false, every UI affordance and side-effect is gated off. */
   enabled: boolean;
-  /** Issue-detail PR sidebar visibility. Implies `enabled`. */
+  /** Task-detail PR sidebar visibility. Implies `enabled`. */
   prSidebar: boolean;
   /** Co-authored-by trailer in agent commits. Implies `enabled`. */
   coAuthor: boolean;
-  /** Auto-link issues ↔ PRs from webhook payloads. Implies `enabled`. */
+  /** Auto-link tasks ↔ PRs from webhook payloads. Implies `enabled`. */
   autoLinkPRs: boolean;
 }
 

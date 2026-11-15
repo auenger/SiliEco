@@ -23,7 +23,7 @@ export function inboxListOptions(wsId: string) {
  * cache entry from the main list rather than one flat cache split locally
  * (which is what chat does): the archive grows without end, so it is fetched
  * from its own capped endpoint, and the server — not the client — decides
- * which issues belong in which list.
+ * which tasks belong in which list.
  */
 export function archivedInboxListOptions(wsId: string) {
   return queryOptions({
@@ -69,8 +69,8 @@ export function unreadWorkspaceIds(summary: InboxWorkspaceUnread[]): Set<string>
 
 /**
  * Unread inbox count for the given workspace, aligned with what the inbox
- * list UI renders: archived items excluded, then deduplicated by issue so a
- * single issue with three unread notifications counts once.
+ * list UI renders: archived items excluded, then deduplicated by task so a
+ * single task with three unread notifications counts once.
  */
 export function useInboxUnreadCount(wsId: string | null | undefined): number {
   const { data } = useQuery({
@@ -84,12 +84,12 @@ export function useInboxUnreadCount(wsId: string | null | undefined): number {
 }
 
 /**
- * Deduplicate inbox items by issue_id (one entry per issue, Linear-style).
+ * Deduplicate inbox items by task_id (one entry per task, Linear-style).
  * Exported for consumers to use in useMemo — not in queryOptions select
  * (to avoid new array references on every cache update).
  */
 export function deduplicateInboxItems(items: InboxItem[]): InboxItem[] {
-  return groupInboxItemsByIssue(items.filter((i) => !i.archived));
+  return groupInboxItemsByTask(items.filter((i) => !i.archived));
 }
 
 /**
@@ -99,13 +99,13 @@ export function deduplicateInboxItems(items: InboxItem[]): InboxItem[] {
  * archived row out of the main list.
  */
 export function deduplicateArchivedInboxItems(items: InboxItem[]): InboxItem[] {
-  return groupInboxItemsByIssue(items.filter((i) => i.archived));
+  return groupInboxItemsByTask(items.filter((i) => i.archived));
 }
 
-function groupInboxItemsByIssue(items: InboxItem[]): InboxItem[] {
+function groupInboxItemsByTask(items: InboxItem[]): InboxItem[] {
   const groups = new Map<string, InboxItem[]>();
   for (const item of items) {
-    const key = item.issue_id ?? item.id;
+    const key = item.task_id ?? item.id;
     const group = groups.get(key) ?? [];
     group.push(item);
     groups.set(key, group);

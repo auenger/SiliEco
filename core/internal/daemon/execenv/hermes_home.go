@@ -18,7 +18,7 @@ import (
 // `skills.external_dirs` in `<HERMES_HOME>/config.yaml`, in config order. It has
 // NO workspace-relative discovery, so the generic `.agent_context/skills/`
 // fallback the daemon used before was never scanned and workspace-assigned
-// skills silently never took effect (issue #5242).
+// skills silently never took effect (task #5242).
 //
 // Rather than replace HERMES_HOME with a home rebuilt from a fixed allowlist —
 // which would silently change behavior for tasks that don't even use skills and
@@ -87,16 +87,16 @@ import (
 // HERMES_HOME to the overlay, and is written even when the source has none so
 // Hermes' project-.env fallback (loaded with override=True only when no user
 // .env loaded) can't relocate the home either.
-const hermesTaskLocalStateMarker = ".silieco-task-local-state-v1"
+const hermesRunLocalStateMarker = ".silieco-task-local-state-v1"
 
 var hermesOverriddenEntries = map[string]struct{}{
-	"skills":                   {},
-	"config.yaml":              {},
-	"memories":                 {},
-	"active_profile":           {},
-	"profiles":                 {},
-	".env":                     {},
-	hermesTaskLocalStateMarker: {},
+	"skills":                  {},
+	"config.yaml":             {},
+	"memories":                {},
+	"active_profile":          {},
+	"profiles":                {},
+	".env":                    {},
+	hermesRunLocalStateMarker: {},
 }
 
 // isHermesOverlayOwnedEntry reports whether name belongs to the per-task
@@ -108,10 +108,10 @@ func isHermesOverlayOwnedEntry(name string) bool {
 	if _, owned := hermesOverriddenEntries[name]; owned {
 		return true
 	}
-	return isHermesTaskLocalStateEntry(name)
+	return isHermesRunLocalStateEntry(name)
 }
 
-func isHermesTaskLocalStateEntry(name string) bool {
+func isHermesRunLocalStateEntry(name string) bool {
 	return name == "state.db" || strings.HasPrefix(name, "state.db-")
 }
 
@@ -386,11 +386,11 @@ func prepareHermesHome(hermesHome, sourceHome string, sourceMustExist bool, work
 	if err := os.Chmod(hermesHome, 0o700); err != nil {
 		return fmt.Errorf("chmod hermes-home dir: %w", err)
 	}
-	if err := prepareHermesTaskLocalState(hermesHome); err != nil {
+	if err := prepareHermesRunLocalState(hermesHome); err != nil {
 		return fmt.Errorf("prepare task-local state: %w", err)
 	}
 	// Fresh, isolated per-task memories dir (idempotent — preserved across reuse
-	// so the task/issue lifecycle keeps its own memory).
+	// so the task/task lifecycle keeps its own memory).
 	if err := os.MkdirAll(filepath.Join(hermesHome, "memories"), 0o700); err != nil {
 		return fmt.Errorf("create task memories dir: %w", err)
 	}
@@ -540,8 +540,8 @@ func reconcileMirroredEntries(hermesHome string, mirrored map[string]struct{}) e
 // reuse as task-local state. Remove only those entries inside the generated
 // overlay, then record the migration atomically. Hermes lazily creates a fresh
 // database, and later prepares preserve it because the marker is present.
-func prepareHermesTaskLocalState(hermesHome string) error {
-	marker := filepath.Join(hermesHome, hermesTaskLocalStateMarker)
+func prepareHermesRunLocalState(hermesHome string) error {
+	marker := filepath.Join(hermesHome, hermesRunLocalStateMarker)
 	if fi, err := os.Lstat(marker); err == nil {
 		if !fi.Mode().IsRegular() {
 			return fmt.Errorf("state marker is not a regular file: %s", marker)
@@ -556,7 +556,7 @@ func prepareHermesTaskLocalState(hermesHome string) error {
 		return fmt.Errorf("read overlay home: %w", err)
 	}
 	for _, entry := range entries {
-		if !isHermesTaskLocalStateEntry(entry.Name()) {
+		if !isHermesRunLocalStateEntry(entry.Name()) {
 			continue
 		}
 		path := filepath.Join(hermesHome, entry.Name())

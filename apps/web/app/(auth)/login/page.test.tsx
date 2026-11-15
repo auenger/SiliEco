@@ -23,7 +23,7 @@ function createWrapper() {
 
 const {
   mockPasswordAuth,
-  mockIssueCliToken,
+  mockMintCliToken,
   mockListWorkspaces,
   mockListMyInvitations,
   mockPush,
@@ -32,7 +32,7 @@ const {
   authStateRef,
 } = vi.hoisted(() => ({
   mockPasswordAuth: vi.fn(),
-  mockIssueCliToken: vi.fn(),
+  mockMintCliToken: vi.fn(),
   mockListWorkspaces: vi.fn(),
   mockListMyInvitations: vi.fn(),
   mockPush: vi.fn(),
@@ -48,7 +48,7 @@ const {
 }));
 
 // Mock next/navigation — router spies are hoisted so tests can assert
-// which navigation (if any) the page issued.
+// which navigation (if any) the page taskd.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   usePathname: () => "/login",
@@ -86,7 +86,7 @@ vi.mock("@silieco/core/api", () => ({
     verifyCode: vi.fn(),
     setToken: vi.fn(),
     getMe: vi.fn(),
-    issueCliToken: mockIssueCliToken,
+    mintCliToken: mockMintCliToken,
   },
 }));
 
@@ -198,7 +198,7 @@ describe("LoginPage", () => {
   it("mints a token and deep-links to Desktop when already logged in with platform=desktop", async () => {
     searchParamsState.params = new URLSearchParams({ platform: "desktop" });
     authStateRef.state.user = { id: "u1", email: "test@silieco.ai" };
-    mockIssueCliToken.mockImplementation(() =>
+    mockMintCliToken.mockImplementation(() =>
       Promise.resolve({ token: "handoff-jwt" }),
     );
 
@@ -213,7 +213,7 @@ describe("LoginPage", () => {
       render(<LoginPage />, { wrapper: createWrapper() });
 
       await waitFor(() => {
-        expect(mockIssueCliToken).toHaveBeenCalledTimes(1);
+        expect(mockMintCliToken).toHaveBeenCalledTimes(1);
       });
       await waitFor(() => {
         expect(hrefSetter).toHaveBeenCalledWith(

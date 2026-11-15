@@ -69,10 +69,9 @@ either dimension.
 - Real-time state changes from queued Agent work through execution, review, and
   completion.
 
-> The UI and product documentation use **Task**. Some database tables, REST
-> routes, and the current CLI still use the legacy internal identifier `issue`
-> for protocol compatibility. This is an implementation detail, not a separate
-> product concept.
+> **Task** is the business work item and **AgentRun** is one agent execution.
+> The code, database, API, and CLI use these names directly. A Task can have
+> multiple runs; chat and automation runs may have no associated Task.
 
 ### Shared file resources
 
@@ -142,7 +141,7 @@ either dimension.
 
 ### Runtime and integrations
 
-- Local daemon discovery, runtime registration, WebSocket heartbeats, task
+- Local daemon discovery, runtime registration, WebSocket heartbeats, run
   claiming, streaming, cancellation, recovery, and garbage collection.
 - Runtime adapters for Claude Code, Codex, CodeBuddy, GitHub Copilot CLI,
   OpenCode, OpenClaw, Hermes, Pi, Cursor Agent, Kimi, Kiro, Qwen, Qoder, Trae,

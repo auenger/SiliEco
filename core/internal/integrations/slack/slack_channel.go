@@ -36,12 +36,12 @@ type slackChannel struct {
 	appToken  string        // decrypted xapp- — authorizes the Socket Mode connection
 	botAPI    *slack.Client // bot-token client for outbound Send
 	handler   channel.InboundHandler
-	slash     *SlashCommandProcessor // nil disables /issue slash-command handling
+	slash     *SlashCommandProcessor // nil disables /task slash-command handling
 	logger    *slog.Logger
 }
 
-// slashCommandTimeout bounds the detached processing of one `/issue` slash
-// command (installation + identity resolution, issue creation, response_url
+// slashCommandTimeout bounds the detached processing of one `/task` slash
+// command (installation + identity resolution, task creation, response_url
 // reply). It runs off the socket receive loop on its own context, so a slow DB
 // or Slack HTTP call cannot wedge event delivery.
 const slashCommandTimeout = 10 * time.Second
@@ -193,8 +193,8 @@ func (c *slackChannel) dispatchEventsAPI(ctx context.Context, e slackevents.Even
 	return c.handler(ctx, msg)
 }
 
-// dispatchSlashCommand processes an already-ACKed `/issue` slash command on a
-// detached goroutine with its own bounded context, so the issue creation and
+// dispatchSlashCommand processes an already-ACKed `/task` slash command on a
+// detached goroutine with its own bounded context, so the task creation and
 // response_url reply never block the socket receive loop (mirrors the router's
 // detached outbound path). A nil processor (slash handling not wired) drops it.
 func (c *slackChannel) dispatchSlashCommand(cmd slack.SlashCommand) {
@@ -216,7 +216,7 @@ func (c *slackChannel) dispatchSlashCommand(cmd slack.SlashCommand) {
 type ChannelDeps struct {
 	Decrypt Decrypter
 	Logger  *slog.Logger
-	// Slash handles the `/issue` slash command delivered over Socket Mode. Nil
+	// Slash handles the `/task` slash command delivered over Socket Mode. Nil
 	// leaves slash-command handling off (the connection still serves messages
 	// and @-mentions); tests that only exercise inbound messages pass nil.
 	Slash *SlashCommandProcessor

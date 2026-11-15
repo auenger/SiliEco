@@ -28,21 +28,21 @@ const INBOX_GROUPS: Array<{
   {
     key: "assignments",
     label: "Assignments",
-    description: "When you're assigned an issue or removed as assignee.",
+    description: "When you're assigned a task or removed as assignee.",
   },
   {
     key: "status_changes",
     label: "Status changes",
-    description: "When an issue's status changes.",
+    description: "When a task's status changes.",
   },
   {
     key: "comments",
     label: "Comments",
-    description: "New comments on issues you're subscribed to.",
+    description: "New comments on tasks you're subscribed to.",
   },
   {
     key: "updates",
-    label: "Issue updates",
+    label: "Task updates",
     description: "Edits to title, description, labels, priority, or due date.",
   },
   {

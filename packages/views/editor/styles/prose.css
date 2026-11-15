@@ -2,7 +2,7 @@
  * Rich text prose typography.
  *
  * Design tier: "Compact" (same tier as Linear, Slack). Optimized for
- * short-form content (issue descriptions, comments) that users scan, not
+ * short-form content (task descriptions, comments) that users scan, not
  * long-form reading.
  *
  * Typography values benchmarked against (April 2026):
@@ -377,13 +377,13 @@
   text-decoration-color: var(--brand);
 }
 
-/* Issue mention cards — inline cards that sit within text flow */
-.rich-text-editor a.issue-mention {
+/* Task mention cards — inline cards that sit within text flow */
+.rich-text-editor a.task-mention {
   color: inherit;
   text-decoration: none;
 }
 
-.rich-text-editor a.issue-mention:hover {
+.rich-text-editor a.task-mention:hover {
   text-decoration: none;
 }
 

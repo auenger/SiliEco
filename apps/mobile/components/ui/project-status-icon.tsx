@@ -1,9 +1,9 @@
 /**
  * Mobile ProjectStatusIcon — visual identity per status, mirrors the design
- * intent of the web `project-status-icon` (and the issue StatusIcon shape).
+ * intent of the web `project-status-icon` (and the task StatusIcon shape).
  *
  * Geometry follows status-icon.tsx (14×14 viewBox, 6r outer ring) so the
- * project status icon visually rhymes with issue statuses on the same screen.
+ * project status icon visually rhymes with task statuses on the same screen.
  */
 import * as React from "react";
 import Svg, { Circle, Line, Path } from "react-native-svg";

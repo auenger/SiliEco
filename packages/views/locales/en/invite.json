@@ -49,6 +49,8 @@
     "row_workspace_fallback": "Workspace",
     "row_inviter_fallback": "Someone",
     "row_invited_admin": "{{inviter}} invited you as an admin",
-    "row_invited_member": "{{inviter}} invited you as a member"
+    "row_invited_member": "{{inviter}} invited you as a member",
+    "back_workspaces": "Back to workspaces",
+    "wait_hint": "Wait for an invitation or create a workspace whenever you are ready."
   }
 }

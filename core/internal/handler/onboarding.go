@@ -37,7 +37,7 @@ const (
 // without a funnel-ready label.
 //
 // `workspace_id` is retained for analytics enrichment; the v2 code path
-// used it to seed an install-runtime issue inside the same transaction,
+// used it to seed an install-runtime task inside the same transaction,
 // but in v3 every workspace-content seeding lives in the frontend
 // welcome hook (see packages/views/workspace/welcome-after-onboarding.tsx).
 type completeOnboardingRequest struct {
@@ -63,8 +63,8 @@ var validCompletionPaths = map[string]struct{}{
 // counts honest first-completion.
 //
 // V3 has no in-handler seeding side effect: workspace content (Helper
-// agent, starter issues, install-runtime guides) is created by the
-// frontend welcome hook via the generic CreateAgent / CreateIssue
+// agent, starter tasks, install-runtime guides) is created by the
+// frontend welcome hook via the generic CreateAgent / CreateTask
 // endpoints. This handler does one thing: flip the field.
 func (h *Handler) CompleteOnboarding(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)

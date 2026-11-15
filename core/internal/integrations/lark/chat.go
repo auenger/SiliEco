@@ -6,7 +6,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// The chat-session ensure/append/`/issue` machinery that used to live here (and
+// The chat-session ensure/append/`/task` machinery that used to live here (and
 // in chat_service.go) has moved to the channel-agnostic engine.ChatSession
 // (SILI-3516), which Feishu now consumes via NewFeishuResolverSet — there is no
 // Feishu-specific session service anymore. What remains is the inbound drop

@@ -25,7 +25,7 @@ const hang: FreezeBreadcrumb = {
   context: {
     desktopRoute: {
       surface: "tab",
-      path: "/:slug/issues",
+      path: "/:slug/tasks",
       reportedAt: "2026-07-27T00:00:00.000Z",
     },
     stack: [
@@ -123,7 +123,7 @@ describe("telemetry props carry no raw identifiers", () => {
       recovered: false,
       breadcrumb_ts: hang.ts,
       crashed_version: "0.4.11",
-      path: "/:slug/issues",
+      path: "/:slug/tasks",
       surface: "tab",
       stack: hang.context.stack,
       stack_depth: 2,
@@ -142,7 +142,7 @@ describe("telemetry props carry no raw identifiers", () => {
         windowUrl: "file:///Users/someone/Applications/Silieco.app/index.html",
         desktopRoute: {
           surface: "tab",
-          path: "/:slug/issues",
+          path: "/:slug/tasks",
           workspaceSlug: "acme",
           tabId: "tab-1",
           reportedAt: "2026-07-27T00:00:00.000Z",

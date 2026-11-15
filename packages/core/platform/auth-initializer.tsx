@@ -117,7 +117,7 @@ export function AuthInitializer({
     }
 
     // Token mode: read from localStorage (Electron / legacy).
-    const token = storage.getItem("silieco_token");
+    const token = storage.getItem("silieco_tr1_token");
     if (!token) {
       onLogout?.();
       useAuthStore.setState({ isLoading: false });
@@ -137,7 +137,7 @@ export function AuthInitializer({
         logger.error("auth init failed", err);
         api.setToken(null);
         setCurrentWorkspace(null, null);
-        storage.removeItem("silieco_token");
+        storage.removeItem("silieco_tr1_token");
         onAuthFailure();
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps

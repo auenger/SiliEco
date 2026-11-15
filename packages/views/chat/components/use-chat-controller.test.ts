@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 import { chatKeys } from "@silieco/core/chat/queries";
-import type { ChatMessage, ChatMessagesPage, ChatPendingTask } from "@silieco/core/types";
+import type { ChatMessage, ChatMessagesPage, ChatPendingRun } from "@silieco/core/types";
 import {
-  hasInFlightPendingTask,
+  hasInFlightPendingRun,
   isStillOnComposeTarget,
   planProjectContextChange,
 } from "./use-chat-controller";
 
-// hasInFlightPendingTask is the discriminator the stale-session self-heal uses
+// hasInFlightPendingRun is the discriminator the stale-session self-heal uses
 // to EXEMPT a just-created session (awaiting the list refetch) from being
 // dropped as dangling. Post-SILI-5181 the send is await-then-render, so the
-// exemption keys purely on the pending task `handleSend` seeds from the send
+// exemption keys purely on the pending run `handleSend` seeds from the send
 // response — NOT on "has cached messages": a session deleted elsewhere can still
 // hold real cached history and must remain eligible for self-heal.
 const sid = "session-1";
@@ -22,37 +22,37 @@ function msg(id: string): ChatMessage {
     chat_session_id: sid,
     role: "user",
     content: "hi",
-    task_id: null,
+    run_id: null,
     created_at: "2026-07-08T00:00:00Z",
   };
 }
 
-describe("hasInFlightPendingTask", () => {
+describe("hasInFlightPendingRun", () => {
   it("is false with an empty cache", () => {
-    expect(hasInFlightPendingTask(new QueryClient(), sid)).toBe(false);
+    expect(hasInFlightPendingRun(new QueryClient(), sid)).toBe(false);
   });
 
-  it("is false when only real cached history exists (no in-flight task)", () => {
+  it("is false when only real cached history exists (no in-flight run)", () => {
     const qc = new QueryClient();
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(sid), [msg("real-1"), msg("real-2")]);
     qc.setQueryData<InfiniteData<ChatMessagesPage>>(chatKeys.messagesPage(sid), {
       pages: [{ messages: [msg("real-1")], limit: 50, has_more: false, next_cursor: null }],
       pageParams: [null],
     });
-    // A completed session sets pendingTask to {} (no task_id) — cached history
+    // A completed session sets pendingRun to {} (no run_id) — cached history
     // alone must not exempt it from the self-heal.
-    qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(sid), {} as ChatPendingTask);
-    expect(hasInFlightPendingTask(qc, sid)).toBe(false);
+    qc.setQueryData<ChatPendingRun>(chatKeys.pendingRun(sid), {} as ChatPendingRun);
+    expect(hasInFlightPendingRun(qc, sid)).toBe(false);
   });
 
-  it("is true while a pending task is in flight (task_id set)", () => {
+  it("is true while a pending run is in flight (run_id set)", () => {
     const qc = new QueryClient();
-    qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(sid), {
-      task_id: "11111111-1111-4111-8111-111111111111",
+    qc.setQueryData<ChatPendingRun>(chatKeys.pendingRun(sid), {
+      run_id: "11111111-1111-4111-8111-111111111111",
       status: "queued",
       created_at: "2026-07-08T00:00:00Z",
     });
-    expect(hasInFlightPendingTask(qc, sid)).toBe(true);
+    expect(hasInFlightPendingRun(qc, sid)).toBe(true);
   });
 });
 
@@ -90,6 +90,14 @@ describe("isStillOnComposeTarget", () => {
 // send would land on agent A.
 describe("planProjectContextChange", () => {
   const sessionB = { id: "sB", agent_id: "agent-b" };
+
+  it.each(["project-x", null])("keeps group identity and members when changing project to %s", (projectId) => {
+    expect(planProjectContextChange({
+      targetProjectId: projectId,
+      activeSessionId: "group-session",
+      currentSession: { id: "group-session", agent_id: "", kind: "group" },
+    })).toEqual({ kind: "updateGroup", sessionId: "group-session", projectId });
+  });
 
   it("waits when an active session id is set but its row has not loaded yet", () => {
     expect(

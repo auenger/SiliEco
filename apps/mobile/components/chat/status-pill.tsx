@@ -1,6 +1,6 @@
 /**
- * In-flight task status — mobile-side mirror of
- * `packages/views/chat/components/task-status-pill.tsx`.
+ * In-flight run status — mobile-side mirror of
+ * `packages/views/chat/components/run-status-pill.tsx`.
  *
  * Visual choices match web's intent ("diagnostic inline text, not a
  * notification chip") adapted for RN:
@@ -17,7 +17,7 @@
  *     while `sending===true` (chat-composer.tsx). A second Stop here
  *     was redundant chrome.
  *
- * Stage logic (queued / dispatched / running × taskMessages → stage label)
+ * Stage logic (queued / dispatched / running × runMessages → stage label)
  * mirrors web's `pickStageKeys` exactly — same priority order, same
  * fallback. Differences are visual-only.
  */
@@ -33,8 +33,8 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import type {
-  ChatPendingTask,
-  TaskMessagePayload,
+  ChatPendingRun,
+  AgentRunMessagePayload,
 } from "@silieco/core/types";
 import type { AgentAvailability } from "@silieco/core/agents";
 import { Text } from "@/components/ui/text";
@@ -43,8 +43,8 @@ import { useColorScheme } from "@/lib/use-color-scheme";
 import { THEME } from "@/lib/theme";
 
 interface Props {
-  pendingTask: ChatPendingTask | null | undefined;
-  taskMessages?: readonly TaskMessagePayload[];
+  pendingRun: ChatPendingRun | null | undefined;
+  runMessages?: readonly AgentRunMessagePayload[];
   /** Resolved presence; pass `undefined` to suppress availability hints
    *  during loading so the line never flashes "Offline" speculatively. */
   availability?: AgentAvailability;
@@ -73,7 +73,7 @@ const TOOL_LABELS: Record<string, string> = {
 
 function pickStage(
   status: string | undefined,
-  taskMessages: readonly TaskMessagePayload[],
+  runMessages: readonly AgentRunMessagePayload[],
   availability: AgentAvailability | undefined,
 ): Stage {
   if (
@@ -91,9 +91,9 @@ function pickStage(
   if (status === "queued") return { label: "Queued" };
   if (status === "dispatched") return { label: "Starting up" };
 
-  let latest: TaskMessagePayload | null = null;
-  for (let i = taskMessages.length - 1; i >= 0; i--) {
-    const m = taskMessages[i];
+  let latest: AgentRunMessagePayload | null = null;
+  for (let i = runMessages.length - 1; i >= 0; i--) {
+    const m = runMessages[i];
     if (m && m.type !== "error" && m.type !== "tool_result") {
       latest = m;
       break;
@@ -120,32 +120,32 @@ function pickStage(
 const TABULAR_NUMS: TextStyle = { fontVariant: ["tabular-nums"] };
 
 export function StatusPill({
-  pendingTask,
-  taskMessages = [],
+  pendingRun,
+  runMessages = [],
   availability,
 }: Props) {
-  const taskId = pendingTask?.task_id;
-  const createdAt = pendingTask?.created_at;
+  const runId = pendingRun?.run_id;
+  const createdAt = pendingRun?.created_at;
 
-  // Anchor — locked per task. Reset on task_id change so a new run
+  // Anchor — locked per run. Reset on run_id change so a new run
   // restarts the timer from 0; mid-run we never reassign, otherwise the
   // counter would visibly snap backwards when a server `created_at`
   // arrives a few hundred ms before the optimistic `Date.now()` anchor.
   // (Stored in a `useEffect`-driven mutable; useRef would also work but
   // we already touch state on tick, so a tiny extra hook is fine.)
-  const anchorMs = useTaskAnchor(taskId, createdAt);
+  const anchorMs = useRunAnchor(runId, createdAt);
 
   // 1Hz tick — the only reason this hook exists is to force a re-render
   // every second. We don't read the tick value; we read Date.now() at
   // render time.
-  useTick(!!taskId, 1000);
+  useTick(!!runId, 1000);
 
-  if (!taskId) return null;
+  if (!runId) return null;
 
   const status =
-    taskMessages.length > 0 ? "running" : pendingTask?.status;
+    runMessages.length > 0 ? "running" : pendingRun?.status;
   const elapsedSec = Math.max(0, Math.floor((Date.now() - anchorMs) / 1000));
-  const stage = pickStage(status, taskMessages, availability);
+  const stage = pickStage(status, runMessages, availability);
 
   return (
     <View
@@ -166,18 +166,18 @@ export function StatusPill({
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
-function useTaskAnchor(
-  taskId: string | undefined,
+function useRunAnchor(
+  runId: string | undefined,
   createdAt: string | undefined,
 ): number {
   const ref = useRef<{ id: string | undefined; ms: number }>({
     id: undefined,
     ms: Date.now(),
   });
-  if (ref.current.id !== taskId) {
+  if (ref.current.id !== runId) {
     const t = createdAt ? Date.parse(createdAt) : NaN;
     ref.current = {
-      id: taskId,
+      id: runId,
       ms: Number.isFinite(t) ? t : Date.now(),
     };
   }

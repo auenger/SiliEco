@@ -12,8 +12,13 @@ import (
 )
 
 const addSquadMember = `-- name: AddSquadMember :one
-INSERT INTO squad_member (squad_id, member_type, member_id, role)
-VALUES ($1, $2, $3, $4)
+INSERT INTO squad_member (squad_id, member_type, member_id, role) SELECT
+    $1 AS squad_id,
+    $2 AS member_type,
+    $3 AS member_id,
+    $4 AS role
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM squad AS ref_squad_id WHERE ref_squad_id.id = ($1) FOR KEY SHARE))
+
 RETURNING id, squad_id, member_type, member_id, role, created_at
 `
 
@@ -86,8 +91,14 @@ func (q *Queries) CountSquadMembers(ctx context.Context, squadID pgtype.UUID) (i
 }
 
 const createSquad = `-- name: CreateSquad :one
+WITH workspace_guard AS MATERIALIZED (
+ SELECT id FROM workspace WHERE id=$1 FOR KEY SHARE
+), leader_guard AS MATERIALIZED (
+ SELECT id FROM agent WHERE id=$4 AND workspace_id=$1 FOR KEY SHARE
+)
 INSERT INTO squad (workspace_id, name, description, leader_id, creator_id, avatar_url)
-VALUES ($1, $2, $3, $4, $5, $6)
+SELECT $1, $2, $3, $4, $5, $6
+WHERE EXISTS (SELECT 1 FROM workspace_guard) AND EXISTS (SELECT 1 FROM leader_guard)
 RETURNING id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions
 `
 
@@ -128,7 +139,7 @@ func (q *Queries) CreateSquad(ctx context.Context, arg CreateSquadParams) (Squad
 }
 
 const getSquad = `-- name: GetSquad :one
-SELECT id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions FROM squad WHERE id = $1
+SELECT id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions FROM squad WHERE squad.id = $1
 `
 
 func (q *Queries) GetSquad(ctx context.Context, id pgtype.UUID) (Squad, error) {
@@ -160,7 +171,7 @@ type GetSquadByAssigneeParams struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 }
 
-// Look up the squad when an issue is assigned to a squad.
+// Look up the squad when an task is assigned to a squad.
 func (q *Queries) GetSquadByAssignee(ctx context.Context, arg GetSquadByAssigneeParams) (Squad, error) {
 	row := q.db.QueryRow(ctx, getSquadByAssignee, arg.ID, arg.WorkspaceID)
 	var i Squad
@@ -182,7 +193,7 @@ func (q *Queries) GetSquadByAssignee(ctx context.Context, arg GetSquadByAssignee
 }
 
 const getSquadInWorkspace = `-- name: GetSquadInWorkspace :one
-SELECT id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions FROM squad WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions FROM squad WHERE squad.id = $1 AND workspace_id = $2
 `
 
 type GetSquadInWorkspaceParams struct {
@@ -231,7 +242,7 @@ func (q *Queries) IsSquadMember(ctx context.Context, arg IsSquadMemberParams) (b
 }
 
 const listAllSquads = `-- name: ListAllSquads :many
-SELECT id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions FROM squad WHERE workspace_id = $1 ORDER BY created_at ASC
+SELECT id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions FROM squad WHERE squad.workspace_id = $1 ORDER BY created_at ASC
 `
 
 func (q *Queries) ListAllSquads(ctx context.Context, workspaceID pgtype.UUID) ([]Squad, error) {
@@ -290,7 +301,7 @@ type ListSquadMemberPreviewRowsRow struct {
 }
 
 // Static squad membership summary for list/hover previews. This deliberately
-// excludes derived runtime/task status; the squad detail members-status
+// excludes derived runtime/run status; the squad detail members-status
 // endpoint owns live state.
 func (q *Queries) ListSquadMemberPreviewRows(ctx context.Context, workspaceID pgtype.UUID) ([]ListSquadMemberPreviewRowsRow, error) {
 	rows, err := q.db.Query(ctx, listSquadMemberPreviewRows, workspaceID)
@@ -371,24 +382,24 @@ SELECT
     a.archived_at      AS agent_archived_at,
     ar.status          AS runtime_status,
     ar.last_seen_at    AS runtime_last_seen_at,
-    atq.id             AS task_id,
-    atq.status         AS task_status,
-    atq.issue_id       AS task_issue_id,
-    atq.dispatched_at  AS task_dispatched_at,
-    i.number           AS issue_number,
-    i.title            AS issue_title,
-    i.status           AS issue_status
+    atq.id             AS run_id,
+    atq.status         AS run_status,
+    atq.task_id       AS run_task_id,
+    atq.dispatched_at  AS run_dispatched_at,
+    i.number           AS task_number,
+    i.title            AS task_title,
+    i.status           AS task_status
 FROM squad_member sm
 LEFT JOIN agent a
        ON sm.member_type = 'agent' AND a.id = sm.member_id
 LEFT JOIN agent_runtime ar
        ON ar.id = a.runtime_id
-LEFT JOIN agent_task_queue atq
+LEFT JOIN agent_run atq
        ON sm.member_type = 'agent'
       AND atq.agent_id = sm.member_id
       AND atq.status IN ('dispatched', 'running', 'waiting_local_directory')
-LEFT JOIN issue i
-       ON i.id = atq.issue_id
+LEFT JOIN task i
+       ON i.id = atq.task_id
 WHERE sm.squad_id = $1
 ORDER BY sm.created_at ASC, atq.dispatched_at DESC NULLS LAST
 `
@@ -400,18 +411,18 @@ type ListSquadMemberStatusRowsRow struct {
 	AgentArchivedAt   pgtype.Timestamptz `json:"agent_archived_at"`
 	RuntimeStatus     pgtype.Text        `json:"runtime_status"`
 	RuntimeLastSeenAt pgtype.Timestamptz `json:"runtime_last_seen_at"`
-	TaskID            pgtype.UUID        `json:"task_id"`
+	RunID             pgtype.UUID        `json:"run_id"`
+	RunStatus         pgtype.Text        `json:"run_status"`
+	RunTaskID         pgtype.UUID        `json:"run_task_id"`
+	RunDispatchedAt   pgtype.Timestamptz `json:"run_dispatched_at"`
+	TaskNumber        pgtype.Int4        `json:"task_number"`
+	TaskTitle         pgtype.Text        `json:"task_title"`
 	TaskStatus        pgtype.Text        `json:"task_status"`
-	TaskIssueID       pgtype.UUID        `json:"task_issue_id"`
-	TaskDispatchedAt  pgtype.Timestamptz `json:"task_dispatched_at"`
-	IssueNumber       pgtype.Int4        `json:"issue_number"`
-	IssueTitle        pgtype.Text        `json:"issue_title"`
-	IssueStatus       pgtype.Text        `json:"issue_status"`
 }
 
 // Per-row join used to build the squad-members status view. One row per
-// (squad_member × active_task); members with no active task return a
-// single row with NULL task_* columns. Human members and agent members
+// (squad_member × active_run); members with no active run return a
+// single row with NULL run_* columns. Human members and agent members
 // with no agent row also return one row with NULL agent_/runtime_ columns.
 // The handler aggregates rows by member_id.
 func (q *Queries) ListSquadMemberStatusRows(ctx context.Context, squadID pgtype.UUID) ([]ListSquadMemberStatusRowsRow, error) {
@@ -430,13 +441,13 @@ func (q *Queries) ListSquadMemberStatusRows(ctx context.Context, squadID pgtype.
 			&i.AgentArchivedAt,
 			&i.RuntimeStatus,
 			&i.RuntimeLastSeenAt,
-			&i.TaskID,
+			&i.RunID,
+			&i.RunStatus,
+			&i.RunTaskID,
+			&i.RunDispatchedAt,
+			&i.TaskNumber,
+			&i.TaskTitle,
 			&i.TaskStatus,
-			&i.TaskIssueID,
-			&i.TaskDispatchedAt,
-			&i.IssueNumber,
-			&i.IssueTitle,
-			&i.IssueStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -480,7 +491,7 @@ func (q *Queries) ListSquadMembers(ctx context.Context, squadID pgtype.UUID) ([]
 }
 
 const listSquads = `-- name: ListSquads :many
-SELECT id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions FROM squad WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY created_at ASC
+SELECT id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions FROM squad WHERE squad.workspace_id = $1 AND archived_at IS NULL ORDER BY created_at ASC
 `
 
 func (q *Queries) ListSquads(ctx context.Context, workspaceID pgtype.UUID) ([]Squad, error) {
@@ -583,7 +594,7 @@ func (q *Queries) RemoveSquadMember(ctx context.Context, arg RemoveSquadMemberPa
 }
 
 const transferSquadAssignees = `-- name: TransferSquadAssignees :exec
-UPDATE issue SET assignee_type = 'agent', assignee_id = $2, updated_at = now()
+UPDATE task SET assignee_type = 'agent', assignee_id = $2, updated_at = now()
 WHERE assignee_type = 'squad' AND assignee_id = $1
 `
 
@@ -592,7 +603,7 @@ type TransferSquadAssigneesParams struct {
 	AssigneeID_2 pgtype.UUID `json:"assignee_id_2"`
 }
 
-// Transfer all issues assigned to a squad to the squad's leader agent.
+// Transfer all tasks assigned to a squad to the squad's leader agent.
 func (q *Queries) TransferSquadAssignees(ctx context.Context, arg TransferSquadAssigneesParams) error {
 	_, err := q.db.Exec(ctx, transferSquadAssignees, arg.AssigneeID, arg.AssigneeID_2)
 	return err
@@ -623,6 +634,12 @@ func (q *Queries) TransferSquadAutopilotsToLeader(ctx context.Context, arg Trans
 }
 
 const updateSquad = `-- name: UpdateSquad :one
+WITH leader_guard AS MATERIALIZED (
+ SELECT agent.id FROM agent
+ WHERE agent.id=$4
+ AND agent.workspace_id=(SELECT squad.workspace_id FROM squad WHERE squad.id=$1)
+ FOR KEY SHARE
+)
 UPDATE squad SET
     name = COALESCE($2, name),
     description = COALESCE($3, description),
@@ -630,7 +647,8 @@ UPDATE squad SET
     avatar_url = COALESCE($5, avatar_url),
     instructions = COALESCE($6, instructions),
     updated_at = now()
-WHERE id = $1
+WHERE squad.id = $1
+ AND ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM leader_guard))
 RETURNING id, workspace_id, name, description, leader_id, creator_id, created_at, updated_at, archived_at, archived_by, avatar_url, instructions
 `
 

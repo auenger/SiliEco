@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY github_installation_workspace_id_installation_id_key ON public.github_installation (workspace_id, installation_id);

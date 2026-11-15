@@ -424,6 +424,35 @@ func TestLoadConfig_AutoUpdateDefault_SelfHostOff(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_MaxConcurrentRuns(t *testing.T) {
+	stageFakeAgent(t)
+	for _, tc := range []struct {
+		name     string
+		env      string
+		override int
+		want     int
+	}{
+		{name: "default", want: DefaultMaxConcurrentRuns},
+		{name: "environment", env: "12", want: 12},
+		{name: "explicit override", env: "12", override: 7, want: 7},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SILIECO_DAEMON_MAX_CONCURRENT_RUNS", tc.env)
+			cfg, err := LoadConfig(Overrides{
+				ServerURL:         "http://localhost:8080",
+				WorkspacesRoot:    t.TempDir(),
+				MaxConcurrentRuns: tc.override,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.MaxConcurrentRuns != tc.want {
+				t.Fatalf("MaxConcurrentRuns = %d, want %d", cfg.MaxConcurrentRuns, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoadConfig_CodexHandshakeTimeout(t *testing.T) {
 	stageFakeAgent(t)
 	t.Setenv("SILIECO_CODEX_HANDSHAKE_TIMEOUT", "")
@@ -935,7 +964,7 @@ func pinNonCodexAgentsToMissingPaths(t *testing.T) {
 }
 
 // =============================================================================
-// CLI config Backends.OpenClaw overrides (issue #3875)
+// CLI config Backends.OpenClaw overrides (task #3875)
 // =============================================================================
 
 // writeCLIConfigForProfile is a minimal helper for the override tests:

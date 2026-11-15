@@ -87,7 +87,7 @@ func TestDecodeOpenclawRuntimeConfigModeOnly(t *testing.T) {
 // `%+v` / json.Marshal of an OpenclawGatewayPin must NOT print the bearer
 // token verbatim. The wrapper-config writer still gets the real value
 // directly off the Token field; only default formatters get redacted.
-// Guards against the secondary leak path called out in the issue #3260 CR.
+// Guards against the secondary leak path called out in the task #3260 CR.
 func TestOpenclawGatewayPinDefaultFormattingMasksToken(t *testing.T) {
 	t.Parallel()
 

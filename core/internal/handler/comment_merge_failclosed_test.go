@@ -15,7 +15,7 @@ import (
 // snapshot (trigger comment, originator, accountable, source) intact — never re-stamped
 // to a degraded owner_fallback. A fail-open control proves the same comment DOES merge
 // (owner_fallback) when the workspace permits the degrade (SILI-4302).
-func TestMergeCommentIntoPendingTask_FailClosedKeepsOriginalSnapshot(t *testing.T) {
+func TestMergeCommentIntoPendingRun_FailClosedKeepsOriginalSnapshot(t *testing.T) {
 	ctx := context.Background()
 	agentID := createWebhookTestAgent(t, "MergeFailClosed Agent")
 
@@ -24,56 +24,56 @@ func TestMergeCommentIntoPendingTask_FailClosedKeepsOriginalSnapshot(t *testing.
 		t.Fatalf("load runtime: %v", err)
 	}
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority)
+		INSERT INTO task (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority)
 		VALUES ($1, 'merge fail-closed', 'member', $2, 'agent', $3, 'medium') RETURNING id`,
-		testWorkspaceID, testUserID, agentID).Scan(&issueID); err != nil {
-		t.Fatalf("seed issue: %v", err)
+		testWorkspaceID, testUserID, agentID).Scan(&taskID); err != nil {
+		t.Fatalf("seed task: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID) })
 
 	// cidA: the precise member comment the queued task is attributed to.
 	var cidA string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content)
 		VALUES ($1, $2, 'member', $3, 'please do X') RETURNING id`,
-		issueID, testWorkspaceID, testUserID).Scan(&cidA); err != nil {
+		taskID, testWorkspaceID, testUserID).Scan(&cidA); err != nil {
 		t.Fatalf("seed comment A: %v", err)
 	}
 	// cidB: an agent comment with no source-task lineage → resolves to no precise human.
 	var cidB string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content)
 		VALUES ($1, $2, 'agent', $3, 'autonomous follow-up') RETURNING id`,
-		issueID, testWorkspaceID, agentID).Scan(&cidB); err != nil {
+		taskID, testWorkspaceID, agentID).Scan(&cidB); err != nil {
 		t.Fatalf("seed comment B: %v", err)
 	}
 
 	// A QUEUED task with a fully precise snapshot triggered by cidA.
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO agent_task_queue
-			(agent_id, runtime_id, issue_id, trigger_comment_id, status, priority,
+		INSERT INTO agent_run
+			(agent_id, runtime_id, task_id, trigger_comment_id, status, priority,
 			 originator_user_id, accountable_user_id, originator_source,
 			 trigger_evidence_kind, trigger_evidence_ref_id)
 		VALUES ($1, $2, $3, $4, 'queued', 0, $5, $5, 'comment_source', 'comment', $4)`,
-		agentID, runtimeID, issueID, cidA, testUserID); err != nil {
-		t.Fatalf("seed queued task: %v", err)
+		agentID, runtimeID, taskID, cidA, testUserID); err != nil {
+		t.Fatalf("seed queued run: %v", err)
 	}
 
 	agent, err := testHandler.Queries.GetAgent(ctx, parseUUID(agentID))
 	if err != nil {
 		t.Fatalf("get agent: %v", err)
 	}
-	issue := db.Issue{ID: parseUUID(issueID), WorkspaceID: parseUUID(testWorkspaceID)}
-	trigger := commentAgentTrigger{Agent: agent, Source: commentTriggerSourceIssueAssignee}
+	task := db.Task{ID: parseUUID(taskID), WorkspaceID: parseUUID(testWorkspaceID)}
+	trigger := commentAgentTrigger{Agent: agent, Source: commentTriggerSourceTaskAssignee}
 
 	readSnapshot := func() (triggerComment, originator, accountable, source string) {
 		if err := testPool.QueryRow(ctx, `
 			SELECT COALESCE(trigger_comment_id::text,''), COALESCE(originator_user_id::text,''),
 			       COALESCE(accountable_user_id::text,''), COALESCE(originator_source,'')
-			  FROM agent_task_queue WHERE issue_id = $1 AND agent_id = $2`,
-			issueID, agentID).Scan(&triggerComment, &originator, &accountable, &source); err != nil {
+			  FROM agent_run WHERE task_id = $1 AND agent_id = $2`,
+			taskID, agentID).Scan(&triggerComment, &originator, &accountable, &source); err != nil {
 			t.Fatalf("read snapshot: %v", err)
 		}
 		return
@@ -87,19 +87,19 @@ func TestMergeCommentIntoPendingTask_FailClosedKeepsOriginalSnapshot(t *testing.
 		testPool.Exec(context.Background(), `UPDATE workspace SET attribution_fail_closed = false WHERE id = $1`, testWorkspaceID)
 	})
 
-	countTasks := func() int {
+	countRuns := func() int {
 		var n int
-		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE issue_id = $1 AND agent_id = $2`, issueID, agentID).Scan(&n); err != nil {
+		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE task_id = $1 AND agent_id = $2`, taskID, agentID).Scan(&n); err != nil {
 			t.Fatalf("count tasks: %v", err)
 		}
 		return n
 	}
-	before := countTasks()
+	before := countRuns()
 
-	if result := testHandler.mergeCommentIntoPendingTask(ctx, issue, trigger, parseUUID(cidB), pgtype.Text{}); result != commentMergeAttributionBlocked {
+	if result := testHandler.mergeCommentIntoPendingRun(ctx, task, trigger, parseUUID(cidB), pgtype.Text{}); result != commentMergeAttributionBlocked {
 		t.Fatalf("fail-closed merge result = %d, want commentMergeAttributionBlocked (refused, non-success)", result)
 	}
-	if after := countTasks(); after != before {
+	if after := countRuns(); after != before {
 		t.Errorf("task count changed %d -> %d on refused merge; a fail-closed refusal must not spawn a task", before, after)
 	}
 	// The refused merge must surface as a non-success blocked/attribution_blocked
@@ -122,7 +122,7 @@ func TestMergeCommentIntoPendingTask_FailClosedKeepsOriginalSnapshot(t *testing.
 	if _, err := testPool.Exec(ctx, `UPDATE workspace SET attribution_fail_closed = false WHERE id = $1`, testWorkspaceID); err != nil {
 		t.Fatalf("clear fail-closed: %v", err)
 	}
-	if result := testHandler.mergeCommentIntoPendingTask(ctx, issue, trigger, parseUUID(cidB), pgtype.Text{}); result != commentMergeSucceeded {
+	if result := testHandler.mergeCommentIntoPendingRun(ctx, task, trigger, parseUUID(cidB), pgtype.Text{}); result != commentMergeSucceeded {
 		t.Fatalf("fail-open merge result = %d, want commentMergeSucceeded", result)
 	}
 	tc2, orig2, _, src2 := readSnapshot()

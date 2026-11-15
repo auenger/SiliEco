@@ -72,7 +72,7 @@ function LoginPageContent() {
   const isDesktopHandoff = platform === "desktop" && !cliCallbackRaw;
   // `next` carries a protected URL the user was originally headed to
   // (e.g. /invite/{id}). With URL-driven workspaces there is no legacy
-  // "/issues" default — if `next` is absent we decide after login based on
+  // "/tasks" default — if `next` is absent we decide after login based on
   // the user's workspace list. Sanitize first so a crafted `?next=https://evil`
   // cannot bounce the user off-origin after a successful login.
   const nextUrl = sanitizeNextUrl(searchParams.get("next"));
@@ -101,7 +101,7 @@ function LoginPageContent() {
       // authenticated — mint a bearer token from the cookie session and hand
       // it off via deep link instead of silently redirecting to the workspace.
       api
-        .issueCliToken()
+        .mintCliToken()
         .then(({ token }) => {
           setDesktopToken(token);
           window.location.href = `silieco://auth/callback?token=${encodeURIComponent(token)}`;
@@ -115,7 +115,7 @@ function LoginPageContent() {
         });
       return;
     }
-    // Fresh form login (issue #5009): `user` was written by verifyCode while
+    // Fresh form login (task #5009): `user` was written by verifyCode while
     // handleVerify was still fetching the workspace list, so this effect used
     // to read the not-yet-seeded list cache and race handleSuccess with a
     // replace to /workspaces/new. handleSuccess owns post-login navigation;

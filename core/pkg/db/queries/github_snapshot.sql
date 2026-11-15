@@ -91,4 +91,4 @@ FROM github_pull_request
 WHERE installation_id = $1 AND repo_owner = $2 AND repo_name = $3 AND head_sha = $4;
 
 -- name: GetGitHubPullRequestByID :one
-SELECT * FROM github_pull_request WHERE id = $1;
+SELECT * FROM github_pull_request WHERE github_pull_request.id = $1;

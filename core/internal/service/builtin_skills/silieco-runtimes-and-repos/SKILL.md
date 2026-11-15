@@ -1,6 +1,6 @@
 ---
 name: silieco-runtimes-and-repos
-description: "Use when inspecting or debugging Silieco runtimes, daemon task claiming, agent not running, workdir/session reuse, or repository checkout. Covers runtime online/offline state, daemon heartbeat/claim chain, task-scoped repo checkout, project repo context, local_directory caveats, and safe diagnostic commands."
+description: "Use when inspecting or debugging Silieco runtimes, daemon run claiming, agent not running, workdir/session reuse, or repository checkout. Covers runtime online/offline state, daemon heartbeat/claim chain, run-scoped repo checkout, project repo context, local_directory caveats, and safe diagnostic commands."
 user-invocable: false
 allowed-tools: Bash(silieco *)
 ---
@@ -21,15 +21,15 @@ Runtime and repo commands affect active agent execution. Do not restart daemons,
 
 ## Core model
 
-A runtime is the execution target behind an agent. A daemon owns local runtime processes and claims queued tasks from the server.
+A runtime is the execution target behind an agent. A daemon owns local runtime processes and claims queued runs from the server.
 
 The chain is:
 
-1. user action creates or updates an `agent_task_queue` row;
-2. the task points at an agent and runtime;
+1. user action creates or updates an `agent_run` row;
+2. the run points at an agent and runtime;
 3. server wakes the runtime over daemon websocket when possible;
-4. daemon polls/claims the task;
-5. server returns task context, repos, project resources, prior session/workdir hints, and task token;
+4. daemon polls/claims the run;
+5. server returns task context, repos, project resources, prior session/workdir hints, and run token;
 6. daemon prepares a workdir and launches the provider CLI;
 7. `silieco repo checkout` talks to the local daemon, not directly to GitHub.
 
@@ -45,22 +45,22 @@ silieco repo checkout <url>
 silieco repo checkout <url> --ref <branch-or-sha>
 ```
 
-`runtime update` and `runtime delete` are writes. Starting a runtime update is limited to its owner or a workspace owner/admin; the original initiator may keep polling that specific in-flight request if their admin role changes. `runtime delete` removes a runtime registration; if active agents are still bound, it refuses unless the user explicitly passes `--cascade`, which archives those agents and cancels their queued/running tasks before deleting the runtime. `repo checkout` creates a dedicated branch in the task working directory. Most runtimes use a linked worktree; Linux Codex uses task-local Git metadata so its `workspace-write` sandbox can stage and commit without making the shared `.repos` cache writable.
+`runtime update` and `runtime delete` are writes. Starting a runtime update is limited to its owner or a workspace owner/admin; the original initiator may keep polling that specific in-flight request if their admin role changes. `runtime delete` removes a runtime registration; if active agents are still bound, it refuses unless the user explicitly passes `--cascade`, which archives those agents and cancels their queued/running runs before deleting the runtime. `repo checkout` creates a dedicated branch in the run working directory. Most runtimes use a linked worktree; Linux Codex uses run-local Git metadata so its `workspace-write` sandbox can stage and commit without making the shared `.repos` cache writable.
 
 A private runtime is executable only by its runtime owner. Workspace owner/admin status permits inventory administration but does not grant consent to use another member's local credentials or change that runtime's visibility. Ownerless runtimes fail closed for agent binding; public runtimes remain selectable by workspace members.
 
-`repo checkout` requires both `SILIECO_DAEMON_PORT` and the active task's `SILIECO_TOKEN`; it is intended to run inside a daemon task. If either is absent, you are not in the authenticated task checkout path. The local daemon binds that token to the current workspace, task, agent, and workdir and rejects caller-supplied identity or paths outside the active task root. When a project `github_repo` resource has `resource_ref.ref`, `repo checkout <url>` uses that ref by default for the current task; an explicit `repo checkout <url> --ref <branch-or-sha>` overrides it.
+`repo checkout` requires both `SILIECO_DAEMON_PORT` and the active run's `SILIECO_TOKEN`; it is intended to run inside a daemon run. If either is absent, you are not in the authenticated run checkout path. The local daemon binds that token to the current workspace, run, agent, and workdir and rejects caller-supplied identity or paths outside the active run root. When a project `github_repo` resource has `resource_ref.ref`, `repo checkout <url>` uses that ref by default for the current run; an explicit `repo checkout <url> --ref <branch-or-sha>` overrides it.
 
 ## Debugging an agent that did not run
 
 Check in this order:
 
-1. Was a task supposed to be created? Inspect issue/comment/autopilot context.
+1. Was an agent run supposed to be created? Inspect task/comment/autopilot context.
 2. Is the assignee an agent or squad? A squad routes to its leader.
 3. Is the agent archived or bound to a runtime the actor cannot use?
 4. Is the runtime online? `silieco runtime list --output json`.
 5. Did the daemon heartbeat recently? Runtime `last_seen_at` is the visible clue.
-6. Did the task get claimed or is it stuck pending/running/waiting for local directory?
+6. Did the run get claimed or is it stuck pending/running/waiting for local directory?
 7. If repo checkout failed, classify it after checking whether repo context was
    present in the task/project context.
 

@@ -14,7 +14,7 @@ const (
 	// same switch.
 	ComposioMCPApps = "composio_mcp_apps"
 	// ResourceLabels controls the agent- and skill-scoped label namespaces.
-	// Issue labels remain available while this release flag is off.
+	// Task labels remain available while this release flag is off.
 	ResourceLabels = "settings_resource_labels"
 	// DesktopHangStackCapture gates reading a JS call stack out of a hung
 	// desktop renderer (SILI-5345). Capture holds a debugger channel open on

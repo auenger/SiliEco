@@ -11,7 +11,7 @@ import {
   useHasOnboarded,
 } from "@silieco/core/paths";
 import { workspaceListOptions } from "@silieco/core/workspace";
-import { useRecentIssuesStore } from "@silieco/core/issues/stores";
+import { useRecentTasksStore } from "@silieco/core/tasks/stores";
 import { useNavigation } from "../navigation";
 
 /**
@@ -71,12 +71,12 @@ export function useDashboardGuard() {
     useNavigationStore.getState().onPathChange(pathname);
   }, [pathname]);
 
-  // Drop recent-issues buckets for workspaces the user no longer belongs to.
+  // Drop recent-tasks buckets for workspaces the user no longer belongs to.
   // Runs once the workspace list resolves, and again whenever membership
   // changes (workspace deleted, user kicked, user left).
   useEffect(() => {
     if (!workspaceListFetched) return;
-    useRecentIssuesStore
+    useRecentTasksStore
       .getState()
       .pruneWorkspaces(workspaces.map((w) => w.id));
   }, [workspaceListFetched, workspaces]);

@@ -162,7 +162,7 @@ func (c *client) markSeen(eventID string) bool {
 type HeartbeatHandler func(ctx context.Context, identity ClientIdentity, runtimeID string, supportsBatchImport bool) (*protocol.DaemonHeartbeatAckPayload, error)
 
 // RPCHandler processes a generic daemon:rpc_request (SILI-4257). It dispatches
-// on method (e.g. "tasks.claim"), scoping work to identity (DaemonID +
+// on method (e.g. "runs.claim"), scoping work to identity (DaemonID +
 // authenticated RuntimeIDs), and returns an HTTP-style status plus a response
 // body OR an error. A returned error is surfaced to the daemon as a non-2xx
 // RPC response so it can fall back to HTTP. The handler runs in its own
@@ -187,6 +187,7 @@ type Hub struct {
 	upgrader websocket.Upgrader
 
 	mu          sync.RWMutex
+	filePending map[string]projectFilePending
 	clients     map[*client]bool
 	byRuntime   map[string]map[*client]bool
 	byWorkspace map[string]map[*client]bool
@@ -312,8 +313,8 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request, identity C
 }
 
 // NotifyTaskAvailable sends a best-effort wakeup to daemons watching runtimeID.
-func (h *Hub) NotifyTaskAvailable(runtimeID, taskID string) {
-	h.notifyTaskAvailable(runtimeID, taskID, "")
+func (h *Hub) NotifyRunAvailable(runtimeID, runID string) {
+	h.notifyRunAvailable(runtimeID, runID, "")
 }
 
 // NotifyRuntimeProfilesChanged asks connected daemons in workspaceID to pull
@@ -336,11 +337,11 @@ func (h *Hub) NotifyPendingWork(runtimeID, kind string) {
 	h.notifyPendingWork(runtimeID, kind, "")
 }
 
-func (h *Hub) notifyTaskAvailable(runtimeID, taskID, eventID string) {
+func (h *Hub) notifyRunAvailable(runtimeID, runID, eventID string) {
 	if h == nil || runtimeID == "" {
 		return
 	}
-	data, err := taskAvailableFrame(runtimeID, taskID)
+	data, err := runAvailableFrame(runtimeID, runID)
 	if err != nil {
 		return
 	}
@@ -402,8 +403,8 @@ func (h *Hub) DeliverDaemonRuntime(scopeID string, frame []byte, eventID string)
 		return
 	}
 	switch msg.Type {
-	case protocol.EventDaemonTaskAvailable:
-		var payload protocol.TaskAvailablePayload
+	case protocol.EventDaemonRunAvailable:
+		var payload protocol.RunAvailablePayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.RuntimeID == "" {
 			slog.Debug("daemon websocket relay: invalid task_available payload", "error", err, "scope_id", scopeID, "event_id", eventID)
 			M.WakeupDeliveredMiss.Add(1)
@@ -538,12 +539,12 @@ func (h *Hub) notifyUserFrame(userID string, data []byte, eventID string) (deliv
 	return delivered, deduped
 }
 
-func taskAvailableFrame(runtimeID, taskID string) ([]byte, error) {
+func runAvailableFrame(runtimeID, runID string) ([]byte, error) {
 	return json.Marshal(protocol.Message{
-		Type: protocol.EventDaemonTaskAvailable,
-		Payload: mustMarshalRaw(protocol.TaskAvailablePayload{
+		Type: protocol.EventDaemonRunAvailable,
+		Payload: mustMarshalRaw(protocol.RunAvailablePayload{
 			RuntimeID: runtimeID,
-			TaskID:    taskID,
+			RunID:     runID,
 		}),
 	})
 }
@@ -707,7 +708,7 @@ func (c *client) readPump() {
 
 	// Read limit sized for daemon:rpc_request frames carrying a machine's full
 	// runtime_id set (SILI-4257), well above the tiny heartbeat/wakeup frames.
-	c.conn.SetReadLimit(64 * 1024)
+	c.conn.SetReadLimit(4 * 1024 * 1024)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -743,6 +744,8 @@ func (c *client) handleFrame(raw []byte) {
 		rec.RecordDaemonWSMessageReceived(kind)
 	}
 	switch msg.Type {
+	case protocol.EventProjectFilesResponse:
+		c.handleProjectFilesResponse(msg.Payload)
 	case protocol.EventDaemonHeartbeat:
 		c.handleHeartbeatFrame(msg.Payload)
 	case protocol.EventDaemonRPCRequest:

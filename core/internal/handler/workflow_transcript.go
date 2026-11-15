@@ -98,11 +98,11 @@ func (h *Handler) ListWorkflowStageTranscript(w http.ResponseWriter, r *http.Req
 		if len(manifest) == 0 {
 			manifest = nil
 		}
-		runs[i] = WorkflowStageRunResponse{ID: uuidToString(row.ID), TaskID: uuidToString(row.IssueID), TaskTitle: row.TaskTitle,
+		runs[i] = WorkflowStageRunResponse{ID: uuidToString(row.ID), TaskID: uuidToString(row.TaskID), TaskTitle: row.TaskTitle,
 			AgentID: uuidToString(row.AgentID), AgentName: textToPtr(row.AgentName), Status: row.Status, TriggerSummary: textToPtr(row.TriggerSummary),
 			TriggerSource: textToPtr(row.OriginatorSource), TriggerUserID: uuidToPtr(row.OriginatorUserID), AccountableUserID: uuidToPtr(row.AccountableUserID),
 			StartedAt: timestampToPtr(row.StartedAt), CompletedAt: timestampToPtr(row.CompletedAt), Result: result, Error: textToPtr(row.Error), FailureReason: textToPtr(row.FailureReason),
-			ExecutionManifest: manifest, CreatedAt: timestampToString(row.CreatedAt), MessagesPath: "/api/tasks/" + uuidToString(row.ID) + "/messages",
+			ExecutionManifest: manifest, CreatedAt: timestampToString(row.CreatedAt), MessagesPath: "/api/runs/" + uuidToString(row.ID) + "/messages",
 			WorktreeBranch: textToPtr(row.WorktreeBranch), WorktreeBaseSHA: textToPtr(row.WorktreeBaseSha), WorktreeFinalSHA: textToPtr(row.WorktreeFinalSha),
 			WorktreeDeliveryStatus: textToPtr(row.WorktreeDeliveryStatus)}
 	}

@@ -63,12 +63,12 @@ const (
 	DefaultWorkspaceSyncInterval          = 30 * time.Minute
 	DefaultWorkspaceSyncMaxBackoff        = 30 * time.Minute
 	DefaultHealthPort                     = 19514
-	DefaultMaxConcurrentTasks             = 20
+	DefaultMaxConcurrentRuns              = 20
 	DefaultGCInterval                     = 2 * time.Hour
-	DefaultGCTTL                          = 24 * time.Hour      // 1 day — AI-coding issues rarely stay open long
+	DefaultGCTTL                          = 24 * time.Hour      // 1 day — AI-coding tasks rarely stay open long
 	DefaultGCOrphanTTL                    = 72 * time.Hour      // 3 days — orphans with no meta (crashes, pre-GC leftovers)
-	DefaultGCArtifactTTL                  = 12 * time.Hour      // 12h — drop regenerable artifacts on completed but still-open issues
-	DefaultGCCodexSessionTTL              = 14 * 24 * time.Hour // 14 days — reclaim per-issue Codex session stores untouched this long
+	DefaultGCArtifactTTL                  = 12 * time.Hour      // 12h — drop regenerable artifacts on completed but still-open tasks
+	DefaultGCCodexSessionTTL              = 14 * 24 * time.Hour // 14 days — reclaim per-task Codex session stores untouched this long
 	DefaultAutoUpdateCheckInterval        = 6 * time.Hour       // how often the daemon polls GitHub for a newer CLI release
 )
 
@@ -92,16 +92,16 @@ type Config struct {
 	Profile                        string                // profile name (empty = default)
 	Agents                         map[string]AgentEntry // keyed by provider: claude, codebuddy, codex, copilot, opencode, openclaw, hermes, pi, cursor, kimi, kiro, antigravity, qoder, traecli, grok, qwen
 	WorkspacesRoot                 string                // base path for execution envs (default: ~/silieco_workspaces)
-	KeepEnvAfterTask               bool                  // preserve env after task for debugging
+	KeepEnvAfterRun                bool                  // preserve env after task for debugging
 	HealthPort                     int                   // local HTTP port for health checks (default: 19514)
-	MaxConcurrentTasks             int                   // max tasks running in parallel (default: 20)
+	MaxConcurrentRuns              int                   // max tasks running in parallel (default: 20)
 	GCEnabled                      bool                  // enable periodic workspace garbage collection (default: true)
 	GCInterval                     time.Duration         // how often the GC loop runs (default: 2h)
-	GCTTL                          time.Duration         // clean dirs whose issue is done/cancelled and updated_at < now()-TTL (default: 24h)
-	GCOrphanTTL                    time.Duration         // clean orphan dirs with no meta, or dirs whose issue gc-check returns 404, once they exceed this age (default: 72h). The 404 path uses the same TTL — a scoped-down token can't instantly wipe live workspaces.
-	GCArtifactTTL                  time.Duration         // when a task has been completed for at least this long but its issue is still open, drop regenerable artifacts (default: 12h, set 0 to disable)
+	GCTTL                          time.Duration         // clean dirs whose task is done/cancelled and updated_at < now()-TTL (default: 24h)
+	GCOrphanTTL                    time.Duration         // clean orphan dirs with no meta, or dirs whose task gc-check returns 404, once they exceed this age (default: 72h). The 404 path uses the same TTL — a scoped-down token can't instantly wipe live workspaces.
+	GCArtifactTTL                  time.Duration         // when a task has been completed for at least this long but its task is still open, drop regenerable artifacts (default: 12h, set 0 to disable)
 	GCArtifactPatterns             []string              // basename patterns whose subtrees are removed during artifact cleanup (default: node_modules, .next, .turbo)
-	GCCodexSessionTTL              time.Duration         // reclaim a per-issue Codex session store (~/.codex/silieco-sessions/<agent>/<issue>) untouched for at least this long, so a done/abandoned issue's conversation history does not accumulate forever (default: 14d, set 0 to disable)
+	GCCodexSessionTTL              time.Duration         // reclaim a per-task Codex session store (~/.codex/silieco-sessions/<agent>/<task>) untouched for at least this long, so a done/abandoned task's conversation history does not accumulate forever (default: 14d, set 0 to disable)
 	AutoUpdateEnabled              bool                  // periodically check for a newer CLI release and self-update when idle (default: true on Silieco Cloud, false on self-host)
 	AutoUpdateCheckInterval        time.Duration         // how often the auto-update loop polls for a new release (default: 6h)
 	PollInterval                   time.Duration
@@ -138,7 +138,7 @@ type Overrides struct {
 	AgentTimeout                   *time.Duration
 	CodexSemanticInactivityTimeout time.Duration
 	CodexHandshakeTimeout          time.Duration
-	MaxConcurrentTasks             int
+	MaxConcurrentRuns              int
 	DaemonID                       string
 	DeviceName                     string
 	RuntimeName                    string
@@ -167,7 +167,7 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		return Config{}, err
 	}
 
-	// Apply backend overrides from the CLI config file (issue #3875).
+	// Apply backend overrides from the CLI config file (task #3875).
 	//
 	// CLIConfig.Backends.OpenClaw lets users record "which OpenClaw on this
 	// machine, and where its state lives" in a versioned, UI-editable file
@@ -311,12 +311,12 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		return Config{}, err
 	}
 
-	maxConcurrentTasks, err := intFromEnv("SILIECO_DAEMON_MAX_CONCURRENT_TASKS", DefaultMaxConcurrentTasks)
+	maxConcurrentRuns, err := intFromEnv("SILIECO_DAEMON_MAX_CONCURRENT_RUNS", DefaultMaxConcurrentRuns)
 	if err != nil {
 		return Config{}, err
 	}
-	if overrides.MaxConcurrentTasks > 0 {
-		maxConcurrentTasks = overrides.MaxConcurrentTasks
+	if overrides.MaxConcurrentRuns > 0 {
+		maxConcurrentRuns = overrides.MaxConcurrentRuns
 	}
 
 	// Profile
@@ -379,7 +379,7 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		healthPort = overrides.HealthPort
 	}
 
-	// Keep env after task: env > default (false)
+	// Keep env after run: env > default (false)
 	keepEnv := os.Getenv("SILIECO_KEEP_ENV_AFTER_TASK") == "true" || os.Getenv("SILIECO_KEEP_ENV_AFTER_TASK") == "1"
 
 	// GC config: env > defaults
@@ -447,7 +447,7 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		Profile:                        profile,
 		Agents:                         agents,
 		WorkspacesRoot:                 workspacesRoot,
-		KeepEnvAfterTask:               keepEnv,
+		KeepEnvAfterRun:                keepEnv,
 		GCEnabled:                      gcEnabled,
 		GCInterval:                     gcInterval,
 		GCTTL:                          gcTTL,
@@ -458,7 +458,7 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		AutoUpdateEnabled:              autoUpdateEnabled,
 		AutoUpdateCheckInterval:        autoUpdateInterval,
 		HealthPort:                     healthPort,
-		MaxConcurrentTasks:             maxConcurrentTasks,
+		MaxConcurrentRuns:              maxConcurrentRuns,
 		PollInterval:                   pollInterval,
 		HeartbeatInterval:              heartbeatInterval,
 		AgentTimeout:                   agentTimeout,

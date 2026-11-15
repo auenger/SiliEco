@@ -2,22 +2,22 @@ package protocol
 
 // Event types for WebSocket communication between server, web clients, and daemon.
 const (
-	// Issue events
-	EventIssueCreated         = "issue:created"
-	EventIssueUpdated         = "issue:updated"
-	EventIssueDeleted         = "issue:deleted"
-	EventIssueMetadataChanged = "issue_metadata:changed"
+	// Task events
+	EventTaskCreated         = "task:created"
+	EventTaskUpdated         = "task:updated"
+	EventTaskDeleted         = "task:deleted"
+	EventTaskMetadataChanged = "task_metadata:changed"
 
 	// Comment events
-	EventCommentCreated       = "comment:created"
-	EventCommentUpdated       = "comment:updated"
-	EventCommentDeleted       = "comment:deleted"
-	EventCommentResolved      = "comment:resolved"
-	EventCommentUnresolved    = "comment:unresolved"
-	EventReactionAdded        = "reaction:added"
-	EventReactionRemoved      = "reaction:removed"
-	EventIssueReactionAdded   = "issue_reaction:added"
-	EventIssueReactionRemoved = "issue_reaction:removed"
+	EventCommentCreated      = "comment:created"
+	EventCommentUpdated      = "comment:updated"
+	EventCommentDeleted      = "comment:deleted"
+	EventCommentResolved     = "comment:resolved"
+	EventCommentUnresolved   = "comment:unresolved"
+	EventReactionAdded       = "reaction:added"
+	EventReactionRemoved     = "reaction:removed"
+	EventTaskReactionAdded   = "task_reaction:added"
+	EventTaskReactionRemoved = "task_reaction:removed"
 
 	// Agent events
 	EventAgentStatus   = "agent:status"
@@ -26,19 +26,19 @@ const (
 	EventAgentRestored = "agent:restored"
 
 	// Task events (server <-> daemon).
-	// Each event maps to a status transition on agent_task_queue. Front-end
-	// subscribes by `task:` prefix and invalidates the workspace task
+	// Each event maps to a status transition on agent_run. Front-end
+	// subscribes by `run:` prefix and invalidates the workspace task
 	// snapshot, so the granularity here is "what does the user want to see
 	// change" — not "every internal status flip".
-	EventTaskQueued                = "task:queued"                  // ∅ → queued (enqueue / retry create)
-	EventTaskDispatch              = "task:dispatch"                // queued → dispatched (daemon claim)
-	EventTaskRunning               = "task:running"                 // dispatched → running (daemon started)
-	EventTaskWaitingLocalDirectory = "task:waiting_local_directory" // dispatched → waiting_local_directory (daemon parked on a busy local_directory path)
-	EventTaskProgress              = "task:progress"
-	EventTaskCompleted             = "task:completed" // running → completed
-	EventTaskFailed                = "task:failed"    // running → failed
-	EventTaskMessage               = "task:message"
-	EventTaskCancelled             = "task:cancelled" // * → cancelled
+	EventRunQueued                = "run:queued"                  // ∅ → queued (enqueue / retry create)
+	EventRunDispatch              = "run:dispatch"                // queued → dispatched (daemon claim)
+	EventRunRunning               = "run:running"                 // dispatched → running (daemon started)
+	EventRunWaitingLocalDirectory = "run:waiting_local_directory" // dispatched → waiting_local_directory (daemon parked on a busy local_directory path)
+	EventRunProgress              = "run:progress"
+	EventRunCompleted             = "run:completed" // running → completed
+	EventRunFailed                = "run:failed"    // running → failed
+	EventAgentRunMessage          = "run:message"
+	EventRunCancelled             = "run:cancelled" // * → cancelled
 
 	// Inbox events
 	EventInboxNew           = "inbox:new"
@@ -100,16 +100,16 @@ const (
 	EventWorkflowTaskChanged     = "workflow_task:changed"
 
 	// Label events
-	EventLabelCreated       = "label:created"
-	EventLabelUpdated       = "label:updated"
-	EventLabelDeleted       = "label:deleted"
-	EventIssueLabelsChanged = "issue_labels:changed"
+	EventLabelCreated      = "label:created"
+	EventLabelUpdated      = "label:updated"
+	EventLabelDeleted      = "label:deleted"
+	EventTaskLabelsChanged = "task_labels:changed"
 
 	// Custom property events. Definitions are archived, never deleted, so
 	// there is no property:deleted — archive arrives as property:updated.
-	EventPropertyCreated        = "property:created"
-	EventPropertyUpdated        = "property:updated"
-	EventIssuePropertiesChanged = "issue_properties:changed"
+	EventPropertyCreated       = "property:created"
+	EventPropertyUpdated       = "property:updated"
+	EventTaskPropertiesChanged = "task_properties:changed"
 
 	// Pin events
 	EventPinCreated   = "pin:created"
@@ -138,7 +138,7 @@ const (
 	EventDaemonHeartbeat              = "daemon:heartbeat"
 	EventDaemonHeartbeatAck           = "daemon:heartbeat_ack"
 	EventDaemonRegister               = "daemon:register"
-	EventDaemonTaskAvailable          = "daemon:task_available"
+	EventDaemonRunAvailable           = "daemon:run_available"
 	EventDaemonRuntimeProfilesChanged = "daemon:runtime_profiles_changed"
 	EventDaemonWorkspacesChanged      = "daemon:workspaces_changed"
 	// EventDaemonPendingWork is a runtime-scoped hint that a heartbeat-carried

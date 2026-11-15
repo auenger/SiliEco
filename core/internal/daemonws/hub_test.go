@@ -15,7 +15,7 @@ import (
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
-func TestNotifyTaskAvailable(t *testing.T) {
+func TestNotifyRunAvailable(t *testing.T) {
 	M.Reset()
 	defer M.Reset()
 
@@ -40,7 +40,7 @@ func TestNotifyTaskAvailable(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	hub.NotifyTaskAvailable("runtime-1", "task-1")
+	hub.NotifyRunAvailable("runtime-1", "task-1")
 
 	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
@@ -54,15 +54,15 @@ func TestNotifyTaskAvailable(t *testing.T) {
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		t.Fatalf("unmarshal message: %v", err)
 	}
-	if msg.Type != protocol.EventDaemonTaskAvailable {
-		t.Fatalf("message type = %q, want %q", msg.Type, protocol.EventDaemonTaskAvailable)
+	if msg.Type != protocol.EventDaemonRunAvailable {
+		t.Fatalf("message type = %q, want %q", msg.Type, protocol.EventDaemonRunAvailable)
 	}
 
-	var payload protocol.TaskAvailablePayload
+	var payload protocol.RunAvailablePayload
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if payload.RuntimeID != "runtime-1" || payload.TaskID != "task-1" {
+	if payload.RuntimeID != "runtime-1" || payload.RunID != "task-1" {
 		t.Fatalf("payload = %+v, want runtime/task IDs", payload)
 	}
 }
@@ -235,13 +235,13 @@ func TestRelayNotifierPublishesDaemonRuntimeScope(t *testing.T) {
 	relay := &recordingRelayPublisher{}
 	notifier := NewRelayNotifier(nil, relay)
 
-	notifier.NotifyTaskAvailable("runtime-1", "task-1")
+	notifier.NotifyRunAvailable("runtime-1", "task-1")
 
 	if relay.scopeType != realtime.ScopeDaemonRuntime {
 		t.Fatalf("scopeType = %q, want %q", relay.scopeType, realtime.ScopeDaemonRuntime)
 	}
 	if relay.scopeID != "task-1" {
-		t.Fatalf("scopeID = %q, want task_id shard key", relay.scopeID)
+		t.Fatalf("scopeID = %q, want run_id shard key", relay.scopeID)
 	}
 	if relay.eventID == "" {
 		t.Fatal("expected event id")
@@ -254,14 +254,14 @@ func TestRelayNotifierPublishesDaemonRuntimeScope(t *testing.T) {
 	if err := json.Unmarshal(relay.frame, &msg); err != nil {
 		t.Fatalf("unmarshal frame: %v", err)
 	}
-	if msg.Type != protocol.EventDaemonTaskAvailable {
-		t.Fatalf("message type = %q, want %q", msg.Type, protocol.EventDaemonTaskAvailable)
+	if msg.Type != protocol.EventDaemonRunAvailable {
+		t.Fatalf("message type = %q, want %q", msg.Type, protocol.EventDaemonRunAvailable)
 	}
-	var payload protocol.TaskAvailablePayload
+	var payload protocol.RunAvailablePayload
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if payload.RuntimeID != "runtime-1" || payload.TaskID != "task-1" {
+	if payload.RuntimeID != "runtime-1" || payload.RunID != "task-1" {
 		t.Fatalf("payload = %+v, want runtime/task IDs", payload)
 	}
 }
@@ -340,7 +340,7 @@ func TestRelayNotifierDedupsLocalRedisLoopback(t *testing.T) {
 	relay := &localFirstDaemonRelayPublisher{t: t, client: client}
 	notifier := NewRelayNotifier(hub, relay)
 
-	notifier.NotifyTaskAvailable("runtime-1", "task-1")
+	notifier.NotifyRunAvailable("runtime-1", "task-1")
 
 	if !relay.called {
 		t.Fatal("expected relay publish to be invoked")

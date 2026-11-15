@@ -18,11 +18,11 @@ import (
 func workflowExecutionFixture(t *testing.T) (*pgxpool.Pool, *WorkflowExecutionService, EnsureWorkflowExecutionParams) {
 	t.Helper()
 	ctx := context.Background()
-	pool := newTaskClaimRacePool(t)
+	pool := newRunClaimRacePool(t)
 	agentID := createClaimCapacityFixture(t, ctx, pool)
 	// The capacity fixture seeds unrelated queued tasks; SOP tests own their
 	// queue and must not accidentally claim those tasks as stage work.
-	if _, err := pool.Exec(ctx, `DELETE FROM agent_task_queue WHERE agent_id = $1`, agentID); err != nil {
+	if _, err := pool.Exec(ctx, `DELETE FROM agent_run WHERE agent_id = $1`, agentID); err != nil {
 		t.Fatal(err)
 	}
 	q := db.New(pool)

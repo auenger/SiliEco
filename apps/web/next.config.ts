@@ -56,7 +56,6 @@ const nextConfig: NextConfig = {
       "/about",
       "/contact-sales",
       "/changelog",
-      "/download",
       "/usecases/:path*",
     ].map((source) => ({ source, destination: "/", permanent: true }));
   },

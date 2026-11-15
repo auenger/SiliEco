@@ -17,7 +17,7 @@ type WorkflowAgentReviewStatus struct {
 	ExecutionID      pgtype.UUID
 	Phase            string
 	Request          *db.WorkflowReviewRequest
-	Task             *db.AgentTaskQueue
+	AgentRun         *db.AgentRun
 	CanRecover       bool
 	RecoveryAttempts int32
 	RetryAt          *time.Time
@@ -63,26 +63,26 @@ func (s *WorkflowExecutionService) InspectAgentReviewStatus(ctx context.Context,
 		result.Phase = "stale"
 		return result, nil
 	}
-	if !request.TaskID.Valid {
+	if !request.RunID.Valid {
 		result.Phase = "preparing"
 		return result, nil
 	}
-	task, err := s.Queries.GetAgentTask(ctx, request.TaskID)
+	agentRun, err := s.Queries.GetAgentRun(ctx, request.RunID)
 	if err != nil {
 		return result, err
 	}
-	if task.WorkflowReviewRequestID != request.ID || task.AgentID != request.ReviewerID {
+	if agentRun.WorkflowReviewRequestID != request.ID || agentRun.AgentID != request.ReviewerID {
 		return result, ErrWorkflowExecutionConflict
 	}
-	result.Task = &task
-	switch task.Status {
+	result.AgentRun = &agentRun
+	switch agentRun.Status {
 	case "queued", "deferred":
 		result.Phase = "queued"
 	case "dispatched", "running", "waiting_local_directory":
 		result.Phase = "running"
 	case "completed":
 		result.Phase = "missing_decision"
-		decision, err := s.Queries.GetWorkflowAgentDecisionByBasis(ctx, db.GetWorkflowAgentDecisionByBasisParams{WorkspaceID: workspaceID, ExecutionID: executionID, BasisHash: pgtype.Text{String: request.BasisHash, Valid: true}, ReviewTaskID: task.ID})
+		decision, err := s.Queries.GetWorkflowAgentDecisionByBasis(ctx, db.GetWorkflowAgentDecisionByBasisParams{WorkspaceID: workspaceID, ExecutionID: executionID, BasisHash: pgtype.Text{String: request.BasisHash, Valid: true}, ReviewRunID: agentRun.ID})
 		if err == nil {
 			result.Phase = decision.Outcome
 			return result, nil
@@ -91,7 +91,7 @@ func (s *WorkflowExecutionService) InspectAgentReviewStatus(ctx context.Context,
 		}
 		fallthrough
 	case "failed":
-		if task.Status == "failed" {
+		if agentRun.Status == "failed" {
 			result.Phase = "failed"
 		}
 		if run.Status != "active" || run.ArchivedAt.Valid || run.CurrentStageID != e.WorkflowStageID || run.Revision != e.PlanRevision || e.Status != "awaiting_review" {
@@ -111,18 +111,18 @@ func (s *WorkflowExecutionService) InspectAgentReviewStatus(ctx context.Context,
 		if !allowed {
 			return result, nil
 		}
-		ceiling, delay, policyErr := taskRetrySettings(ctx, s.Queries, task, task.FailureReason.String)
+		ceiling, delay, policyErr := runRetrySettings(ctx, s.Queries, agentRun, agentRun.FailureReason.String)
 		if policyErr != nil {
 			return result, policyErr
 		}
-		if automaticReviewRetryAvailable(task, reviewer.RuntimeID, ceiling) {
+		if automaticReviewRetryAvailable(agentRun, reviewer.RuntimeID, ceiling) {
 			result.Phase = "retry_scheduled"
-			if task.CompletedAt.Valid {
-				due := task.CompletedAt.Time.Add(delay)
+			if agentRun.CompletedAt.Valid {
+				due := agentRun.CompletedAt.Time.Add(delay)
 				result.RetryAt = &due
 			}
 		} else {
-			result.CanRecover = run.CreatedBy == actorID && task.Attempt <= 2147483647-ManualReviewRecoveryAttempts
+			result.CanRecover = run.CreatedBy == actorID && agentRun.Attempt <= 2147483647-ManualReviewRecoveryAttempts
 		}
 	default:
 		result.Phase = "unavailable"

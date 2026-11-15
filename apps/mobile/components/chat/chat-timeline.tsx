@@ -1,8 +1,8 @@
 /**
- * Per-task execution trace — what the agent is/was thinking and which tools
+ * Per-run execution trace — what the agent is/was thinking and which tools
  * it called. Rendered:
  *
- *   - Live (under the StatusPill while a task is in flight), AND
+ *   - Live (under the StatusPill while a run is in flight), AND
  *   - Persisted (under the assistant bubble once the message has landed)
  *
  * Process steps (thinking / tool_use / tool_result / error) collapse
@@ -22,7 +22,7 @@
  */
 import { View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { TaskMessagePayload } from "@silieco/core/types";
+import type { AgentRunMessagePayload } from "@silieco/core/types";
 import { Text } from "@/components/ui/text";
 import {
   Collapsible,
@@ -31,8 +31,8 @@ import {
 } from "@/components/ui/collapsible";
 
 interface Props {
-  items: TaskMessagePayload[];
-  /** Whether the owning task is still running. Drives the default-open
+  items: AgentRunMessagePayload[];
+  /** Whether the owning run is still running. Drives the default-open
    *  state and the dot-pulse next to the trigger. */
   isStreaming?: boolean;
 }
@@ -61,7 +61,7 @@ export function ChatTimeline({ items, isStreaming = false }: Props) {
       <CollapsibleContent>
         <View className="mt-1 rounded-lg border border-border bg-muted/20 px-2 py-1.5 gap-0.5">
           {processSteps.map((item) => (
-            <StepRow key={`${item.task_id}-${item.seq}`} item={item} />
+            <StepRow key={`${item.run_id}-${item.seq}`} item={item} />
           ))}
         </View>
       </CollapsibleContent>
@@ -76,7 +76,7 @@ function StreamingDot() {
   return <View className="h-1.5 w-1.5 rounded-full bg-primary" />;
 }
 
-function StepRow({ item }: { item: TaskMessagePayload }) {
+function StepRow({ item }: { item: AgentRunMessagePayload }) {
   switch (item.type) {
     case "thinking":
       return <ThinkingRow item={item} />;
@@ -91,7 +91,7 @@ function StepRow({ item }: { item: TaskMessagePayload }) {
   }
 }
 
-function ThinkingRow({ item }: { item: TaskMessagePayload }) {
+function ThinkingRow({ item }: { item: AgentRunMessagePayload }) {
   const text = item.content ?? "";
   if (!text) return null;
   const preview = text.length > 80 ? `${text.slice(0, 80)}…` : text;
@@ -122,7 +122,7 @@ function ThinkingRow({ item }: { item: TaskMessagePayload }) {
   );
 }
 
-function ToolCallRow({ item }: { item: TaskMessagePayload }) {
+function ToolCallRow({ item }: { item: AgentRunMessagePayload }) {
   const summary = getToolSummary(item);
   const hasInput = !!item.input && Object.keys(item.input).length > 0;
   // If the call has no expandable input, render a non-interactive row —
@@ -174,7 +174,7 @@ function ToolCallRow({ item }: { item: TaskMessagePayload }) {
   );
 }
 
-function ToolResultRow({ item }: { item: TaskMessagePayload }) {
+function ToolResultRow({ item }: { item: AgentRunMessagePayload }) {
   const output = item.output ?? "";
   if (!output) return null;
   const preview = output.length > 80 ? `${output.slice(0, 80)}…` : output;
@@ -211,7 +211,7 @@ function ToolResultRow({ item }: { item: TaskMessagePayload }) {
   );
 }
 
-function ErrorRow({ item }: { item: TaskMessagePayload }) {
+function ErrorRow({ item }: { item: AgentRunMessagePayload }) {
   return (
     <View className="py-0.5 flex-row items-start gap-1.5">
       <Ionicons
@@ -234,7 +234,7 @@ function ErrorRow({ item }: { item: TaskMessagePayload }) {
  * `prompt` get truncated, and a final loop catches whichever short string
  * a future tool might emit.
  */
-function getToolSummary(item: TaskMessagePayload): string {
+function getToolSummary(item: AgentRunMessagePayload): string {
   if (!item.input) return "";
   const inp = item.input as Record<string, unknown>;
   const pick = (k: string): string | undefined => {

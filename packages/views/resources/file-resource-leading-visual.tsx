@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import {
-  File,
   FileArchive,
   FileAudio,
   FileCode2,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 import type { Attachment } from "@silieco/core/types";
 import { resolvePublicFileUrl } from "@silieco/core/workspace/avatar-url";
+import { fileTypeIcon } from "../common/file-type-icon";
 import { getPreviewKind } from "../editor/utils/preview";
 
 type FileVisualSource = Pick<
@@ -71,7 +71,7 @@ function getFileResourceIcon(file: Pick<Attachment, "content_type" | "filename">
   if (kind === "pdf" || kind === "text" || kind === "markdown" || DOCUMENT_EXTENSIONS.has(extension)) {
     return FileText;
   }
-  return File;
+  return fileTypeIcon(file.filename);
 }
 
 export function FileResourceLeadingVisual({

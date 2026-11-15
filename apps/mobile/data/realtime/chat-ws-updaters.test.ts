@@ -15,7 +15,7 @@ const SESSION = "session-1";
 function donePayload(over: Partial<ChatDonePayload> = {}): ChatDonePayload {
   return {
     chat_session_id: SESSION,
-    task_id: "task-1",
+    run_id: "run-1",
     message_id: "msg-1",
     content: "here is the chart",
     created_at: "2026-07-09T00:00:00Z",
@@ -43,8 +43,8 @@ describe("applyChatDoneToCache", () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: chatKeys.messages(SESSION),
     });
-    // pendingTask cleared so the status pill unmounts.
-    expect(qc.getQueryData(chatKeys.pendingTask(SESSION))).toEqual({});
+    // pendingRun cleared so the status pill unmounts.
+    expect(qc.getQueryData(chatKeys.pendingRun(SESSION))).toEqual({});
   });
 
   it("invalidates even when the payload lacks an inline message (legacy shape)", () => {
@@ -68,7 +68,7 @@ describe("applyChatDoneToCache", () => {
       chat_session_id: SESSION,
       role: "assistant",
       content: "here is the chart",
-      task_id: "task-1",
+      run_id: "run-1",
       created_at: "2026-07-09T00:00:00Z",
     };
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(SESSION), [existing]);

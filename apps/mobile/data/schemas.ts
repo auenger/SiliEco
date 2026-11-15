@@ -13,14 +13,14 @@ import { z } from "zod";
 import type {
   Agent,
   AgentInvocationTarget,
-  AgentTask,
+  AgentRun,
   Attachment,
   ChatMessage,
-  ChatPendingTask,
+  ChatPendingRun,
   ChatSession,
   Comment,
   InboxItem,
-  IssueLabelsResponse,
+  TaskLabelsResponse,
   Label,
   ListLabelsResponse,
   ListProjectResourcesResponse,
@@ -30,15 +30,15 @@ import type {
   Project,
   ProjectResource,
   RuntimeDevice,
-  SearchIssuesResponse,
+  SearchTasksResponse,
   SearchProjectsResponse,
   SendChatMessageResponse,
   Squad,
-  TaskMessagePayload,
+  AgentRunMessagePayload,
   User,
   Workspace,
 } from "@silieco/core/types";
-import { IssueSchema } from "@silieco/core/api/schemas";
+import { TaskSchema } from "@silieco/core/api/schemas";
 
 /** Upload response. Only fields mobile actually consumes — `url` to put
  *  into the markdown link, `filename` for the `[📎 name](url)` form, `id`
@@ -50,7 +50,7 @@ import { IssueSchema } from "@silieco/core/api/schemas";
 export const AttachmentSchema: z.ZodType<Attachment> = z.object({
   id: z.string(),
   workspace_id: z.string().default(""),
-  issue_id: z.string().nullable().default(null),
+  task_id: z.string().nullable().default(null),
   comment_id: z.string().nullable().default(null),
   chat_session_id: z.string().nullable().default(null),
   chat_message_id: z.string().nullable().default(null),
@@ -65,7 +65,7 @@ export const AttachmentSchema: z.ZodType<Attachment> = z.object({
   created_at: z.string().default(""),
 }).loose();
 
-/** GET /api/issues/:id/attachments — array of attachments for the issue.
+/** GET /api/tasks/:id/attachments — array of attachments for the task.
  *  Empty array fallback so a 5xx or shape mismatch doesn't crash markdown
  *  rendering — image URIs simply fail to resolve and fall back to fetch. */
 export const AttachmentListSchema = z.array(AttachmentSchema).default([]);
@@ -77,7 +77,7 @@ export const EMPTY_ATTACHMENT_LIST: Attachment[] = [];
  *  onSuccess writers) can detect drift and fall back to invalidate. */
 export const CommentSchema = z.object({
   id: z.string(),
-  issue_id: z.string().default(""),
+  task_id: z.string().default(""),
   author_type: z.string().default("member"),
   author_id: z.string().default(""),
   content: z.string().default(""),
@@ -90,12 +90,12 @@ export const CommentSchema = z.object({
   resolved_at: z.string().nullable().default(null),
   resolved_by_type: z.string().nullable().default(null),
   resolved_by_id: z.string().nullable().default(null),
-  source_task_id: z.string().nullable().optional(),
+  source_run_id: z.string().nullable().optional(),
 }).loose() as unknown as z.ZodType<Comment>;
 
 export const EMPTY_COMMENT: Comment = {
   id: "",
-  issue_id: "",
+  task_id: "",
   author_type: "member",
   author_id: "",
   content: "",
@@ -145,11 +145,11 @@ export const EMPTY_LIST_LABELS_RESPONSE: ListLabelsResponse = {
   total: 0,
 };
 
-export const IssueLabelsResponseSchema = z.object({
+export const TaskLabelsResponseSchema = z.object({
   labels: z.array(LabelSchema).default([]),
 }).loose();
 
-export const EMPTY_ISSUE_LABELS_RESPONSE: IssueLabelsResponse = {
+export const EMPTY_TASK_LABELS_RESPONSE: TaskLabelsResponse = {
   labels: [],
 };
 
@@ -169,7 +169,7 @@ export const ProjectSchema = z.object({
   due_date: z.string().nullable().default(null),
   created_at: z.string(),
   updated_at: z.string(),
-  issue_count: z.number().default(0),
+  task_count: z.number().default(0),
   done_count: z.number().default(0),
   resource_count: z.number().default(0),
 }).loose();
@@ -204,7 +204,7 @@ export const EMPTY_PROJECT: Project = {
   due_date: null,
   created_at: "",
   updated_at: "",
-  issue_count: 0,
+  task_count: 0,
   done_count: 0,
   resource_count: 0,
 };
@@ -274,7 +274,7 @@ export const ChatMessageSchema: z.ZodType<ChatMessage> = z.object({
   // list. Matches Enum drift defense.
   role: z.enum(["user", "assistant"]).catch("assistant"),
   content: z.string().default(""),
-  task_id: z.string().nullable().default(null),
+  run_id: z.string().nullable().default(null),
   created_at: z.string().default(""),
   attachments: z.array(AttachmentSchema).optional(),
   failure_reason: z.string().nullable().optional(),
@@ -285,28 +285,28 @@ export const ChatMessageListSchema = z.array(ChatMessageSchema).default([]);
 
 export const EMPTY_CHAT_MESSAGE_LIST: ChatMessage[] = [];
 
-// All fields optional — server returns an empty object when no in-flight task.
-export const ChatPendingTaskSchema: z.ZodType<ChatPendingTask> = z.object({
-  task_id: z.string().optional(),
+// All fields optional — server returns an empty object when no in-flight run.
+export const ChatPendingRunSchema: z.ZodType<ChatPendingRun> = z.object({
+  run_id: z.string().optional(),
   status: z.string().optional(),
   created_at: z.string().optional(),
 }).loose();
 
-export const EMPTY_CHAT_PENDING_TASK: ChatPendingTask = {};
+export const EMPTY_CHAT_PENDING_RUN: ChatPendingRun = {};
 
 export const SendChatMessageResponseSchema: z.ZodType<SendChatMessageResponse> = z.object({
   message_id: z.string(),
-  task_id: z.string(),
+  run_id: z.string(),
   created_at: z.string().default(""),
 }).loose();
 
-// Live timeline emitted by the agent runtime while a task is running. Each
+// Live timeline emitted by the agent runtime while a run is running. Each
 // row is one execution step (thinking / tool_use / tool_result / text /
-// error). Mirrors web's TaskMessagePayload type and the WS `task:message`
+// error). Mirrors web's AgentRunMessagePayload type and the WS `run:message`
 // payload so the mobile cache shape stays interchangeable with web's.
-export const TaskMessagePayloadSchema: z.ZodType<TaskMessagePayload> = z.object({
-  task_id: z.string(),
-  issue_id: z.string().default(""),
+export const AgentRunMessagePayloadSchema: z.ZodType<AgentRunMessagePayload> = z.object({
+  run_id: z.string(),
+  task_id: z.string().default(""),
   chat_session_id: z.string().optional(),
   seq: z.number().default(0),
   // Enum drift defense: unknown server-side types fall back to "text" so
@@ -322,14 +322,14 @@ export const TaskMessagePayloadSchema: z.ZodType<TaskMessagePayload> = z.object(
   created_at: z.string().optional(),
 }).loose();
 
-export const TaskMessageListSchema = z.array(TaskMessagePayloadSchema).default([]);
+export const AgentRunMessageListSchema = z.array(AgentRunMessagePayloadSchema).default([]);
 
-export const EMPTY_TASK_MESSAGE_LIST: TaskMessagePayload[] = [];
+export const EMPTY_AGENT_RUN_MESSAGE_LIST: AgentRunMessagePayload[] = [];
 
 // =====================================================
-// Search (issues + projects)
+// Search (tasks + projects)
 // =====================================================
-// Mirrors SearchIssueResult / SearchProjectResult in packages/core/types/api.ts.
+// Mirrors SearchTaskResult / SearchProjectResult in packages/core/types/api.ts.
 // Web does not currently route search responses through parseWithFallback, so
 // the schemas live mobile-side. Promote to core when web adopts the same
 // defense.
@@ -338,18 +338,18 @@ export const EMPTY_TASK_MESSAGE_LIST: TaskMessagePayload[] = [];
 // (root CLAUDE.md "Enum drift downgrades, not crashes"): unknown values fall
 // back to "title" so the row still renders without a snippet line.
 
-const SearchIssueResultSchema = IssueSchema.safeExtend({
+const SearchTaskResultSchema = TaskSchema.safeExtend({
   match_source: z.enum(["title", "description", "comment"]).catch("title"),
   matched_snippet: z.string().optional(),
 });
 
-export const SearchIssuesResponseSchema = z.object({
-  issues: z.array(SearchIssueResultSchema).default([]),
+export const SearchTasksResponseSchema = z.object({
+  tasks: z.array(SearchTaskResultSchema).default([]),
   total: z.number().default(0),
 }).loose();
 
-export const EMPTY_SEARCH_ISSUES_RESPONSE: SearchIssuesResponse = {
-  issues: [],
+export const EMPTY_SEARCH_TASKS_RESPONSE: SearchTasksResponse = {
+  tasks: [],
   total: 0,
 };
 
@@ -369,22 +369,22 @@ export const EMPTY_SEARCH_PROJECTS_RESPONSE: SearchProjectsResponse = {
 };
 
 // =====================================================
-// Agent tasks (per-issue runs, active + history)
+// Agent tasks (per-task runs, active + history)
 // =====================================================
-// Mirrors AgentTask in packages/core/types/agent.ts. Backend handlers:
-//   GET  /api/issues/{id}/active-task → { tasks: AgentTask[] } (may be empty)
-//   GET  /api/issues/{id}/task-runs   → AgentTask[]
+// Mirrors AgentRun in packages/core/types/agent.ts. Backend handlers:
+//   GET  /api/tasks/{id}/active-run → { runs: AgentRun[] } (may be empty)
+//   GET  /api/tasks/{id}/runs   → AgentRun[]
 // Lenient on every field — status / kind / failure_reason all use `.catch()`
 // so a future server-side enum value renders a generic fallback rather than
 // crashing the row (root CLAUDE.md "Enum drift downgrades, not crashes").
 
-export const AgentTaskSchema: z.ZodType<AgentTask> = z.object({
+export const AgentRunSchema: z.ZodType<AgentRun> = z.object({
   id: z.string(),
   agent_id: z.string().default(""),
   runtime_id: z.string().default(""),
-  issue_id: z.string().default(""),
+  task_id: z.string().default(""),
   status: z
-    .enum(["queued", "dispatched", "running", "completed", "failed", "cancelled"])
+    .enum(["queued", "dispatched", "waiting_local_directory", "running", "completed", "failed", "cancelled"])
     .catch("queued"),
   priority: z.number().default(0),
   dispatched_at: z.string().nullable().default(null),
@@ -394,7 +394,7 @@ export const AgentTaskSchema: z.ZodType<AgentTask> = z.object({
   error: z.string().nullable().default(null),
   // Backend uses empty string ("") as the "not failed" sentinel (Go
   // `omitempty` on a custom string-typed enum). Normalize that to `undefined`
-  // so downstream truthy checks (`if (task.failure_reason)`) don't have to
+  // so downstream truthy checks (`if (run.failure_reason)`) don't have to
   // special-case both null/undefined AND "".
   failure_reason: z
     .enum(["agent_error", "timeout", "runtime_offline", "runtime_recovery", "manual", ""])
@@ -404,7 +404,7 @@ export const AgentTaskSchema: z.ZodType<AgentTask> = z.object({
   created_at: z.string().default(""),
   chat_session_id: z.string().optional(),
   autopilot_run_id: z.string().optional(),
-  parent_task_id: z.string().optional(),
+  parent_run_id: z.string().optional(),
   attempt: z.number().optional(),
   trigger_comment_id: z.string().optional(),
   trigger_summary: z.string().optional(),
@@ -412,18 +412,18 @@ export const AgentTaskSchema: z.ZodType<AgentTask> = z.object({
   work_dir: z.string().optional(),
 }).loose();
 
-export const AgentTaskListSchema = z.array(AgentTaskSchema).default([]);
+export const AgentRunListSchema = z.array(AgentRunSchema).default([]);
 
-export const ActiveTasksResponseSchema = z.object({
-  tasks: z.array(AgentTaskSchema).default([]),
+export const ActiveRunsResponseSchema = z.object({
+  runs: z.array(AgentRunSchema).default([]),
 }).loose();
 
-export interface ActiveTasksResponse {
-  tasks: AgentTask[];
+export interface ActiveRunsResponse {
+  runs: AgentRun[];
 }
 
-export const EMPTY_AGENT_TASK_LIST: AgentTask[] = [];
-export const EMPTY_ACTIVE_TASKS_RESPONSE: ActiveTasksResponse = { tasks: [] };
+export const EMPTY_AGENT_RUN_LIST: AgentRun[] = [];
+export const EMPTY_ACTIVE_RUNS_RESPONSE: ActiveRunsResponse = { runs: [] };
 
 // =====================================================
 // User / Workspace / Inbox / Member / Agent
@@ -480,7 +480,7 @@ export const WorkspaceSchema: z.ZodType<Workspace> = z.object({
   context: z.string().nullable().default(null),
   settings: z.record(z.string(), z.unknown()).default({}),
   repos: z.array(z.object({ url: z.string() }).loose()).default([]),
-  issue_prefix: z.string().default(""),
+  task_prefix: z.string().default(""),
   avatar_url: z.string().nullable().default(null),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
@@ -490,13 +490,13 @@ export const WorkspaceListSchema = z.array(WorkspaceSchema).default([]);
 export const EMPTY_WORKSPACE_LIST: Workspace[] = [];
 
 /** Pin metadata only — display fields (title / status / icon) are NOT here,
- *  consumers derive them from `issueDetailOptions` / `projectDetailOptions`.
+ *  consumers derive them from `taskDetailOptions` / `projectDetailOptions`.
  *  Matches the design in packages/core/types/pin.ts. */
 export const PinnedItemSchema: z.ZodType<PinnedItem> = z.object({
   id: z.string(),
   workspace_id: z.string().default(""),
   user_id: z.string().default(""),
-  item_type: z.enum(["issue", "project"]).catch("issue"),
+  item_type: z.enum(["task", "project"]).catch("task"),
   item_id: z.string(),
   position: z.number().default(0),
   created_at: z.string().default(""),
@@ -528,11 +528,11 @@ const InboxItemSchema: z.ZodType<InboxItem> = z.object({
   severity: z
     .enum(["action_required", "attention", "info"])
     .catch("info"),
-  issue_id: z.string().nullable().default(null),
+  task_id: z.string().nullable().default(null),
   title: z.string().default(""),
   body: z.string().nullable().default(null),
-  issue_status: z.string().nullable().default(null) as unknown as z.ZodType<
-    InboxItem["issue_status"]
+  task_status: z.string().nullable().default(null) as unknown as z.ZodType<
+    InboxItem["task_status"]
   >,
   read: z.boolean().default(false),
   archived: z.boolean().default(false),
@@ -598,7 +598,7 @@ export const AgentSchema: z.ZodType<Agent> = z.object({
   permission_mode: z.enum(["private", "public_to"]).catch("private"),
   invocation_targets: z.array(AgentInvocationTargetSchema).default([]),
   status: z.string().catch("active") as unknown as z.ZodType<Agent["status"]>,
-  max_concurrent_tasks: z.number().default(1),
+  max_concurrent_runs: z.number().default(1),
   model: z.string().default(""),
   owner_id: z.string().nullable().default(null),
   skills: z.array(z.unknown()).default([]) as unknown as z.ZodType<
@@ -669,11 +669,11 @@ export const SquadSchema: z.ZodType<Squad> = z.object({
 export const SquadListSchema = z.array(SquadSchema).default([]);
 export const EMPTY_SQUAD_LIST: Squad[] = [];
 
-// Single-issue fallback used by getIssue. Mobile reuses IssueSchema from core
+// Single-task fallback used by getTask. Mobile reuses TaskSchema from core
 // for parsing; this sentinel lets parseWithFallback yield a structurally-
-// valid Issue when the response drifts. `id: ""` flags drift downstream — the
-// detail screen treats it as "issue not found" and shows the empty state.
-export const EMPTY_ISSUE_FALLBACK: import("@silieco/core/types").Issue = {
+// valid Task when the response drifts. `id: ""` flags drift downstream — the
+// detail screen treats it as "task not found" and shows the empty state.
+export const EMPTY_TASK_FALLBACK: import("@silieco/core/types").Task = {
   id: "",
   workspace_id: "",
   number: 0,
@@ -686,7 +686,7 @@ export const EMPTY_ISSUE_FALLBACK: import("@silieco/core/types").Issue = {
   assignee_id: null,
   creator_type: "member",
   creator_id: "",
-  parent_issue_id: null,
+  parent_task_id: null,
   project_id: null,
   position: 0,
   stage: null,

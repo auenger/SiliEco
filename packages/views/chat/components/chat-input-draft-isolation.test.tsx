@@ -194,7 +194,7 @@ function makeUpload(id: string, filename: string): UploadResult {
     id,
     filename,
     workspace_id: "ws-1",
-    issue_id: null,
+    task_id: null,
     comment_id: null,
     chat_session_id: null,
     chat_message_id: null,
@@ -420,7 +420,7 @@ describe("ChatInput draft isolation across a composer switch (real debounce)", (
       // The upload gate covers most of the pinned window, but not the sliver
       // between the upload's final dispatch (uploading node gone, so
       // `hasActiveUploads()` is already false) and the re-render that adopts —
-      // React flushes that update on a scheduler task, so a click can land
+      // React flushes that update on a scheduler run, so a click can land
       // first. Sending then would post A's text into B's session.
       store().activeSessionId = "session-a";
       const onSend = vi.fn();

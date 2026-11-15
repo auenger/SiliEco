@@ -95,18 +95,18 @@ describe("mention tokenizer", () => {
     expect(token!.attributes.label).toBe("Bot[v2][beta]");
   });
 
-  it("parses issue mentions without @ prefix", () => {
-    const token = tokenize("[SILI-123](mention://issue/aaa-bbb)");
+  it("parses task mentions without @ prefix", () => {
+    const token = tokenize("[SILI-123](mention://task/aaa-bbb)");
     expect(token).toBeDefined();
     expect(token!.attributes.label).toBe("SILI-123");
-    expect(token!.attributes.type).toBe("issue");
+    expect(token!.attributes.type).toBe("task");
   });
 
-  it("finds an issue mention nested inside task list Markdown", () => {
-    const token = tokenize("- [ ] [SILI-123](mention://issue/aaa-bbb)");
+  it("finds an task mention nested inside task list Markdown", () => {
+    const token = tokenize("- [ ] [SILI-123](mention://task/aaa-bbb)");
     expect(token).toBeDefined();
     expect(token!.attributes.label).toBe("SILI-123");
-    expect(token!.attributes.type).toBe("issue");
+    expect(token!.attributes.type).toBe("task");
     expect(token!.attributes.id).toBe("aaa-bbb");
   });
 

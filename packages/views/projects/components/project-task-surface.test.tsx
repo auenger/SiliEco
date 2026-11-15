@@ -72,8 +72,8 @@ vi.mock("@tanstack/react-query", () => ({
   },
 }));
 
-vi.mock("../../issues/surface/issue-surface", () => ({
-  IssueSurface: ({ scope }: { scope: { projectId: string } }) => (
+vi.mock("../../tasks/surface/task-surface", () => ({
+  TaskSurface: ({ scope }: { scope: { projectId: string } }) => (
     <div data-testid="project-task-board">{scope.projectId}</div>
   ),
 }));
@@ -111,7 +111,7 @@ describe("ProjectTaskSurface", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
 
-    expect(openModal).toHaveBeenCalledWith("create-issue", {
+    expect(openModal).toHaveBeenCalledWith("create-task", {
       project_id: "project-1",
     });
   });
@@ -172,7 +172,7 @@ describe("ProjectTaskSurface", () => {
     render(surface("project-1"));
     fireEvent.click(screen.getByRole("button", { name: "SOP Stage" }));
     fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
-    expect(openModal).toHaveBeenCalledWith("create-issue", expect.objectContaining({workflow_instance_id: "done-run", workflow_stage_id: "stage-1"}));
+    expect(openModal).toHaveBeenCalledWith("create-task", expect.objectContaining({workflow_instance_id: "done-run", workflow_stage_id: "stage-1"}));
     expect(transitionInstance).not.toHaveBeenCalled();
   });
 

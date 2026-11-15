@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
 )
 
 // detectGitRepo checks if dir is inside a git repository (regular or bare).

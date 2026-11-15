@@ -33,10 +33,10 @@ func TestWorkflowAutomaticAcceptanceRecoveryAndGuards(t *testing.T) {
 	if err := accept(); !errors.Is(err, ErrWorkflowExecutionConflict) {
 		t.Fatalf("unfinished work accepted: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, e.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, e.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, e.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, e.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	for _, gate := range []string{"human", "agent", "hybrid", ""} {
@@ -55,13 +55,13 @@ func TestWorkflowAutomaticAcceptanceRecoveryAndGuards(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE workflow_instance SET status='active' WHERE id=$1`, p.InstanceID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='cancelled' WHERE id=$1`, e.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='cancelled' WHERE id=$1`, e.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
 	if err := accept(); !errors.Is(err, ErrWorkflowExecutionConflict) {
 		t.Fatalf("cancelled requirement accepted: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, e.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, e.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
 	// Fresh service instances represent independent workers after a restart.

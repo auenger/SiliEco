@@ -127,13 +127,13 @@ export function createSuggestionPopupRender<
       };
       computePosition(virtualEl, el, {
         // Open upward by default. The dominant hosts are bottom-anchored
-        // composers (chat input, issue comment/reply) whose roomy side is above
+        // composers (chat input, task comment/reply) whose roomy side is above
         // the caret; preferring that side means `size` clamps to a large budget
         // with no visible compression, and `flip` only sends it down in the rare
         // case the caret sits near the viewport top. A `bottom-start` default
         // instead stayed down whenever *any* space existed below — even when far
         // more room was above — which read as "mostly opens down and gets
-        // squashed". Document-body editors (issue/project description, agent
+        // squashed". Document-body editors (task/project description, agent
         // instructions) also host this popup; there the caret usually has room
         // both ways, so `flip` keeps them on-screen regardless of the default.
         placement: "top-start",
@@ -225,7 +225,7 @@ export function createSuggestionPopupRender<
           // Without stopPropagation the same keypress that closes this popup
           // also closes the host Dialog and discards the draft (SILI-5429).
           // This handler is the only layer that knows a picker is open, so
-          // stopping here fixes every host at once (create-issue dialog, chat
+          // stopping here fixes every host at once (create-task dialog, chat
           // input, comment composer).
           props.event.preventDefault();
           props.event.stopPropagation();

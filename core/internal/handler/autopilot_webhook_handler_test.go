@@ -27,7 +27,7 @@ func createWebhookTestAgent(t *testing.T, name string) string {
 	if err := testPool.QueryRow(context.Background(), `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id,
+			runtime_id, visibility, max_concurrent_runs, owner_id,
 			instructions, custom_env, custom_args, mcp_config
 		)
 		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'private', 1, $4, '', '{}'::jsonb, '[]'::jsonb, '{}'::jsonb)
@@ -369,7 +369,7 @@ func TestUpdateWebhookTrigger_ReplacesFilters(t *testing.T) {
 	req := newRequest("PATCH", "/api/autopilots/"+apID+"/triggers/"+created.ID, map[string]any{
 		"event_filters": []map[string]any{
 			{"event": "pull_request", "actions": []string{"opened"}},
-			{"event": "issues"},
+			{"event": "tasks"},
 		},
 	})
 	req = withURLParams(req, "id", apID, "triggerId", created.ID)
@@ -384,7 +384,7 @@ func TestUpdateWebhookTrigger_ReplacesFilters(t *testing.T) {
 	if len(updated.EventFilters) != 2 {
 		t.Fatalf("expected 2 replaced filters, got %d", len(updated.EventFilters))
 	}
-	if updated.EventFilters[0].Event != "pull_request" || updated.EventFilters[1].Event != "issues" {
+	if updated.EventFilters[0].Event != "pull_request" || updated.EventFilters[1].Event != "tasks" {
 		t.Fatalf("replaced filter list wrong: %#v", updated.EventFilters)
 	}
 }

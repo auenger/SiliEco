@@ -1,10 +1,10 @@
-import type { IssueStatus } from "./issue";
+import type { TaskStatus } from "./task";
 
 export type InboxSeverity = "action_required" | "attention" | "info";
 
 export type InboxItemType =
-  | "issue_assigned"
-  | "issue_subscribed"
+  | "task_assigned"
+  | "task_subscribed"
   | "unassigned"
   | "assignee_changed"
   | "status_changed"
@@ -14,8 +14,8 @@ export type InboxItemType =
   | "new_comment"
   | "mentioned"
   | "review_requested"
-  | "task_completed"
-  | "task_failed"
+  | "run_completed"
+  | "run_failed"
   | "agent_blocked"
   | "agent_completed"
   | "reaction_added"
@@ -23,7 +23,7 @@ export type InboxItemType =
   | "quick_create_failed"
   // Quick create whose outcome could not be verified. Distinct from
   // quick_create_failed because it must NOT be rendered with failure framing:
-  // the issue may actually have been created.
+  // the task may actually have been created.
   | "quick_create_unconfirmed";
 
 /**
@@ -46,10 +46,10 @@ export interface InboxItem {
   actor_id: string | null;
   type: InboxItemType;
   severity: InboxSeverity;
-  issue_id: string | null;
+  task_id: string | null;
   title: string;
   body: string | null;
-  issue_status: IssueStatus | null;
+  task_status: TaskStatus | null;
   read: boolean;
   archived: boolean;
   created_at: string;

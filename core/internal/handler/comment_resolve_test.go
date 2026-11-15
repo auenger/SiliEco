@@ -58,8 +58,8 @@ func commentResolvedAt(t *testing.T, id string) *time.Time {
 }
 
 // commentEventCapture records comment:resolved / comment:unresolved events for a
-// single issue. The handler bus has no Unsubscribe, so the closure filters by
-// issue id; events for other tests' issues are ignored.
+// single task. The handler bus has no Unsubscribe, so the closure filters by
+// task id; events for other tests' tasks are ignored.
 type commentEventCapture struct {
 	mu     sync.Mutex
 	events []struct {
@@ -68,7 +68,7 @@ type commentEventCapture struct {
 	}
 }
 
-func captureCommentEvents(t *testing.T, issueID string) *commentEventCapture {
+func captureCommentEvents(t *testing.T, taskID string) *commentEventCapture {
 	t.Helper()
 	cap := &commentEventCapture{}
 	record := func(e events.Event) {
@@ -77,7 +77,7 @@ func captureCommentEvents(t *testing.T, issueID string) *commentEventCapture {
 			return
 		}
 		c, ok := m["comment"].(CommentResponse)
-		if !ok || c.IssueID != issueID {
+		if !ok || c.TaskID != taskID {
 			return
 		}
 		cap.mu.Lock()
@@ -104,8 +104,8 @@ func (c *commentEventCapture) countFor(eventType, commentID string) int {
 	return n
 }
 
-// resolveTestFixture seeds an issue with two independent threads so the tests
-// can prove the single-resolution invariant is thread-scoped, not issue-scoped:
+// resolveTestFixture seeds an task with two independent threads so the tests
+// can prove the single-resolution invariant is thread-scoped, not task-scoped:
 //
 //	root1
 //	├── a1
@@ -113,28 +113,28 @@ func (c *commentEventCapture) countFor(eventType, commentID string) int {
 //	root2 (separate thread)
 //	└── a2
 type resolveTestFixture struct {
-	IssueID string
-	Root1   string
-	A1      string
-	B1      string
-	Root2   string
-	A2      string
+	TaskID string
+	Root1  string
+	A1     string
+	B1     string
+	Root2  string
+	A2     string
 }
 
 func newResolveTestFixture(t *testing.T) resolveTestFixture {
 	t.Helper()
 	ctx := context.Background()
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title)
 		VALUES ($1, 'member', $2, $3)
 		RETURNING id
-	`, testWorkspaceID, testUserID, "resolve fixture").Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, "resolve fixture").Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	base := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Second)
@@ -142,10 +142,10 @@ func newResolveTestFixture(t *testing.T) resolveTestFixture {
 		t.Helper()
 		var id string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
 			VALUES ($1, $2, 'member', $3, $4, 'comment', $5, $6)
 			RETURNING id
-		`, issueID, testWorkspaceID, testUserID, body, parent, base.Add(offset)).Scan(&id); err != nil {
+		`, taskID, testWorkspaceID, testUserID, body, parent, base.Add(offset)).Scan(&id); err != nil {
 			t.Fatalf("insert comment %q: %v", body, err)
 		}
 		return id
@@ -157,7 +157,7 @@ func newResolveTestFixture(t *testing.T) resolveTestFixture {
 	root2 := insert(nil, 10*time.Minute, "root2")
 	a2 := insert(&root2, 11*time.Minute, "a2")
 
-	return resolveTestFixture{IssueID: issueID, Root1: root1, A1: a1, B1: b1, Root2: root2, A2: a2}
+	return resolveTestFixture{TaskID: taskID, Root1: root1, A1: a1, B1: b1, Root2: root2, A2: a2}
 }
 
 // TestResolveComment_ReplacesPriorThreadResolution is the core regression for
@@ -169,7 +169,7 @@ func TestResolveComment_ReplacesPriorThreadResolution(t *testing.T) {
 		t.Skip("database not available")
 	}
 	fx := newResolveTestFixture(t)
-	cap := captureCommentEvents(t, fx.IssueID)
+	cap := captureCommentEvents(t, fx.TaskID)
 
 	// Resolve a1 → it is the resolution.
 	resolveCommentHTTP(t, fx.A1)
@@ -197,15 +197,15 @@ func TestResolveComment_ReplacesPriorThreadResolution(t *testing.T) {
 }
 
 // TestResolveComment_ScopedToThread proves the clear never reaches across into a
-// sibling thread on the same issue.
+// sibling thread on the same task.
 func TestResolveComment_ScopedToThread(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	fx := newResolveTestFixture(t)
 
-	resolveCommentHTTP(t, fx.B1)   // thread 1 resolution
-	resolveCommentHTTP(t, fx.A2)   // thread 2 resolution — must NOT touch thread 1
+	resolveCommentHTTP(t, fx.B1) // thread 1 resolution
+	resolveCommentHTTP(t, fx.A2) // thread 2 resolution — must NOT touch thread 1
 	if !commentResolved(t, fx.B1) {
 		t.Fatalf("b1 (thread 1) must stay resolved when a separate thread is resolved")
 	}
@@ -235,7 +235,7 @@ func TestResolveComment_ReResolveIsIdempotent(t *testing.T) {
 		t.Skip("database not available")
 	}
 	fx := newResolveTestFixture(t)
-	cap := captureCommentEvents(t, fx.IssueID)
+	cap := captureCommentEvents(t, fx.TaskID)
 
 	resolveCommentHTTP(t, fx.A1)
 	first := commentResolvedAt(t, fx.A1)

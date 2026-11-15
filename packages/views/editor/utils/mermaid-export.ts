@@ -182,7 +182,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  // Revoke on the next task: Safari aborts the download if the URL dies while
+  // Revoke on the next run: Safari aborts the download if the URL dies while
   // the click is still being processed synchronously.
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }

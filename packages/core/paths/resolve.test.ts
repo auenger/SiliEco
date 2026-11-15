@@ -12,7 +12,7 @@ function makeWs(slug: string): Workspace {
     context: null,
     settings: {},
     repos: [],
-    issue_prefix: slug.toUpperCase(),
+    task_prefix: slug.toUpperCase(),
     avatar_url: null,
     created_at: "",
     updated_at: "",
@@ -31,17 +31,17 @@ describe("resolvePostAuthDestination", () => {
     expect(resolvePostAuthDestination([], false)).toBe(paths.onboarding());
   });
 
-  it("onboarded + workspace[0] → /<first.slug>/issues", () => {
+  it("onboarded + workspace[0] → /<first.slug>/tasks", () => {
     const ws = [makeWs("acme"), makeWs("beta")];
     expect(resolvePostAuthDestination(ws, true)).toBe(
-      paths.workspace("acme").issues(),
+      paths.workspace("acme").tasks(),
     );
   });
 
-  it("onboarded + no workspace → /workspaces/new", () => {
+  it("onboarded + no workspace → /workspaces", () => {
     // Already-onboarded user without any workspace — usually a returning
     // user whose last workspace got deleted or who left it. They skip
     // re-onboarding and go straight to workspace creation.
-    expect(resolvePostAuthDestination([], true)).toBe(paths.newWorkspace());
+    expect(resolvePostAuthDestination([], true)).toBe(paths.workspaces());
   });
 });

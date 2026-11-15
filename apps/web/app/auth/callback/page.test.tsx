@@ -147,7 +147,7 @@ describe("CallbackPage", () => {
         context: null,
         settings: {},
         repos: [],
-        issue_prefix: "ACME",
+        task_prefix: "ACME",
         avatar_url: null,
         created_at: "",
         updated_at: "",
@@ -155,7 +155,7 @@ describe("CallbackPage", () => {
     ]);
     render(<CallbackPage />);
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(paths.workspace("acme").issues());
+      expect(mockPush).toHaveBeenCalledWith(paths.workspace("acme").tasks());
     });
     // Already-onboarded users skip the listMyInvitations check; new invites
     // surface in the sidebar instead of the wall.
@@ -314,14 +314,14 @@ describe("CallbackPage", () => {
         context: null,
         settings: {},
         repos: [],
-        issue_prefix: "ACME",
+        task_prefix: "ACME",
         created_at: "",
         updated_at: "",
       },
     ]);
     render(<CallbackPage />);
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(paths.workspace("acme").issues());
+      expect(mockPush).toHaveBeenCalledWith(paths.workspace("acme").tasks());
     });
   });
 });

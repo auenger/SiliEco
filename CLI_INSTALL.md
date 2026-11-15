@@ -198,4 +198,4 @@ If the agents list is empty, tell the user:
 
 When all steps are complete, inform the user:
 
-> "Silieco CLI is installed and the daemon is running. Agents in your workspaces can now execute tasks on this machine. You can manage workspaces with `silieco workspace list` and view daemon logs with `silieco daemon logs -f`."
+> "Silieco CLI is installed and the daemon is running. Agents in your workspaces can now execute AgentRuns on this machine. You can manage workspaces with `silieco workspace list` and view daemon logs with `silieco daemon logs -f`."

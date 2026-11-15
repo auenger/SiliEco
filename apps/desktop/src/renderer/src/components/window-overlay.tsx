@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { WorkspacesPage } from "@silieco/views/workspace/workspaces-page";
 import { NewWorkspacePage } from "@silieco/views/workspace/new-workspace-page";
 import { InvitePage } from "@silieco/views/invite";
 import { InvitationsPage } from "@silieco/views/invitations";
@@ -39,17 +40,16 @@ function WindowOverlayInner() {
   const { data: wsList = [] } = useQuery(workspaceListOptions());
   if (!overlay) return null;
 
-  // Back is only meaningful when there's somewhere to go — i.e. the user
-  // has at least one workspace. Zero-workspace users can only Log out or
-  // complete the flow.
+  // Existing members can return to their tabs; creation also supports the waiting page.
   const onBack = wsList.length > 0 ? close : undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col overflow-auto bg-background">
+      {overlay.type === "workspaces" && <WorkspacesPage />}
       {overlay.type === "new-workspace" && (
         <NewWorkspacePage
-          onSuccess={(ws) => push(paths.workspace(ws.slug).issues())}
-          onBack={onBack}
+          onSuccess={(ws) => push(paths.workspace(ws.slug).tasks())}
+          onBack={onBack ?? (() => push(paths.workspaces()))}
         />
       )}
       {overlay.type === "invite" && (
@@ -61,16 +61,16 @@ function WindowOverlayInner() {
       {overlay.type === "invitations" && <InvitationsPage />}
       {overlay.type === "onboarding" && (
         <OnboardingFlow
-          onComplete={(ws, issueId) => {
+          onComplete={(ws, taskId) => {
             close();
             // Runtime-connected onboarding lands on its single guide
-            // issue. Runtime-less exits still land on the issues list.
-            if (ws && issueId) {
-              push(paths.workspace(ws.slug).issueDetail(issueId));
+            // task. Runtime-less exits still land on the tasks list.
+            if (ws && taskId) {
+              push(paths.workspace(ws.slug).taskDetail(taskId));
             } else if (ws) {
-              push(paths.workspace(ws.slug).issues());
+              push(paths.workspace(ws.slug).tasks());
             } else {
-              push(paths.root());
+              push(paths.workspaces());
             }
           }}
           onRuntimeProbe={() => window.daemonAPI.probeRuntimes()}

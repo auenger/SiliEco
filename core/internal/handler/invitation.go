@@ -98,7 +98,7 @@ func (h *Handler) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 
 	// Drop any past-due pending invitations to 'expired' first. The partial unique
 	// index idx_invitation_unique_pending only filters by status = 'pending', so a
-	// stale row would otherwise block CreateInvitation below — see issue #2055.
+	// stale row would otherwise block CreateInvitation below — see task #2055.
 	if err := h.Queries.ExpireStalePendingInvitations(r.Context(), db.ExpireStalePendingInvitationsParams{
 		WorkspaceID:  requester.WorkspaceID,
 		InviteeEmail: email,

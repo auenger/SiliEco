@@ -1,6 +1,6 @@
 /**
  * Activity-row text formatter. Subset of the web `formatActivity` in
- * packages/views/issues/components/issue-detail.tsx:95 — same actions,
+ * packages/views/tasks/components/task-detail.tsx:95 — same actions,
  * English-only copy (mobile v1 is English-only; mirror the structure when
  * mobile gains i18n).
  *
@@ -11,13 +11,13 @@
  * crash).
  */
 import type {
-  IssuePriority,
-  IssueStatus,
+  TaskPriority,
+  TaskStatus,
   TimelineEntry,
 } from "@silieco/core/types";
-import { formatDateOnly } from "@silieco/core/issues/date";
+import { formatDateOnly } from "@silieco/core/tasks/date";
 
-const STATUS_LABEL: Record<IssueStatus, string> = {
+const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: "Backlog",
   todo: "Todo",
   in_progress: "In Progress",
@@ -27,7 +27,7 @@ const STATUS_LABEL: Record<IssueStatus, string> = {
   cancelled: "Cancelled",
 };
 
-const PRIORITY_LABEL: Record<IssuePriority, string> = {
+const PRIORITY_LABEL: Record<TaskPriority, string> = {
   urgent: "Urgent",
   high: "High",
   medium: "Medium",
@@ -36,17 +36,17 @@ const PRIORITY_LABEL: Record<IssuePriority, string> = {
 };
 
 function statusName(s: string | undefined): string {
-  if (s && s in STATUS_LABEL) return STATUS_LABEL[s as IssueStatus];
+  if (s && s in STATUS_LABEL) return STATUS_LABEL[s as TaskStatus];
   return s ?? "?";
 }
 
 function priorityName(p: string | undefined): string {
-  if (p && p in PRIORITY_LABEL) return PRIORITY_LABEL[p as IssuePriority];
+  if (p && p in PRIORITY_LABEL) return PRIORITY_LABEL[p as TaskPriority];
   return p ?? "?";
 }
 
 // start_date / due_date are calendar days — format timezone-safely (no offset
-// day shift). Mirrors web's formatActivity in issue-detail.tsx.
+// day shift). Mirrors web's formatActivity in task-detail.tsx.
 function shortDate(date: string | undefined): string {
   if (!date) return "?";
   return formatDateOnly(date, { month: "short", day: "numeric" }, "en-US");
@@ -92,16 +92,16 @@ export function formatActivity(
       return `renamed: "${details.from ?? "?"}" → "${details.to ?? "?"}"`;
     case "description_updated":
       return "updated description";
-    case "task_completed": {
+    case "run_completed": {
       const n = entry.coalesced_count ?? 1;
       return n > 1 ? `completed ${n} tasks` : "completed a task";
     }
-    case "task_failed": {
+    case "run_failed": {
       const n = entry.coalesced_count ?? 1;
       return n > 1 ? `failed ${n} tasks` : "failed a task";
     }
     case "squad_leader_evaluated": {
-      // Copy mirrors packages/views/locales/en/issues.json
+      // Copy mirrors packages/views/locales/en/tasks.json
       // (squad_leader_action / squad_leader_no_action / squad_leader_failed,
       // each with an optional `_reason` variant).
       const reason = details.reason?.trim();

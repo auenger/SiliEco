@@ -15,7 +15,7 @@ import { CurrencyNumberFlow } from "@silieco/ui/components/ui/number-flow";
 import type {
   Agent,
   AgentRuntime,
-  AgentTask,
+  AgentRun,
   MemberWithUser,
   RuntimeProfile,
 } from "@silieco/core/types";
@@ -25,7 +25,7 @@ import {
   agentListOptions,
   memberListOptions,
 } from "@silieco/core/workspace/queries";
-import { agentTaskSnapshotOptions } from "@silieco/core/agents";
+import { agentRunSnapshotOptions } from "@silieco/core/agents";
 import {
   deriveRuntimeHealth,
   runtimeProfileListOptions,
@@ -149,10 +149,10 @@ export interface RuntimeRow {
 // Per-runtime workload snapshot — agent IDs serving this runtime (drives
 // the avatar stack; .length doubles as the agent count) plus task counts
 // split by status. Built once per render off the workspace-wide
-// agents / agent-task-snapshot caches; filtered locally — no extra requests.
+// agents / agent-run-snapshot caches; filtered locally — no extra requests.
 export function buildWorkloadIndex(
   agents: Agent[],
-  tasks: AgentTask[],
+  tasks: AgentRun[],
 ): Map<string, RuntimeWorkload> {
   const result = new Map<string, RuntimeWorkload>();
   const agentToRuntime = new Map<string, string>();
@@ -355,7 +355,7 @@ function HealthCell({
         {!offline && active > 0 && (
           <span className="text-muted-foreground">
             {" · "}
-            {tAgents(($) => $.row.task_count, { count: active })}
+            {tAgents(($) => $.row.run_count, { count: active })}
           </span>
         )}
       </span>
@@ -649,7 +649,7 @@ export function RuntimeList({
 
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: members = [] } = useQuery(memberListOptions(wsId));
-  const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
+  const { data: snapshot = [] } = useQuery(agentRunSnapshotOptions(wsId));
   const { data: profiles = [] } = useQuery(runtimeProfileListOptions(wsId));
 
   const currentMember = user

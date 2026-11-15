@@ -7,7 +7,7 @@
  * already reflects reality (latest titles, has_unread flags, deletions).
  *
  * Events handled here are listing-level only — per-session events
- * (chat:message, task:*) belong in `use-chat-session-realtime.ts` because
+ * (chat:message, run:*) belong in `use-chat-session-realtime.ts` because
  * they target a specific session id known only inside the chat screen.
  */
 import { useQueryClient } from "@tanstack/react-query";

@@ -14,13 +14,13 @@ import (
 // TestTaskAttributionBase covers the pure row→attribution mapping (SILI-4302 §9):
 // source label + precise flag, initiator/originator raw refs, evidence, lineage —
 // no DB, no name hydration.
-func TestTaskAttributionBase(t *testing.T) {
+func TestAgentRunAttributionBase(t *testing.T) {
 	member := parseUUID("11111111-1111-1111-1111-111111111111")
 	comment := parseUUID("22222222-2222-2222-2222-222222222222")
 	ruleVer := parseUUID("33333333-3333-3333-3333-333333333333")
 
 	t.Run("direct_human sets both refs + evidence", func(t *testing.T) {
-		got := taskAttributionBase(db.AgentTaskQueue{
+		got := runAttributionBase(db.AgentRun{
 			OriginatorSource:     pgtype.Text{String: "direct_human", Valid: true},
 			OriginatorUserID:     member,
 			AccountableUserID:    member,
@@ -45,7 +45,7 @@ func TestTaskAttributionBase(t *testing.T) {
 	})
 
 	t.Run("rule_owner: accountable set, originator NULL, rule_version present", func(t *testing.T) {
-		got := taskAttributionBase(db.AgentTaskQueue{
+		got := runAttributionBase(db.AgentRun{
 			OriginatorSource:  pgtype.Text{String: "rule_owner", Valid: true},
 			AccountableUserID: member, // originator left invalid (autopilot)
 			RuleVersionID:     ruleVer,
@@ -65,7 +65,7 @@ func TestTaskAttributionBase(t *testing.T) {
 	})
 
 	t.Run("owner_fallback is degraded (not precise)", func(t *testing.T) {
-		got := taskAttributionBase(db.AgentTaskQueue{
+		got := runAttributionBase(db.AgentRun{
 			OriginatorSource:  pgtype.Text{String: "owner_fallback", Valid: true},
 			AccountableUserID: member,
 		})
@@ -75,7 +75,7 @@ func TestTaskAttributionBase(t *testing.T) {
 	})
 
 	t.Run("empty (pre-migration) source renders unattributed", func(t *testing.T) {
-		got := taskAttributionBase(db.AgentTaskQueue{}) // no attribution columns set
+		got := runAttributionBase(db.AgentRun{}) // no attribution columns set
 		if got.Source != "unattributed" || got.Precise {
 			t.Errorf("source/precise = %q/%v, want unattributed/false", got.Source, got.Precise)
 		}
@@ -88,16 +88,16 @@ func TestTaskAttributionBase(t *testing.T) {
 // TestHydrateTaskAttributionsFillsUserRef verifies the batch name hydration resolves
 // initiator/originator refs from the GLOBAL user table (departed-safe) and leaves an
 // unknown id un-filled without erroring (SILI-4302 §9).
-func TestHydrateTaskAttributionsFillsUserRef(t *testing.T) {
+func TestHydrateAgentRunAttributionsFillsUserRef(t *testing.T) {
 	known := &AttributionUser{ID: testUserID}
 	unknown := &AttributionUser{ID: "44444444-4444-4444-4444-444444444444"}
-	attrs := []*TaskAttribution{
+	attrs := []*AgentRunAttribution{
 		{Initiator: known, Originator: known}, // same id in both refs
 		{Initiator: unknown},
 		nil, // must be skipped without panic
 	}
 
-	testHandler.hydrateTaskAttributions(context.Background(), attrs)
+	testHandler.hydrateAgentRunAttributions(context.Background(), attrs)
 
 	if known.Name != handlerTestName || known.Email != handlerTestEmail {
 		t.Errorf("known ref = %q/%q, want %q/%q", known.Name, known.Email, handlerTestName, handlerTestEmail)
@@ -107,12 +107,12 @@ func TestHydrateTaskAttributionsFillsUserRef(t *testing.T) {
 	}
 }
 
-// TestListTasksByIssueHydratesAttribution is the SILI-4302 §9 regression guard for
-// the execution-log surface: the issue task list (api.listTasksByIssue) drives the
+// TestListRunsByTaskHydratesAttribution is the SILI-4302 §9 regression guard for
+// the execution-log surface: the task run list (api.listRunsByTask) drives the
 // "on behalf of <member>" badge, so it must resolve the initiator's display NAME,
-// not just its id. Before the fix ListTasksByIssue returned taskToResponse without
-// hydration and the badge fell back to "someone" on issue detail.
-func TestListTasksByIssueHydratesAttribution(t *testing.T) {
+// not just its id. Before the fix ListRunsByTask returned taskToResponse without
+// hydration and the badge fell back to "someone" on task detail.
+func TestListRunsByTaskHydratesAttribution(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -120,50 +120,50 @@ func TestListTasksByIssueHydratesAttribution(t *testing.T) {
 
 	agentID := createHandlerTestAgent(t, "AttributionListAgent", []byte("[]"))
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_id, creator_type, number, position)
-		VALUES ($1, 'attribution-list-issue', 'todo', 'medium', $2, 'member', 92777, 0)
+		INSERT INTO task (workspace_id, title, status, priority, creator_id, creator_type, number, position)
+		VALUES ($1, 'attribution-list-task', 'todo', 'medium', $2, 'member', 92777, 0)
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID) })
 
 	// direct_human: accountable == originator == the fixture user, whose name
 	// lives in the global user table — so hydration has a name to fill.
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, issue_id, originator_source, originator_user_id, accountable_user_id)
+		INSERT INTO agent_run (agent_id, runtime_id, status, priority, task_id, originator_source, originator_user_id, accountable_user_id)
 		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), 'completed', 0, $2, 'direct_human', $3, $3)
 		RETURNING id
-	`, agentID, issueID, testUserID).Scan(&taskID); err != nil {
-		t.Fatalf("create attributed task: %v", err)
+	`, agentID, taskID, testUserID).Scan(&runID); err != nil {
+		t.Fatalf("create attributed run: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID) })
 
-	req := newRequest("GET", "/api/issues/"+issueID+"/tasks", nil)
-	req = withURLParam(req, "id", issueID)
+	req := newRequest("GET", "/api/tasks/"+taskID+"/tasks", nil)
+	req = withURLParam(req, "id", taskID)
 	w := httptest.NewRecorder()
-	testHandler.ListTasksByIssue(w, req)
+	testHandler.ListRunsByTask(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []AgentTaskResponse
+	var resp []AgentRunResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode task list: %v", err)
 	}
 
-	var got *TaskAttribution
+	var got *AgentRunAttribution
 	for i := range resp {
-		if resp[i].ID == taskID {
+		if resp[i].ID == runID {
 			got = resp[i].Attribution
 			break
 		}
 	}
 	if got == nil {
-		t.Fatalf("task %s missing from response or has no attribution: %s", taskID, w.Body.String())
+		t.Fatalf("task %s missing from response or has no attribution: %s", runID, w.Body.String())
 	}
 	if got.Source != "direct_human" || !got.Precise {
 		t.Fatalf("source/precise = %q/%v, want direct_human/true", got.Source, got.Precise)

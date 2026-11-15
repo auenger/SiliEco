@@ -2,10 +2,10 @@
 
 The `silieco` CLI connects your local machine to Silieco. It handles authentication, Space and Task management, and runs the Agent Daemon that executes AI work locally.
 
-> Silieco's product term is **Task**. The current compatibility command remains
-> `silieco issue ...`, and several API paths still use `/api/issues`. Scripts
-> should keep using those stable identifiers until a versioned CLI/API migration
-> is released; they do not represent a second product object.
+> **Task** is the business work item; **AgentRun** is one agent execution.
+> Use `silieco task ...`, `/api/tasks`, and `/api/runs`. This development
+> reset requires the same protocol generation across the server, CLI,
+> daemon, and apps; retired commands and wire formats are not supported.
 
 ## Installation
 
@@ -180,25 +180,25 @@ Daemon behavior is configured via flags or environment variables:
 | Agent timeout | `--agent-timeout` | `SILIECO_AGENT_TIMEOUT` | `0` (no cap; bounded by the watchdogs) |
 | Codex semantic inactivity timeout | `--codex-semantic-inactivity-timeout` | `SILIECO_CODEX_SEMANTIC_INACTIVITY_TIMEOUT` | `10m` |
 | OpenCode idle watchdog | — | `SILIECO_OPENCODE_IDLE_WATCHDOG` | `10m` (`0` falls back to the generic idle watchdog; cannot extend it) |
-| Max concurrent tasks | `--max-concurrent-tasks` | `SILIECO_DAEMON_MAX_CONCURRENT_TASKS` | `20` |
+| Max concurrent runs | `--max-concurrent-runs` | `SILIECO_DAEMON_MAX_CONCURRENT_RUNS` | `20` |
 | Daemon ID | `--daemon-id` | `SILIECO_DAEMON_ID` | hostname |
 | Device name | `--device-name` | `SILIECO_DAEMON_DEVICE_NAME` | hostname |
 | Runtime name | `--runtime-name` | `SILIECO_AGENT_RUNTIME_NAME` | `Local Agent` |
 | Workspaces root | — | `SILIECO_WORKSPACES_ROOT` | `~/silieco_workspaces` |
 | GC enabled | — | `SILIECO_GC_ENABLED` | `true` (set `false`/`0` to disable) |
 | GC scan interval | — | `SILIECO_GC_INTERVAL` | `2h` |
-| GC TTL (done/cancelled issues) | — | `SILIECO_GC_TTL` | `24h` |
+| GC TTL (done/cancelled tasks) | — | `SILIECO_GC_TTL` | `24h` |
 | GC orphan TTL (no `.gc_meta.json`) | — | `SILIECO_GC_ORPHAN_TTL` | `72h` |
-| GC artifact TTL (open issues) | — | `SILIECO_GC_ARTIFACT_TTL` | `12h` (set `0` to disable) |
+| GC artifact TTL (open tasks) | — | `SILIECO_GC_ARTIFACT_TTL` | `12h` (set `0` to disable) |
 | GC artifact patterns | — | `SILIECO_GC_ARTIFACT_PATTERNS` | `node_modules,.next,.turbo` |
 
 #### Workspace garbage collection
 
 The daemon periodically scans `SILIECO_WORKSPACES_ROOT` and reclaims disk space in three modes:
 
-- **Full task cleanup** — when an issue's status is `done` or `cancelled` and has been idle for `SILIECO_GC_TTL`, the entire task directory is removed.
-- **Orphan cleanup** — task directories with no `.gc_meta.json` (e.g. left over from a daemon crash) are removed once they exceed `SILIECO_GC_ORPHAN_TTL`.
-- **Artifact-only cleanup** — when a task has been completed for at least `SILIECO_GC_ARTIFACT_TTL` but the issue is still open, regenerable build outputs whose directory basename matches `SILIECO_GC_ARTIFACT_PATTERNS` are removed. The daemon also reclaims the exact managed path `codex-home/.sandbox-bin`; old task metadata without `completed_at` becomes eligible for this managed-only cleanup after its `.gc_meta.json` file has been idle for `SILIECO_GC_ORPHAN_TTL`. The rest of the task (source, `.git`, `output/`, `logs/`, `.gc_meta.json`, Codex auth/config/session state) is preserved so the agent can resume it.
+- **Full run cleanup** — when a task's status is `done` or `cancelled` and has been idle for `SILIECO_GC_TTL`, the entire run directory is removed.
+- **Orphan cleanup** — run directories with no `.gc_meta.json` (e.g. left over from a daemon crash) are removed once they exceed `SILIECO_GC_ORPHAN_TTL`.
+- **Artifact-only cleanup** — when a run has been completed for at least `SILIECO_GC_ARTIFACT_TTL` but the task is still open, regenerable build outputs whose directory basename matches `SILIECO_GC_ARTIFACT_PATTERNS` are removed. The daemon also reclaims the exact managed path `codex-home/.sandbox-bin`; old run metadata without `completed_at` becomes eligible for this managed-only cleanup after its `.gc_meta.json` file has been idle for `SILIECO_GC_ORPHAN_TTL`. The rest of the run (source, `.git`, `output/`, `logs/`, `.gc_meta.json`, Codex auth/config/session state) is preserved so the agent can resume it.
 
 Configured patterns are basename-only — entries containing `/` or `\` are silently dropped — and `.git` subtrees are never descended into. The managed Codex cache is matched by its exact relative path, so a repository's own `.sandbox-bin` is not removed unless an operator explicitly adds that basename to `SILIECO_GC_ARTIFACT_PATTERNS`. The default list (`node_modules`, `.next`, `.turbo`) is intentionally narrow; extend it per deployment if your repos consistently produce other regenerable directories (for example, `SILIECO_GC_ARTIFACT_PATTERNS=node_modules,.next,.turbo,target,__pycache__`). To disable artifact cleanup entirely, including the managed Codex cache, set `SILIECO_GC_ARTIFACT_TTL=0`.
 
@@ -340,44 +340,44 @@ Passing no `<workspace-id>` resolves to the current default workspace, so `silie
 silieco workspace member list <workspace-id>
 ```
 
-## Tasks (`issue` compatibility command)
+## Tasks
 
 ### List Tasks
 
 ```bash
-silieco issue list
-silieco issue list --status in_progress
-silieco issue list --priority urgent --assignee "Agent Name"
-silieco issue list --assignee-id 5fb87ac7-23b5-4a7a-81fa-ed295a54545d
-silieco issue list --full-id
-silieco issue list --limit 20 --output json
-silieco issue list --status todo --sort position       # board order (the default)
-silieco issue list --sort created_at --direction desc  # newest first
+silieco task list
+silieco task list --status in_progress
+silieco task list --priority urgent --assignee "Agent Name"
+silieco task list --assignee-id 5fb87ac7-23b5-4a7a-81fa-ed295a54545d
+silieco task list --full-id
+silieco task list --limit 20 --output json
+silieco task list --status todo --sort position       # board order (the default)
+silieco task list --sort created_at --direction desc  # newest first
 ```
 
-Table output shows a routable Task `KEY` such as `SILI-123`; copy that key into follow-up commands like `issue get`, `issue comment list`, `issue status`, or `--parent`. Add `--full-id` when you need canonical UUIDs. Available filters: `--status`, `--priority`, `--assignee` / `--assignee-id`, `--project`, `--metadata`, `--limit`. Use `--assignee-id <uuid>` for unambiguous filtering when names overlap.
+Table output shows a routable Task `KEY` such as `SILI-123`; copy that key into follow-up commands like `task get`, `task comment list`, `task status`, or `--parent`. Add `--full-id` when you need canonical UUIDs. Available filters: `--status`, `--priority`, `--assignee` / `--assignee-id`, `--project`, `--metadata`, `--limit`. Use `--assignee-id <uuid>` for unambiguous filtering when names overlap.
 
 Results come back in board order (`position`, ascending) by default. Pass `--sort` to change the column (`position`, `title`, `created_at`, `start_date`, `due_date`, `priority`) and `--direction asc|desc` to flip the order. `position` is always ascending (it is the manual drag order), so `--direction` is rejected when `--sort` is `position` or omitted — use it only with `title`, `created_at`, `start_date`, `due_date`, or `priority`.
 
-Use `--metadata key=value` (repeatable; combined with AND) to filter by per-issue metadata. The value is JSON-parsed: `true`/`false` become bool, numbers become numbers, anything else is a string. Wrap as `'"42"'` to force a string when the value would otherwise sniff as a number:
+Use `--metadata key=value` (repeatable; combined with AND) to filter by per-task metadata. The value is JSON-parsed: `true`/`false` become bool, numbers become numbers, anything else is a string. Wrap as `'"42"'` to force a string when the value would otherwise sniff as a number:
 
 ```bash
-silieco issue list --metadata pipeline_status=waiting_review
-silieco issue list --metadata pr_number=482 --metadata is_blocked=true
+silieco task list --metadata pipeline_status=waiting_review
+silieco task list --metadata pr_number=482 --metadata is_blocked=true
 ```
 
 ### Get a Task
 
 ```bash
-silieco issue get <id>
-silieco issue get <id> --output json
+silieco task get <id>
+silieco task get <id> --output json
 ```
 
 ### Create a Task
 
 ```bash
-silieco issue create --title "Fix login bug" --description "..." --priority high --assignee "Lambda"
-silieco issue create --title "Fix login bug" --assignee-id 5fb87ac7-23b5-4a7a-81fa-ed295a54545d
+silieco task create --title "Fix login bug" --description "..." --priority high --assignee "Lambda"
+silieco task create --title "Fix login bug" --assignee-id 5fb87ac7-23b5-4a7a-81fa-ed295a54545d
 ```
 
 Flags: `--title` (required), `--description`, `--status`, `--priority`, `--assignee` / `--assignee-id`, `--parent`, `--project`, `--due-date`. Pass `--assignee-id <uuid>` (mutually exclusive with `--assignee`) when scripting against the IDs returned by `silieco workspace member list --output json` / `silieco agent list --output json`.
@@ -385,31 +385,31 @@ Flags: `--title` (required), `--description`, `--status`, `--priority`, `--assig
 ### Update a Task
 
 ```bash
-silieco issue update <id> --title "New title" --priority urgent
-silieco issue update <id> --position 4.5
+silieco task update <id> --title "New title" --priority urgent
+silieco task update <id> --position 4.5
 ```
 
-`--position` sets the raw ordering value within the board column (lower sorts first). For relative moves, `issue reorder` is easier because it works out the value for you.
+`--position` sets the raw ordering value within the board column (lower sorts first). For relative moves, `task reorder` is easier because it works out the value for you.
 
-### Reorder Issue
+### Reorder Task
 
-Move an issue within its current status column. The new ordering value is computed the same way the board's drag-and-drop computes it, so the CLI and UI agree on where the issue lands.
+Move a task within its current status column. The new ordering value is computed the same way the board's drag-and-drop computes it, so the CLI and UI agree on where the task lands.
 
 ```bash
-silieco issue reorder <id> --top              # top of its status column
-silieco issue reorder <id> --bottom           # bottom of its status column
-silieco issue reorder <id> --before <other>   # directly above another issue in the same column
-silieco issue reorder <id> --after  <other>   # directly below another issue in the same column
+silieco task reorder <id> --top              # top of its status column
+silieco task reorder <id> --bottom           # bottom of its status column
+silieco task reorder <id> --before <other>   # directly above another task in the same column
+silieco task reorder <id> --after  <other>   # directly below another task in the same column
 ```
 
-Pick exactly one of `--top`, `--bottom`, `--before`, or `--after`. Reorder stays inside the issue's current column, so `--before` / `--after` must name an issue in that same column. To move an issue to a different column, change its status first with `issue status`, then reorder within the new column.
+Pick exactly one of `--top`, `--bottom`, `--before`, or `--after`. Reorder stays inside the task's current column, so `--before` / `--after` must name a task in that same column. To move a task to a different column, change its status first with `task status`, then reorder within the new column.
 
-### Assign Issue
+### Assign Task
 
 ```bash
-silieco issue assign <id> --to "Lambda"
-silieco issue assign <id> --to-id 5fb87ac7-23b5-4a7a-81fa-ed295a54545d
-silieco issue assign <id> --unassign
+silieco task assign <id> --to "Lambda"
+silieco task assign <id> --to-id 5fb87ac7-23b5-4a7a-81fa-ed295a54545d
+silieco task assign <id> --unassign
 ```
 
 Pass `--to-id <uuid>` to assign by canonical UUID (mutually exclusive with `--to`); useful when names overlap across members and agents.
@@ -417,7 +417,7 @@ Pass `--to-id <uuid>` to assign by canonical UUID (mutually exclusive with `--to
 ### Change Status
 
 ```bash
-silieco issue status <id> in_progress
+silieco task status <id> in_progress
 ```
 
 Valid statuses: `backlog`, `todo`, `in_progress`, `in_review`, `done`, `blocked`, `cancelled`.
@@ -426,51 +426,51 @@ Valid statuses: `backlog`, `todo`, `in_progress`, `in_review`, `done`, `blocked`
 
 ```bash
 # List comments — flat timeline, chronological. Hard cap of 2000 rows; on
-# long-running issues prefer one of the thread-aware reads below to keep
+# long-running tasks prefer one of the thread-aware reads below to keep
 # context windows tight.
-silieco issue comment list <issue-id>
+silieco task comment list <task-id>
 
 # Single thread (root + every descendant). Anchor may be the root itself
 # or any reply inside the thread — the server walks up to the root.
-silieco issue comment list <issue-id> --thread <comment-id>
+silieco task comment list <task-id> --thread <comment-id>
 
 # Single thread, capped to the N most recent replies. The thread root is
 # always included (even with --tail 0), so an agent landing on a long
 # thread keeps the "what is this about" context without dragging hundreds
 # of replies into its prompt.
-silieco issue comment list <issue-id> --thread <comment-id> --tail 30
+silieco task comment list <task-id> --thread <comment-id> --tail 30
 
 # Scroll older replies inside the same thread. --before / --before-id are
 # the reply cursor that the previous response emitted on stderr as
 # `Next reply cursor: --before <ts> --before-id <reply-id>`.
-silieco issue comment list <issue-id> --thread <comment-id> --tail 30 \
+silieco task comment list <task-id> --thread <comment-id> --tail 30 \
     --before <ts> --before-id <reply-id>
 
 # Most recently active threads (root + every descendant), grouped by
 # thread. Returns N complete conversational arcs, oldest-active first so
 # the freshest thread sits closest to "now" in an agent prompt.
-silieco issue comment list <issue-id> --recent 10
+silieco task comment list <task-id> --recent 10
 
 # Scroll older threads. Under --recent, --before / --before-id are a
 # THREAD cursor (thread last_activity_at + root id), emitted on stderr as
 # `Next thread cursor: --before <ts> --before-id <root-id>`.
-silieco issue comment list <issue-id> --recent 10 \
+silieco task comment list <task-id> --recent 10 \
     --before <ts> --before-id <root-id>
 
 # Incremental polling. Combines with --thread or --recent; filters out
 # replies created on or before <ts> from the page (the thread root is
 # exempt so the agent always gets context).
-silieco issue comment list <issue-id> --thread <comment-id> --tail 30 \
+silieco task comment list <task-id> --thread <comment-id> --tail 30 \
     --since <RFC3339-timestamp>
 
 # Add a comment
-silieco issue comment add <issue-id> --content "Looks good, merging now"
+silieco task comment add <task-id> --content "Looks good, merging now"
 
 # Reply to a specific comment
-silieco issue comment add <issue-id> --parent <comment-id> --content "Thanks!"
+silieco task comment add <task-id> --parent <comment-id> --content "Thanks!"
 
 # Delete a comment
-silieco issue comment delete <comment-id>
+silieco task comment delete <comment-id>
 ```
 
 **`--before` / `--before-id` semantics depend on the paging mode**, by
@@ -493,81 +493,81 @@ server additionally suppresses the cursor once the cursor target itself
 is older than `since`. Older pages walk strictly older rows, so they
 cannot satisfy `> since` either — emitting a cursor there would just
 hand back root-only pages until the caller reaches the start of the
-thread / issue. Incremental polling stops at the first page whose
+thread / task. Incremental polling stops at the first page whose
 cursor target falls before the watermark.
 
 ### Metadata
 
-Per-issue metadata is a small KV map agents use to track pipeline state (PR number, pipeline status, waiting_on, ...). Keys match `^[a-zA-Z_][a-zA-Z0-9_.-]{0,63}$`, values are primitives (string / number / bool), max 50 keys per issue, blob capped at 8KB.
+Per-task metadata is a small KV map agents use to track pipeline state (PR number, pipeline status, waiting_on, ...). Keys match `^[a-zA-Z_][a-zA-Z0-9_.-]{0,63}$`, values are primitives (string / number / bool), max 50 keys per task, blob capped at 8KB.
 
-The bar for writing is high: pin a value only when it is materially important to the issue AND likely to be re-read by future runs on this same issue (the PR URL, the deploy URL, what we're blocked on). Most runs write zero new keys — that's the expected case. Don't pin runtime bookkeeping like `attempts`, single-run investigation notes, large logs, secrets/tokens, or description/comment copies — see the agent runtime prompt for the full anti-pattern list.
+The bar for writing is high: pin a value only when it is materially important to the task AND likely to be re-read by future runs on this same task (the PR URL, the deploy URL, what we're blocked on). Most runs write zero new keys — that's the expected case. Don't pin runtime bookkeeping like `attempts`, single-run investigation notes, large logs, secrets/tokens, or description/comment copies — see the agent runtime prompt for the full anti-pattern list.
 
 ```bash
-# List every key on an issue
-silieco issue metadata list <issue-id>
+# List every key on a task
+silieco task metadata list <task-id>
 
 # Read a single key
-silieco issue metadata get <issue-id> --key pipeline_status
+silieco task metadata get <task-id> --key pipeline_status
 
 # Write a single key — value auto-typed (true/false → bool, numbers → number, else string)
-silieco issue metadata set <issue-id> --key pipeline_status --value waiting_review
-silieco issue metadata set <issue-id> --key pr_number --value 482
-silieco issue metadata set <issue-id> --key is_blocked --value true
+silieco task metadata set <task-id> --key pipeline_status --value waiting_review
+silieco task metadata set <task-id> --key pr_number --value 482
+silieco task metadata set <task-id> --key is_blocked --value true
 
 # Force a specific type when sniffing would pick the wrong one
-silieco issue metadata set <issue-id> --key code --value 42 --type string
+silieco task metadata set <task-id> --key code --value 42 --type string
 
 # Remove a key
-silieco issue metadata delete <issue-id> --key pipeline_status
+silieco task metadata delete <task-id> --key pipeline_status
 ```
 
-All writes are single-key atomic — concurrent agents writing different keys do not lose each other's updates. To query, use `silieco issue list --metadata key=value` (see *List Issues* above).
+All writes are single-key atomic — concurrent agents writing different keys do not lose each other's updates. To query, use `silieco task list --metadata key=value` (see *List Tasks* above).
 
 ### Subscribers
 
 ```bash
-# List subscribers of an issue
-silieco issue subscriber list <issue-id>
+# List subscribers of a task
+silieco task subscriber list <task-id>
 
-# Subscribe yourself to an issue
-silieco issue subscriber add <issue-id>
+# Subscribe yourself to a task
+silieco task subscriber add <task-id>
 
 # Subscribe another member or agent by name
-silieco issue subscriber add <issue-id> --user "Lambda"
+silieco task subscriber add <task-id> --user "Lambda"
 
 # Unsubscribe yourself
-silieco issue subscriber remove <issue-id>
+silieco task subscriber remove <task-id>
 
 # Unsubscribe another member or agent
-silieco issue subscriber remove <issue-id> --user "Lambda"
+silieco task subscriber remove <task-id> --user "Lambda"
 ```
 
-Subscribers receive notifications about issue activity (new comments, status changes, etc.). Without `--user`, the command acts on the caller.
+Subscribers receive notifications about task activity (new comments, status changes, etc.). Without `--user`, the command acts on the caller.
 
 ### Execution History
 
 ```bash
-# List all execution runs for an issue
-silieco issue runs <issue-id>
-silieco issue runs <issue-id> --full-id
-silieco issue runs <issue-id> --output json
+# List all execution runs for a task
+silieco task runs <task-id>
+silieco task runs <task-id> --full-id
+silieco task runs <task-id> --output json
 
 # View messages for a specific execution run
-silieco issue run-messages <task-id>
-silieco issue run-messages <short-task-id> --issue <issue-id>
-silieco issue run-messages <task-id> --output json
+silieco task run-messages <run-id>
+silieco task run-messages <short-run-id> --task <task-id>
+silieco task run-messages <run-id> --output json
 
 # Incremental fetch (only messages after a given sequence number)
-silieco issue run-messages <task-id> --since 42 --output json
+silieco task run-messages <run-id> --since 42 --output json
 
-# Aggregated token usage for an issue (sum across all its task runs)
-silieco issue usage <issue-id>
-silieco issue usage <issue-id> --output json
+# Aggregated token usage for a task (sum across all its agent runs)
+silieco task usage <task-id>
+silieco task usage <task-id> --output json
 ```
 
-The `usage` command returns the aggregated token usage for an issue, summed across all of its task runs: input tokens, output tokens, cache read/write tokens, and the run count (`task_count`). It wraps `GET /api/issues/<id>/usage` — the same figures the issue detail view shows. Use `--output json` to feed billing/cost tooling.
+The `usage` command returns the aggregated token usage for a task, summed across all of its agent runs: input tokens, output tokens, cache read/write tokens, and the run count (`run_count`). It wraps `GET /api/tasks/<id>/usage` — the same figures the task detail view shows. Use `--output json` to feed billing/cost tooling.
 
-The `runs` command shows all past and current executions for an issue, including running tasks. Table output uses short task UUID prefixes by default; pass `--full-id` to print canonical task UUIDs. The `run-messages` command accepts full task UUIDs directly; copied short task prefixes must be scoped with `--issue <issue-id>` so the CLI only checks that issue's runs. It shows the detailed message log (tool calls, thinking, text, errors) for a single run. Use `--since` for efficient polling of in-progress runs.
+The `runs` command shows all past and current executions for a task, including running executions. Table output uses short run UUID prefixes by default; pass `--full-id` to print canonical run UUIDs. The `run-messages` command accepts full run UUIDs directly; copied short run prefixes must be scoped with `--task <task-id>` so the CLI only checks that task's runs. It shows the detailed message log (tool calls, thinking, text, errors) for a single run. Use `--since` for efficient polling of in-progress runs.
 
 ## Projects
 
@@ -625,13 +625,13 @@ silieco project delete <id>
 
 ### Associating Tasks with Projects
 
-Use the `--project` flag on `issue create` / `issue update` to attach a Task to a
-Project, or on `issue list` to filter Tasks by Project:
+Use the `--project` flag on `task create` / `task update` to attach a Task to a
+Project, or on `task list` to filter Tasks by Project:
 
 ```bash
-silieco issue create --title "Login bug" --project <project-id>
-silieco issue update <issue-id> --project <project-id>
-silieco issue list --project <project-id>
+silieco task create --title "Login bug" --project <project-id>
+silieco task update <task-id> --project <project-id>
+silieco task list --project <project-id>
 ```
 
 ## Setup
@@ -674,7 +674,7 @@ silieco config set workspace_id <workspace-id>
 
 ## Autopilot Commands
 
-Autopilots are scheduled/triggered automations that dispatch agent tasks (either by creating an issue or by running an agent directly).
+Autopilots are scheduled/triggered automations that dispatch agent runs (either by creating a task or by running an agent directly).
 
 ### List Autopilots
 
@@ -698,9 +698,9 @@ silieco autopilot get <id> --output json   # includes triggers
 ```bash
 silieco autopilot create \
   --title "Nightly bug triage" \
-  --description "Scan todo issues and prioritize." \
+  --description "Scan todo tasks and prioritize." \
   --agent "Lambda" \
-  --mode create_issue \
+  --mode create_task \
   --subscriber "Alice"
 
 silieco autopilot update <id> --status paused
@@ -710,8 +710,8 @@ silieco autopilot update <id> --clear-subscribers
 silieco autopilot delete <id>
 ```
 
-`--mode` accepts `create_issue` (creates a new issue on each run and assigns it to the agent) or `run_only` (enqueues a direct agent task without creating an issue). `--agent` accepts either a name or UUID.
-`--subscriber` accepts a workspace member name or user ID and may be repeated; on update it replaces the autopilot's subscriber template. Subscribers receive inbox notifications for issues created by a `create_issue` autopilot. Use `--clear-subscribers` to remove all autopilot subscribers.
+`--mode` accepts `create_task` (creates a new task on each run and assigns it to the agent) or `run_only` (enqueues a direct agent run without creating a task). `--agent` accepts either a name or UUID.
+`--subscriber` accepts a workspace member name or user ID and may be repeated; on update it replaces the autopilot's subscriber template. Subscribers receive inbox notifications for tasks created by a `create_task` autopilot. Use `--clear-subscribers` to remove all autopilot subscribers.
 
 ### Manual Trigger
 
@@ -752,7 +752,7 @@ Most commands support `--output` with two formats:
 - `json` — structured JSON (useful for scripting and automation)
 
 ```bash
-silieco issue list --output json
+silieco task list --output json
 silieco daemon status --output json
 ```
 
@@ -761,7 +761,7 @@ silieco daemon status --output json
 The CLI funnels command errors returned to the top-level handler through a
 single user-facing translation layer (`core/internal/cli/errors.go`) so that
 what you see on the terminal is a short, actionable sentence rather than a raw
-Go error, an HTTP status line, or an internal `resolve issue: ...` chain. (A
+Go error, an HTTP status line, or an internal `resolve task: ...` chain. (A
 few commands print their own output or run deliberate fast probes — for example
 `setup`'s short `/health` reachability check — and don't go through this
 layer.) The underlying detail is still available on demand (see `--debug`).
@@ -788,7 +788,7 @@ precedence order), messages switch to **Chinese**. No flag is needed; set the
 locale as usual:
 
 ```bash
-LANG=zh_CN.UTF-8 silieco issue get SILI-9999   # 错误信息显示为中文
+LANG=zh_CN.UTF-8 silieco task get SILI-9999   # 错误信息显示为中文
 ```
 
 ### Exit codes
@@ -805,8 +805,8 @@ The process exit code is tiered so scripts can branch on the failure class:
 | `5` | validation (HTTP 400, 422) |
 
 ```bash
-silieco issue get SILI-9999
-if [ $? -eq 4 ]; then echo "no such issue"; fi
+silieco task get SILI-9999
+if [ $? -eq 4 ]; then echo "no such task"; fi
 ```
 
 ### Seeing the full detail (`--debug`)
@@ -817,8 +817,8 @@ and the raw server body — underneath the friendly message. Use it when you nee
 to file a bug or understand exactly what the server returned:
 
 ```bash
-silieco issue list --debug
-SILIECO_DEBUG=1 silieco issue update SILI-1234 --title "x"
+silieco task list --debug
+SILIECO_DEBUG=1 silieco task update SILI-1234 --title "x"
 ```
 
 ### Request timeout
@@ -829,5 +829,5 @@ API requests use a default timeout of 30 seconds. Override it with
 always at least this value, so raising it takes effect across all commands.
 
 ```bash
-SILIECO_HTTP_TIMEOUT=60s silieco issue list
+SILIECO_HTTP_TIMEOUT=60s silieco task list
 ```

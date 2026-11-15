@@ -94,8 +94,8 @@ func TestPostJSON(t *testing.T) {
 			if agent := r.Header.Get("X-Agent-ID"); agent != "agent-123" {
 				t.Errorf("expected X-Agent-ID agent-123, got %s", agent)
 			}
-			if task := r.Header.Get("X-Task-ID"); task != "task-456" {
-				t.Errorf("expected X-Task-ID task-456, got %s", task)
+			if agentRun := r.Header.Get("X-Run-ID"); agentRun != "task-456" {
+				t.Errorf("expected X-Run-ID task-456, got %s", agentRun)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(respBody{ID: "456"})
@@ -104,7 +104,7 @@ func TestPostJSON(t *testing.T) {
 
 		client := NewAPIClient(srv.URL, "ws-abc", "test-token")
 		client.AgentID = "agent-123"
-		client.TaskID = "task-456"
+		client.RunID = "task-456"
 		var out respBody
 		err := client.PostJSON(context.Background(), "/test", reqBody{}, &out)
 		if err != nil {
@@ -305,9 +305,9 @@ func TestUploadFileWithURL(t *testing.T) {
 				t.Errorf("unexpected filename: %q", header.Filename)
 			}
 
-			// Verify no issue_id or comment_id fields are sent.
-			if r.FormValue("issue_id") != "" {
-				t.Errorf("unexpected issue_id field")
+			// Verify no task_id or comment_id fields are sent.
+			if r.FormValue("task_id") != "" {
+				t.Errorf("unexpected task_id field")
 			}
 			if r.FormValue("comment_id") != "" {
 				t.Errorf("unexpected comment_id field")
@@ -458,7 +458,7 @@ func TestSetHeaders_AdvertisesStableAttachmentURLs(t *testing.T) {
 
 		client := NewAPIClient(srv.URL, "ws-1", "test-token")
 		var out map[string]any
-		if err := client.GetJSON(context.Background(), "/api/issues/x/comments", &out); err != nil {
+		if err := client.GetJSON(context.Background(), "/api/tasks/x/comments", &out); err != nil {
 			t.Fatalf("GetJSON: %v", err)
 		}
 		if got != wantCapability {
@@ -477,7 +477,7 @@ func TestSetHeaders_AdvertisesStableAttachmentURLs(t *testing.T) {
 
 		client := NewAPIClient(srv.URL, "ws-1", "test-token")
 		var out []map[string]any
-		if _, err := client.GetJSONWithHeaders(context.Background(), "/api/issues/x/comments", &out); err != nil {
+		if _, err := client.GetJSONWithHeaders(context.Background(), "/api/tasks/x/comments", &out); err != nil {
 			t.Fatalf("GetJSONWithHeaders: %v", err)
 		}
 		if got != wantCapability {
@@ -496,7 +496,7 @@ func TestSetHeaders_AdvertisesStableAttachmentURLs(t *testing.T) {
 
 		client := NewAPIClient(srv.URL, "ws-1", "test-token")
 		var out map[string]any
-		if err := client.PostJSON(context.Background(), "/api/issues/x/comments", map[string]string{"content": "hi"}, &out); err != nil {
+		if err := client.PostJSON(context.Background(), "/api/tasks/x/comments", map[string]string{"content": "hi"}, &out); err != nil {
 			t.Fatalf("PostJSON: %v", err)
 		}
 		if got != wantCapability {

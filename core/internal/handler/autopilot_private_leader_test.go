@@ -36,7 +36,7 @@ func TestCreateAutopilot_SquadPrivateLeader_PlainMemberBlocked(t *testing.T) {
 		"title":          "should be blocked",
 		"assignee_type":  "squad",
 		"assignee_id":    squadID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 	})
 	testHandler.CreateAutopilot(w, r)
 	if w.Code != http.StatusForbidden {
@@ -74,7 +74,7 @@ func TestUpdateAutopilot_SquadPrivateLeader_PlainMemberBlocked(t *testing.T) {
 	r := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
 		"title":          "update target ap",
 		"assignee_id":    publicAgentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 	})
 	testHandler.CreateAutopilot(w, r)
 	if w.Code != http.StatusCreated {
@@ -131,7 +131,7 @@ func TestCreateAutopilot_SquadPrivateLeader_OwnerAllowed(t *testing.T) {
 		"title":          "owner creates private-leader squad ap",
 		"assignee_type":  "squad",
 		"assignee_id":    squadID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 	})
 	testHandler.CreateAutopilot(w, r)
 	if w.Code != http.StatusCreated {
@@ -176,7 +176,7 @@ func TestTriggerAutopilot_SquadPrivateLeader_OwnerCanDispatch(t *testing.T) {
 		"title":          "dispatch test private leader squad",
 		"assignee_type":  "squad",
 		"assignee_id":    squadID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 	})
 	testHandler.CreateAutopilot(w, r)
 	if w.Code != http.StatusCreated {
@@ -188,8 +188,8 @@ func TestTriggerAutopilot_SquadPrivateLeader_OwnerCanDispatch(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		testPool.Exec(context.Background(), `DELETE FROM autopilot_run WHERE autopilot_id = $1`, ap.ID)
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id IN (SELECT id FROM issue WHERE workspace_id = $1 AND title LIKE 'dispatch test private leader squad%')`, testWorkspaceID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE workspace_id = $1 AND title LIKE 'dispatch test private leader squad%'`, testWorkspaceID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id IN (SELECT id FROM task WHERE workspace_id = $1 AND title LIKE 'dispatch test private leader squad%')`, testWorkspaceID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE workspace_id = $1 AND title LIKE 'dispatch test private leader squad%'`, testWorkspaceID)
 		testPool.Exec(context.Background(), `DELETE FROM autopilot WHERE id = $1`, ap.ID)
 	})
 
@@ -208,8 +208,8 @@ func TestTriggerAutopilot_SquadPrivateLeader_OwnerCanDispatch(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&run); err != nil {
 		t.Fatalf("decode run: %v", err)
 	}
-	if run.Status != "issue_created" {
-		t.Fatalf("run status = %q, want issue_created", run.Status)
+	if run.Status != "task_created" {
+		t.Fatalf("run status = %q, want task_created", run.Status)
 	}
 }
 
@@ -247,7 +247,7 @@ func TestTriggerAutopilot_SquadPrivateLeader_NonOwnerClicker_Blocked(t *testing.
 		"title":          "clicker fork private leader squad",
 		"assignee_type":  "squad",
 		"assignee_id":    squadID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 	})
 	testHandler.CreateAutopilot(w, r)
 	if w.Code != http.StatusCreated {
@@ -259,7 +259,7 @@ func TestTriggerAutopilot_SquadPrivateLeader_NonOwnerClicker_Blocked(t *testing.
 	}
 	t.Cleanup(func() {
 		testPool.Exec(context.Background(), `DELETE FROM autopilot_run WHERE autopilot_id = $1`, ap.ID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE workspace_id = $1 AND title LIKE 'clicker fork private leader squad%'`, testWorkspaceID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE workspace_id = $1 AND title LIKE 'clicker fork private leader squad%'`, testWorkspaceID)
 		testPool.Exec(context.Background(), `DELETE FROM autopilot WHERE id = $1`, ap.ID)
 	})
 
@@ -318,7 +318,7 @@ func TestTriggerAutopilot_SquadPrivateLeader_PlainMemberCreator_Blocked(t *testi
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO autopilot (workspace_id, title, assignee_type, assignee_id,
 		                       execution_mode, created_by_type, created_by_id, status)
-		VALUES ($1, 'legacy illegal ap', 'squad', $2, 'create_issue', 'member', $3, 'active')
+		VALUES ($1, 'legacy illegal ap', 'squad', $2, 'create_task', 'member', $3, 'active')
 		RETURNING id
 	`, testWorkspaceID, squadID, memberID).Scan(&apID); err != nil {
 		t.Fatalf("create autopilot: %v", err)
@@ -344,13 +344,13 @@ func TestTriggerAutopilot_SquadPrivateLeader_PlainMemberCreator_Blocked(t *testi
 		t.Fatalf("decode run: %v", err)
 	}
 	// The dispatch-time gate should cause a skipped or failed run.
-	if run.Status == "issue_created" || run.Status == "running" {
+	if run.Status == "task_created" || run.Status == "running" {
 		t.Fatalf("run status = %q; want skipped/failed since creator is plain member", run.Status)
 	}
 }
 
 // TestTriggerAutopilot_RunOnly_SquadPrivateLeader_PlainMemberCreator_Blocked
-// mirrors the create_issue dispatch test above but exercises the run_only
+// mirrors the create_task dispatch test above but exercises the run_only
 // dispatch path (dispatchRunOnly), ensuring both dispatch branches gate
 // private-leader access.
 func TestTriggerAutopilot_RunOnly_SquadPrivateLeader_PlainMemberCreator_Blocked(t *testing.T) {

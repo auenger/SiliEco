@@ -262,8 +262,8 @@ func TestAppendUserMessage_PlainText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppendUserMessage: %v", err)
 	}
-	if res.IssueCommand != nil {
-		t.Errorf("plain text should not parse as /issue: %+v", res.IssueCommand)
+	if res.TaskCommand != nil {
+		t.Errorf("plain text should not parse as /task: %+v", res.TaskCommand)
 	}
 	if len(f.messages) != 1 || f.messages[0] != "hello there" {
 		t.Errorf("messages = %v", f.messages)
@@ -284,39 +284,39 @@ func TestAppendUserMessage_NoReplyTargetWithoutMessageID(t *testing.T) {
 	}
 }
 
-func TestAppendUserMessage_IssueCommand(t *testing.T) {
+func TestAppendUserMessage_TaskCommand(t *testing.T) {
 	f := newFake()
 	s := newTestSession(f)
 	res, err := s.AppendUserMessage(context.Background(), AppendInput{
-		SessionID: uid(1), Body: "/issue Fix bug\nsteps to repro", MessageID: "m1",
+		SessionID: uid(1), Body: "/task Fix bug\nsteps to repro", MessageID: "m1",
 	})
 	if err != nil {
 		t.Fatalf("AppendUserMessage: %v", err)
 	}
-	if res.IssueCommand == nil || res.IssueCommand.Title != "Fix bug" || res.IssueCommand.Description != "steps to repro" {
-		t.Errorf("IssueCommand = %+v", res.IssueCommand)
+	if res.TaskCommand == nil || res.TaskCommand.Title != "Fix bug" || res.TaskCommand.Description != "steps to repro" {
+		t.Errorf("TaskCommand = %+v", res.TaskCommand)
 	}
 }
 
 func TestAppendUserMessage_CommandTextOverridesEnrichedBody(t *testing.T) {
 	f := newFake()
 	s := newTestSession(f)
-	// Body is enriched (quoted context prepended) so /issue is NOT on the first
+	// Body is enriched (quoted context prepended) so /task is NOT on the first
 	// line; CommandText carries the user's own text and must win.
 	res, err := s.AppendUserMessage(context.Background(), AppendInput{
 		SessionID:   uid(1),
-		Body:        "> quoted context from another message\n/issue Real intent",
-		CommandText: "/issue Real intent",
+		Body:        "> quoted context from another message\n/task Real intent",
+		CommandText: "/task Real intent",
 		MessageID:   "m1",
 	})
 	if err != nil {
 		t.Fatalf("AppendUserMessage: %v", err)
 	}
-	if res.IssueCommand == nil || res.IssueCommand.Title != "Real intent" {
-		t.Errorf("CommandText should drive /issue parsing: %+v", res.IssueCommand)
+	if res.TaskCommand == nil || res.TaskCommand.Title != "Real intent" {
+		t.Errorf("CommandText should drive /task parsing: %+v", res.TaskCommand)
 	}
 	// The stored message is still the full (enriched) body.
-	if f.messages[0] != "> quoted context from another message\n/issue Real intent" {
+	if f.messages[0] != "> quoted context from another message\n/task Real intent" {
 		t.Errorf("stored body should be the enriched Body: %q", f.messages[0])
 	}
 }
@@ -333,8 +333,8 @@ func TestBindMediaRefs_CreatesAndLinksChatAttachments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppendUserMessage: %v", err)
 	}
-	if res.IssueCommand != nil {
-		t.Fatalf("media placeholder must not parse as /issue: %+v", res.IssueCommand)
+	if res.TaskCommand != nil {
+		t.Fatalf("media placeholder must not parse as /task: %+v", res.TaskCommand)
 	}
 	if res.MessageID != f.messageID {
 		t.Fatalf("message id = %v, want %v", res.MessageID, f.messageID)
@@ -380,17 +380,17 @@ func TestBindMediaRefs_CreatesAndLinksChatAttachments(t *testing.T) {
 	}
 }
 
-func TestAppendUserMessage_BareIssueUsesPreviousMessage(t *testing.T) {
+func TestAppendUserMessage_BareTaskUsesPreviousMessage(t *testing.T) {
 	f := newFake()
 	prev := "Make the export button work"
 	f.prevMessage = &prev
 	s := newTestSession(f)
-	res, err := s.AppendUserMessage(context.Background(), AppendInput{SessionID: uid(1), Body: "/issue", MessageID: "m2"})
+	res, err := s.AppendUserMessage(context.Background(), AppendInput{SessionID: uid(1), Body: "/task", MessageID: "m2"})
 	if err != nil {
 		t.Fatalf("AppendUserMessage: %v", err)
 	}
-	if res.IssueCommand == nil || res.IssueCommand.Title != "Make the export button work" {
-		t.Errorf("bare /issue should fall back to previous message title: %+v", res.IssueCommand)
+	if res.TaskCommand == nil || res.TaskCommand.Title != "Make the export button work" {
+		t.Errorf("bare /task should fall back to previous message title: %+v", res.TaskCommand)
 	}
 }
 

@@ -17,15 +17,15 @@ import "../drafts/register-all-drafts";
  * or call `registerDraftCleanup` directly.
  */
 const WORKSPACE_SCOPED_KEYS = [
-  "silieco_issue_surface_views",
-  "silieco_issues_view",
-  "silieco_issues_scope",
-  "silieco_my_issues_view",
-  "silieco:chat:selectedAgentId",
-  "silieco:chat:selectedProjectId",
-  "silieco:chat:activeSessionId",
-  "silieco:chat:expanded",
-  "silieco_navigation",
+  "silieco_tr1_task_surface_views",
+  "silieco_tr1_tasks_view",
+  "silieco_tr1_tasks_scope",
+  "silieco_tr1_my_tasks_view",
+  "silieco:tr1:chat:selectedAgentId",
+  "silieco:tr1:chat:selectedProjectId",
+  "silieco:tr1:chat:activeSessionId",
+  "silieco:tr1:chat:expanded",
+  "silieco_tr1_navigation",
 ];
 
 /** Remove all workspace-scoped storage entries for the given workspace slug. */

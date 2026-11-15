@@ -46,7 +46,7 @@ func createAutopilotAs(t *testing.T, userID, title string) string {
 	body := map[string]any{
 		"title":          title,
 		"assignee_id":    agentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 	}
 	w := httptest.NewRecorder()
 	path := "/api/autopilots?workspace_id=" + testWorkspaceID

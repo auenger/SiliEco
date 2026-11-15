@@ -16,7 +16,7 @@ const workspaceRef = vi.hoisted(() => ({
     slug: "test-workspace",
     description: "",
     context: "",
-    issue_prefix: "TES",
+    task_prefix: "TES",
     repos: [] as { url: string }[],
   },
 }));
@@ -49,8 +49,8 @@ vi.mock("@silieco/core/workspace/queries", () => ({
   workspaceKeys: { list: () => ["workspaces"] },
 }));
 
-vi.mock("@silieco/core/issues/queries", () => ({
-  issueKeys: { all: (workspaceId: string) => ["issues", workspaceId] },
+vi.mock("@silieco/core/tasks/queries", () => ({
+  taskKeys: { all: (workspaceId: string) => ["tasks", workspaceId] },
 }));
 
 vi.mock("@silieco/core/workspace/mutations", () => ({
@@ -110,7 +110,7 @@ describe("WorkspaceTab — automatic updates", () => {
       slug: "test-workspace",
       description: "",
       context: "",
-      issue_prefix: "TES",
+      task_prefix: "TES",
       repos: [],
     };
     membersRef.current = [{ user_id: "user-1", role: "owner" }];
@@ -118,8 +118,8 @@ describe("WorkspaceTab — automatic updates", () => {
       async (_id: string, payload: Record<string, unknown>) => ({
         ...workspaceRef.current,
         ...payload,
-        issue_prefix:
-          (payload.issue_prefix as string | undefined) ?? workspaceRef.current.issue_prefix,
+        task_prefix:
+          (payload.task_prefix as string | undefined) ?? workspaceRef.current.task_prefix,
       }),
     );
   });
@@ -158,7 +158,7 @@ describe("WorkspaceTab — automatic updates", () => {
     expect(input.value).toBe("AB12CD");
   });
 
-  it("auto-saves ordinary workspace fields without invalidating issue caches", async () => {
+  it("auto-saves ordinary workspace fields without invalidating task caches", async () => {
     const user = setupUser();
     render(<WorkspaceTab />, { wrapper: I18nWrapper });
     const nameInput = screen.getByDisplayValue("Test Workspace");
@@ -191,7 +191,7 @@ describe("WorkspaceTab — automatic updates", () => {
     await user.tab();
 
     expect(mockUpdateWorkspace).not.toHaveBeenCalled();
-    await screen.findByText(/Change issue prefix/i);
+    await screen.findByText(/Change task prefix/i);
     expect(screen.getByText(/TES-N/)).toBeTruthy();
     expect(screen.getByText(/NEW-N/)).toBeTruthy();
 
@@ -199,11 +199,11 @@ describe("WorkspaceTab — automatic updates", () => {
 
     await waitFor(() => {
       expect(mockUpdateWorkspace).toHaveBeenCalledWith("workspace-1", {
-        issue_prefix: "NEW",
+        task_prefix: "NEW",
       });
     });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["issues", "workspace-1"],
+      queryKey: ["tasks", "workspace-1"],
     });
     expect(mockToastSuccess).toHaveBeenCalledWith(
       "Workspace settings saved",
@@ -219,7 +219,7 @@ describe("WorkspaceTab — automatic updates", () => {
     await user.clear(input);
     await user.type(input, "NEW");
     await user.tab();
-    await screen.findByText(/Change issue prefix/i);
+    await screen.findByText(/Change task prefix/i);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(mockUpdateWorkspace).not.toHaveBeenCalled();

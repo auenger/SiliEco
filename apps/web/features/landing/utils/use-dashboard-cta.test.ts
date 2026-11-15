@@ -12,7 +12,7 @@ function makeWs(slug: string): Workspace {
     context: null,
     settings: {},
     repos: [],
-    issue_prefix: slug.toUpperCase(),
+    task_prefix: slug.toUpperCase(),
     avatar_url: null,
     created_at: "",
     updated_at: "",
@@ -43,7 +43,7 @@ describe("resolveDashboardCtaHref", () => {
   // the click did nothing. It must resolve to a real workspace route.
   it("sends an onboarded visitor to their workspace, never back to the landing page", () => {
     const href = resolveDashboardCtaHref(fetched([makeWs("acme")]));
-    expect(href).toBe(paths.workspace("acme").issues());
+    expect(href).toBe(paths.workspace("acme").tasks());
     expect(href).not.toBe("/");
   });
 
@@ -60,8 +60,8 @@ describe("resolveDashboardCtaHref", () => {
   it.each([
     ["the list has not resolved yet", false, undefined],
     ["the list resolved as undefined", true, undefined],
-  ])("falls back to /issues while %s", (_label, isWorkspaceListFetched, workspaces) => {
-    // /issues is a legacy route the proxy rewrites to the last workspace, so
+  ])("falls back to /tasks while %s", (_label, isWorkspaceListFetched, workspaces) => {
+    // /tasks is a legacy route the proxy rewrites to the last workspace, so
     // the button still works during hydration. It must not fall back to `/`,
     // which is what made the CTA dead in the first place.
     const href = resolveDashboardCtaHref({
@@ -70,7 +70,7 @@ describe("resolveDashboardCtaHref", () => {
       workspaces,
       hasOnboarded: true,
     });
-    expect(href).toBe("/issues");
+    expect(href).toBe("/tasks");
     expect(href).not.toBe("/");
   });
 });

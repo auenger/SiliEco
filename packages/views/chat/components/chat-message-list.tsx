@@ -19,24 +19,25 @@ import {
 } from "@silieco/ui/components/ui/tooltip";
 import { ChevronRight, ChevronDown, Brain, AlertCircle, AlertTriangle, Copy } from "lucide-react";
 import { useScrollFade } from "@silieco/ui/hooks/use-scroll-fade";
-import { isTaskMessageTaskId, taskMessagesOptions } from "@silieco/core/chat/queries";
+import { isAgentRunMessageRunId, agentRunMessagesOptions } from "@silieco/core/chat/queries";
 import { workflowChatDisplayContent } from "@silieco/core/workflows";
 import { RichContent } from "../../rich-content";
 import { RichContentScrollRootProvider } from "../../rich-content/scroll-root";
 import { copyText } from "@silieco/ui/lib/clipboard";
-import { AttachmentList } from "../../issues/components/comment-card";
+import { AttachmentList } from "../../tasks/components/comment-card";
 import type { AgentAvailability } from "@silieco/core/agents";
 import { resolveFailureReasonKey } from "@silieco/core/agents";
 import type {
   ChatMessage,
-  ChatPendingTask,
-  TaskMessagePayload,
+  ChatPendingRun,
+  AgentRunMessagePayload,
   Agent,
   MemberWithUser,
 } from "@silieco/core/types";
 import type { ChatTimelineItem } from "@silieco/core/chat";
-import { buildTimeline } from "../../common/task-transcript";
-import { TaskStatusPill } from "./task-status-pill";
+import { buildTimeline } from "../../common/agent-run-transcript";
+import { ActorAvatar } from "../../common/actor-avatar";
+import { RunStatusPill } from "./run-status-pill";
 import { CHAT_COLUMN, CHAT_GUTTER } from "./chat-column";
 import { formatElapsedMs } from "../lib/format";
 import { splitTimeline, extractCopyText } from "../lib/copy-text";
@@ -48,21 +49,22 @@ interface ChatMessageListProps {
   messages: ChatMessage[];
   renderMessageAction?: (message: ChatMessage) => ReactNode;
   /**
-   * Server-authoritative pending-task snapshot. `null` / undefined means
-   * no in-flight task — list renders without StatusPill.
+   * Server-authoritative pending-run snapshot. `null` / undefined means
+   * no in-flight run — list renders without StatusPill.
    */
-  pendingTask: ChatPendingTask | null | undefined;
+  pendingRun: ChatPendingRun | null | undefined;
   /** Resolved presence; pass `undefined` while loading to keep the pill copy neutral. */
   availability: AgentAvailability | undefined;
   firstItemIndex?: number;
   hasOlderMessages?: boolean;
   isFetchingOlderMessages?: boolean;
   onLoadOlderMessages?: () => void;
-  /** Transform assistant task text for embedded chat protocols before render/copy. */
+  /** Transform assistant run text for embedded chat protocols before render/copy. */
   transformContent?: (content: string) => string;
   /** Participant-aware layout and author labels for Space group chats. */
   groupMode?: boolean;
   currentUserId?: string;
+  agentId?: string;
   members?: MemberWithUser[];
   agents?: Agent[];
 }
@@ -72,9 +74,9 @@ interface ChatMessageListProps {
 // Header/Footer MUST be stable component references (module scope), never
 // inline arrows in the `components` prop: an inline `components={{ Footer:
 // () => … }}` creates a new component *type* every render, so React unmounts
-// and remounts the whole Header/Footer subtree each time. During task
+// and remounts the whole Header/Footer subtree each time. During run
 // streaming that tore down and rebuilt the entire live timeline — every row
-// and every Markdown parse — on every `task:message` event, freezing the
+// and every Markdown parse — on every `run:message` event, freezing the
 // renderer for seconds at a time (SILI-3960). Per-render data flows through
 // Virtuoso's `context` prop instead, which reaches these components as an
 // ordinary prop (re-render, not remount).
@@ -82,30 +84,30 @@ interface ChatMessageListProps {
 interface ChatListContext {
   isFetchingOlderMessages: boolean;
   showStatusPill: boolean;
-  pendingTask: ChatPendingTask | null | undefined;
-  liveTaskMessages: readonly TaskMessagePayload[] | undefined;
+  pendingRun: ChatPendingRun | null | undefined;
+  liveAgentRunMessages: readonly AgentRunMessagePayload[] | undefined;
   availability: AgentAvailability | undefined;
 }
 
 /**
- * One Virtuoso row. A live (still-streaming) task and the persisted assistant
- * message it becomes share ONE key — `task:<taskId>` — so the handoff replaces
+ * One Virtuoso row. A live (still-streaming) run and the persisted assistant
+ * message it becomes share ONE key — `run:<runId>` — so the handoff replaces
  * this item's data in place instead of unmounting a Footer subtree and mounting
  * a different row (SILI-4922). That identity is what keeps an already-rendered
- * Mermaid diagram or HTML iframe mounted across task completion.
+ * Mermaid diagram or HTML iframe mounted across run completion.
  */
 type ChatRenderItem =
-  | { key: string; kind: "message"; message: ChatMessage; taskId: string | null }
-  | { key: string; kind: "live"; taskId: string };
+  | { key: string; kind: "message"; message: ChatMessage; runId: string | null }
+  | { key: string; kind: "live"; runId: string };
 
 /**
- * Row key for a persisted message. Assistant turns carrying a task_id key on
- * the task so they can inherit the live row; everything else keys on its own
+ * Row key for a persisted message. Assistant turns carrying a run_id key on
+ * the run so they can inherit the live row; everything else keys on its own
  * id.
  */
 function messageRowKey(message: ChatMessage): string {
-  return message.role === "assistant" && message.task_id
-    ? `task:${message.task_id}`
+  return message.role === "assistant" && message.run_id
+    ? `run:${message.run_id}`
     : message.id;
 }
 
@@ -122,17 +124,17 @@ function ChatListHeader({ context }: { context?: ChatListContext }) {
   );
 }
 
-// The Footer now carries only the status pill — task chrome, not content. The
+// The Footer now carries only the status pill — run chrome, not content. The
 // live timeline moved into a real row so it can keep its identity when the
-// task completes (see ChatRenderItem).
+// run completes (see ChatRenderItem).
 function ChatListFooter({ context }: { context?: ChatListContext }) {
   if (!context) return null;
-  if (!context.showStatusPill || !context.pendingTask) return null;
+  if (!context.showStatusPill || !context.pendingRun) return null;
   return (
     <div className={cn(CHAT_COLUMN, "pb-4 space-y-4")}>
-      <TaskStatusPill
-        pendingTask={context.pendingTask}
-        taskMessages={context.liveTaskMessages ?? []}
+      <RunStatusPill
+        pendingRun={context.pendingRun}
+        agentRunMessages={context.liveAgentRunMessages ?? []}
         availability={context.availability}
       />
     </div>
@@ -147,7 +149,7 @@ const LIST_COMPONENTS: Components<ChatRenderItem, ChatListContext> = {
 export function ChatMessageList({
   messages,
   renderMessageAction,
-  pendingTask,
+  pendingRun,
   availability,
   firstItemIndex = 0,
   hasOlderMessages = false,
@@ -156,6 +158,7 @@ export function ChatMessageList({
   transformContent,
   groupMode = false,
   currentUserId,
+  agentId,
   members = [],
   agents = [],
 }: ChatMessageListProps) {
@@ -170,7 +173,7 @@ export function ChatMessageList({
   // grazes full-bleed previews (image / HTML) at the edges.
   const fadeStyle = useScrollFade(scrollRef, 16);
 
-  const pendingTaskId = pendingTask?.task_id ?? null;
+  const pendingRunId = pendingRun?.run_id ?? null;
   const memberNames = useMemo(
     () => new Map(members.map((member) => [member.user_id, member.name || member.email])),
     [members],
@@ -180,28 +183,28 @@ export function ChatMessageList({
     [agents],
   );
 
-  // Once the assistant message for this pending task has landed in the
+  // Once the assistant message for this pending run has landed in the
   // messages list, AssistantMessage owns its rendering — suppress the live
   // timeline (and pill) to avoid rendering the same content in two places
   // during the invalidate → refetch window.
-  const pendingAlreadyPersisted = !!pendingTaskId && messages.some(
-    (m) => m.role === "assistant" && m.task_id === pendingTaskId,
+  const pendingAlreadyPersisted = !!pendingRunId && messages.some(
+    (m) => m.role === "assistant" && m.run_id === pendingRunId,
   );
 
-  // Live timeline for the in-flight task. useRealtimeSync keeps this cache
-  // current via setQueryData on task:message events. Only used here to decide
+  // Live timeline for the in-flight run. useRealtimeSync keeps this cache
+  // current via setQueryData on run:message events. Only used here to decide
   // whether the live row exists and to feed the status pill — the row itself
   // reads the same cache entry through AssistantMessage.
-  const showLiveTimeline = !!pendingTaskId && !pendingAlreadyPersisted;
-  const canFetchLiveTimeline = isTaskMessageTaskId(pendingTaskId) && !pendingAlreadyPersisted;
-  const { data: liveTaskMessages } = useQuery({
-    ...taskMessagesOptions(pendingTaskId ?? ""),
+  const showLiveTimeline = !!pendingRunId && !pendingAlreadyPersisted;
+  const canFetchLiveTimeline = isAgentRunMessageRunId(pendingRunId) && !pendingAlreadyPersisted;
+  const { data: liveAgentRunMessages } = useQuery({
+    ...agentRunMessagesOptions(pendingRunId ?? ""),
     enabled: canFetchLiveTimeline,
   });
-  const hasLive = showLiveTimeline && (liveTaskMessages?.length ?? 0) > 0;
-  const showStatusPill = !!pendingTaskId && !pendingAlreadyPersisted && !!pendingTask;
+  const hasLive = showLiveTimeline && (liveAgentRunMessages?.length ?? 0) > 0;
+  const showStatusPill = !!pendingRunId && !pendingAlreadyPersisted && !!pendingRun;
 
-  // Persisted messages plus, while a task is in flight, one synthetic trailing
+  // Persisted messages plus, while a run is in flight, one synthetic trailing
   // row for it. When the assistant message persists, `hasLive` goes false and
   // the message takes the SAME key at the SAME position — an in-place data
   // swap, not a remount.
@@ -210,21 +213,21 @@ export function ChatMessageList({
       key: messageRowKey(message),
       kind: "message" as const,
       message,
-      taskId: message.task_id ?? null,
+      runId: message.run_id ?? null,
     }));
-    if (hasLive && pendingTaskId) {
-      items.push({ key: `task:${pendingTaskId}`, kind: "live", taskId: pendingTaskId });
+    if (hasLive && pendingRunId) {
+      items.push({ key: `run:${pendingRunId}`, kind: "live", runId: pendingRunId });
     }
     return items;
-  }, [messages, hasLive, pendingTaskId]);
+  }, [messages, hasLive, pendingRunId]);
 
   const firstIndex = renderItems.length > 0 ? firstItemIndex : 0;
 
   const listContext: ChatListContext = {
     isFetchingOlderMessages,
     showStatusPill,
-    pendingTask,
-    liveTaskMessages,
+    pendingRun,
+    liveAgentRunMessages,
     availability,
   };
 
@@ -280,10 +283,11 @@ export function ChatMessageList({
           <div className={cn(CHAT_COLUMN, "py-2")}>
             <MessageBubble
               item={item}
-              isPending={!!pendingTaskId && item.taskId === pendingTaskId}
+              isPending={!!pendingRunId && item.runId === pendingRunId}
               transformContent={transformContent}
               groupMode={groupMode}
               currentUserId={currentUserId}
+              agentId={agentId}
               memberNames={memberNames}
               agentNames={agentNames}
             />
@@ -336,7 +340,7 @@ function ChatSkeletonBody() {
 
 // ─── Message bubbles ─────────────────────────────────────────────────────
 
-// memo: every streamed task:message re-renders ChatMessageList, and with it
+// memo: every streamed run:message re-renders ChatMessageList, and with it
 // every VISIBLE row via itemContent. Message objects are referentially
 // stable for unchanged messages and isPending is a boolean, so a shallow
 // memo skips reconciling rows the stream didn't touch — the persisted
@@ -347,6 +351,7 @@ const MessageBubble = memo(function MessageBubble({
   transformContent,
   groupMode,
   currentUserId,
+  agentId,
   memberNames,
   agentNames,
 }: {
@@ -355,31 +360,20 @@ const MessageBubble = memo(function MessageBubble({
   transformContent?: (content: string) => string;
   groupMode: boolean;
   currentUserId?: string;
+  agentId?: string;
   memberNames: Map<string, string>;
   agentNames: Map<string, string>;
 }) {
-  // The live row and the persisted assistant row both land here under one key,
-  // and both render <AssistantMessage> — same component type, same position —
-  // so React reconciles rather than remounts at task completion.
-  if (item.kind === "live") {
-    return (
-      <AssistantMessage
-        taskId={item.taskId}
-        isPending={isPending}
-        transformContent={transformContent}
-      />
-    );
-  }
+  const message = item.kind === "message" ? item.message : undefined;
 
-  const { message } = item;
-
-  if (message.role === "user") {
+  if (message?.role === "user") {
     const isOwn = !groupMode || !message.sender_user_id || message.sender_user_id === currentUserId;
     const authorName = message.sender_user_id
       ? memberNames.get(message.sender_user_id)
       : undefined;
     return (
-      <div className={cn("flex", isOwn ? "justify-end" : "justify-start")}>
+      <div className={cn("flex items-start gap-2.5", isOwn ? "flex-row-reverse" : "flex-row")}>
+        <ActorAvatar actorType="member" actorId={message.sender_user_id ?? currentUserId ?? ""} size="lg" profileLink={false} />
         <div className="max-w-[80%] space-y-1">
           {groupMode && !isOwn && (
             <div className="px-1 text-micro font-medium text-muted-foreground">
@@ -392,7 +386,7 @@ const MessageBubble = memo(function MessageBubble({
           )}>
           {/* User messages are authored as markdown in ContentEditor, so they
            * render through the SAME RichContent as assistant replies and as
-           * Issue/Comment — a Mermaid fence a user pastes is a diagram here
+           * Task/Comment — a Mermaid fence a user pastes is a diagram here
            * too. `compact` trims the leading/trailing block margins so a
            * single-line bubble stays as tight as the plain-text version. */}
           <RichContent
@@ -412,69 +406,71 @@ const MessageBubble = memo(function MessageBubble({
     );
   }
 
+  const senderId = message?.sender_agent_id ?? agentId;
   return (
-    <div className="space-y-1">
-      {groupMode && (
-        <div className="text-micro font-medium text-muted-foreground">
-          {message.sender_agent_id
-            ? agentNames.get(message.sender_agent_id) ?? "Agent"
-            : "Agent"}
-        </div>
-      )}
-      <AssistantMessage
-        taskId={message.task_id ?? null}
-        message={message}
-        isPending={isPending}
-        transformContent={transformContent}
-      />
+    <div className="flex items-start gap-2.5">
+      <ActorAvatar actorType="agent" actorId={senderId ?? ""} size="lg" profileLink={false} />
+      <div className="min-w-0 flex-1 space-y-1">
+        {groupMode && (
+          <div className="text-micro font-medium text-muted-foreground">
+            {senderId ? agentNames.get(senderId) ?? "Agent" : "Agent"}
+          </div>
+        )}
+        <AssistantMessage
+          runId={item.runId}
+          message={message}
+          isPending={isPending}
+          transformContent={transformContent}
+        />
+      </div>
     </div>
   );
 });
 
 /**
  * Assistant turn body — renders BOTH the in-flight (live) and the persisted
- * form of one task (SILI-4922).
+ * form of one run (SILI-4922).
  *
- * `message` is undefined while the task streams and becomes the persisted
+ * `message` is undefined while the run streams and becomes the persisted
  * `chat_message` when it lands. Both forms are rendered by this one component,
- * mounted under one stable row key (`task:<taskId>`), so the live → persisted
+ * mounted under one stable row key (`run:<runId>`), so the live → persisted
  * handoff is a prop change rather than an unmount: the RichContent subtree and
  * any Mermaid diagram / HTML iframe inside it stay mounted, keep their pan-zoom
  * state, and never re-run their expensive render. Before this, the live
  * timeline lived in Virtuoso's Footer and the persisted row keyed on
- * `message.id`, so every completed task tore down and rebuilt its diagrams.
+ * `message.id`, so every completed run tore down and rebuilt its diagrams.
  *
- * The timeline itself comes from `taskMessagesOptions(taskId)` in both forms —
+ * The timeline itself comes from `agentRunMessagesOptions(runId)` in both forms —
  * the same cache entry useRealtimeSync seeds during execution — so no refetch
  * and no data discontinuity happens at the handoff either.
  */
 function AssistantMessage({
-  taskId,
+  runId,
   message,
   isPending,
   transformContent,
 }: {
-  taskId: string | null;
+  runId: string | null;
   message?: ChatMessage;
   isPending: boolean;
   transformContent?: (content: string) => string;
 }) {
-  const canFetchTaskMessages = isTaskMessageTaskId(taskId);
+  const canFetchAgentRunMessages = isAgentRunMessageRunId(runId);
 
-  // Use the shared taskMessagesOptions so this cache entry is the same one
-  // seeded by useRealtimeSync during task execution — zero refetch when the
-  // task finishes, since WS already populated it.
-  const { data: taskMessages } = useQuery({
-    ...taskMessagesOptions(taskId ?? ""),
-    enabled: canFetchTaskMessages,
+  // Use the shared agentRunMessagesOptions so this cache entry is the same one
+  // seeded by useRealtimeSync during run execution — zero refetch when the
+  // run finishes, since WS already populated it.
+  const { data: agentRunMessages } = useQuery({
+    ...agentRunMessagesOptions(runId ?? ""),
+    enabled: canFetchAgentRunMessages,
   });
 
-  // Memoized on the cache array identity: mergeTaskMessagesBySeq preserves the
+  // Memoized on the cache array identity: mergeAgentRunMessagesBySeq preserves the
   // array reference when a duplicate event arrives, so this recomputes only
   // when a genuinely new message lands.
   const timeline: ChatTimelineItem[] = useMemo(
-    () => transformTimeline(transformTimeline(buildTimeline(taskMessages ?? []), workflowChatDisplayContent), transformContent),
-    [taskMessages, transformContent],
+    () => transformTimeline(transformTimeline(buildTimeline(agentRunMessages ?? []), workflowChatDisplayContent), transformContent),
+    [agentRunMessages, transformContent],
   );
 
   // Content is settled once the persisted message exists; until then text is
@@ -634,7 +630,7 @@ function MessageCopyButton({
 
 // Persisted "Replied in 38s" / "Failed after 12s" line under the assistant
 // bubble. Reads `elapsed_ms` straight off the chat_message — server computes
-// it once at task completion, so this caption is identical across reloads
+// it once at run completion, so this caption is identical across reloads
 // and devices. Skipped silently when null (legacy messages predating
 // migration 063 + user messages).
 function ElapsedCaption({
@@ -701,7 +697,7 @@ function FailureBubble({
     manual: t(($) => $.message_list.failure.manual),
     cancelled: t(($) => $.message_list.failure.manual),
     skill_bundle_unavailable: t(($) => $.message_list.failure.skill_bundle_unavailable),
-    invalid_task_identity: t(($) => $.message_list.failure.invalid_task_identity),
+    invalid_run_identity: t(($) => $.message_list.failure.invalid_run_identity),
     "agent_error.provider_network": t(($) => $.message_list.failure.provider_network),
     "agent_error.provider_auth_or_access": t(($) => $.message_list.failure.provider_auth_or_access),
     "agent_error.provider_quota_limit": t(($) => $.message_list.failure.provider_quota_limit),
@@ -830,7 +826,7 @@ function OuterProcessFold({
   phase?: "streaming" | "settled";
 }) {
   const { t } = useT("chat");
-  // Open while the task streams (so the user watches progress), collapsed once
+  // Open while the run streams (so the user watches progress), collapsed once
   // it settles. This used to fall out of a remount: the live TimelineView was
   // torn down and the persisted one mounted closed. The row is now stable
   // across that handoff (SILI-4922) — which is the point, it keeps Mermaid and

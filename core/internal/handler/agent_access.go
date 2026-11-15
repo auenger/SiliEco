@@ -179,7 +179,7 @@ func memberAllowedToViewAgent(agent db.Agent, targets []db.AgentInvocationTarget
 
 // invokeOriginatorFromRequest resolves the top-of-chain human user id for an
 // invocation initiated over HTTP. Members are their own originator; agent
-// actors inherit the originator from the task named by the X-Task-ID header
+// actors inherit the originator from the task named by the X-Run-ID header
 // (set by the CLI on every request), matching
 // TaskService.resolveOriginatorFromTriggerComment. Returns "" when no human
 // can be attributed — canInvokeAgent then fails closed for member/team targets.
@@ -188,10 +188,10 @@ func (h *Handler) invokeOriginatorFromRequest(r *http.Request, actorType, actorI
 		return actorID
 	}
 	if actorType == "agent" {
-		if taskIDHeader := r.Header.Get("X-Task-ID"); taskIDHeader != "" {
-			if taskUUID, err := util.ParseUUID(taskIDHeader); err == nil {
-				if task, err := h.Queries.GetAgentTask(r.Context(), taskUUID); err == nil {
-					return uuidToString(task.OriginatorUserID)
+		if runIDHeader := r.Header.Get("X-Run-ID"); runIDHeader != "" {
+			if runUUID, err := util.ParseUUID(runIDHeader); err == nil {
+				if agentRun, err := h.Queries.GetAgentRun(r.Context(), runUUID); err == nil {
+					return uuidToString(agentRun.OriginatorUserID)
 				}
 			}
 		}
@@ -201,7 +201,7 @@ func (h *Handler) invokeOriginatorFromRequest(r *http.Request, actorType, actorI
 
 // autopilotDelegationAuthority resolves the effective invoking human for the A2A
 // invoke gate (canInvokeAgent) when a trigger comment is authored by an
-// UNATTRIBUTED autopilot dispatch delegating mid-chain on the very issue that
+// UNATTRIBUTED autopilot dispatch delegating mid-chain on the very task that
 // autopilot created (SILI-4857).
 //
 // A schedule/webhook autopilot run carries no top-of-chain human originator by
@@ -215,25 +215,25 @@ func (h *Handler) invokeOriginatorFromRequest(r *http.Request, actorType, actorI
 //
 // SECURITY (confused-deputy defense, review SILI-4857): the creator's authority is
 // granted ONLY when the SPEAKING run is verified to be doing work on THIS very
-// autopilot-created issue. Binding to issue provenance + an empty originator alone
-// is NOT enough — an agent running a task on some OTHER issue can legitimately
-// comment here (comment.go CreateComment only stamps source_task_id when the
-// authoring task's issue matches), so it could otherwise borrow a stranger
-// autopilot creator's invoke rights just by mentioning on that autopilot's issue.
-// `task` MUST therefore come from a server-trusted source — the X-Task-ID header
-// on create/preview, or the stored comment.source_task_id on reconcile/edit —
+// autopilot-created task. Binding to task provenance + an empty originator alone
+// is NOT enough — an agent running a task on some OTHER task can legitimately
+// comment here (comment.go CreateComment only stamps source_run_id when the
+// authoring task's task matches), so it could otherwise borrow a stranger
+// autopilot creator's invoke rights just by mentioning on that autopilot's task.
+// `task` MUST therefore come from a server-trusted source — the X-Run-ID header
+// on create/preview, or the stored comment.source_run_id on reconcile/edit —
 // never a client-supplied field, and authority is granted only when ALL hold:
 //   - the comment author is an agent and IS the task's agent;
-//   - the issue is autopilot-origin (origin_type=autopilot, origin_id set);
-//   - the speaking task is running on THIS issue (task.issue_id == issue.id).
+//   - the task is autopilot-origin (origin_type=autopilot, origin_id set);
+//   - the speaking task is running on THIS task (task.task_id == task.id).
 //
 // That last check is the load-bearing one: every unattributed agent task whose
-// issue_id is this autopilot issue is part of the work this autopilot set in
+// task_id is this autopilot task is part of the work this autopilot set in
 // motion (the dispatched leader task, or a descendant it @mentioned into being),
-// while a foreign run's task carries a different issue_id and is rejected. Note we
-// do NOT key on autopilot_run_id: in create_issue mode (the reported scenario) the
-// leader task is enqueued through the ordinary issue-assignment path and carries
-// no autopilot_run_id — the run links back via its own issue_id, not the task's.
+// while a foreign run's task carries a different task_id and is rejected. Note we
+// do NOT key on autopilot_run_id: in create_task mode (the reported scenario) the
+// leader task is enqueued through the ordinary task-assignment path and carries
+// no autopilot_run_id — the run links back via its own task_id, not the task's.
 //
 // Any mismatch, missing lineage, or lookup error returns "" and the gate stays
 // fail-closed. Only a MEMBER-created autopilot yields a user id; an agent-created
@@ -242,24 +242,24 @@ func (h *Handler) invokeOriginatorFromRequest(r *http.Request, actorType, actorI
 // (public_to workspace) it should. The returned id is used for AUTHORIZATION only
 // — the enqueued task's originator/attribution is computed separately and stays
 // unattributed.
-func (h *Handler) autopilotDelegationAuthority(ctx context.Context, issue db.Issue, authorType, authorID string, task db.AgentTaskQueue) string {
+func (h *Handler) autopilotDelegationAuthority(ctx context.Context, task db.Task, authorType, authorID string, agentRun db.AgentRun) string {
 	if authorType != "agent" {
 		return ""
 	}
-	if !issue.OriginType.Valid || issue.OriginType.String != "autopilot" || !issue.OriginID.Valid {
+	if !task.OriginType.Valid || task.OriginType.String != "autopilot" || !task.OriginID.Valid {
 		return ""
 	}
 	// The speaking run must be authored by THIS agent and doing work on THIS
-	// autopilot issue — not a foreign run that merely commented here.
-	if !task.AgentID.Valid || uuidToString(task.AgentID) != authorID {
+	// autopilot task — not a foreign run that merely commented here.
+	if !agentRun.AgentID.Valid || uuidToString(agentRun.AgentID) != authorID {
 		return ""
 	}
-	if !task.IssueID.Valid || uuidToString(task.IssueID) != uuidToString(issue.ID) {
+	if !agentRun.TaskID.Valid || uuidToString(agentRun.TaskID) != uuidToString(task.ID) {
 		return ""
 	}
 	ap, err := h.Queries.GetAutopilotInWorkspace(ctx, db.GetAutopilotInWorkspaceParams{
-		ID:          issue.OriginID,
-		WorkspaceID: issue.WorkspaceID,
+		ID:          task.OriginID,
+		WorkspaceID: task.WorkspaceID,
 	})
 	if err != nil || ap.CreatedByType != "member" || !ap.CreatedByID.Valid {
 		return ""
@@ -269,67 +269,67 @@ func (h *Handler) autopilotDelegationAuthority(ctx context.Context, issue db.Iss
 
 // autopilotDelegationAuthorityFromRequest resolves the SILI-4857 delegation
 // authority for a comment being created or previewed over HTTP. The speaking task
-// is taken from the server-trusted X-Task-ID header (the CLI stamps it on every
+// is taken from the server-trusted X-Run-ID header (the CLI stamps it on every
 // agent request); autopilotDelegationAuthority then verifies its lineage. Returns
 // "" for member actors or when no valid task is named, keeping the gate closed.
-func (h *Handler) autopilotDelegationAuthorityFromRequest(r *http.Request, issue db.Issue, actorType, actorID string) string {
+func (h *Handler) autopilotDelegationAuthorityFromRequest(r *http.Request, task db.Task, actorType, actorID string) string {
 	if actorType != "agent" {
 		return ""
 	}
-	task, ok := h.taskFromRequestHeader(r)
+	agentRun, ok := h.runFromRequestHeader(r)
 	if !ok {
 		return ""
 	}
-	return h.autopilotDelegationAuthority(r.Context(), issue, actorType, actorID, task)
+	return h.autopilotDelegationAuthority(r.Context(), task, actorType, actorID, agentRun)
 }
 
 // autopilotDelegationAuthorityFromComment resolves the SILI-4857 delegation
 // authority when reconciling an already-persisted comment (retrigger after
-// cancel). The speaking task is taken from the stored comment.source_task_id — the
+// cancel). The speaking task is taken from the stored comment.source_run_id — the
 // same server-trusted lineage CreateComment stamped for the authoring run — and
 // its lineage is verified by autopilotDelegationAuthority.
-func (h *Handler) autopilotDelegationAuthorityFromComment(ctx context.Context, issue db.Issue, comment db.Comment) string {
-	if comment.AuthorType != "agent" || !comment.SourceTaskID.Valid {
+func (h *Handler) autopilotDelegationAuthorityFromComment(ctx context.Context, task db.Task, comment db.Comment) string {
+	if comment.AuthorType != "agent" || !comment.SourceRunID.Valid {
 		return ""
 	}
-	task, err := h.Queries.GetAgentTask(ctx, comment.SourceTaskID)
+	agentRun, err := h.Queries.GetAgentRun(ctx, comment.SourceRunID)
 	if err != nil {
 		return ""
 	}
-	return h.autopilotDelegationAuthority(ctx, issue, comment.AuthorType, uuidToString(comment.AuthorID), task)
+	return h.autopilotDelegationAuthority(ctx, task, comment.AuthorType, uuidToString(comment.AuthorID), agentRun)
 }
 
-// commentSourceTaskIDForIssue returns the agent's currently-executing task (from
-// the X-Task-ID header) when it is running on the given issue, else an invalid
-// UUID. This is the exact issue-scoped lineage CreateComment stamps onto
-// source_task_id; a cross-issue (or missing) task yields invalid so the persisted
+// commentSourceRunIDForTask returns the agent's currently-executing task (from
+// the X-Run-ID header) when it is running on the given task, else an invalid
+// UUID. This is the exact task-scoped lineage CreateComment stamps onto
+// source_run_id; a cross-task (or missing) task yields invalid so the persisted
 // lineage — and every authority/originator resolution that reads it — fails closed
 // (SILI-4857).
-func (h *Handler) commentSourceTaskIDForIssue(r *http.Request, issue db.Issue) pgtype.UUID {
-	task, ok := h.taskFromRequestHeader(r)
-	if !ok || !task.IssueID.Valid || uuidToString(task.IssueID) != uuidToString(issue.ID) {
+func (h *Handler) commentSourceRunIDForTask(r *http.Request, task db.Task) pgtype.UUID {
+	agentRun, ok := h.runFromRequestHeader(r)
+	if !ok || !agentRun.TaskID.Valid || uuidToString(agentRun.TaskID) != uuidToString(task.ID) {
 		return pgtype.UUID{}
 	}
-	return task.ID
+	return agentRun.ID
 }
 
 // taskFromRequestHeader resolves the agent's currently-executing task from the
-// X-Task-ID header (set by the CLI on every request). Returns ok=false when the
+// X-Run-ID header (set by the CLI on every request). Returns ok=false when the
 // header is absent, malformed, or names no existing task.
-func (h *Handler) taskFromRequestHeader(r *http.Request) (db.AgentTaskQueue, bool) {
-	taskIDHeader := r.Header.Get("X-Task-ID")
-	if taskIDHeader == "" {
-		return db.AgentTaskQueue{}, false
+func (h *Handler) runFromRequestHeader(r *http.Request) (db.AgentRun, bool) {
+	runIDHeader := r.Header.Get("X-Run-ID")
+	if runIDHeader == "" {
+		return db.AgentRun{}, false
 	}
-	taskUUID, err := util.ParseUUID(taskIDHeader)
+	runUUID, err := util.ParseUUID(runIDHeader)
 	if err != nil {
-		return db.AgentTaskQueue{}, false
+		return db.AgentRun{}, false
 	}
-	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
+	agentRun, err := h.Queries.GetAgentRun(r.Context(), runUUID)
 	if err != nil {
-		return db.AgentTaskQueue{}, false
+		return db.AgentRun{}, false
 	}
-	return task, true
+	return agentRun, true
 }
 
 // accessibleAgentIDs returns the set of agent IDs in the workspace the actor

@@ -24,7 +24,7 @@ type Metrics struct {
 	eventSent sync.Map
 
 	// Per-scope subscribe / unsubscribe / deny counters. Keyed by scope
-	// type string ("workspace", "user", "task", "chat"). Value is
+	// type string ("workspace", "user", "run", "chat"). Value is
 	// *atomic.Int64. Scope-room gauges follow the same pattern.
 	subscribeTotal       sync.Map
 	unsubscribeTotal     sync.Map

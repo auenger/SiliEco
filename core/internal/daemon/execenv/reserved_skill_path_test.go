@@ -22,7 +22,7 @@ func TestWriteSkillFilesIgnoresBundledSkillMd(t *testing.T) {
 
 	skills := []SkillContextForEnv{
 		{
-			Name:    "Issue Review",
+			Name:    "Task Review",
 			Content: "Primary skill body.",
 			Files: []SkillFileContextForEnv{
 				{Path: "README.md", Content: "readme"},
@@ -41,7 +41,7 @@ func TestWriteSkillFilesIgnoresBundledSkillMd(t *testing.T) {
 		t.Fatalf("writeSkillFiles errored on a bundled SKILL.md: %v", err)
 	}
 
-	skillDir := filepath.Join(skillsDir, "issue-review")
+	skillDir := filepath.Join(skillsDir, "task-review")
 
 	// SKILL.md must hold the primary content, never a bundled duplicate.
 	got, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))

@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY workflow_execution_action_ready_idx ON public.workflow_execution_action USING btree (workspace_id, available_at, lease_until) WHERE (status = ANY (ARRAY['pending'::text, 'leased'::text]));

@@ -36,7 +36,7 @@ func newWorkspaceCreateTestCmd() *cobra.Command {
 	cmd.Flags().Bool("description-stdin", false, "")
 	cmd.Flags().String("context", "", "")
 	cmd.Flags().Bool("context-stdin", false, "")
-	cmd.Flags().String("issue-prefix", "", "")
+	cmd.Flags().String("task-prefix", "", "")
 	cmd.Flags().String("output", "json", "")
 	return cmd
 }
@@ -78,12 +78,12 @@ func TestRunWorkspaceCreatePostsWorkspaceAndDoesNotSwitchDefault(t *testing.T) {
 		gotBody = body
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":           "33333333-3333-3333-3333-333333333333",
-			"name":         "Growth Team",
-			"slug":         "growth-team",
-			"description":  "Handles GTM work",
-			"context":      "Launch notes",
-			"issue_prefix": "GRO",
+			"id":          "33333333-3333-3333-3333-333333333333",
+			"name":        "Growth Team",
+			"slug":        "growth-team",
+			"description": "Handles GTM work",
+			"context":     "Launch notes",
+			"task_prefix": "GRO",
 		})
 	}))
 	defer srv.Close()
@@ -98,11 +98,11 @@ func TestRunWorkspaceCreatePostsWorkspaceAndDoesNotSwitchDefault(t *testing.T) {
 
 	cmd := newWorkspaceCreateTestCmd()
 	for name, value := range map[string]string{
-		"name":         "Growth Team",
-		"slug":         "growth-team",
-		"description":  `Handles\nGTM work`,
-		"context":      "Launch notes",
-		"issue-prefix": "GRO",
+		"name":        "Growth Team",
+		"slug":        "growth-team",
+		"description": `Handles\nGTM work`,
+		"context":     "Launch notes",
+		"task-prefix": "GRO",
 	} {
 		if err := cmd.Flags().Set(name, value); err != nil {
 			t.Fatalf("set --%s: %v", name, err)
@@ -128,8 +128,8 @@ func TestRunWorkspaceCreatePostsWorkspaceAndDoesNotSwitchDefault(t *testing.T) {
 	if gotBody["context"] != "Launch notes" {
 		t.Errorf("context = %v, want Launch notes", gotBody["context"])
 	}
-	if gotBody["issue_prefix"] != "GRO" {
-		t.Errorf("issue_prefix = %v, want GRO", gotBody["issue_prefix"])
+	if gotBody["task_prefix"] != "GRO" {
+		t.Errorf("task_prefix = %v, want GRO", gotBody["task_prefix"])
 	}
 
 	var printed map[string]any
@@ -177,8 +177,8 @@ func TestRunWorkspaceCreateRequiresSlug(t *testing.T) {
 func TestRunWorkspaceCreateRejectsDualStdin(t *testing.T) {
 	cmd := newWorkspaceCreateTestCmd()
 	for name, value := range map[string]string{
-		"name":             "Growth Team",
-		"slug":             "growth-team",
+		"name":              "Growth Team",
+		"slug":              "growth-team",
 		"description-stdin": "true",
 		"context-stdin":     "true",
 	} {
@@ -198,8 +198,8 @@ func TestRunWorkspaceCreateRejectsDualStdin(t *testing.T) {
 func TestRunWorkspaceCreateReadsDescriptionFromStdin(t *testing.T) {
 	cmd := newWorkspaceCreateTestCmd()
 	for name, value := range map[string]string{
-		"name":             "Growth Team",
-		"slug":             "growth-team",
+		"name":              "Growth Team",
+		"slug":              "growth-team",
 		"description-stdin": "true",
 	} {
 		if err := cmd.Flags().Set(name, value); err != nil {
@@ -301,7 +301,7 @@ func TestRunWorkspaceSwitch(t *testing.T) {
 
 	t.Run("rejects unknown workspace and leaves config untouched", func(t *testing.T) {
 		// Seed a known workspace_id so we can verify it is NOT clobbered on
-		// failure — the issue's acceptance criteria explicitly call this out.
+		// failure — the task's acceptance criteria explicitly call this out.
 		if err := cli.SaveCLIConfig(cli.CLIConfig{WorkspaceID: "11111111-1111-1111-1111-111111111111"}); err != nil {
 			t.Fatalf("seed config: %v", err)
 		}
@@ -502,7 +502,7 @@ func TestResolveWorkspaceByIDOrSlug(t *testing.T) {
 func resetWorkspaceUpdateFlags(t *testing.T) {
 	t.Helper()
 	flags := workspaceUpdateCmd.Flags()
-	for _, name := range []string{"name", "description", "context", "issue-prefix"} {
+	for _, name := range []string{"name", "description", "context", "task-prefix"} {
 		_ = flags.Set(name, "")
 		if f := flags.Lookup(name); f != nil {
 			f.Changed = false
@@ -546,7 +546,7 @@ func TestBuildWorkspaceUpdateBody(t *testing.T) {
 		if got, _ := body["name"].(string); got != "Acme Eng" {
 			t.Errorf("name = %v, want Acme Eng", body["name"])
 		}
-		for _, key := range []string{"description", "context", "issue_prefix"} {
+		for _, key := range []string{"description", "context", "task_prefix"} {
 			if _, present := body[key]; present {
 				t.Errorf("%s should not appear when its flag was not set, got %v", key, body)
 			}
@@ -557,7 +557,7 @@ func TestBuildWorkspaceUpdateBody(t *testing.T) {
 		resetWorkspaceUpdateFlags(t)
 		setStringFlag(t, "name", "Acme")
 		setStringFlag(t, "description", `line1\nline2`)
-		setStringFlag(t, "issue-prefix", "ENG")
+		setStringFlag(t, "task-prefix", "ENG")
 
 		body, err := buildWorkspaceUpdateBody(workspaceUpdateCmd)
 		if err != nil {
@@ -570,8 +570,8 @@ func TestBuildWorkspaceUpdateBody(t *testing.T) {
 		if body["description"] != "line1\nline2" {
 			t.Errorf("description = %q, want decoded newline", body["description"])
 		}
-		if body["issue_prefix"] != "ENG" {
-			t.Errorf("issue_prefix = %v, want ENG", body["issue_prefix"])
+		if body["task_prefix"] != "ENG" {
+			t.Errorf("task_prefix = %v, want ENG", body["task_prefix"])
 		}
 	})
 
@@ -604,31 +604,31 @@ func TestBuildWorkspaceUpdateBody(t *testing.T) {
 		}
 	})
 
-	t.Run("empty issue-prefix is rejected", func(t *testing.T) {
+	t.Run("empty task-prefix is rejected", func(t *testing.T) {
 		resetWorkspaceUpdateFlags(t)
-		setStringFlag(t, "issue-prefix", "")
+		setStringFlag(t, "task-prefix", "")
 		// Force Changed=true so the flag is treated as "explicitly passed".
-		if f := workspaceUpdateCmd.Flags().Lookup("issue-prefix"); f != nil {
+		if f := workspaceUpdateCmd.Flags().Lookup("task-prefix"); f != nil {
 			f.Changed = true
 		}
 
 		_, err := buildWorkspaceUpdateBody(workspaceUpdateCmd)
 		if err == nil {
-			t.Fatalf("expected error when --issue-prefix is empty")
+			t.Fatalf("expected error when --task-prefix is empty")
 		}
 		if !strings.Contains(err.Error(), "cannot be empty") {
 			t.Errorf("error = %q, want it to mention 'cannot be empty'", err)
 		}
 	})
 
-	t.Run("whitespace-only issue-prefix is rejected", func(t *testing.T) {
+	t.Run("whitespace-only task-prefix is rejected", func(t *testing.T) {
 		resetWorkspaceUpdateFlags(t)
-		setStringFlag(t, "issue-prefix", "   ")
-		if f := workspaceUpdateCmd.Flags().Lookup("issue-prefix"); f != nil {
+		setStringFlag(t, "task-prefix", "   ")
+		if f := workspaceUpdateCmd.Flags().Lookup("task-prefix"); f != nil {
 			f.Changed = true
 		}
 		if _, err := buildWorkspaceUpdateBody(workspaceUpdateCmd); err == nil {
-			t.Fatalf("expected error when --issue-prefix is whitespace-only")
+			t.Fatalf("expected error when --task-prefix is whitespace-only")
 		}
 	})
 

@@ -2,7 +2,7 @@
  * Status picker route for the in-progress new-project draft. Reads/writes
  * `useNewProjectDraftStore` — the project/new.tsx modal owns the draft and
  * reads from the same store. See ../project/new.tsx for the lifecycle, and
- * ../new-issue-picker/status.tsx for the mirror pattern.
+ * ../new-task-picker/status.tsx for the mirror pattern.
  */
 import { router } from "expo-router";
 import { ProjectStatusPickerBody } from "@/components/project/pickers/project-status-picker-body";

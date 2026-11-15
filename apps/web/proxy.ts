@@ -13,13 +13,11 @@ import { isOfficialMarketingHost } from "./lib/public-host";
 // and post-revert-and-reapply users don't hit 404.
 const LEGACY_ROUTE_SEGMENTS = new Set([
   "tasks",
-  "issues",
   "projects",
   "agents",
   "squads",
   "inbox",
   "my-tasks",
-  "my-issues",
   "autopilots",
   "runtimes",
   "skills",
@@ -27,10 +25,6 @@ const LEGACY_ROUTE_SEGMENTS = new Set([
   "usage",
 ]);
 
-const CANONICAL_ROUTE_SEGMENTS: Record<string, string> = {
-  issues: "tasks",
-  "my-issues": "my-tasks",
-};
 
 function resolveLocale(req: NextRequest): string {
   return resolveLocaleFromSignals({
@@ -62,10 +56,10 @@ export function proxy(req: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
-  const hasSession = req.cookies.has("silieco_logged_in");
+  const hasSession = req.cookies.has("silieco_tr1_logged_in");
   const lastSlug = req.cookies.get("last_workspace_slug")?.value;
 
-  // --- Legacy URL redirect: /issues/... → /{slug}/issues/... ---
+  // --- Legacy URL redirect: /tasks/... → /{slug}/tasks/... ---
   // Old bookmarks and clients that hit us before the slug migration would
   // otherwise 404 since the route moved under [workspaceSlug].
   const firstSegment = pathname.split("/")[1] ?? "";
@@ -80,8 +74,7 @@ export function proxy(req: NextRequest) {
     if (lastSlug) {
       // Preserve the deep-link suffix while moving renamed surfaces onto
       // their canonical Task routes.
-      const canonicalSegment =
-        CANONICAL_ROUTE_SEGMENTS[firstSegment] ?? firstSegment;
+      const canonicalSegment = firstSegment;
       const suffix = pathname.slice(firstSegment.length + 1);
       url.pathname = `/${lastSlug}/${canonicalSegment}${suffix}`;
       return NextResponse.redirect(url);
@@ -98,7 +91,7 @@ export function proxy(req: NextRequest) {
   // The official cloud host also serves the public marketing site. Visiting
   // https://silieco.ai/ must remain a public-site navigation even when a local
   // desktop/runtime session has fresh auth cookies; explicit app routes such
-  // as /acme/issues and legacy /issues still route to the workspace app.
+  // as /acme/tasks and legacy /tasks still route to the workspace app.
   if (
     pathname === "/" &&
     hasSession &&

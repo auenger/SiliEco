@@ -10,7 +10,7 @@
  * Item set (v1, conditional):
  *   Copy · Select Text · Cancel
  *
- * Mirrors `useCommentLongPress` in `components/issue/comment-context-
+ * Mirrors `useCommentLongPress` in `components/task/comment-context-
  * menu.tsx` — kept as a sibling rather than a shared primitive because
  * we have only 2 callers (chat + comments). Below the "3 callers + no
  * native alternative" threshold in apps/mobile/CLAUDE.md.

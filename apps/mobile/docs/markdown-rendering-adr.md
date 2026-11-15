@@ -20,7 +20,7 @@ the RN platform itself:
 
 | Path | How it renders | Strengths | Hard limits |
 |---|---|---|---|
-| **A — Native** | md4c parses → iOS `NSAttributedString` / Android Spannable | Fastest, doesn't touch RN's nested-`<Text>` layout path | Cannot inject custom React for any leaf node (`enriched-markdown` issue [#54](https://github.com/software-mansion-labs/react-native-enriched-markdown/issues/54), [#232](https://github.com/software-mansion-labs/react-native-enriched-markdown/issues/232), maintainer: "no custom renderers, by design") |
+| **A — Native** | md4c parses → iOS `NSAttributedString` / Android Spannable | Fastest, doesn't touch RN's nested-`<Text>` layout path | Cannot inject custom React for any leaf node (`enriched-markdown` task [#54](https://github.com/software-mansion-labs/react-native-enriched-markdown/issues/54), [#232](https://github.com/software-mansion-labs/react-native-enriched-markdown/issues/232), maintainer: "no custom renderers, by design") |
 | **B — React tree** | Parse to AST → walk → render every token as nested `<Text>` / `<View>` | Full custom React rendering for every node | Triggers RN's 10-year-old nested-`<Text>` bugs: [#10775](https://github.com/facebook/react-native/issues/10775), [#45925](https://github.com/facebook/react-native/issues/45925), [#6728](https://github.com/facebook/react-native/issues/6728) — `borderWidth` / `padding` / `margin` are not `NSAttributedString` attributes and either silently drop or force-break inline runs. CJK paragraphs amplify the symptom via UAX #14 / Kinsoku. |
 | **C — WebView** | Web markdown lib (e.g. `react-markdown`) inside `react-native-webview` / Expo DOM Components | Identical to web output | Slower startup (no Hermes bytecode), async JSON-only bridge, native UI cannot embed inside the WebView, scroll & keyboard UX divergent. Expo's own docs acknowledge these are public trade-offs ([dom-components.mdx](https://docs.expo.dev/guides/dom-components/)) |
 
@@ -145,7 +145,7 @@ above` vs `~3pt below` glyphs in chips inside CJK paragraphs (seen in
   to inline code that cannot be turned off via `markdownStyle.code`. The
   `CodeStyle` schema does not expose `padding*` / `baselineOffset` /
   `lineHeight` knobs.
-- **Not an RN/iOS platform issue**: Discord, Slack, Telegram, Mattermost
+- **Not an RN/iOS platform task**: Discord, Slack, Telegram, Mattermost
   mobile all render inline code with background + monospace and **do
   not** show this asymmetry — confirming the artifact is library-specific.
 - **Upstream tracking**: [`software-mansion-labs/react-native-enriched-markdown#255`](https://github.com/software-mansion-labs/react-native-enriched-markdown/issues/255)
@@ -179,7 +179,7 @@ code: {
 - **Visual trade-off**: mobile no longer matches web/desktop chip style.
   Inline code on mobile reads as "tinted monospace span". Acceptable
   given that the alternative is the top-heavy chip artifact.
-- **Revisit when**: upstream issue #255 ships a padding control. At
+- **Revisit when**: upstream task #255 ships a padding control. At
   that point switch back to a tinted-background chip for cross-platform
   parity.
 

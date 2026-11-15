@@ -60,14 +60,23 @@ func (q *Queries) CountAssigneeChangesByActor(ctx context.Context, arg CountAssi
 
 const createActivity = `-- name: CreateActivity :one
 INSERT INTO activity_log (
-    workspace_id, issue_id, actor_type, actor_id, action, details
-) VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, workspace_id, issue_id, actor_type, actor_id, action, details, created_at
+    workspace_id, task_id, actor_type, actor_id, action, details
+) SELECT
+    $1 AS workspace_id,
+    $2 AS task_id,
+    $3 AS actor_type,
+    $4 AS actor_id,
+    $5 AS action,
+    $6 AS details
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM task AS ref_task_id WHERE ref_task_id.id = ($2) FOR KEY SHARE))
+
+RETURNING id, workspace_id, task_id, actor_type, actor_id, action, details, created_at
 `
 
 type CreateActivityParams struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	IssueID     pgtype.UUID `json:"issue_id"`
+	TaskID      pgtype.UUID `json:"task_id"`
 	ActorType   pgtype.Text `json:"actor_type"`
 	ActorID     pgtype.UUID `json:"actor_id"`
 	Action      string      `json:"action"`
@@ -77,7 +86,7 @@ type CreateActivityParams struct {
 func (q *Queries) CreateActivity(ctx context.Context, arg CreateActivityParams) (ActivityLog, error) {
 	row := q.db.QueryRow(ctx, createActivity,
 		arg.WorkspaceID,
-		arg.IssueID,
+		arg.TaskID,
 		arg.ActorType,
 		arg.ActorID,
 		arg.Action,
@@ -87,7 +96,7 @@ func (q *Queries) CreateActivity(ctx context.Context, arg CreateActivityParams) 
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
-		&i.IssueID,
+		&i.TaskID,
 		&i.ActorType,
 		&i.ActorID,
 		&i.Action,
@@ -98,7 +107,7 @@ func (q *Queries) CreateActivity(ctx context.Context, arg CreateActivityParams) 
 }
 
 const getActivity = `-- name: GetActivity :one
-SELECT id, workspace_id, issue_id, actor_type, actor_id, action, details, created_at FROM activity_log
+SELECT id, workspace_id, task_id, actor_type, actor_id, action, details, created_at FROM activity_log
 WHERE id = $1
 `
 
@@ -108,7 +117,7 @@ func (q *Queries) GetActivity(ctx context.Context, id pgtype.UUID) (ActivityLog,
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
-		&i.IssueID,
+		&i.TaskID,
 		&i.ActorType,
 		&i.ActorID,
 		&i.Action,
@@ -118,48 +127,48 @@ func (q *Queries) GetActivity(ctx context.Context, id pgtype.UUID) (ActivityLog,
 	return i, err
 }
 
-const hasSquadLeaderNoActionEvaluationForTask = `-- name: HasSquadLeaderNoActionEvaluationForTask :one
+const hasSquadLeaderNoActionEvaluationForRun = `-- name: HasSquadLeaderNoActionEvaluationForRun :one
 SELECT EXISTS (
   SELECT 1
   FROM activity_log
-  WHERE issue_id = $1
+  WHERE task_id = $1
     AND actor_type = 'agent'
     AND actor_id = $2
     AND action = 'squad_leader_evaluated'
     AND details->>'outcome' = 'no_action'
-    AND details->>'task_id' = $3::text
+    AND details->>'run_id' = $3::text
 ) AS exists
 `
 
-type HasSquadLeaderNoActionEvaluationForTaskParams struct {
-	IssueID pgtype.UUID `json:"issue_id"`
+type HasSquadLeaderNoActionEvaluationForRunParams struct {
+	TaskID  pgtype.UUID `json:"task_id"`
 	AgentID pgtype.UUID `json:"agent_id"`
-	TaskID  string      `json:"task_id"`
+	RunID   string      `json:"run_id"`
 }
 
-func (q *Queries) HasSquadLeaderNoActionEvaluationForTask(ctx context.Context, arg HasSquadLeaderNoActionEvaluationForTaskParams) (bool, error) {
-	row := q.db.QueryRow(ctx, hasSquadLeaderNoActionEvaluationForTask, arg.IssueID, arg.AgentID, arg.TaskID)
+func (q *Queries) HasSquadLeaderNoActionEvaluationForRun(ctx context.Context, arg HasSquadLeaderNoActionEvaluationForRunParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasSquadLeaderNoActionEvaluationForRun, arg.TaskID, arg.AgentID, arg.RunID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
 }
 
-const listActivitiesForIssue = `-- name: ListActivitiesForIssue :many
-SELECT id, workspace_id, issue_id, actor_type, actor_id, action, details, created_at FROM activity_log
-WHERE issue_id = $1
+const listActivitiesForTask = `-- name: ListActivitiesForTask :many
+SELECT id, workspace_id, task_id, actor_type, actor_id, action, details, created_at FROM activity_log
+WHERE task_id = $1
 ORDER BY created_at ASC, id ASC
 LIMIT $2
 `
 
-type ListActivitiesForIssueParams struct {
-	IssueID pgtype.UUID `json:"issue_id"`
-	Limit   int32       `json:"limit"`
+type ListActivitiesForTaskParams struct {
+	TaskID pgtype.UUID `json:"task_id"`
+	Limit  int32       `json:"limit"`
 }
 
-// All activities for an issue in chronological order, capped at $2 (DB safety
+// All activities for an task in chronological order, capped at $2 (DB safety
 // net to bound the response).
-func (q *Queries) ListActivitiesForIssue(ctx context.Context, arg ListActivitiesForIssueParams) ([]ActivityLog, error) {
-	rows, err := q.db.Query(ctx, listActivitiesForIssue, arg.IssueID, arg.Limit)
+func (q *Queries) ListActivitiesForTask(ctx context.Context, arg ListActivitiesForTaskParams) ([]ActivityLog, error) {
+	rows, err := q.db.Query(ctx, listActivitiesForTask, arg.TaskID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +179,7 @@ func (q *Queries) ListActivitiesForIssue(ctx context.Context, arg ListActivities
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
-			&i.IssueID,
+			&i.TaskID,
 			&i.ActorType,
 			&i.ActorID,
 			&i.Action,

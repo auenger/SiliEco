@@ -155,7 +155,7 @@ func isSixDigitCode(code string) bool {
 }
 
 func (h *Handler) writePasswordLogin(w http.ResponseWriter, r *http.Request, user db.User) {
-	tokenString, err := h.issueJWT(user)
+	tokenString, err := h.signSessionJWT(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
@@ -251,7 +251,7 @@ func (h *Handler) LoginPassword(w http.ResponseWriter, r *http.Request) {
 	h.writePasswordLogin(w, r, user)
 }
 
-func (h *Handler) issueJWT(user db.User) (string, error) {
+func (h *Handler) signSessionJWT(user db.User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub":   uuidToString(user.ID),
 		"email": user.Email,
@@ -496,7 +496,7 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.Signup(uuidToString(user.ID), user.Email, signupSourceFromRequest(r)))
 	}
 
-	tokenString, err := h.issueJWT(user)
+	tokenString, err := h.signSessionJWT(user)
 	if err != nil {
 		slog.Warn("login failed", append(logger.RequestAttrs(r), "error", err, "email", req.Email)...)
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
@@ -692,7 +692,7 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tokenString, err := h.issueJWT(user)
+	tokenString, err := h.signSessionJWT(user)
 	if err != nil {
 		slog.Warn("google login failed", append(logger.RequestAttrs(r), "error", err, "email", email)...)
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
@@ -716,10 +716,10 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// IssueCliToken returns a fresh JWT for the authenticated user.
+// MintCLIToken returns a fresh JWT for the authenticated user.
 // This allows cookie-authenticated browser sessions to obtain a bearer token
 // that can be handed off to the CLI via the cli_callback redirect.
-func (h *Handler) IssueCliToken(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) MintCLIToken(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -731,9 +731,9 @@ func (h *Handler) IssueCliToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenString, err := h.issueJWT(user)
+	tokenString, err := h.signSessionJWT(user)
 	if err != nil {
-		slog.Warn("cli-token: failed to issue JWT", append(logger.RequestAttrs(r), "error", err, "user_id", userID)...)
+		slog.Warn("cli-token: failed to sign JWT", append(logger.RequestAttrs(r), "error", err, "user_id", userID)...)
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}

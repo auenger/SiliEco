@@ -76,7 +76,7 @@ vi.mock("../navigation", () => ({
     push: vi.fn(),
     replace: vi.fn(),
     back: vi.fn(),
-    pathname: "/acme/issues",
+    pathname: "/acme/tasks",
     searchParams: new URLSearchParams(),
     openInNewTab: vi.fn(),
     getShareableUrl: (p: string) => `https://app.example${p}`,
@@ -133,7 +133,7 @@ function makeRecord(overrides: Partial<AttachmentRecord> = {}): AttachmentRecord
   return {
     id: "att-1",
     workspace_id: "ws-1",
-    issue_id: null,
+    task_id: null,
     comment_id: null,
     chat_session_id: null,
     chat_message_id: null,
@@ -274,7 +274,7 @@ describe("Attachment — image dispatch", () => {
     const att = makeRecord({
       id,
       url: "https://cdn.example.test/uploads/ws/shot.png",
-      // This is the shape persisted in issue descriptions on deployments
+      // This is the shape persisted in task descriptions on deployments
       // that keep markdown stable via the API endpoint. Once the URL
       // resolves to an attachment record, the rendered <img> must expose the
       // CDN URL instead of copying the API endpoint back to the user.

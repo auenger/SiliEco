@@ -14,7 +14,7 @@ import {
 
 const TEST_RESOURCES = { en: { common: enCommon, agents: enAgents } };
 
-// AgentOverviewPane pulls in ActorIssuesPanel which in turn touches the api
+// AgentOverviewPane pulls in ActorTasksPanel which in turn touches the api
 // layer. The test only cares about which top-of-pane tab buttons render,
 // not what each tab does, so we stub the heavy children.
 vi.mock("./tabs/activity-tab", () => ({
@@ -45,8 +45,8 @@ vi.mock("./tabs/mcp-config-tab", () => ({
 vi.mock("./tabs/integrations-tab", () => ({
   IntegrationsTab: () => <div>integrations-tab</div>,
 }));
-vi.mock("../../common/actor-issues-panel", () => ({
-  ActorIssuesPanel: () => <div>actor-issues-panel</div>,
+vi.mock("../../common/actor-tasks-panel", () => ({
+  ActorTasksPanel: () => <div>actor-tasks-panel</div>,
 }));
 
 // The pane now reads workspace context to decide whether the Integrations
@@ -92,7 +92,7 @@ const baseAgent: Agent = {
   permission_mode: "public_to",
   invocation_targets: [{ target_type: "workspace", target_id: null }],
   status: "idle",
-  max_concurrent_tasks: 1,
+  max_concurrent_runs: 1,
   model: "",
   owner_id: "user-1",
   skills: [],

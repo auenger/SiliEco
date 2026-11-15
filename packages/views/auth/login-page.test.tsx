@@ -33,7 +33,7 @@ const mockApiListWorkspaces = vi.hoisted(() => vi.fn());
 const mockApiVerifyCode = vi.hoisted(() => vi.fn());
 const mockApiSetToken = vi.hoisted(() => vi.fn());
 const mockApiGetMe = vi.hoisted(() => vi.fn());
-const mockApiIssueCliToken = vi.hoisted(() => vi.fn());
+const mockApiMintCliToken = vi.hoisted(() => vi.fn());
 const mockSetQueryData = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-query", async () => {
@@ -65,7 +65,7 @@ vi.mock("@silieco/core/api", () => ({
     verifyCode: mockApiVerifyCode,
     setToken: mockApiSetToken,
     getMe: mockApiGetMe,
-    issueCliToken: mockApiIssueCliToken,
+    mintCliToken: mockApiMintCliToken,
   },
 }));
 
@@ -538,14 +538,14 @@ describe("LoginPage", () => {
     expect(screen.getByText(/cookie@example.com/)).toBeInTheDocument();
   });
 
-  it("CLI authorize with cookie session calls issueCliToken and redirects", async () => {
+  it("CLI authorize with cookie session calls mintCliToken and redirects", async () => {
     // No localStorage token — getMe succeeds via cookie
     mockApiGetMe.mockResolvedValueOnce({
       id: "u-1",
       email: "cookie@example.com",
       name: "Cookie User",
     });
-    mockApiIssueCliToken.mockResolvedValueOnce({ token: "fresh-jwt" });
+    mockApiMintCliToken.mockResolvedValueOnce({ token: "fresh-jwt" });
     const onTokenObtained = vi.fn();
 
     render(
@@ -564,7 +564,7 @@ describe("LoginPage", () => {
     await user.click(screen.getByRole("button", { name: /^authorize$/i }));
 
     await waitFor(() => {
-      expect(mockApiIssueCliToken).toHaveBeenCalled();
+      expect(mockApiMintCliToken).toHaveBeenCalled();
       expect(onTokenObtained).toHaveBeenCalled();
       expect(window.location.href).toContain(
         "http://localhost:9876/callback?token=fresh-jwt&state=abc",
@@ -746,5 +746,16 @@ describe("validateCliCallback", () => {
 
   it("rejects invalid URLs", () => {
     expect(validateCliCallback("not-a-url")).toBe(false);
+  });
+});
+
+describe("Tailscale CLI callback", () => {
+  it("accepts the shared overlay range but rejects adjacent public addresses", () => {
+    expect(validateCliCallback("http://100.93.224.87:51565/callback")).toBe(true);
+    expect(validateCliCallback("http://100.64.0.1:1234/callback")).toBe(true);
+    expect(validateCliCallback("http://100.127.255.254:1234/callback")).toBe(true);
+    expect(validateCliCallback("http://100.63.255.255:1234/callback")).toBe(false);
+    expect(validateCliCallback("http://100.128.0.1:1234/callback")).toBe(false);
+    expect(validateCliCallback("http://100.93.example.com/callback")).toBe(false);
   });
 });

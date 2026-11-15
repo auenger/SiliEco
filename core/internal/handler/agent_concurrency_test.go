@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestCreateAgent_MaxConcurrentTasksBoundsAndDefault(t *testing.T) {
+func TestCreateAgent_MaxConcurrentRunsBoundsAndDefault(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -39,7 +39,7 @@ func TestCreateAgent_MaxConcurrentTasksBoundsAndDefault(t *testing.T) {
 				"runtime_id": handlerTestRuntimeID(t),
 			}
 			if tt.provided {
-				body["max_concurrent_tasks"] = tt.value
+				body["max_concurrent_runs"] = tt.value
 			}
 
 			w := httptest.NewRecorder()
@@ -62,32 +62,32 @@ func TestCreateAgent_MaxConcurrentTasksBoundsAndDefault(t *testing.T) {
 			t.Cleanup(func() {
 				testPool.Exec(context.Background(), `DELETE FROM agent WHERE id = $1`, response.ID)
 			})
-			if response.MaxConcurrentTasks != tt.want {
-				t.Fatalf("max_concurrent_tasks = %d, want %d", response.MaxConcurrentTasks, tt.want)
+			if response.MaxConcurrentRuns != tt.want {
+				t.Fatalf("max_concurrent_runs = %d, want %d", response.MaxConcurrentRuns, tt.want)
 			}
 		})
 	}
 }
 
-func TestUpdateAgent_MaxConcurrentTasksBoundsAndOmission(t *testing.T) {
+func TestUpdateAgent_MaxConcurrentRunsBoundsAndOmission(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 
 	agentID := createHandlerTestAgent(t, "concurrency-update", nil)
 	if _, err := testPool.Exec(context.Background(),
-		`UPDATE agent SET max_concurrent_tasks = 17 WHERE id = $1`, agentID,
+		`UPDATE agent SET max_concurrent_runs = 17 WHERE id = $1`, agentID,
 	); err != nil {
-		t.Fatalf("seed max_concurrent_tasks: %v", err)
+		t.Fatalf("seed max_concurrent_runs: %v", err)
 	}
 
 	readPersisted := func() int32 {
 		t.Helper()
 		var got int32
 		if err := testPool.QueryRow(context.Background(),
-			`SELECT max_concurrent_tasks FROM agent WHERE id = $1`, agentID,
+			`SELECT max_concurrent_runs FROM agent WHERE id = $1`, agentID,
 		).Scan(&got); err != nil {
-			t.Fatalf("read max_concurrent_tasks: %v", err)
+			t.Fatalf("read max_concurrent_runs: %v", err)
 		}
 		return got
 	}
@@ -96,7 +96,7 @@ func TestUpdateAgent_MaxConcurrentTasksBoundsAndOmission(t *testing.T) {
 		t.Run(fmt.Sprintf("rejects_%d", value), func(t *testing.T) {
 			w := httptest.NewRecorder()
 			req := withURLParam(newRequest(http.MethodPut, "/api/agents/"+agentID, map[string]any{
-				"max_concurrent_tasks": value,
+				"max_concurrent_runs": value,
 			}), "id", agentID)
 			testHandler.UpdateAgent(w, req)
 
@@ -116,7 +116,7 @@ func TestUpdateAgent_MaxConcurrentTasksBoundsAndOmission(t *testing.T) {
 		t.Run(fmt.Sprintf("accepts_%d", value), func(t *testing.T) {
 			w := httptest.NewRecorder()
 			req := withURLParam(newRequest(http.MethodPut, "/api/agents/"+agentID, map[string]any{
-				"max_concurrent_tasks": value,
+				"max_concurrent_runs": value,
 			}), "id", agentID)
 			testHandler.UpdateAgent(w, req)
 
@@ -124,7 +124,7 @@ func TestUpdateAgent_MaxConcurrentTasksBoundsAndOmission(t *testing.T) {
 				t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
 			}
 			if got := readPersisted(); got != value {
-				t.Fatalf("persisted max_concurrent_tasks = %d, want %d", got, value)
+				t.Fatalf("persisted max_concurrent_runs = %d, want %d", got, value)
 			}
 		})
 	}
@@ -140,14 +140,14 @@ func TestUpdateAgent_MaxConcurrentTasksBoundsAndOmission(t *testing.T) {
 			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
 		}
 		if got := readPersisted(); got != 50 {
-			t.Fatalf("omitted max_concurrent_tasks changed value to %d, want 50", got)
+			t.Fatalf("omitted max_concurrent_runs changed value to %d, want 50", got)
 		}
 	})
 
 	t.Run("null preserves existing value", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := withURLParam(newRequest(http.MethodPut, "/api/agents/"+agentID, map[string]any{
-			"max_concurrent_tasks": nil,
+			"max_concurrent_runs": nil,
 		}), "id", agentID)
 		testHandler.UpdateAgent(w, req)
 
@@ -155,12 +155,12 @@ func TestUpdateAgent_MaxConcurrentTasksBoundsAndOmission(t *testing.T) {
 			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
 		}
 		if got := readPersisted(); got != 50 {
-			t.Fatalf("null max_concurrent_tasks changed value to %d, want 50", got)
+			t.Fatalf("null max_concurrent_runs changed value to %d, want 50", got)
 		}
 	})
 }
 
-func TestCreateAgentFromTemplate_MaxConcurrentTasksBoundsAndDefault(t *testing.T) {
+func TestCreateAgentFromTemplate_MaxConcurrentRunsBoundsAndDefault(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -194,7 +194,7 @@ func TestCreateAgentFromTemplate_MaxConcurrentTasksBoundsAndDefault(t *testing.T
 				"runtime_id":    handlerTestRuntimeID(t),
 			}
 			if tt.provided {
-				body["max_concurrent_tasks"] = tt.value
+				body["max_concurrent_runs"] = tt.value
 			}
 
 			w := httptest.NewRecorder()
@@ -217,8 +217,8 @@ func TestCreateAgentFromTemplate_MaxConcurrentTasksBoundsAndDefault(t *testing.T
 			t.Cleanup(func() {
 				testPool.Exec(context.Background(), `DELETE FROM agent WHERE id = $1`, response.Agent.ID)
 			})
-			if response.Agent.MaxConcurrentTasks != tt.want {
-				t.Fatalf("max_concurrent_tasks = %d, want %d", response.Agent.MaxConcurrentTasks, tt.want)
+			if response.Agent.MaxConcurrentRuns != tt.want {
+				t.Fatalf("max_concurrent_runs = %d, want %d", response.Agent.MaxConcurrentRuns, tt.want)
 			}
 		})
 	}

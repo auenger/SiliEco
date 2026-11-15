@@ -7,13 +7,13 @@
     "commands": "コマンド",
     "members": "メンバー",
     "projects": "プロジェクト",
-    "issues": "Task",
+    "tasks": "Task",
     "recent": "最近の項目"
   },
   "pages": {
     "inbox": "インボックス",
-    "my_issues": "マイTask",
-    "issues": "Task",
+    "my_tasks": "マイTask",
+    "tasks": "Task",
     "projects": "プロジェクト",
     "agents": "エージェント",
     "runtimes": "ランタイム",
@@ -22,9 +22,9 @@
   },
   "commands": {
     "current_theme_aria": "現在のテーマ",
-    "new_issue": "新規Task",
+    "new_task": "新規Task",
     "new_project": "新規プロジェクト",
-    "copy_issue_link": "Taskのリンクをコピー",
+    "copy_task_link": "Taskのリンクをコピー",
     "copy_identifier": "識別子をコピー ({{identifier}})",
     "fold_all_comments": "すべてのコメントを折りたたむ",
     "unfold_all_comments": "すべてのコメントを展開",

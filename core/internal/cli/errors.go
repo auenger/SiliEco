@@ -15,7 +15,7 @@ import (
 )
 
 // ErrorKind is a coarse, user-facing classification of an error. The CLI's
-// many internal error strings ("resolve issue: ...", raw net/http messages,
+// many internal error strings ("resolve task: ...", raw net/http messages,
 // JSON bodies) are not meaningful to end users; FormatError collapses them
 // into one of these kinds and renders a friendly, localized message.
 //
@@ -105,7 +105,7 @@ func (k ErrorKind) String() string {
 // --debug output and errors.Is/As inspection.
 type NetworkError struct {
 	Kind ErrorKind
-	Op   string // e.g. "GET /api/issues/abc" — shown only in --debug
+	Op   string // e.g. "GET /api/tasks/abc" — shown only in --debug
 	Err  error  // the original net/http error
 }
 
@@ -354,7 +354,7 @@ func messageFor(kind ErrorKind, lang Language) string {
 // translation entry point and is meant to be called once, at the top level
 // (main.go), on the error bubbling up from a command.
 //
-// When debug is false it skips the internal verb chain ("resolve issue: ...")
+// When debug is false it skips the internal verb chain ("resolve task: ...")
 // and the raw URL/JSON body, showing only the friendly message. When debug is
 // true (or SILIECO_DEBUG is set) it additionally prints the full original
 // error chain for troubleshooting.

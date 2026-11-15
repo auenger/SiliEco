@@ -23,8 +23,8 @@ export interface SystemNotificationPayload {
   slug: string;
   /** Inbox row id — lets the click mark the item read. */
   itemId: string;
-  /** `?issue=<…>` selector for the inbox page (issue id, else the item id). */
-  issueKey: string;
+  /** `?task=<…>` selector for the inbox page (task id, else the item id). */
+  taskKey: string;
   title: string;
   body: string;
 }

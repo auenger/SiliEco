@@ -17,14 +17,14 @@ import (
 )
 
 type WorkflowHumanReviewResponse struct {
-	ExecutionID    string                        `json:"execution_id"`
-	ResultRevision int32                         `json:"result_revision"`
-	BasisHash      string                        `json:"basis_hash"`
-	Issues         []WorkflowReviewIssueResponse `json:"issues"`
-	Calls          []WorkflowReviewCallResponse  `json:"calls"`
+	ExecutionID    string                       `json:"execution_id"`
+	ResultRevision int32                        `json:"result_revision"`
+	BasisHash      string                       `json:"basis_hash"`
+	Tasks          []WorkflowReviewTaskResponse `json:"tasks"`
+	Calls          []WorkflowReviewCallResponse `json:"calls"`
 }
 
-type WorkflowReviewIssueResponse struct {
+type WorkflowReviewTaskResponse struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
 	Status    string `json:"status"`
@@ -33,7 +33,7 @@ type WorkflowReviewIssueResponse struct {
 
 type WorkflowReviewCallResponse struct {
 	ID      string  `json:"id"`
-	IssueID *string `json:"issue_id"`
+	TaskID  *string `json:"task_id"`
 	AgentID string  `json:"agent_id"`
 	Status  string  `json:"status"`
 }
@@ -44,7 +44,7 @@ func (h *Handler) requireWorkflowHumanReview(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return pgtype.UUID{}, pgtype.UUID{}, pgtype.UUID{}, pgtype.UUID{}, false
 	}
-	if r.Header.Get("X-Agent-ID") != "" || r.Header.Get("X-Task-ID") != "" {
+	if r.Header.Get("X-Agent-ID") != "" || r.Header.Get("X-Run-ID") != "" {
 		writeError(w, http.StatusForbidden, "human review requires a member identity")
 		return pgtype.UUID{}, pgtype.UUID{}, pgtype.UUID{}, pgtype.UUID{}, false
 	}
@@ -71,12 +71,12 @@ func (h *Handler) GetWorkflowHumanReview(w http.ResponseWriter, r *http.Request)
 		writeWorkflowReviewError(w, err)
 		return
 	}
-	response := WorkflowHumanReviewResponse{ExecutionID: uuidToString(executionID), ResultRevision: basis.ResultRevision, BasisHash: basis.Hash, Issues: []WorkflowReviewIssueResponse{}, Calls: []WorkflowReviewCallResponse{}}
-	for _, issue := range basis.Issues {
-		response.Issues = append(response.Issues, WorkflowReviewIssueResponse{ID: uuidToString(issue.ID), Title: issue.Title, Status: issue.Status, UpdatedAt: timestampToString(issue.UpdatedAt)})
+	response := WorkflowHumanReviewResponse{ExecutionID: uuidToString(executionID), ResultRevision: basis.ResultRevision, BasisHash: basis.Hash, Tasks: []WorkflowReviewTaskResponse{}, Calls: []WorkflowReviewCallResponse{}}
+	for _, task := range basis.Tasks {
+		response.Tasks = append(response.Tasks, WorkflowReviewTaskResponse{ID: uuidToString(task.ID), Title: task.Title, Status: task.Status, UpdatedAt: timestampToString(task.UpdatedAt)})
 	}
 	for _, call := range basis.Calls {
-		response.Calls = append(response.Calls, WorkflowReviewCallResponse{ID: uuidToString(call.ID), IssueID: uuidToPtr(call.IssueID), AgentID: uuidToString(call.AgentID), Status: call.Status})
+		response.Calls = append(response.Calls, WorkflowReviewCallResponse{ID: uuidToString(call.ID), TaskID: uuidToPtr(call.TaskID), AgentID: uuidToString(call.AgentID), Status: call.Status})
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, http.StatusOK, response)

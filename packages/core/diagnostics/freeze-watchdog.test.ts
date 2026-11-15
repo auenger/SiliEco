@@ -40,7 +40,7 @@ beforeEach(() => {
   constructed = 0;
   observeCalls = 0;
   vi.stubGlobal("window", {});
-  vi.stubGlobal("location", { pathname: "/acme/issues" });
+  vi.stubGlobal("location", { pathname: "/acme/tasks" });
   vi.stubGlobal("PerformanceObserver", FakePerformanceObserver);
 });
 
@@ -61,7 +61,7 @@ describe("installFreezeWatchdog", () => {
     expect(captureEvent).toHaveBeenCalledWith("client_unresponsive", {
       source: "longtask",
       duration_ms: 2300,
-      path: "/acme/issues",
+      path: "/acme/tasks",
     });
   });
 
@@ -70,7 +70,7 @@ describe("installFreezeWatchdog", () => {
   // route instead; web publishes nothing and keeps the URL.
   it("prefers the published diagnostic route over location.pathname", async () => {
     const { installFreezeWatchdog, setDiagnosticRoute, captureEvent } = await load();
-    setDiagnosticRoute("/:slug/issues/:id");
+    setDiagnosticRoute("/:slug/tasks/:id");
     installFreezeWatchdog();
 
     fireLongTask(2300);
@@ -78,7 +78,7 @@ describe("installFreezeWatchdog", () => {
     expect(captureEvent).toHaveBeenCalledWith("client_unresponsive", {
       source: "longtask",
       duration_ms: 2300,
-      path: "/:slug/issues/:id",
+      path: "/:slug/tasks/:id",
     });
   });
 
@@ -90,7 +90,7 @@ describe("installFreezeWatchdog", () => {
 
     expect(captureEvent).toHaveBeenCalledWith(
       "client_unresponsive",
-      expect.objectContaining({ path: "/acme/issues" }),
+      expect.objectContaining({ path: "/acme/tasks" }),
     );
   });
 

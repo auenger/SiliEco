@@ -7,7 +7,7 @@ import { Label } from "@silieco/ui/components/ui/label";
 import {
   PickerItem,
   PropertyPicker,
-} from "../../../issues/components/pickers";
+} from "../../../tasks/components/pickers";
 import { CHIP_CLASS } from "./chip";
 import { useT } from "../../../i18n";
 

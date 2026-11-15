@@ -216,7 +216,7 @@ func TestNoFalsePositivesOnNormalText(t *testing.T) {
 		"The function returns skip-navigation as the class name",
 		"Created PR #42 for the authentication feature",
 		"Running tests in /tmp/test-workspace/project",
-		"The API endpoint /api/issues/123 was updated",
+		"The API endpoint /api/tasks/123 was updated",
 	}
 	for _, input := range inputs {
 		got := Text(input)

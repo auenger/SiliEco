@@ -12,7 +12,7 @@ import (
 // `--content-stdin` + HEREDOC mandate (#1795 / #1851 / SILI-2904) was kept
 // for years to defend against backtick / `$()` substitution in the body,
 // but the heredoc/flag boundary turned out to be fragile in its own right:
-// when a model wrapped extra flags around the heredoc on `silieco issue
+// when a model wrapped extra flags around the heredoc on `silieco task
 // create`, the flags got swallowed into stdin and silently dropped (OXY-78,
 // OXY-76). The file path defeats both classes — the body never reaches the
 // shell, and all flags live on one shell-token line.
@@ -23,13 +23,13 @@ func TestBuildCommentReplyInstructionsCodexLinux(t *testing.T) {
 	t.Cleanup(func() { runtimeGOOS = saved })
 	runtimeGOOS = "linux"
 
-	issueID := "11111111-1111-1111-1111-111111111111"
+	taskID := "11111111-1111-1111-1111-111111111111"
 	triggerID := "22222222-2222-2222-2222-222222222222"
 
-	got := BuildCommentReplyInstructions("codex", issueID, triggerID)
+	got := BuildCommentReplyInstructions("codex", taskID, triggerID)
 
 	for _, want := range []string{
-		"silieco issue comment add " + issueID + " --parent " + triggerID + " --content-file ./reply.md",
+		"silieco task comment add " + taskID + " --parent " + triggerID + " --content-file ./reply.md",
 		"Write the reply body to a UTF-8 file",
 		"`--content-file`",
 		"#4182",
@@ -74,7 +74,7 @@ func TestBuildCommentReplyInstructionsNonCodexLinux(t *testing.T) {
 	saved := runtimeGOOS
 	t.Cleanup(func() { runtimeGOOS = saved })
 
-	issueID := "11111111-1111-1111-1111-111111111111"
+	taskID := "11111111-1111-1111-1111-111111111111"
 	triggerID := "22222222-2222-2222-2222-222222222222"
 
 	for _, host := range []string{"linux", "darwin"} {
@@ -82,10 +82,10 @@ func TestBuildCommentReplyInstructionsNonCodexLinux(t *testing.T) {
 			name := provider + "/" + host
 			t.Run(name, func(t *testing.T) {
 				runtimeGOOS = host
-				got := BuildCommentReplyInstructions(provider, issueID, triggerID)
+				got := BuildCommentReplyInstructions(provider, taskID, triggerID)
 
 				for _, want := range []string{
-					"silieco issue comment add " + issueID + " --parent " + triggerID + " --content-file ./reply.md",
+					"silieco task comment add " + taskID + " --parent " + triggerID + " --content-file ./reply.md",
 					"Write the reply body to a UTF-8 file",
 					"`--content-file`",
 					"#4182",
@@ -120,7 +120,7 @@ func TestBuildCommentReplyInstructionsNonCodexLinux(t *testing.T) {
 // Windows every provider — Codex AND non-Codex — gets the
 // `--content-file` template. The bug is shell-layer, not provider-layer:
 // any agent on Windows piping HEREDOC through PowerShell loses non-ASCII
-// bytes (PS 5.1's `$OutputEncoding` defaults to ASCIIEncoding). Issues
+// bytes (PS 5.1's `$OutputEncoding` defaults to ASCIIEncoding). Tasks
 // #2198 (Chinese, Codex), #2236 (Chinese, Codex), #2376 (Cyrillic,
 // non-Codex agent name) all match this signature.
 //
@@ -130,14 +130,14 @@ func TestBuildCommentReplyInstructionsWindowsUsesContentFile(t *testing.T) {
 	t.Cleanup(func() { runtimeGOOS = saved })
 	runtimeGOOS = "windows"
 
-	issueID := "11111111-1111-1111-1111-111111111111"
+	taskID := "11111111-1111-1111-1111-111111111111"
 	triggerID := "22222222-2222-2222-2222-222222222222"
 
 	for _, provider := range []string{"codex", "claude", "opencode", "openclaw", "hermes", "kimi", "kiro", "cursor"} {
 		t.Run(provider+"/windows", func(t *testing.T) {
-			got := BuildCommentReplyInstructions(provider, issueID, triggerID)
+			got := BuildCommentReplyInstructions(provider, taskID, triggerID)
 			for _, want := range []string{
-				"silieco issue comment add " + issueID + " --parent " + triggerID + " --content-file",
+				"silieco task comment add " + taskID + " --parent " + triggerID + " --content-file",
 				"On Windows, write the reply body to a UTF-8 file",
 				"Do NOT pipe via `--content-stdin`",
 				"silently drops non-ASCII",
@@ -164,7 +164,7 @@ func TestBuildCommentReplyInstructionsEmptyWhenNoTrigger(t *testing.T) {
 	t.Parallel()
 
 	for _, provider := range []string{"codex", "claude", "opencode"} {
-		if got := BuildCommentReplyInstructions(provider, "issue-id", ""); got != "" {
+		if got := BuildCommentReplyInstructions(provider, "task-id", ""); got != "" {
 			t.Fatalf("expected empty string when triggerCommentID is empty for %s, got %q", provider, got)
 		}
 	}
@@ -178,11 +178,11 @@ func TestInjectRuntimeConfigKeepsTriggerCommentOutOfBrief(t *testing.T) {
 	runtimeGOOS = "linux"
 
 	dir := t.TempDir()
-	issueID := "11111111-1111-1111-1111-111111111111"
+	taskID := "11111111-1111-1111-1111-111111111111"
 	triggerID := "22222222-2222-2222-2222-222222222222"
 
-	if _, err := InjectRuntimeConfig(dir, "claude", TaskContextForEnv{
-		IssueID:          issueID,
+	if _, err := InjectRuntimeConfig(dir, "claude", RunContextForEnv{
+		TaskID:           taskID,
 		TriggerCommentID: triggerID,
 	}); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
@@ -216,14 +216,14 @@ func TestWindowsCommentReplyInstructionsHaveNoStdin(t *testing.T) {
 	t.Cleanup(func() { runtimeGOOS = saved })
 	runtimeGOOS = "windows"
 
-	issueID := "11111111-1111-1111-1111-111111111111"
+	taskID := "11111111-1111-1111-1111-111111111111"
 	triggerID := "22222222-2222-2222-2222-222222222222"
 
 	for _, provider := range []string{"claude", "codex", "opencode"} {
 		t.Run(provider, func(t *testing.T) {
-			s := BuildCommentReplyInstructions(provider, issueID, triggerID)
+			s := BuildCommentReplyInstructions(provider, taskID, triggerID)
 			for _, want := range []string{
-				"silieco issue comment add " + issueID + " --parent " + triggerID + " --content-file",
+				"silieco task comment add " + taskID + " --parent " + triggerID + " --content-file",
 				"--content-file",
 			} {
 				if !strings.Contains(s, want) {
@@ -258,8 +258,8 @@ func TestInjectRuntimeConfigWindowsAssignmentBriefStaysFileOnly(t *testing.T) {
 	t.Cleanup(func() { runtimeGOOS = saved })
 	runtimeGOOS = "windows"
 
-	// Assignment-triggered: IssueID set, no TriggerCommentID.
-	ctx := TaskContextForEnv{IssueID: "issue-1"}
+	// Assignment-triggered: TaskID set, no TriggerCommentID.
+	ctx := RunContextForEnv{TaskID: "task-1"}
 
 	for _, provider := range []string{"claude", "codex", "opencode"} {
 		t.Run(provider, func(t *testing.T) {

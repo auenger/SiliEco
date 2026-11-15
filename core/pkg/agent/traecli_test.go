@@ -207,7 +207,7 @@ func countTokens(lines []string, tok string) int {
 	return n
 }
 
-func TestTraecliSetModelFailureFailsTask(t *testing.T) {
+func TestTraecliSetModelFailureFailsRun(t *testing.T) {
 	t.Parallel()
 	fakePath := filepath.Join(t.TempDir(), "traecli")
 	writeTestExecutable(t, fakePath, []byte(fakeTraecliACPScript()))

@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// TestCreateIssue_SquadPrivateLeader_PlainMemberBlocked verifies that a
-// plain member cannot create an issue assigned to a squad whose leader is
+// TestCreateTask_SquadPrivateLeader_PlainMemberBlocked verifies that a
+// plain member cannot create an task assigned to a squad whose leader is
 // a private agent.
-func TestCreateIssue_SquadPrivateLeader_PlainMemberBlocked(t *testing.T) {
+func TestCreateTask_SquadPrivateLeader_PlainMemberBlocked(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -32,20 +32,20 @@ func TestCreateIssue_SquadPrivateLeader_PlainMemberBlocked(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	r := newRequestAs(memberID, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+	r := newRequestAs(memberID, "POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 		"title":         "Should be blocked",
 		"assignee_type": "squad",
 		"assignee_id":   squadID,
 	})
-	testHandler.CreateIssue(w, r)
+	testHandler.CreateTask(w, r)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-// TestUpdateIssue_SquadPrivateLeader_PlainMemberBlocked verifies that a
-// plain member cannot update an issue's assignee to a private-leader squad.
-func TestUpdateIssue_SquadPrivateLeader_PlainMemberBlocked(t *testing.T) {
+// TestUpdateTask_SquadPrivateLeader_PlainMemberBlocked verifies that a
+// plain member cannot update an task's assignee to a private-leader squad.
+func TestUpdateTask_SquadPrivateLeader_PlainMemberBlocked(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -65,34 +65,34 @@ func TestUpdateIssue_SquadPrivateLeader_PlainMemberBlocked(t *testing.T) {
 		testPool.Exec(context.Background(), `DELETE FROM squad WHERE id = $1`, squadID)
 	})
 
-	// Create an unassigned issue as workspace owner.
-	var issueID string
+	// Create an unassigned task as workspace owner.
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title)
 		VALUES ($1, 'member', $2, 'update target')
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	w := httptest.NewRecorder()
-	r := newRequestAs(memberID, "PATCH", "/api/issues/"+issueID, map[string]any{
+	r := newRequestAs(memberID, "PATCH", "/api/tasks/"+taskID, map[string]any{
 		"assignee_type": "squad",
 		"assignee_id":   squadID,
 	})
-	r = withURLParam(r, "id", issueID)
-	testHandler.UpdateIssue(w, r)
+	r = withURLParam(r, "id", taskID)
+	testHandler.UpdateTask(w, r)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-// TestCreateIssue_SquadPrivateLeader_OwnerAllowed verifies that a workspace
-// owner CAN assign an issue to a squad with a private leader.
-func TestCreateIssue_SquadPrivateLeader_OwnerAllowed(t *testing.T) {
+// TestCreateTask_SquadPrivateLeader_OwnerAllowed verifies that a workspace
+// owner CAN assign an task to a squad with a private leader.
+func TestCreateTask_SquadPrivateLeader_OwnerAllowed(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -115,28 +115,28 @@ func TestCreateIssue_SquadPrivateLeader_OwnerAllowed(t *testing.T) {
 	// The AGENT OWNER assigns — allowed. (SILI-3963: workspace owner/admin no
 	// longer bypasses a private leader's invocation gate.)
 	w := httptest.NewRecorder()
-	r := newRequestAs(ownerID, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+	r := newRequestAs(ownerID, "POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 		"title":         "Owner assigns private-leader squad",
 		"assignee_type": "squad",
 		"assignee_id":   squadID,
 	})
-	testHandler.CreateIssue(w, r)
+	testHandler.CreateTask(w, r)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var created IssueResponse
+	var created TaskResponse
 	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, created.ID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, created.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, created.ID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, created.ID)
 	})
 }
 
 // TestComment_SquadPrivateLeader_PlainMemberNoEnqueue verifies that a plain
-// member posting a comment on an issue assigned to a private-leader squad
+// member posting a comment on an task assigned to a private-leader squad
 // does NOT trigger the leader.
 func TestComment_SquadPrivateLeader_PlainMemberNoEnqueue(t *testing.T) {
 	if testHandler == nil || testPool == nil {
@@ -158,27 +158,27 @@ func TestComment_SquadPrivateLeader_PlainMemberNoEnqueue(t *testing.T) {
 		testPool.Exec(context.Background(), `DELETE FROM squad WHERE id = $1`, squadID)
 	})
 
-	// Create issue assigned to the squad as workspace owner.
-	var issueID string
+	// Create task assigned to the squad as workspace owner.
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title, assignee_type, assignee_id)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title, assignee_type, assignee_id)
 		VALUES ($1, 'member', $2, 'private leader comment test', 'squad', $3)
 		RETURNING id
-	`, testWorkspaceID, testUserID, squadID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, squadID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
-		testPool.Exec(context.Background(), `DELETE FROM comment WHERE issue_id = $1`, issueID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM comment WHERE task_id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	// Plain member posts a plain comment (not a @mention).
 	w := httptest.NewRecorder()
-	r := newRequestAs(memberID, "POST", "/api/issues/"+issueID+"/comments", map[string]any{
+	r := newRequestAs(memberID, "POST", "/api/tasks/"+taskID+"/comments", map[string]any{
 		"content": "any update on this?",
 	})
-	r = withURLParam(r, "id", issueID)
+	r = withURLParam(r, "id", taskID)
 	testHandler.CreateComment(w, r)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateComment: expected 201, got %d: %s", w.Code, w.Body.String())
@@ -187,8 +187,8 @@ func TestComment_SquadPrivateLeader_PlainMemberNoEnqueue(t *testing.T) {
 	// The private leader must NOT have a queued task.
 	var count int
 	if err := testPool.QueryRow(ctx,
-		`SELECT count(*) FROM agent_task_queue WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'`,
-		issueID, agentID,
+		`SELECT count(*) FROM agent_run WHERE task_id = $1 AND agent_id = $2 AND status = 'queued'`,
+		taskID, agentID,
 	).Scan(&count); err != nil {
 		t.Fatalf("count tasks: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestComment_SquadPrivateLeader_PlainMemberNoEnqueue(t *testing.T) {
 }
 
 // TestChildDone_SquadPrivateLeader_PlainMemberWakesLeader verifies that when
-// a plain member completes a child issue whose parent is assigned to a
+// a plain member completes a child task whose parent is assigned to a
 // private-leader squad, the leader IS woken. Child-done no longer re-checks
 // leader invocation permission (SILI-4063 / GH #4928): the parent was already
 // assigned to the squad — which passed the invocation gate — so waking that
@@ -225,69 +225,69 @@ func TestChildDone_SquadPrivateLeader_PlainMemberWakesLeader(t *testing.T) {
 		testPool.Exec(context.Background(), `DELETE FROM squad WHERE id = $1`, squadID)
 	})
 
-	// Create parent issue assigned to the squad (as the AGENT OWNER, who is
+	// Create parent task assigned to the squad (as the AGENT OWNER, who is
 	// allowed to invoke the private leader under SILI-3963).
 	w := httptest.NewRecorder()
-	r := newRequestAs(ownerID, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+	r := newRequestAs(ownerID, "POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 		"title":         "parent with private-leader squad",
 		"assignee_type": "squad",
 		"assignee_id":   squadID,
 	})
-	testHandler.CreateIssue(w, r)
+	testHandler.CreateTask(w, r)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create parent: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var parent IssueResponse
+	var parent TaskResponse
 	if err := json.NewDecoder(w.Body).Decode(&parent); err != nil {
 		t.Fatalf("decode parent: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, parent.ID)
-		testPool.Exec(context.Background(), `DELETE FROM comment WHERE issue_id = $1`, parent.ID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE parent_issue_id = $1`, parent.ID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, parent.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, parent.ID)
+		testPool.Exec(context.Background(), `DELETE FROM comment WHERE task_id = $1`, parent.ID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE parent_task_id = $1`, parent.ID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, parent.ID)
 	})
 
 	// Clear any tasks enqueued by the create.
-	testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE issue_id = $1`, parent.ID)
+	testPool.Exec(ctx, `DELETE FROM agent_run WHERE task_id = $1`, parent.ID)
 
-	// Create a child issue via API (as workspace owner, with member assignee).
+	// Create a child task via API (as workspace owner, with member assignee).
 	w = httptest.NewRecorder()
-	r = newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":           "child task",
-		"parent_issue_id": parent.ID,
-		"assignee_type":   "member",
-		"assignee_id":     memberID,
-		"status":          "in_progress",
+	r = newRequest("POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
+		"title":          "child task",
+		"parent_task_id": parent.ID,
+		"assignee_type":  "member",
+		"assignee_id":    memberID,
+		"status":         "in_progress",
 	})
-	testHandler.CreateIssue(w, r)
+	testHandler.CreateTask(w, r)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create child: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var child IssueResponse
+	var child TaskResponse
 	if err := json.NewDecoder(w.Body).Decode(&child); err != nil {
 		t.Fatalf("decode child: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, child.ID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, child.ID)
 	})
 
 	// Plain member moves child to done.
 	w = httptest.NewRecorder()
-	r = newRequestAs(memberID, "PATCH", "/api/issues/"+child.ID, map[string]any{
+	r = newRequestAs(memberID, "PATCH", "/api/tasks/"+child.ID, map[string]any{
 		"status": "done",
 	})
 	r = withURLParam(r, "id", child.ID)
-	testHandler.UpdateIssue(w, r)
+	testHandler.UpdateTask(w, r)
 	if w.Code != http.StatusOK {
-		t.Fatalf("UpdateIssue (child done): expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("UpdateTask (child done): expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// The private leader MUST have a queued task on the parent — child-done
 	// wakes the parent's own leader regardless of who closed the child.
 	var count int
 	if err := testPool.QueryRow(ctx,
-		`SELECT count(*) FROM agent_task_queue WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'`,
+		`SELECT count(*) FROM agent_run WHERE task_id = $1 AND agent_id = $2 AND status = 'queued'`,
 		parent.ID, agentID,
 	).Scan(&count); err != nil {
 		t.Fatalf("count tasks: %v", err)
@@ -327,84 +327,84 @@ func TestChildDone_SquadPrivateLeader_AgentActorWakesLeader(t *testing.T) {
 
 	// Parent assigned to the squad by the agent owner (allowed under SILI-3963).
 	w := httptest.NewRecorder()
-	r := newRequestAs(ownerID, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+	r := newRequestAs(ownerID, "POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 		"title":         "parent with private-leader squad (agent child-done)",
 		"assignee_type": "squad",
 		"assignee_id":   squadID,
 	})
-	testHandler.CreateIssue(w, r)
+	testHandler.CreateTask(w, r)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create parent: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var parent IssueResponse
+	var parent TaskResponse
 	if err := json.NewDecoder(w.Body).Decode(&parent); err != nil {
 		t.Fatalf("decode parent: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, parent.ID)
-		testPool.Exec(context.Background(), `DELETE FROM comment WHERE issue_id = $1`, parent.ID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE parent_issue_id = $1`, parent.ID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, parent.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, parent.ID)
+		testPool.Exec(context.Background(), `DELETE FROM comment WHERE task_id = $1`, parent.ID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE parent_task_id = $1`, parent.ID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, parent.ID)
 	})
 
 	// Clear the leader task the assign enqueued so the child-done wake is the
 	// only thing that can create one.
-	testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE issue_id = $1`, parent.ID)
+	testPool.Exec(ctx, `DELETE FROM agent_run WHERE task_id = $1`, parent.ID)
 
 	// Child assigned to the worker agent, in progress.
 	w = httptest.NewRecorder()
-	r = newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":           "child task worked by an agent",
-		"parent_issue_id": parent.ID,
-		"assignee_type":   "agent",
-		"assignee_id":     workerAgentID,
-		"status":          "in_progress",
+	r = newRequest("POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
+		"title":          "child task worked by an agent",
+		"parent_task_id": parent.ID,
+		"assignee_type":  "agent",
+		"assignee_id":    workerAgentID,
+		"status":         "in_progress",
 	})
-	testHandler.CreateIssue(w, r)
+	testHandler.CreateTask(w, r)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create child: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var child IssueResponse
+	var child TaskResponse
 	if err := json.NewDecoder(w.Body).Decode(&child); err != nil {
 		t.Fatalf("decode child: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, child.ID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, child.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, child.ID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, child.ID)
 	})
 
 	// The worker agent's running task on the CHILD. Its originator is the plain
 	// member — who cannot invoke the private leader — proving the wake no longer
 	// depends on the completer being able to invoke the leader.
-	var workerTaskID string
+	var workerRunID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, issue_id, originator_user_id, accountable_user_id)
+		INSERT INTO agent_run (agent_id, runtime_id, status, priority, task_id, originator_user_id, accountable_user_id)
 		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), 'running', 0, $2, $3, $3)
 		RETURNING id
-	`, workerAgentID, child.ID, memberID).Scan(&workerTaskID); err != nil {
-		t.Fatalf("create worker task: %v", err)
+	`, workerAgentID, child.ID, memberID).Scan(&workerRunID); err != nil {
+		t.Fatalf("create worker run: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, workerTaskID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, workerRunID)
 	})
 
-	// Worker agent moves the child to done (agent actor via X-Agent-ID/X-Task-ID).
+	// Worker agent moves the child to done (agent actor via X-Agent-ID/X-Run-ID).
 	w = httptest.NewRecorder()
-	r = newRequest("PATCH", "/api/issues/"+child.ID, map[string]any{
+	r = newRequest("PATCH", "/api/tasks/"+child.ID, map[string]any{
 		"status": "done",
 	})
 	r.Header.Set("X-Agent-ID", workerAgentID)
-	r.Header.Set("X-Task-ID", workerTaskID)
+	r.Header.Set("X-Run-ID", workerRunID)
 	r = withURLParam(r, "id", child.ID)
-	testHandler.UpdateIssue(w, r)
+	testHandler.UpdateTask(w, r)
 	if w.Code != http.StatusOK {
-		t.Fatalf("UpdateIssue (child done): expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("UpdateTask (child done): expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// The private leader MUST have a queued task on the parent.
 	var count int
 	if err := testPool.QueryRow(ctx,
-		`SELECT count(*) FROM agent_task_queue WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'`,
+		`SELECT count(*) FROM agent_run WHERE task_id = $1 AND agent_id = $2 AND status = 'queued'`,
 		parent.ID, agentID,
 	).Scan(&count); err != nil {
 		t.Fatalf("count tasks: %v", err)
@@ -437,45 +437,45 @@ func TestComment_SquadPrivateLeader_AgentActorAllowed(t *testing.T) {
 		testPool.Exec(context.Background(), `DELETE FROM squad WHERE id = $1`, squadID)
 	})
 
-	// Create issue assigned to the squad.
-	var issueID string
+	// Create task assigned to the squad.
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title, assignee_type, assignee_id)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title, assignee_type, assignee_id)
 		VALUES ($1, 'member', $2, 'private leader agent actor test', 'squad', $3)
 		RETURNING id
-	`, testWorkspaceID, testUserID, squadID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, squadID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
-		testPool.Exec(context.Background(), `DELETE FROM comment WHERE issue_id = $1`, issueID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM comment WHERE task_id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	// Create a task for the other agent whose top-of-chain originator is the
 	// private leader's OWNER. Under SILI-3963 A2A is judged by that originator,
 	// so the agent-actor squad mention resolves to the owner and may invoke
 	// the private leader.
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, issue_id, originator_user_id, accountable_user_id)
+		INSERT INTO agent_run (agent_id, runtime_id, status, priority, task_id, originator_user_id, accountable_user_id)
 		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), 'running', 0, $2, $3, $3)
 		RETURNING id
-	`, otherAgentID, issueID, ownerID).Scan(&taskID); err != nil {
-		t.Fatalf("create agent task: %v", err)
+	`, otherAgentID, taskID, ownerID).Scan(&runID); err != nil {
+		t.Fatalf("create agent run: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID)
 	})
 
 	// Agent posts a comment with an explicit squad mention.
 	w := httptest.NewRecorder()
-	r := newRequest("POST", "/api/issues/"+issueID+"/comments", map[string]any{
+	r := newRequest("POST", "/api/tasks/"+taskID+"/comments", map[string]any{
 		"content": "[@Squad](mention://squad/" + squadID + ") agent reporting in",
 	})
 	r.Header.Set("X-Agent-ID", otherAgentID)
-	r.Header.Set("X-Task-ID", taskID)
-	r = withURLParam(r, "id", issueID)
+	r.Header.Set("X-Run-ID", runID)
+	r = withURLParam(r, "id", taskID)
 	testHandler.CreateComment(w, r)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateComment: expected 201, got %d: %s", w.Code, w.Body.String())
@@ -486,8 +486,8 @@ func TestComment_SquadPrivateLeader_AgentActorAllowed(t *testing.T) {
 	// admits it (SILI-3963).
 	var count int
 	if err := testPool.QueryRow(ctx,
-		`SELECT count(*) FROM agent_task_queue WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'`,
-		issueID, agentID,
+		`SELECT count(*) FROM agent_run WHERE task_id = $1 AND agent_id = $2 AND status = 'queued'`,
+		taskID, agentID,
 	).Scan(&count); err != nil {
 		t.Fatalf("count tasks: %v", err)
 	}

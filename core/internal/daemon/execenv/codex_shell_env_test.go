@@ -29,7 +29,7 @@ func parsedShellEnvPolicy(t *testing.T, content string) codexShellEnvironmentPol
 	return parsed.Policy
 }
 
-func TestCodexShellEnvAllowlistUsesExactTaskAndSafeInheritedNames(t *testing.T) {
+func TestCodexShellEnvAllowlistUsesExactRunAndSafeInheritedNames(t *testing.T) {
 	t.Parallel()
 
 	inherited := []string{

@@ -28,7 +28,7 @@ import (
 // in-memory implementation is fine for self-hosted dev; multi-node deploys
 // (Silieco Cloud) MUST use the Redis-backed implementation, otherwise the
 // pending request is invisible to whichever replica receives the next call
-// and the picker shows "No models available" (regression: see issue
+// and the picker shows "No models available" (regression: see task
 // review on silieco-ai/silieco#2009).
 
 // ModelListStatus represents the lifecycle of a model list request.

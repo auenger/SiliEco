@@ -10,8 +10,8 @@
  * On send: scan for `⁣@<word>` runs, zip with the ordered `markers`
  * list to produce `[@<name>](mention://<type>/<id>)` markdown that the
  * backend's `util.ParseMentions` regex (core/internal/util/mention.go:16)
- * already accepts. **Issues drop the `@` in the label** — they render as
- * `[SILI-123](mention://issue/<uuid>)` to match web (mention-extension.ts).
+ * already accepts. **Tasks drop the `@` in the label** — they render as
+ * `[SILI-123](mention://task/<uuid>)` to match web (mention-extension.ts).
  *
  * Sentinel mismatch (e.g. user copy-paste broke a marker) → serializer
  * falls back to plain text with all sentinels stripped: never crash, never
@@ -20,13 +20,13 @@
 
 const SENTINEL = "⁣";
 
-export type MentionType = "member" | "agent" | "squad" | "all" | "issue";
+export type MentionType = "member" | "agent" | "squad" | "all" | "task";
 
 export interface MentionMarker {
   type: MentionType;
-  /** UUID for member/agent/squad/issue, the literal "all" for @all. */
+  /** UUID for member/agent/squad/task, the literal "all" for @all. */
   id: string;
-  /** Display name without the leading `@`. For issues this is the
+  /** Display name without the leading `@`. For tasks this is the
    *  identifier (e.g. "SILI-123"). May contain non-ASCII chars. */
   name: string;
 }
@@ -158,10 +158,10 @@ export function serializeMentions(
       break;
     }
 
-    // Issues render without the leading `@` in the link label (mirrors
+    // Tasks render without the leading `@` in the link label (mirrors
     // web's mention-extension.ts:67-74). Members / agents / @all keep it.
     const label =
-      marker.type === "issue" ? marker.name : `@${marker.name}`;
+      marker.type === "task" ? marker.name : `@${marker.name}`;
     out.push(`[${label}](mention://${marker.type}/${marker.id})`);
     markerIndex++;
     cursor = wordEnd;

@@ -72,7 +72,7 @@ func workflowResultFixture(t *testing.T) (*pgxpool.Pool, *WorkflowExecutionServi
 	if _, err := pool.Exec(ctx, `UPDATE workflow_instance_stage SET output_spec='{"contract":{"schema_version":"silieco.stage/v1","data":{"type":"object"},"artifacts":[{"name":"report","kind":"report","media_type":"text/markdown","schema_version":"report/v1","required":true}]}}' WHERE id=$1`, ensure.StageID); err != nil {
 		t.Fatal(err)
 	}
-	svc.TaskService = NewTaskService(svc.Queries, pool, nil, events.New())
+	svc.AgentRunService = NewAgentRunService(svc.Queries, pool, nil, events.New())
 	execution, err := svc.EnsureStageExecution(ctx, ensure)
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func workflowResultFixture(t *testing.T) (*pgxpool.Pool, *WorkflowExecutionServi
 	blob := &workflowResultStorage{objects: map[string][]byte{"source": []byte("# Report\nValidated content")}}
 	svc.Storage = blob
 	attachmentID := util.MustParseUUID(uuid.NewString())
-	_, err = svc.Queries.CreateAttachment(ctx, db.CreateAttachmentParams{ID: attachmentID, WorkspaceID: ensure.WorkspaceID, IssueID: execution.MainIssueID, TaskID: execution.MainTaskID, UploaderType: "member", UploaderID: run.CreatedBy, Filename: "report.md", Url: blob.ObjectURL("source"), ContentType: "text/markdown", SizeBytes: int64(len(blob.objects["source"]))})
+	_, err = svc.Queries.CreateAttachment(ctx, db.CreateAttachmentParams{ID: attachmentID, WorkspaceID: ensure.WorkspaceID, TaskID: execution.MainTaskID, RunID: execution.MainRunID, UploaderType: "member", UploaderID: run.CreatedBy, Filename: "report.md", Url: blob.ObjectURL("source"), ContentType: "text/markdown", SizeBytes: int64(len(blob.objects["source"]))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestWorkflowResultImmutableRevisions(t *testing.T) {
 }
 
 func TestWorkflowResultRejectsInvalidContentAndScope(t *testing.T) {
-	for _, mode := range []string{"checksum", "external", "foreign issue", "actor", "revision", "format"} {
+	for _, mode := range []string{"checksum", "external", "foreign task", "actor", "revision", "format"} {
 		t.Run(mode, func(t *testing.T) {
 			pool, svc, p, blob := workflowResultFixture(t)
 			ctx := context.Background()
@@ -172,8 +172,8 @@ func TestWorkflowResultRejectsInvalidContentAndScope(t *testing.T) {
 				if _, err := pool.Exec(ctx, `UPDATE attachment SET url='https://evil.test/source' WHERE workspace_id=$1`, p.WorkspaceID); err != nil {
 					t.Fatal(err)
 				}
-			case "foreign issue":
-				if _, err := pool.Exec(ctx, `UPDATE attachment SET issue_id=NULL,task_id=NULL WHERE workspace_id=$1`, p.WorkspaceID); err != nil {
+			case "foreign task":
+				if _, err := pool.Exec(ctx, `UPDATE attachment SET task_id=NULL,run_id=NULL WHERE workspace_id=$1`, p.WorkspaceID); err != nil {
 					t.Fatal(err)
 				}
 			case "actor":
@@ -287,7 +287,7 @@ func TestWorkflowResultRevalidatesAfterUpload(t *testing.T) {
 	}
 }
 
-func TestWorkflowResultAgentTaskIdentity(t *testing.T) {
+func TestWorkflowResultAgentRunIdentity(t *testing.T) {
 	pool, svc, p, _ := workflowResultFixture(t)
 	ctx := context.Background()
 	execution, err := svc.Queries.GetWorkflowStageExecution(ctx, db.GetWorkflowStageExecutionParams{WorkspaceID: p.WorkspaceID, ID: p.ExecutionID})
@@ -296,15 +296,15 @@ func TestWorkflowResultAgentTaskIdentity(t *testing.T) {
 	}
 	p.ActorType = "agent"
 	p.ActorID = execution.ExecutorID
-	p.SourceTaskID = execution.MainTaskID
+	p.SourceRunID = execution.MainRunID
 	if _, err := svc.SubmitResult(ctx, p); !errors.Is(err, ErrWorkflowResultAccess) {
 		t.Fatalf("queued agent submitted: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='running' WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='running' WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	wrong := p
-	wrong.SourceTaskID = util.MustParseUUID(uuid.NewString())
+	wrong.SourceRunID = util.MustParseUUID(uuid.NewString())
 	if _, err := svc.SubmitResult(ctx, wrong); !errors.Is(err, ErrWorkflowResultAccess) {
 		t.Fatalf("foreign task accepted: %v", err)
 	}

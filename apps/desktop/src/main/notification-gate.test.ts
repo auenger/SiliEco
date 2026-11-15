@@ -38,7 +38,7 @@ describe("parseNativeNotificationPayload", () => {
       parseNativeNotificationPayload({
         slug: "acme",
         itemId: "item-1",
-        issueKey: "SILI-1",
+        taskKey: "SILI-1",
         title: "New update",
       }),
     ).toBeNull();
@@ -48,7 +48,7 @@ describe("parseNativeNotificationPayload", () => {
     const payload = {
       slug: "acme",
       itemId: "item-1",
-      issueKey: "SILI-1",
+      taskKey: "SILI-1",
       title: "New update",
       body: "A comment was added",
     };
@@ -59,7 +59,7 @@ describe("parseNativeNotificationPayload", () => {
     const payload = {
       slug: "",
       itemId: "item-1",
-      issueKey: "SILI-1",
+      taskKey: "SILI-1",
       title: "New update",
       body: "",
     };

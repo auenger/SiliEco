@@ -4,7 +4,7 @@ import { useAuthStore } from "../auth";
 import { useChatStore } from "../chat";
 import { chatKeys, chatSessionsOptions } from "../chat/queries";
 import { agentListOptions, memberListOptions } from "../workspace/queries";
-import { canAssignAgentToIssue } from "../permissions";
+import { canAssignAgentToTask } from "../permissions";
 import { getCurrentWsId } from "../platform/workspace-storage";
 import type { ChatSession } from "../types";
 import { feedbackDraftKey, usePageFeedbackStore, type FeedbackDraft, type FeedbackItem } from "./draft-store";
@@ -31,7 +31,7 @@ export function useFeedbackChat(context: BrowserContext, image: (item: FeedbackI
         ]);
         guard();
         const role = members.find((member) => member.user_id === context.userId)?.role ?? null;
-        const available = agents.filter((agent) => !agent.archived_at && canAssignAgentToIssue(agent, { userId: context.userId, role }).allowed);
+        const available = agents.filter((agent) => !agent.archived_at && canAssignAgentToTask(agent, { userId: context.userId, role }).allowed);
         const chat = useChatStore.getState();
         const activeAgentId = sessions.find((session) => session.id === chat.activeSessionId)?.agent_id;
         const agent = available.find((a) => a.id === activeAgentId) ?? available.find((a) => a.id === chat.selectedAgentId) ?? available[0];

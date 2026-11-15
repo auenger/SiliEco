@@ -87,9 +87,9 @@ vi.mock("@silieco/core/workspace/queries", () => ({
 vi.mock("@silieco/core/projects/queries", () => ({
   projectListOptions: () => ({ queryKey: ["projects"] }),
 }));
-vi.mock("@silieco/views/issues/components", () => ({ canAssignAgent: () => true }));
+vi.mock("@silieco/views/tasks/components", () => ({ canAssignAgent: () => true }));
 vi.mock("@silieco/core/api", () => ({
-  api: { sendChatMessage: vi.fn(), cancelTaskById: vi.fn() },
+  api: { sendChatMessage: vi.fn(), cancelRunById: vi.fn() },
   // Names the 403 that a revoked invoke permission raises (SILI-4525); plain
   // failures have no reason code.
   dispatchReasonCode: () => undefined,
@@ -231,6 +231,20 @@ describe("useChatController project context", () => {
     h.projects = [];
   });
 
+  it("updates a group's project without starting an agent direct chat", () => {
+    const session = makeSession({ id: "group-session", agent_id: "", kind: "group", participants: [{ type: "member", id: "user-1" }, { type: "agent", id: "agent-a" }] });
+    h.store.activeSessionId = session.id;
+    h.sessions = [session];
+    h.agents = [agentA];
+    h.projects = [project];
+    const { result } = renderHook(() => useChatController());
+    h.store.setActiveSession.mockClear();
+    act(() => result.current.handleProjectChange(project.id));
+    expect(h.setProjectMutate).toHaveBeenCalledWith({ sessionId: session.id, projectId: project.id });
+    expect(h.store.setActiveSession).not.toHaveBeenCalled();
+    expect(h.createSessionMutate).not.toHaveBeenCalled();
+  });
+
   it("removes the project from the current chat without leaving it", () => {
     const projectSession = makeSession({
       id: "project-session",
@@ -337,7 +351,7 @@ describe("useChatController project context", () => {
     h.projects = [project];
     vi.mocked(api.sendChatMessage).mockResolvedValue({
       message_id: "message-1",
-      task_id: "task-1",
+      run_id: "run-1",
       created_at: new Date(0).toISOString(),
     } as Awaited<ReturnType<typeof api.sendChatMessage>>);
 
@@ -715,7 +729,7 @@ describe("useChatController.handleSend — compose target tracking", () => {
     h.createSessionMutate.mockResolvedValue({ id: "new-session" });
     vi.mocked(api.sendChatMessage).mockResolvedValue({
       message_id: "msg-1",
-      task_id: "task-1",
+      run_id: "run-1",
       created_at: new Date(0).toISOString(),
     } as unknown as Awaited<ReturnType<typeof api.sendChatMessage>>);
   });

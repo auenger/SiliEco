@@ -46,9 +46,9 @@ export async function saveQuestionnaire(
  * hard gate that redirects un-onboarded users back to /onboarding.
  *
  * v3 contract: this is the ONLY mechanism that flips `onboarded_at`
- * from the frontend. All Helper-agent / starter-issue creation is now
+ * from the frontend. All Helper-agent / starter-task creation is now
  * done by the welcome hook in the workspace shell using generic
- * `createAgent` / `createIssue` calls, AFTER this call has returned
+ * `createAgent` / `createTask` calls, AFTER this call has returned
  * and the user has been navigated into the workspace.
  *
  * `completionPath` is the client's view of which Step-3 exit the user

@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.lark_user_binding_installation_id_lark_open_id_key;

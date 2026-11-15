@@ -55,8 +55,8 @@ const restrictedAgentsRowID = "__restricted_agents__"
 // but client-side filtering is decoration: one curl bypasses it.
 //
 // The same fold covers the hidden `kind = 'system'` builder carriers, which no
-// list endpoint returns to anyone: aggregating over agent_task_queue /
-// task_usage picks them up regardless of kind, so without this they arrive as a
+// list endpoint returns to anyone: aggregating over agent_run /
+// agent_run_usage picks them up regardless of kind, so without this they arrive as a
 // bare UUID no client can name.
 //
 // Folding rather than dropping: each of these responses is the per-agent half
@@ -160,11 +160,11 @@ type DashboardUsageDailyResponse struct {
 	UncostedOutputTokens     int64 `json:"uncosted_output_tokens"`
 	UncostedCacheReadTokens  int64 `json:"uncosted_cache_read_tokens"`
 	UncostedCacheWriteTokens int64 `json:"uncosted_cache_write_tokens"`
-	TaskCount                int32 `json:"task_count"`
+	RunCount                 int32 `json:"run_count"`
 }
 
 // GetDashboardUsageDaily returns per-(date, model) token rows for the
-// workspace, optionally scoped to a project. Backed by task_usage_hourly,
+// workspace, optionally scoped to a project. Backed by agent_run_usage_hourly,
 // sliced into calendar days under the viewer's tz.
 func (h *Handler) GetDashboardUsageDaily(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
@@ -217,7 +217,7 @@ func (h *Handler) listDashboardUsageDaily(
 			UncostedOutputTokens:     row.UncostedOutputTokens,
 			UncostedCacheReadTokens:  row.UncostedCacheReadTokens,
 			UncostedCacheWriteTokens: row.UncostedCacheWriteTokens,
-			TaskCount:                row.TaskCount,
+			RunCount:                 row.RunCount,
 		}
 	}
 	return resp, nil
@@ -244,12 +244,12 @@ type DashboardUsageByAgentResponse struct {
 	UncostedOutputTokens     int64 `json:"uncosted_output_tokens"`
 	UncostedCacheReadTokens  int64 `json:"uncosted_cache_read_tokens"`
 	UncostedCacheWriteTokens int64 `json:"uncosted_cache_write_tokens"`
-	TaskCount                int32 `json:"task_count"`
+	RunCount                 int32 `json:"run_count"`
 }
 
 // GetDashboardUsageByAgent returns per-(agent, model) token aggregates
 // for the workspace, optionally scoped to a project. Backed by
-// task_usage_hourly with the viewer's tz applied to the `?days=` cutoff.
+// agent_run_usage_hourly with the viewer's tz applied to the `?days=` cutoff.
 func (h *Handler) GetDashboardUsageByAgent(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
 	member, ok := h.workspaceMember(w, r, workspaceID)
@@ -306,7 +306,7 @@ func foldRestrictedUsageByAgent(
 			dst.UncostedOutputTokens += src.UncostedOutputTokens
 			dst.UncostedCacheReadTokens += src.UncostedCacheReadTokens
 			dst.UncostedCacheWriteTokens += src.UncostedCacheWriteTokens
-			dst.TaskCount += src.TaskCount
+			dst.RunCount += src.RunCount
 			return dst
 		},
 	)
@@ -341,7 +341,7 @@ func (h *Handler) listDashboardUsageByAgent(
 			UncostedOutputTokens:     row.UncostedOutputTokens,
 			UncostedCacheReadTokens:  row.UncostedCacheReadTokens,
 			UncostedCacheWriteTokens: row.UncostedCacheWriteTokens,
-			TaskCount:                row.TaskCount,
+			RunCount:                 row.RunCount,
 		}
 	}
 	return resp, nil
@@ -353,7 +353,7 @@ func (h *Handler) listDashboardUsageByAgent(
 type DashboardAgentRunTimeResponse struct {
 	AgentID      string `json:"agent_id"`
 	TotalSeconds int64  `json:"total_seconds"`
-	TaskCount    int32  `json:"task_count"`
+	RunCount     int32  `json:"run_count"`
 	FailedCount  int32  `json:"failed_count"`
 }
 
@@ -396,7 +396,7 @@ func (h *Handler) GetDashboardAgentRunTime(w http.ResponseWriter, r *http.Reques
 		resp[i] = DashboardAgentRunTimeResponse{
 			AgentID:      uuidToString(row.AgentID),
 			TotalSeconds: row.TotalSeconds,
-			TaskCount:    row.TaskCount,
+			RunCount:     row.RunCount,
 			FailedCount:  row.FailedCount,
 		}
 	}
@@ -419,7 +419,7 @@ func foldRestrictedAgentRunTime(
 		},
 		func(dst, src DashboardAgentRunTimeResponse) DashboardAgentRunTimeResponse {
 			dst.TotalSeconds += src.TotalSeconds
-			dst.TaskCount += src.TaskCount
+			dst.RunCount += src.RunCount
 			dst.FailedCount += src.FailedCount
 			return dst
 		},
@@ -432,7 +432,7 @@ func foldRestrictedAgentRunTime(
 type DashboardRunTimeDailyResponse struct {
 	Date         string `json:"date"`
 	TotalSeconds int64  `json:"total_seconds"`
-	TaskCount    int32  `json:"task_count"`
+	RunCount     int32  `json:"run_count"`
 	FailedCount  int32  `json:"failed_count"`
 }
 
@@ -471,7 +471,7 @@ func (h *Handler) GetDashboardRunTimeDaily(w http.ResponseWriter, r *http.Reques
 		resp[i] = DashboardRunTimeDailyResponse{
 			Date:         row.Date.Time.Format("2006-01-02"),
 			TotalSeconds: row.TotalSeconds,
-			TaskCount:    row.TaskCount,
+			RunCount:     row.RunCount,
 			FailedCount:  row.FailedCount,
 		}
 	}
@@ -489,7 +489,7 @@ func (h *Handler) GetDashboardRunTimeDaily(w http.ResponseWriter, r *http.Reques
 // disagree, because those require started_at IS NOT NULL and a task that
 // expired in the queue never started.
 //
-// FailureReason values are the canonical taxonomy from core/pkg/taskfailure
+// FailureReason values are the canonical taxonomy from core/pkg/runfailure
 // (21 reasons), plus "unclassified" for failed rows with a NULL / empty
 // column. The client folds them into a handful of display classes; the raw
 // reason stays on the wire so that mapping can change without a backend
@@ -501,7 +501,7 @@ func (h *Handler) GetDashboardRunTimeDaily(w http.ResponseWriter, r *http.Reques
 type DashboardFailureDailyResponse struct {
 	Date          string `json:"date"`
 	FailureReason string `json:"failure_reason"`
-	TaskCount     int32  `json:"task_count"`
+	RunCount      int32  `json:"run_count"`
 }
 
 // GetDashboardFailuresDaily returns per-(date, failure_reason) terminal-task
@@ -537,7 +537,7 @@ func (h *Handler) GetDashboardFailuresDaily(w http.ResponseWriter, r *http.Reque
 		resp[i] = DashboardFailureDailyResponse{
 			Date:          row.Date.Time.Format("2006-01-02"),
 			FailureReason: row.FailureReason,
-			TaskCount:     row.TaskCount,
+			RunCount:      row.RunCount,
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -548,7 +548,7 @@ func (h *Handler) GetDashboardFailuresDaily(w http.ResponseWriter, r *http.Reque
 type DashboardFailureByAgentResponse struct {
 	AgentID       string `json:"agent_id"`
 	FailureReason string `json:"failure_reason"`
-	TaskCount     int32  `json:"task_count"`
+	RunCount      int32  `json:"run_count"`
 }
 
 // GetDashboardFailuresByAgent returns per-(agent, failure_reason)
@@ -592,7 +592,7 @@ func (h *Handler) GetDashboardFailuresByAgent(w http.ResponseWriter, r *http.Req
 		resp[i] = DashboardFailureByAgentResponse{
 			AgentID:       uuidToString(row.AgentID),
 			FailureReason: row.FailureReason,
-			TaskCount:     row.TaskCount,
+			RunCount:      row.RunCount,
 		}
 	}
 	writeJSON(w, http.StatusOK, foldRestrictedFailuresByAgent(resp, restricted))
@@ -617,7 +617,7 @@ func foldRestrictedFailuresByAgent(
 			return row, reason
 		},
 		func(dst, src DashboardFailureByAgentResponse) DashboardFailureByAgentResponse {
-			dst.TaskCount += src.TaskCount
+			dst.RunCount += src.RunCount
 			return dst
 		},
 	)

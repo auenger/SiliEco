@@ -205,8 +205,8 @@ func runWorkflowResultCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if (cmd.Name() == "agent-review" || cmd.Name() == "agent-decision") && (client.AgentID == "" || client.TaskID == "") {
-		return fmt.Errorf("agent review requires the bound reviewer call identity (SILIECO_AGENT_ID and SILIECO_TASK_ID)")
+	if (cmd.Name() == "agent-review" || cmd.Name() == "agent-decision") && (client.AgentID == "" || client.RunID == "") {
+		return fmt.Errorf("agent review requires the bound reviewer call identity (SILIECO_AGENT_ID and SILIECO_RUN_ID)")
 	}
 	ctx, cancel := context.WithTimeout(cmd.Context(), cli.AtLeastAPITimeout(2*time.Minute))
 	defer cancel()

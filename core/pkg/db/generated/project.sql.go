@@ -12,7 +12,7 @@ import (
 )
 
 const clearProjectWorkflowTasks = `-- name: ClearProjectWorkflowTasks :exec
-UPDATE issue SET
+UPDATE task SET
     workflow_instance_id = NULL,
     workflow_stage_id = NULL,
     workflow_stage_execution_id = NULL,
@@ -32,13 +32,13 @@ func (q *Queries) ClearProjectWorkflowTasks(ctx context.Context, arg ClearProjec
 	return err
 }
 
-const countIssuesByProject = `-- name: CountIssuesByProject :one
-SELECT count(*) FROM issue
+const countTasksByProject = `-- name: CountTasksByProject :one
+SELECT count(*) FROM task
 WHERE project_id = $1
 `
 
-func (q *Queries) CountIssuesByProject(ctx context.Context, projectID pgtype.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countIssuesByProject, projectID)
+func (q *Queries) CountTasksByProject(ctx context.Context, projectID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countTasksByProject, projectID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -48,9 +48,19 @@ const createProject = `-- name: CreateProject :one
 INSERT INTO project (
     workspace_id, title, description, icon, status,
     lead_type, lead_id, priority, start_date, due_date
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority, start_date, due_date
+) SELECT
+    $1 AS workspace_id,
+    $2 AS title,
+    $3 AS description,
+    $4 AS icon,
+    $5 AS status,
+    $6 AS lead_type,
+    $7 AS lead_id,
+    $8 AS priority,
+    $9 AS start_date,
+    $10 AS due_date
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+ RETURNING id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority, start_date, due_date
 `
 
 type CreateProjectParams struct {
@@ -99,7 +109,24 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 }
 
 const deleteProject = `-- name: DeleteProject :exec
-DELETE FROM project WHERE id = $1 AND workspace_id = $2
+WITH RECURSIVE cleanup_target_project AS MATERIALIZED (
+    SELECT project.id, project.workspace_id, project.title, project.description, project.icon, project.status, project.lead_type, project.lead_id, project.created_at, project.updated_at, project.priority, project.start_date, project.due_date FROM "project" project WHERE project.id = $1 AND project.workspace_id = $2
+),
+cleanup_target_project_resource AS MATERIALIZED (
+    SELECT child.id, child.project_id, child.workspace_id, child.resource_type, child.resource_ref, child.label, child.position, child.created_at, child.created_by FROM "project_resource" child WHERE EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id")
+),
+cleanup_delete_project_resource AS (
+    DELETE FROM "project_resource" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_project_resource)
+),
+cleanup_detach_autopilot AS (
+    UPDATE "autopilot" child SET "project_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id") THEN NULL ELSE child."project_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id"))
+),
+cleanup_detach_task AS (
+    UPDATE "task" child SET "project_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id") THEN NULL ELSE child."project_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id"))
+)
+DELETE FROM "project" project WHERE (project."id") IN (SELECT "id" FROM cleanup_target_project)
 `
 
 type DeleteProjectParams struct {
@@ -107,7 +134,7 @@ type DeleteProjectParams struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 }
 
-// Defense-in-depth: workspace_id is a SQL-layer tenant guard. See DeleteIssue.
+// Defense-in-depth: workspace_id is a SQL-layer tenant guard. See DeleteTask.
 func (q *Queries) DeleteProject(ctx context.Context, arg DeleteProjectParams) error {
 	_, err := q.db.Exec(ctx, deleteProject, arg.ID, arg.WorkspaceID)
 	return err
@@ -115,14 +142,14 @@ func (q *Queries) DeleteProject(ctx context.Context, arg DeleteProjectParams) er
 
 const deleteProjectWorkflowGateDecisions = `-- name: DeleteProjectWorkflowGateDecisions :exec
 WITH cleared_review_recoveries AS (
- DELETE FROM workflow_review_recovery WHERE workspace_id=$1
- AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=$2 AND workspace_id=$1)
+ DELETE FROM workflow_review_recovery WHERE workflow_review_recovery.workspace_id=$1
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE workflow_instance.project_id=$2 AND workspace_id=$1)
 ), cleared_reworks AS (
- DELETE FROM workflow_rework WHERE workspace_id=$1
- AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=$2 AND workspace_id=$1)
+ DELETE FROM workflow_rework WHERE workflow_rework.workspace_id=$1
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE workflow_instance.project_id=$2 AND workspace_id=$1)
 ), cleared_requests AS (
- DELETE FROM workflow_review_request WHERE workspace_id=$1
- AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=$2 AND workspace_id=$1)
+ DELETE FROM workflow_review_request WHERE workflow_review_request.workspace_id=$1
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE workflow_instance.project_id=$2 AND workspace_id=$1)
 )
 DELETE FROM workflow_gate_decision AS decision
 WHERE decision.workspace_id = $1
@@ -315,30 +342,30 @@ func (q *Queries) GetProjectInWorkspace(ctx context.Context, arg GetProjectInWor
 	return i, err
 }
 
-const getProjectIssueStats = `-- name: GetProjectIssueStats :many
+const getProjectTaskStats = `-- name: GetProjectTaskStats :many
 SELECT project_id,
        count(*)::bigint AS total_count,
        count(*) FILTER (WHERE status IN ('done', 'cancelled'))::bigint AS done_count
-FROM issue
+FROM task
 WHERE project_id = ANY($1::uuid[])
 GROUP BY project_id
 `
 
-type GetProjectIssueStatsRow struct {
+type GetProjectTaskStatsRow struct {
 	ProjectID  pgtype.UUID `json:"project_id"`
 	TotalCount int64       `json:"total_count"`
 	DoneCount  int64       `json:"done_count"`
 }
 
-func (q *Queries) GetProjectIssueStats(ctx context.Context, projectIds []pgtype.UUID) ([]GetProjectIssueStatsRow, error) {
-	rows, err := q.db.Query(ctx, getProjectIssueStats, projectIds)
+func (q *Queries) GetProjectTaskStats(ctx context.Context, projectIds []pgtype.UUID) ([]GetProjectTaskStatsRow, error) {
+	rows, err := q.db.Query(ctx, getProjectTaskStats, projectIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []GetProjectIssueStatsRow{}
+	items := []GetProjectTaskStatsRow{}
 	for rows.Next() {
-		var i GetProjectIssueStatsRow
+		var i GetProjectTaskStatsRow
 		if err := rows.Scan(&i.ProjectID, &i.TotalCount, &i.DoneCount); err != nil {
 			return nil, err
 		}

@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.runtime_profile_workspace_id_display_name_key;

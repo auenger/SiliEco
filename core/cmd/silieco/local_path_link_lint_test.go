@@ -10,7 +10,7 @@ import (
 // withAgentContext makes inAgentExecutionContext() report true for one test.
 func withAgentContext(t *testing.T) {
 	t.Helper()
-	t.Setenv("SILIECO_TASK_ID", "task-1")
+	t.Setenv("SILIECO_RUN_ID", "task-1")
 }
 
 // withWorkdir chdirs into a fresh temp dir so workdir-prefix classification has
@@ -124,9 +124,9 @@ func TestFindLocalPathLinksAllowsLegitimateContent(t *testing.T) {
 		{
 			// The canonical in-app link. Absolute-looking, but a valid
 			// origin-relative URI reference (RFC 3986 §4.2) — blocking it would
-			// break every issue link an agent writes.
+			// break every task link an agent writes.
 			name: "origin-relative in-app link",
-			body: "see [SILI-1](/acme/issues/SILI-1) and [inbox](/issues/123)",
+			body: "see [SILI-1](/acme/tasks/SILI-1) and [inbox](/tasks/123)",
 		},
 		{
 			name: "external http link",
@@ -167,7 +167,7 @@ func TestFindLocalPathLinksAllowsLegitimateContent(t *testing.T) {
 		},
 		{
 			name: "link text mentioning a path is not a destination",
-			body: "[" + shot + "](/acme/issues/1)",
+			body: "[" + shot + "](/acme/tasks/1)",
 		},
 		{
 			name: "empty body",
@@ -206,11 +206,11 @@ func TestGuardLocalPathLinksOnlyFiresInAgentContext(t *testing.T) {
 	body := "[screenshot](" + shot + ")"
 
 	t.Run("human PAT context is never linted", func(t *testing.T) {
-		// No SILIECO_AGENT_ID / SILIECO_TASK_ID: a person running the CLI. Their
+		// No SILIECO_AGENT_ID / SILIECO_RUN_ID: a person running the CLI. Their
 		// links are their own business — they may well have a path the reader
 		// really can open.
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		if err := guardLocalPathLinks(body, "comment body", "hint"); err != nil {
 			t.Errorf("expected no error outside agent context, got: %v", err)
 		}
@@ -229,13 +229,13 @@ func TestGuardLocalPathLinksOnlyFiresInAgentContext(t *testing.T) {
 
 	t.Run("agent context with a clean body passes", func(t *testing.T) {
 		withAgentContext(t)
-		if err := guardLocalPathLinks("all good — see [SILI-1](/acme/issues/SILI-1)", "comment body", "hint"); err != nil {
+		if err := guardLocalPathLinks("all good — see [SILI-1](/acme/tasks/SILI-1)", "comment body", "hint"); err != nil {
 			t.Errorf("expected no error for a clean body, got: %v", err)
 		}
 	})
 }
 
-// The per-command fix hint. `issue update` is the trap: it has no --attachment
+// The per-command fix hint. `task update` is the trap: it has no --attachment
 // flag, so a shared "pass --attachment" message would point the agent at an
 // argument the command rejects and turn one failure into two.
 func TestGuardLocalPathLinksHintIsPerCommand(t *testing.T) {
@@ -248,20 +248,20 @@ func TestGuardLocalPathLinksHintIsPerCommand(t *testing.T) {
 
 	err := guardLocalPathLinks(
 		"[screenshot]("+shot+")",
-		"issue description",
-		"`silieco issue update` cannot carry files — deliver the file with `silieco issue comment add <issue-id> --attachment <path>` instead, and drop the link.",
+		"task description",
+		"`silieco task update` cannot carry files — deliver the file with `silieco task comment add <task-id> --attachment <path>` instead, and drop the link.",
 	)
 	if err == nil {
 		t.Fatal("expected a hard failure")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "`silieco issue update` cannot carry files") {
+	if !strings.Contains(msg, "`silieco task update` cannot carry files") {
 		t.Errorf("update hint missing, got: %v", msg)
 	}
-	if !strings.Contains(msg, "silieco issue comment add <issue-id> --attachment <path>") {
+	if !strings.Contains(msg, "silieco task comment add <task-id> --attachment <path>") {
 		t.Errorf("update hint must redirect to comment add, got: %v", msg)
 	}
-	if strings.Contains(msg, "silieco issue update --attachment") {
-		t.Errorf("update hint must never name a flag `issue update` does not have, got: %v", msg)
+	if strings.Contains(msg, "silieco task update --attachment") {
+		t.Errorf("update hint must never name a flag `task update` does not have, got: %v", msg)
 	}
 }

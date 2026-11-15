@@ -4,15 +4,15 @@ import type { TestApiClient } from "./fixtures";
 
 test.describe("Comments", () => {
   let api: TestApiClient;
-  let issueId: string;
-  let issueTitle: string;
+  let taskId: string;
+  let taskTitle: string;
   let workspaceSlug: string;
 
   test.beforeEach(async ({ page }) => {
     api = await createTestApi();
-    issueTitle = "E2E Comment Test " + Date.now();
-    const issue = await api.createIssue(issueTitle);
-    issueId = issue.id;
+    taskTitle = "E2E Comment Test " + Date.now();
+    const task = await api.createTask(taskTitle);
+    taskId = task.id;
     workspaceSlug = await loginAsDefault(page);
   });
 
@@ -22,11 +22,11 @@ test.describe("Comments", () => {
     }
   });
 
-  test("can add a comment on an issue", async ({ page }) => {
-    await page.goto(`/${workspaceSlug}/issues/${issueId}`, { waitUntil: "domcontentloaded" });
-    await waitForPageText(page, issueTitle);
+  test("can add a comment on a task", async ({ page }) => {
+    await page.goto(`/${workspaceSlug}/tasks/${taskId}`, { waitUntil: "domcontentloaded" });
+    await waitForPageText(page, taskTitle);
 
-    // Wait for issue detail to load
+    // Wait for task detail to load
     await expect(page.locator("text=Properties")).toBeVisible();
 
     // The composer renders as a static shell until clicked (readonly-first);
@@ -53,8 +53,8 @@ test.describe("Comments", () => {
   });
 
   test("comment submit button is disabled when empty", async ({ page }) => {
-    await page.goto(`/${workspaceSlug}/issues/${issueId}`, { waitUntil: "domcontentloaded" });
-    await waitForPageText(page, issueTitle);
+    await page.goto(`/${workspaceSlug}/tasks/${taskId}`, { waitUntil: "domcontentloaded" });
+    await waitForPageText(page, taskTitle);
 
     await expect(page.locator("text=Properties")).toBeVisible();
 

@@ -28,6 +28,7 @@ import {
 } from "@silieco/core/chat/mutations";
 import { useChatStore } from "@silieco/core/chat";
 import type { Agent, ChatSession } from "@silieco/core/types";
+import { ChatGroupAvatar } from "./chat-group-avatar";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
@@ -111,9 +112,7 @@ export function ChatSessionHeader({
   return (
     <div className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
       {session.kind === "group" ? (
-        <span className="flex size-[30px] shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand ring-1 ring-brand/15">
-          <UsersRound className="size-4" />
-        </span>
+        <ChatGroupAvatar participants={session.participants} title={session.title} />
       ) : agent ? (
         <ActorAvatar actorType="agent" actorId={agent.id} size="lg" enableHoverCard showStatusDot />
       ) : (

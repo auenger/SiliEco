@@ -170,10 +170,10 @@ describe("markdownPaste — code block context", () => {
     const parseSpy = vi.spyOn(editor.markdown!, "parse");
 
     const text =
-      "viewFiltersToApiParams(filters) maps to Partial<ListIssuesParams>.";
+      "viewFiltersToApiParams(filters) maps to Partial<ListTasksParams>.";
     const html =
       "<p><code>viewFiltersToApiParams(filters)</code> maps to " +
-      "<code>Partial&lt;ListIssuesParams&gt;</code>.</p>";
+      "<code>Partial&lt;ListTasksParams&gt;</code>.</p>";
 
     const handled = paste(editor, text, html);
     expect(handled).toBe(false);
@@ -341,7 +341,7 @@ describe("markdownPaste — code block context", () => {
 
     const json = JSON.stringify(
       {
-        type: "issue.comment",
+        type: "task.comment",
         payload: {
           title: "Paste JSON into a reply",
           nested: { ok: true, count: 3 },

@@ -109,10 +109,10 @@ export type AutopilotDialogProps =
 // Static schema-level data (not user-visible)
 // ---------------------------------------------------------------------------
 
-const OUTPUT_MODE_KEYS: AutopilotExecutionMode[] = ["create_issue", "run_only"];
+const OUTPUT_MODE_KEYS: AutopilotExecutionMode[] = ["create_task", "run_only"];
 
 const OUTPUT_MODE_ICONS: Record<AutopilotExecutionMode, typeof FilePlus2> = {
-  create_issue: FilePlus2,
+  create_task: FilePlus2,
   run_only: Play,
 };
 
@@ -157,7 +157,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   );
   const [assigneeId, setAssigneeId] = useState<string>(initial.assignee_id ?? "");
   const [executionMode, setExecutionMode] = useState<AutopilotExecutionMode>(
-    initial.execution_mode ?? "create_issue",
+    initial.execution_mode ?? "create_task",
   );
   const [subscriberUserIds, setSubscriberUserIds] = useState<string[]>(
     initial.subscriber_user_ids ?? [],
@@ -269,7 +269,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
         const autopilot = await createAutopilot.mutateAsync({
           title: title.trim(),
           description: description.trim() || undefined,
-          project_id: executionMode === "create_issue" ? projectId : null,
+          project_id: executionMode === "create_task" ? projectId : null,
           assignee_type: assigneeType,
           assignee_id: assigneeId,
           execution_mode: executionMode,
@@ -322,7 +322,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
           id: props.autopilotId,
           title: title.trim(),
           description: description.trim() || null,
-          project_id: executionMode === "create_issue" ? projectId : null,
+          project_id: executionMode === "create_task" ? projectId : null,
           assignee_type: assigneeType,
           assignee_id: assigneeId,
           execution_mode: executionMode,
@@ -562,7 +562,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
 
             <OutputModeSection mode={executionMode} onChange={setExecutionMode} />
 
-            {executionMode === "create_issue" && (
+            {executionMode === "create_task" && (
               <ProjectSection
                 projectId={projectId}
                 selectedProject={selectedProject}
@@ -570,7 +570,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
               />
             )}
 
-            {executionMode === "create_issue" && (
+            {executionMode === "create_task" && (
               <SubscribersSection
                 selectedUserIds={subscriberUserIds}
                 onChange={setSubscriberUserIds}

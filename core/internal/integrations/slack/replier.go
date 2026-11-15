@@ -28,7 +28,7 @@ import (
 //     page. After they bind, their next message reaches the agent.
 //   - AgentOffline / AgentArchived: a status notice so the user is not left
 //     wondering why nothing happened.
-//   - Ingested with an /issue created: a confirmation of the new issue.
+//   - Ingested with an /task created: a confirmation of the new task.
 
 const (
 	agentOfflineText  = "⚠️ The agent is offline right now. Your message was received and will be handled once it's back online."
@@ -53,7 +53,7 @@ type OutboundReplier struct {
 
 // OutboundReplierConfig configures the replier. Binding + AppURL are required
 // for the NeedsBinding prompt to work; without them the prompt is skipped (the
-// offline/archived/issue notices still fire).
+// offline/archived/task notices still fire).
 type OutboundReplierConfig struct {
 	Binding bindingMinter
 	Decrypt Decrypter
@@ -118,11 +118,11 @@ func (r *OutboundReplier) Reply(ctx context.Context, inst engine.ResolvedInstall
 				"installation_id", util.UUIDToString(inst.ID), "error", err)
 		}
 	case engine.OutcomeIngested:
-		// Only a /issue-created message warrants a confirmation; a plain chat
+		// Only a /task-created message warrants a confirmation; a plain chat
 		// message stays silent (the agent's own reply lands via EventChatDone).
-		if res.IssueID.Valid {
-			if err := r.post(ctx, inst, msg, issueCreatedText(res)); err != nil {
-				r.logger.WarnContext(ctx, "slack replier: issue-created confirmation failed",
+		if res.TaskID.Valid {
+			if err := r.post(ctx, inst, msg, taskCreatedText(res)); err != nil {
+				r.logger.WarnContext(ctx, "slack replier: task-created confirmation failed",
 					"installation_id", util.UUIDToString(inst.ID), "error", err)
 			}
 		}
@@ -177,12 +177,12 @@ func (r *OutboundReplier) post(ctx context.Context, inst engine.ResolvedInstalla
 	return nil
 }
 
-func issueCreatedText(res engine.Result) string {
-	id := res.IssueIdentifier
+func taskCreatedText(res engine.Result) string {
+	id := res.TaskIdentifier
 	if id == "" {
-		id = fmt.Sprintf("#%d", res.IssueNumber)
+		id = fmt.Sprintf("#%d", res.TaskNumber)
 	}
-	title := strings.TrimSpace(res.IssueTitle)
+	title := strings.TrimSpace(res.TaskTitle)
 	if title == "" {
 		return "✅ Created " + id
 	}

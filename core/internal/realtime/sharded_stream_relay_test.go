@@ -46,13 +46,13 @@ func TestShardedStreamRelayShardForScopeIsStableAndBounded(t *testing.T) {
 
 func TestShardedStreamRelayDeliverMessageUsesEnvelopeScope(t *testing.T) {
 	hub := NewHub()
-	client := attachRealtimeTestClient(hub, ScopeTask, "task-1")
+	client := attachRealtimeTestClient(hub, ScopeRun, "task-1")
 	relay := NewShardedStreamRelay(hub, nil, nil, ShardedStreamRelayConfig{})
 	ev := envelope{
 		EventID:     "event-1",
-		Scope:       ScopeTask,
+		Scope:       ScopeRun,
 		ScopeID:     "task-1",
-		PayloadJSON: `{"type":"task:updated"}`,
+		PayloadJSON: `{"type":"run:updated"}`,
 	}
 
 	relay.deliverMessage(redis.XMessage{Values: envelopeRedisValues(ev)})
@@ -106,7 +106,7 @@ func TestShardedStreamRelayReplayStartIDIsBounded(t *testing.T) {
 
 func TestShardedStreamRelayReadShardOnceReplaysRetainedMessages(t *testing.T) {
 	hub := NewHub()
-	client := attachRealtimeTestClient(hub, ScopeTask, "task-replay")
+	client := attachRealtimeTestClient(hub, ScopeRun, "task-replay")
 	rdb, mock := redismock.NewClientMock()
 	t.Cleanup(func() { _ = rdb.Close() })
 
@@ -136,9 +136,9 @@ func TestShardedStreamRelayReadShardOnceReplaysRetainedMessages(t *testing.T) {
 			ID: "1710000000000-0",
 			Values: envelopeRedisValues(envelope{
 				EventID:     "event-replayed",
-				Scope:       ScopeTask,
+				Scope:       ScopeRun,
 				ScopeID:     "task-replay",
-				PayloadJSON: `{"type":"task:updated"}`,
+				PayloadJSON: `{"type":"run:updated"}`,
 			}),
 		}},
 	}})

@@ -26,7 +26,7 @@ func TestClassifyNetworkError(t *testing.T) {
 		want ErrorKind
 	}{
 		{"context deadline", context.DeadlineExceeded, KindNetworkTimeout},
-		{"wrapped deadline", fmt.Errorf("resolve issue: %w", context.DeadlineExceeded), KindNetworkTimeout},
+		{"wrapped deadline", fmt.Errorf("resolve task: %w", context.DeadlineExceeded), KindNetworkTimeout},
 		{"net timeout", timeoutErr{}, KindNetworkTimeout},
 		{"dns", &net.DNSError{Err: "no such host", Name: "api.silieco.ai", IsNotFound: true}, KindNetworkDNS},
 		{"connection refused", syscall.ECONNREFUSED, KindNetworkRefused},
@@ -96,16 +96,16 @@ func TestFormatErrorAllKinds(t *testing.T) {
 
 func TestFormatErrorNetwork(t *testing.T) {
 	withLang(t, "en_US.UTF-8")
-	raw := errors.New("Get \"https://api.silieco.ai/api/issues/abc\": context deadline exceeded")
-	netErr := &NetworkError{Kind: KindNetworkTimeout, Op: "GET /api/issues/abc", Err: raw}
-	wrapped := fmt.Errorf("resolve issue: %w", netErr)
+	raw := errors.New("Get \"https://api.silieco.ai/api/tasks/abc\": context deadline exceeded")
+	netErr := &NetworkError{Kind: KindNetworkTimeout, Op: "GET /api/tasks/abc", Err: raw}
+	wrapped := fmt.Errorf("resolve task: %w", netErr)
 
 	got := FormatError(wrapped, false)
 	if !strings.Contains(got, "timed out") {
 		t.Errorf("expected friendly timeout message, got %q", got)
 	}
 	// Must not leak the URL or internal verb chain when debug is off.
-	if strings.Contains(got, "api.silieco.ai") || strings.Contains(got, "resolve issue") {
+	if strings.Contains(got, "api.silieco.ai") || strings.Contains(got, "resolve task") {
 		t.Errorf("user message leaked internal detail: %q", got)
 	}
 }
@@ -123,7 +123,7 @@ func TestFormatErrorValidationUsesServerMessage(t *testing.T) {
 	withLang(t, "en_US.UTF-8")
 	httpErr := &HTTPError{
 		Method:     "POST",
-		Path:       "/api/issues",
+		Path:       "/api/tasks",
 		StatusCode: 422,
 		Body:       `{"error":"title is required"}`,
 	}
@@ -135,16 +135,16 @@ func TestFormatErrorValidationUsesServerMessage(t *testing.T) {
 
 func TestFormatErrorDebugIncludesRawChain(t *testing.T) {
 	withLang(t, "en_US.UTF-8")
-	httpErr := &HTTPError{Method: "GET", Path: "/api/issues/abc", StatusCode: 404, Body: `{"error":"not found"}`}
-	wrapped := fmt.Errorf("resolve issue: %w", httpErr)
+	httpErr := &HTTPError{Method: "GET", Path: "/api/tasks/abc", StatusCode: 404, Body: `{"error":"not found"}`}
+	wrapped := fmt.Errorf("resolve task: %w", httpErr)
 
 	off := FormatError(wrapped, false)
-	if strings.Contains(off, "/api/issues/abc") {
+	if strings.Contains(off, "/api/tasks/abc") {
 		t.Errorf("debug-off output should not contain raw path: %q", off)
 	}
 
 	on := FormatError(wrapped, true)
-	if !strings.Contains(on, "[debug]") || !strings.Contains(on, "/api/issues/abc") {
+	if !strings.Contains(on, "[debug]") || !strings.Contains(on, "/api/tasks/abc") {
 		t.Errorf("debug-on output should include raw chain: %q", on)
 	}
 }

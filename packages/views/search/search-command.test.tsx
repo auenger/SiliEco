@@ -26,10 +26,10 @@ const renderSearch = () => render(<SearchCommand />, { wrapper: I18nWrapper });
 
 const {
   mockPush,
-  mockSearchIssues,
+  mockSearchTasks,
   mockSearchProjects,
   mockRecentItems,
-  mockAllIssues,
+  mockAllTasks,
   mockSetTheme,
   mockTheme,
   mockPathname,
@@ -47,13 +47,13 @@ const {
   mockResolvedExpandAll,
 } = vi.hoisted(() => ({
   mockPush: vi.fn(),
-  mockSearchIssues: vi.fn(),
+  mockSearchTasks: vi.fn(),
   mockSearchProjects: vi.fn(),
   mockRecentItems: { current: [] as Array<{ id: string; visitedAt: number }> },
-  mockAllIssues: { current: [] as Array<Record<string, unknown>> },
+  mockAllTasks: { current: [] as Array<Record<string, unknown>> },
   mockSetTheme: vi.fn(),
   mockTheme: { current: "system" as "light" | "dark" | "system" },
-  mockPathname: { current: "/ws-test/issues" as string },
+  mockPathname: { current: "/ws-test/tasks" as string },
   mockGetShareableUrl: vi.fn((p: string) => `https://app.silieco/${p}`),
   mockMembers: {
     current: [] as Array<{
@@ -94,7 +94,7 @@ const {
 vi.mock("@silieco/core/api", () => ({
   api: {
     getBaseUrl: () => "http://127.0.0.1:8080",
-    searchIssues: mockSearchIssues,
+    searchTasks: mockSearchTasks,
     searchProjects: mockSearchProjects,
   },
 }));
@@ -117,17 +117,17 @@ vi.mock("../common/actor-avatar", () => ({
             : undefined;
     return (
       <span
-        data-testid="issue-assignee-avatar"
+        data-testid="task-assignee-avatar"
         title={name ?? `${actorType}:${actorId}`}
       />
     );
   },
 }));
 
-vi.mock("@silieco/core/issues/stores", () => {
+vi.mock("@silieco/core/tasks/stores", () => {
   const EMPTY: Array<{ id: string; visitedAt: number }> = [];
   return {
-    useRecentIssuesStore: (
+    useRecentTasksStore: (
       selector?: (state: {
         byWorkspace: Record<string, typeof mockRecentItems.current>;
       }) => unknown,
@@ -135,12 +135,12 @@ vi.mock("@silieco/core/issues/stores", () => {
       const state = { byWorkspace: { "ws-test": mockRecentItems.current } };
       return selector ? selector(state) : state;
     },
-    selectRecentIssues:
+    selectRecentTasks:
       (wsId: string | null) =>
       (state: { byWorkspace: Record<string, typeof mockRecentItems.current> }) =>
         wsId ? (state.byWorkspace[wsId] ?? EMPTY) : EMPTY,
-    openCreateIssueWithPreference: (data?: Record<string, unknown> | null) =>
-      mockOpenModal("quick-create-issue", data ?? null),
+    openCreateTaskWithPreference: (data?: Record<string, unknown> | null) =>
+      mockOpenModal("quick-create-task", data ?? null),
     useCommentCollapseStore: Object.assign(vi.fn(), {
       getState: () => ({
         collapseAll: mockCommentCollapseAll,
@@ -166,14 +166,14 @@ vi.mock("@silieco/core/paths", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@silieco/core/paths")>()),
   useWorkspacePaths: () => ({
     inbox: () => "/ws-test/inbox",
-    myIssues: () => "/ws-test/my-issues",
-    issues: () => "/ws-test/issues",
+    myTasks: () => "/ws-test/my-tasks",
+    tasks: () => "/ws-test/tasks",
     projects: () => "/ws-test/projects",
     agents: () => "/ws-test/agents",
     runtimes: () => "/ws-test/runtimes",
     skills: () => "/ws-test/skills",
     settings: () => "/ws-test/settings",
-    issueDetail: (id: string) => `/ws-test/issues/${id}`,
+    taskDetail: (id: string) => `/ws-test/tasks/${id}`,
     memberDetail: (id: string) => `/ws-test/members/${id}`,
     agentDetail: (id: string) => `/ws-test/agents/${id}`,
     squadDetail: (id: string) => `/ws-test/squads/${id}`,
@@ -181,12 +181,12 @@ vi.mock("@silieco/core/paths", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("@silieco/core/issues/queries", () => ({
-  issueDetailOptions: (_wsId: string, id: string) => ({
-    queryKey: ["issues", "ws-test", "detail", id],
+vi.mock("@silieco/core/tasks/queries", () => ({
+  taskDetailOptions: (_wsId: string, id: string) => ({
+    queryKey: ["tasks", "ws-test", "detail", id],
   }),
-  issueTimelineOptions: (id: string) => ({
-    queryKey: ["issues", "timeline", id],
+  taskTimelineOptions: (id: string) => ({
+    queryKey: ["tasks", "timeline", id],
   }),
 }));
 
@@ -202,11 +202,11 @@ vi.mock("@silieco/core/modals", () => ({
   }),
 }));
 
-function resolveIssue(key: readonly unknown[]) {
-  // issueDetailOptions key shape: ["issues", wsId, "detail", id]
-  if (key[0] === "issues" && key[2] === "detail") {
+function resolveTask(key: readonly unknown[]) {
+  // taskDetailOptions key shape: ["tasks", wsId, "detail", id]
+  if (key[0] === "tasks" && key[2] === "detail") {
     const id = key[3];
-    return mockAllIssues.current.find((i) => i.id === id);
+    return mockAllTasks.current.find((i) => i.id === id);
   }
   return undefined;
 }
@@ -224,10 +224,10 @@ vi.mock("@tanstack/react-query", () => ({
       return { data: mockSquads.current };
     }
     if (opts.enabled === false) return { data: undefined };
-    return { data: resolveIssue(key) };
+    return { data: resolveTask(key) };
   },
   useQueries: (opts: { queries: Array<{ queryKey: readonly unknown[] }> }) =>
-    opts.queries.map((q) => ({ data: resolveIssue(q.queryKey) })),
+    opts.queries.map((q) => ({ data: resolveTask(q.queryKey) })),
   useQueryClient: () => ({
     ensureQueryData: (opts: { queryKey: readonly unknown[] }) =>
       opts.queryKey[1] === "timeline"
@@ -255,15 +255,15 @@ vi.mock("sonner", () => ({
 describe("SearchCommand", () => {
   beforeEach(() => {
     mockPush.mockReset();
-    mockSearchIssues.mockReset().mockResolvedValue({ issues: [] });
+    mockSearchTasks.mockReset().mockResolvedValue({ tasks: [] });
     mockSearchProjects.mockReset().mockResolvedValue({ projects: [] });
     mockRecentItems.current = [];
-    mockAllIssues.current = [];
+    mockAllTasks.current = [];
     mockAgents.current = [];
     mockSquads.current = [];
     mockSetTheme.mockReset();
     mockTheme.current = "system";
-    mockPathname.current = "/ws-test/issues";
+    mockPathname.current = "/ws-test/tasks";
     mockGetShareableUrl.mockReset().mockImplementation((p: string) => `https://app.silieco/${p}`);
     mockMembers.current = [];
     mockOpenModal.mockReset();
@@ -301,7 +301,7 @@ describe("SearchCommand", () => {
     expect(screen.queryByPlaceholderText("Type a command or search...")).not.toBeInTheDocument();
   });
 
-  it("shows only New Issue by default and hides Pages / low-frequency commands until query", () => {
+  it("shows only New Task by default and hides Pages / low-frequency commands until query", () => {
     renderSearch();
 
     expect(screen.queryByText("Pages")).not.toBeInTheDocument();
@@ -309,7 +309,7 @@ describe("SearchCommand", () => {
     // else (theme, copy, New Project) must be revealed by typing.
     expect(screen.getByText("Commands")).toBeInTheDocument();
     expect(
-      screen.getByText((_, el) => el?.textContent === "New Issue" && el?.tagName === "SPAN"),
+      screen.getByText((_, el) => el?.textContent === "New Task" && el?.tagName === "SPAN"),
     ).toBeInTheDocument();
     expect(screen.queryByText("New Project")).not.toBeInTheDocument();
     expect(screen.queryByText("Switch to Light Theme")).not.toBeInTheDocument();
@@ -394,26 +394,26 @@ describe("SearchCommand", () => {
     expect(useSearchStore.getState().open).toBe(false);
   });
 
-  it("renders recent issues from query cache joined with store visit records", () => {
+  it("renders recent tasks from query cache joined with store visit records", () => {
     mockRecentItems.current = [
-      { id: "issue-1", visitedAt: 1000 },
-      { id: "issue-2", visitedAt: 900 },
+      { id: "task-1", visitedAt: 1000 },
+      { id: "task-2", visitedAt: 900 },
     ];
-    mockAllIssues.current = [
-      { id: "issue-1", identifier: "SILI-1", title: "First issue", status: "todo" },
-      { id: "issue-2", identifier: "SILI-2", title: "Second issue", status: "done" },
+    mockAllTasks.current = [
+      { id: "task-1", identifier: "SILI-1", title: "First task", status: "todo" },
+      { id: "task-2", identifier: "SILI-2", title: "Second task", status: "done" },
     ];
 
     renderSearch();
 
     expect(screen.getByText("Recent")).toBeInTheDocument();
-    expect(screen.getByText("First issue")).toBeInTheDocument();
+    expect(screen.getByText("First task")).toBeInTheDocument();
     expect(screen.getByText("SILI-1")).toBeInTheDocument();
-    expect(screen.getByText("Second issue")).toBeInTheDocument();
+    expect(screen.getByText("Second task")).toBeInTheDocument();
     expect(screen.getByText("SILI-2")).toBeInTheDocument();
   });
 
-  it("shows New Issue / New Project under Commands and triggers the modal store", async () => {
+  it("shows New Task / New Project under Commands and triggers the modal store", async () => {
     const user = userEvent.setup();
     renderSearch();
 
@@ -423,23 +423,23 @@ describe("SearchCommand", () => {
     await waitFor(() => {
       expect(screen.getByText("Commands")).toBeInTheDocument();
       expect(
-        screen.getByText((_, el) => el?.textContent === "New Issue" && el?.tagName === "SPAN"),
+        screen.getByText((_, el) => el?.textContent === "New Task" && el?.tagName === "SPAN"),
       ).toBeInTheDocument();
       expect(
         screen.getByText((_, el) => el?.textContent === "New Project" && el?.tagName === "SPAN"),
       ).toBeInTheDocument();
     });
 
-    const newIssue = await screen.findByText(
-      (_, el) => el?.textContent === "New Issue" && el?.tagName === "SPAN",
+    const newTask = await screen.findByText(
+      (_, el) => el?.textContent === "New Task" && el?.tagName === "SPAN",
     );
-    await user.click(newIssue);
+    await user.click(newTask);
 
-    expect(mockOpenModal).toHaveBeenCalledWith("quick-create-issue", null);
+    expect(mockOpenModal).toHaveBeenCalledWith("quick-create-task", null);
     expect(useSearchStore.getState().open).toBe(false);
   });
 
-  it("hides copy-link commands when not on an issue detail route", async () => {
+  it("hides copy-link commands when not on an task detail route", async () => {
     const user = userEvent.setup();
     mockPathname.current = "/ws-test/projects";
     renderSearch();
@@ -448,19 +448,19 @@ describe("SearchCommand", () => {
     await user.type(input, "copy");
 
     // Commands section may still be empty / absent.
-    expect(screen.queryByText("Copy Issue Link")).not.toBeInTheDocument();
+    expect(screen.queryByText("Copy Task Link")).not.toBeInTheDocument();
   });
 
-  it("copies issue link and identifier when on an issue detail route", async () => {
+  it("copies task link and identifier when on an task detail route", async () => {
     const user = userEvent.setup();
     // userEvent.setup() installs its own navigator.clipboard; spy on it so we
     // intercept the writeText call without clobbering userEvent's internals.
     const writeSpy = vi
       .spyOn(navigator.clipboard, "writeText")
       .mockImplementation(mockClipboardWrite);
-    mockPathname.current = "/ws-test/issues/issue-1";
-    mockAllIssues.current = [
-      { id: "issue-1", identifier: "SILI-42", title: "Demo", status: "todo" },
+    mockPathname.current = "/ws-test/tasks/task-1";
+    mockAllTasks.current = [
+      { id: "task-1", identifier: "SILI-42", title: "Demo", status: "todo" },
     ];
     renderSearch();
 
@@ -468,12 +468,12 @@ describe("SearchCommand", () => {
     await user.type(input, "copy");
 
     const linkItem = await screen.findByText(
-      (_, el) => el?.textContent === "Copy Issue Link" && el?.tagName === "SPAN",
+      (_, el) => el?.textContent === "Copy Task Link" && el?.tagName === "SPAN",
     );
     await user.click(linkItem);
 
-    expect(mockGetShareableUrl).toHaveBeenCalledWith("/ws-test/issues/issue-1");
-    expect(mockClipboardWrite).toHaveBeenCalledWith("https://app.silieco//ws-test/issues/issue-1");
+    expect(mockGetShareableUrl).toHaveBeenCalledWith("/ws-test/tasks/task-1");
+    expect(mockClipboardWrite).toHaveBeenCalledWith("https://app.silieco//ws-test/tasks/task-1");
     expect(mockToastSuccess).toHaveBeenCalledWith("Link copied");
 
     // Reopen palette and test identifier copy
@@ -493,7 +493,7 @@ describe("SearchCommand", () => {
     writeSpy.mockRestore();
   });
 
-  it("hides fold/unfold-all-comments commands off issue detail routes", async () => {
+  it("hides fold/unfold-all-comments commands off task detail routes", async () => {
     const user = userEvent.setup();
     mockPathname.current = "/ws-test/projects";
     renderSearch();
@@ -505,11 +505,11 @@ describe("SearchCommand", () => {
     expect(screen.queryByText("Unfold All Comments")).not.toBeInTheDocument();
   });
 
-  it("folds all comments on the current issue, including expanded resolved threads", async () => {
+  it("folds all comments on the current task, including expanded resolved threads", async () => {
     const user = userEvent.setup();
-    mockPathname.current = "/ws-test/issues/issue-1";
-    mockAllIssues.current = [
-      { id: "issue-1", identifier: "SILI-42", title: "Demo", status: "todo" },
+    mockPathname.current = "/ws-test/tasks/task-1";
+    mockAllTasks.current = [
+      { id: "task-1", identifier: "SILI-42", title: "Demo", status: "todo" },
     ];
     mockTimeline.current = [
       { type: "activity", id: "act-1", actor_type: "member", actor_id: "u1", created_at: "2026-01-01T00:00:00Z", action: "status_changed" },
@@ -529,18 +529,18 @@ describe("SearchCommand", () => {
 
     await waitFor(() => {
       // Root comments only — replies fold with their thread, activities are not comments.
-      expect(mockCommentCollapseAll).toHaveBeenCalledWith("issue-1", ["root-1", "root-2"]);
+      expect(mockCommentCollapseAll).toHaveBeenCalledWith("task-1", ["root-1", "root-2"]);
     });
-    expect(mockResolvedCollapseAll).toHaveBeenCalledWith("issue-1");
+    expect(mockResolvedCollapseAll).toHaveBeenCalledWith("task-1");
     expect(mockCommentExpandAll).not.toHaveBeenCalled();
     expect(useSearchStore.getState().open).toBe(false);
   });
 
   it("unfolds all comments and expands resolved threads", async () => {
     const user = userEvent.setup();
-    mockPathname.current = "/ws-test/issues/issue-1";
-    mockAllIssues.current = [
-      { id: "issue-1", identifier: "SILI-42", title: "Demo", status: "todo" },
+    mockPathname.current = "/ws-test/tasks/task-1";
+    mockAllTasks.current = [
+      { id: "task-1", identifier: "SILI-42", title: "Demo", status: "todo" },
     ];
     mockTimeline.current = [
       { type: "comment", id: "root-1", actor_type: "member", actor_id: "u1", created_at: "2026-01-01T01:00:00Z", parent_id: null },
@@ -560,10 +560,10 @@ describe("SearchCommand", () => {
     await user.click(unfoldItem);
 
     await waitFor(() => {
-      expect(mockCommentExpandAll).toHaveBeenCalledWith("issue-1");
+      expect(mockCommentExpandAll).toHaveBeenCalledWith("task-1");
     });
     // Only threads carrying a resolution get seeded into the expand set.
-    expect(mockResolvedExpandAll).toHaveBeenCalledWith("issue-1", ["root-2", "root-3"]);
+    expect(mockResolvedExpandAll).toHaveBeenCalledWith("task-1", ["root-2", "root-3"]);
     expect(mockCommentCollapseAll).not.toHaveBeenCalled();
     expect(useSearchStore.getState().open).toBe(false);
   });
@@ -626,21 +626,21 @@ describe("SearchCommand", () => {
 
   it("filters out recent items not present in query cache", () => {
     mockRecentItems.current = [
-      { id: "issue-1", visitedAt: 1000 },
-      { id: "deleted-issue", visitedAt: 900 },
+      { id: "task-1", visitedAt: 1000 },
+      { id: "deleted-task", visitedAt: 900 },
     ];
-    mockAllIssues.current = [
-      { id: "issue-1", identifier: "SILI-1", title: "Existing issue", status: "in_progress" },
+    mockAllTasks.current = [
+      { id: "task-1", identifier: "SILI-1", title: "Existing task", status: "in_progress" },
     ];
 
     renderSearch();
 
     expect(screen.getByText("Recent")).toBeInTheDocument();
-    expect(screen.getByText("Existing issue")).toBeInTheDocument();
-    expect(screen.queryByText("deleted-issue")).not.toBeInTheDocument();
+    expect(screen.getByText("Existing task")).toBeInTheDocument();
+    expect(screen.queryByText("deleted-task")).not.toBeInTheDocument();
   });
 
-  it("shows the assignee avatar instead of status text for issue search results", async () => {
+  it("shows the assignee avatar instead of status text for task search results", async () => {
     const user = userEvent.setup();
     mockMembers.current = [
       {
@@ -654,10 +654,10 @@ describe("SearchCommand", () => {
         avatar_url: null,
       },
     ];
-    mockSearchIssues.mockResolvedValue({
-      issues: [
+    mockSearchTasks.mockResolvedValue({
+      tasks: [
         {
-          id: "issue-assigned",
+          id: "task-assigned",
           workspace_id: "ws-test",
           number: 101,
           identifier: "SILI-101",
@@ -669,7 +669,7 @@ describe("SearchCommand", () => {
           assignee_id: "user-1",
           creator_type: "member",
           creator_id: "user-1",
-          parent_issue_id: null,
+          parent_task_id: null,
           project_id: null,
           position: 0,
           start_date: null,
@@ -703,14 +703,14 @@ describe("SearchCommand", () => {
     expect(screen.queryByText("In Review")).not.toBeInTheDocument();
   });
 
-  it("shows the assignee avatar instead of status text for recent issues", () => {
-    mockRecentItems.current = [{ id: "issue-1", visitedAt: 1000 }];
+  it("shows the assignee avatar instead of status text for recent tasks", () => {
+    mockRecentItems.current = [{ id: "task-1", visitedAt: 1000 }];
     mockAgents.current = [{ id: "agent-1", name: "Niko", avatar_url: null }];
-    mockAllIssues.current = [
+    mockAllTasks.current = [
       {
-        id: "issue-1",
+        id: "task-1",
         identifier: "SILI-1",
-        title: "Recent assigned issue",
+        title: "Recent assigned task",
         status: "done",
         assignee_type: "agent",
         assignee_id: "agent-1",
@@ -719,17 +719,17 @@ describe("SearchCommand", () => {
 
     renderSearch();
 
-    expect(screen.getByText("Recent assigned issue")).toBeInTheDocument();
+    expect(screen.getByText("Recent assigned task")).toBeInTheDocument();
     expect(screen.getByTitle("Niko")).toBeInTheDocument();
     expect(screen.queryByText("Done")).not.toBeInTheDocument();
   });
 
   it("renders description and comment snippets regardless of match_source", async () => {
     const user = userEvent.setup();
-    mockSearchIssues.mockResolvedValue({
-      issues: [
+    mockSearchTasks.mockResolvedValue({
+      tasks: [
         {
-          id: "issue-snippet",
+          id: "task-snippet",
           workspace_id: "ws-test",
           number: 99,
           identifier: "SILI-99",
@@ -741,7 +741,7 @@ describe("SearchCommand", () => {
           assignee_id: null,
           creator_type: "member",
           creator_id: "user-1",
-          parent_issue_id: null,
+          parent_task_id: null,
           project_id: null,
           position: 0,
           start_date: null,
@@ -793,10 +793,10 @@ describe("SearchCommand", () => {
     ) as HTMLInputElement;
     await user.type(input, "new");
 
-    // "new" surfaces New Issue + New Project, so cmdk has a multi-item list.
+    // "new" surfaces New Task + New Project, so cmdk has a multi-item list.
     await waitFor(() => {
       expect(
-        screen.getByText((_, el) => el?.textContent === "New Issue" && el?.tagName === "SPAN"),
+        screen.getByText((_, el) => el?.textContent === "New Task" && el?.tagName === "SPAN"),
       ).toBeInTheDocument();
       expect(
         screen.getByText((_, el) => el?.textContent === "New Project" && el?.tagName === "SPAN"),

@@ -40,7 +40,7 @@ func seedDraftRestore(t *testing.T, sessionID, content string, attachmentIDs []s
 		ids += "}"
 	}
 	if _, err := testPool.Exec(context.Background(), `
-		INSERT INTO chat_draft_restore (id, chat_session_id, task_id, content, attachment_ids)
+		INSERT INTO chat_draft_restore (id, chat_session_id, run_id, content, attachment_ids)
 		VALUES ($1, $2, $3, $4, $5::uuid[])
 	`, restoreID, sessionID, uuid.NewString(), content, ids); err != nil {
 		t.Fatalf("seed draft restore: %v", err)
@@ -295,7 +295,7 @@ func TestDeleteWorkspace_PrunesDraftRestoresOfCascadedSessions(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id
+			runtime_id, visibility, max_concurrent_runs, owner_id
 		)
 		VALUES ($1, 'Draft Restore Cascade Agent', '', 'cloud', '{}'::jsonb, $2, 'workspace', 1, $3)
 		RETURNING id

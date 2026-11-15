@@ -175,9 +175,11 @@ SET status = $3,
     lease_token = NULL,
     lease_expires_at = NULL,
     last_attempt_at = now()
-WHERE id = $1
+WHERE webhook_delivery.id = $1
   AND lease_token = $2
   AND status = 'queued'
+
+  AND (($4)::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot_run AS ref_autopilot_run_id WHERE ref_autopilot_run_id.id = ($4) FOR KEY SHARE))
 RETURNING id, workspace_id, autopilot_id, trigger_id, provider, event, dedupe_key, dedupe_source, signature_status, status, attempt_count, selected_headers, content_type, raw_body, response_status, response_body, autopilot_run_id, replayed_from_delivery_id, error, received_at, last_attempt_at, created_at, available_at, lease_token, lease_expires_at, dispatch_attempts
 `
 
@@ -236,12 +238,25 @@ INSERT INTO webhook_delivery (
     dedupe_key, dedupe_source, signature_status, status,
     selected_headers, content_type, raw_body,
     replayed_from_delivery_id
-) VALUES (
-    $1, $2, $3, $4, $5,
-    $9, $10, $6, $7,
-    $8, $11, $12,
-    $13
-) RETURNING id, workspace_id, autopilot_id, trigger_id, provider, event, dedupe_key, dedupe_source, signature_status, status, attempt_count, selected_headers, content_type, raw_body, response_status, response_body, autopilot_run_id, replayed_from_delivery_id, error, received_at, last_attempt_at, created_at, available_at, lease_token, lease_expires_at, dispatch_attempts
+) SELECT
+    $1 AS workspace_id,
+    $2 AS autopilot_id,
+    $3 AS trigger_id,
+    $4 AS provider,
+    $5 AS event,
+    $9 AS dedupe_key,
+    $10 AS dedupe_source,
+    $6 AS signature_status,
+    $7 AS status,
+    $8 AS selected_headers,
+    $11 AS content_type,
+    $12 AS raw_body,
+    $13 AS replayed_from_delivery_id
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot AS ref_autopilot_id WHERE ref_autopilot_id.id = ($2) FOR KEY SHARE))
+  AND (($3)::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot_trigger AS ref_trigger_id WHERE ref_trigger_id.id = ($3) FOR KEY SHARE))
+  AND (($13)::uuid IS NULL OR EXISTS (SELECT 1 FROM webhook_delivery AS ref_replayed_from_delivery_id WHERE ref_replayed_from_delivery_id.id = ($13) FOR KEY SHARE))
+ RETURNING id, workspace_id, autopilot_id, trigger_id, provider, event, dedupe_key, dedupe_source, signature_status, status, attempt_count, selected_headers, content_type, raw_body, response_status, response_body, autopilot_run_id, replayed_from_delivery_id, error, received_at, last_attempt_at, created_at, available_at, lease_token, lease_expires_at, dispatch_attempts
 `
 
 type CreateWebhookDeliveryParams struct {
@@ -677,7 +692,9 @@ SET status = $2,
     response_status = $4,
     response_body = $5,
     last_attempt_at = now()
-WHERE id = $1
+WHERE webhook_delivery.id = $1
+
+  AND (($3)::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot_run AS ref_autopilot_run_id WHERE ref_autopilot_run_id.id = ($3) FOR KEY SHARE))
 RETURNING id, workspace_id, autopilot_id, trigger_id, provider, event, dedupe_key, dedupe_source, signature_status, status, attempt_count, selected_headers, content_type, raw_body, response_status, response_body, autopilot_run_id, replayed_from_delivery_id, error, received_at, last_attempt_at, created_at, available_at, lease_token, lease_expires_at, dispatch_attempts
 `
 

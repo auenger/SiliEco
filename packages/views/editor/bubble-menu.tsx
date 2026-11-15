@@ -33,7 +33,7 @@ import type { Editor } from "@tiptap/core";
 import { posToDOMRect } from "@tiptap/core";
 import { NodeSelection } from "@tiptap/pm/state";
 import { toast } from "sonner";
-import { useCreateIssue } from "@silieco/core/issues/mutations";
+import { useCreateTask } from "@silieco/core/tasks/mutations";
 import { useT } from "../i18n";
 import { createShortcutChord, type ShortcutChord } from "@silieco/core/shortcuts";
 import { ShortcutKeycaps } from "../common/shortcut-keycaps";
@@ -369,24 +369,24 @@ function ListDropdown({ editor, onOpenChange, isBullet, isOrdered, isTask }: { e
 }
 
 // ---------------------------------------------------------------------------
-// Create Sub-Issue Button
+// Create Sub-Task Button
 // ---------------------------------------------------------------------------
 
 /**
- * Turns the current selection into a sub-issue of `parentIssueId` and replaces
- * the selection with a mention link to the new issue. Title is the selected
+ * Turns the current selection into a sub-task of `parentTaskId` and replaces
+ * the selection with a mention link to the new task. Title is the selected
  * text (trimmed, collapsed whitespace, capped). Only rendered when a parent
- * issue is in scope; otherwise there's no meaningful "sub-issue of" target.
+ * task is in scope; otherwise there's no meaningful "sub-task of" target.
  */
-function CreateSubIssueButton({
+function CreateSubTaskButton({
   editor,
-  parentIssueId,
+  parentTaskId,
 }: {
   editor: Editor;
-  parentIssueId: string;
+  parentTaskId: string;
 }) {
   const { t } = useT("editor");
-  const createIssue = useCreateIssue();
+  const createTask = useCreateTask();
   const [pending, setPending] = useState(false);
 
   const handleClick = useCallback(async () => {
@@ -395,16 +395,16 @@ function CreateSubIssueButton({
     if (from === to) return;
 
     // Title from selection: collapse whitespace, cap length. The full selection
-    // still becomes the link text — only the issue title is capped.
+    // still becomes the link text — only the task title is capped.
     const rawTitle = editor.state.doc.textBetween(from, to, " ", " ").trim();
     const title = rawTitle.replace(/\s+/g, " ").slice(0, 200);
     if (!title) return;
 
     setPending(true);
     try {
-      const newIssue = await createIssue.mutateAsync({
+      const newTask = await createTask.mutateAsync({
         title,
-        parent_issue_id: parentIssueId,
+        parent_task_id: parentTaskId,
       });
       editor
         .chain()
@@ -415,26 +415,26 @@ function CreateSubIssueButton({
             {
               type: "mention",
               attrs: {
-                id: newIssue.id,
-                label: newIssue.identifier,
-                type: "issue",
+                id: newTask.id,
+                label: newTask.identifier,
+                type: "task",
               },
             },
             { type: "text", text: " " },
           ],
         )
         .run();
-      toast.success(t(($) => $.bubble_menu.sub_issue.created, { identifier: newIssue.identifier }));
+      toast.success(t(($) => $.bubble_menu.sub_task.created, { identifier: newTask.identifier }));
     } catch (err) {
       toast.error(
         err instanceof Error && err.message
           ? err.message
-          : t(($) => $.bubble_menu.sub_issue.create_failed),
+          : t(($) => $.bubble_menu.sub_task.create_failed),
       );
     } finally {
       setPending(false);
     }
-  }, [editor, parentIssueId, createIssue, pending, t]);
+  }, [editor, parentTaskId, createTask, pending, t]);
 
   return (
     <Tooltip>
@@ -456,7 +456,7 @@ function CreateSubIssueButton({
         )}
       </TooltipTrigger>
       <TooltipContent side="top" sideOffset={8}>
-        {t(($) => $.bubble_menu.sub_issue.tooltip)}
+        {t(($) => $.bubble_menu.sub_task.tooltip)}
       </TooltipContent>
     </Tooltip>
   );
@@ -468,10 +468,10 @@ function CreateSubIssueButton({
 
 function EditorBubbleMenu({
   editor,
-  currentIssueId,
+  currentTaskId,
 }: {
   editor: Editor;
-  currentIssueId?: string;
+  currentTaskId?: string;
 }) {
   const { t } = useT("editor");
   const [visible, setVisible] = useState(false);
@@ -643,10 +643,10 @@ function EditorBubbleMenu({
               </TooltipTrigger>
               <TooltipContent side="top" sideOffset={8}>{t(($) => $.bubble_menu.quote)}</TooltipContent>
             </Tooltip>
-            {currentIssueId && (
+            {currentTaskId && (
               <>
                 <Separator orientation="vertical" className="mx-0.5 h-5" />
-                <CreateSubIssueButton editor={editor} parentIssueId={currentIssueId} />
+                <CreateSubTaskButton editor={editor} parentTaskId={currentTaskId} />
               </>
             )}
           </div>

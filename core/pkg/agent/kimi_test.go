@@ -100,7 +100,7 @@ done
 // report status=failed with a message that names the model and the
 // upstream error — not claim success while actually running on the
 // default model.
-func TestKimiBackendSetModelFailureFailsTask(t *testing.T) {
+func TestKimiBackendSetModelFailureFailsRun(t *testing.T) {
 	t.Parallel()
 
 	fakePath := filepath.Join(t.TempDir(), "kimi")

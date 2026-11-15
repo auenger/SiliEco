@@ -108,7 +108,7 @@ function HumanDecisionForm({instance,evidence,onPending,onRecorded}: {instance: 
   };
   return <div className="space-y-3 border-t pt-3">
     <p className="text-caption font-medium">{t(($) => $.execution_review.tasks)}</p>
-    <ul className="space-y-1 text-caption">{evidence.issues.map((issue) => <li key={issue.id} className="break-words">{issue.title}</li>)}</ul>
+    <ul className="space-y-1 text-caption">{evidence.tasks.map((task) => <li key={task.id} className="break-words">{task.title}</li>)}</ul>
     <p className="text-micro text-muted-foreground">{t(($) => $.execution_review.calls, {count:evidence.calls.length})}</p>
     <label className="block space-y-1 text-caption"><span>{t(($) => $.execution_review.note)}</span><Textarea value={note} onChange={(event) => setNote(event.target.value)} disabled={mutation.isPending} /></label>
     <label className="flex items-start gap-2 text-caption"><input type="checkbox" className="mt-0.5" checked={checked} disabled={mutation.isPending || failed} onChange={(event) => setChecked(event.target.checked)} />{t(($) => $.execution_review.confirm, {revision:evidence.result_revision})}</label>

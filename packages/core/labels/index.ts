@@ -1,10 +1,10 @@
-export { labelKeys, labelListOptions, issueLabelsOptions, resourceLabelsOptions } from "./queries";
+export { labelKeys, labelListOptions, taskLabelsOptions, resourceLabelsOptions } from "./queries";
 export {
   useCreateLabel,
   useUpdateLabel,
   useDeleteLabel,
   useAttachLabel,
-  useAttachLabelToIssue,
+  useAttachLabelToTask,
   useDetachLabel,
   useAttachResourceLabel,
   useDetachResourceLabel,

@@ -24,7 +24,7 @@ import { deduplicateInboxItems } from "@/lib/inbox-display";
 
 /**
  * Unread inbox count, aligned with what the inbox list renders: archived
- * items dropped, then deduplicated by issue (one entry per issue), then
+ * items dropped, then deduplicated by task (one entry per task), then
  * filtered to unread. Same definition as web's sidebar badge.
  */
 export function useInboxUnreadCount(wsId: string | null | undefined): number {

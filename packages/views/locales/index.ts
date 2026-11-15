@@ -6,14 +6,14 @@ import type { LocaleResources, SupportedLocale } from "@silieco/core/i18n";
 import enCommon from "./en/common.json";
 import enAuth from "./en/auth.json";
 import enSettings from "./en/settings.json";
-import enIssues from "./en/issues.json";
+import enTasks from "./en/tasks.json";
 import enAgents from "./en/agents.json";
 import enEditor from "./en/editor.json";
 import enOnboarding from "./en/onboarding.json";
 import enInvite from "./en/invite.json";
 import enLabels from "./en/labels.json";
 import enMembers from "./en/members.json";
-import enMyIssues from "./en/my-issues.json";
+import enMyTasks from "./en/my-tasks.json";
 import enSearch from "./en/search.json";
 import enInbox from "./en/inbox.json";
 import enWorkspace from "./en/workspace.json";
@@ -33,14 +33,14 @@ import enResources from "./en/resources.json";
 import zhHansCommon from "./zh-Hans/common.json";
 import zhHansAuth from "./zh-Hans/auth.json";
 import zhHansSettings from "./zh-Hans/settings.json";
-import zhHansIssues from "./zh-Hans/issues.json";
+import zhHansTasks from "./zh-Hans/tasks.json";
 import zhHansAgents from "./zh-Hans/agents.json";
 import zhHansEditor from "./zh-Hans/editor.json";
 import zhHansOnboarding from "./zh-Hans/onboarding.json";
 import zhHansInvite from "./zh-Hans/invite.json";
 import zhHansLabels from "./zh-Hans/labels.json";
 import zhHansMembers from "./zh-Hans/members.json";
-import zhHansMyIssues from "./zh-Hans/my-issues.json";
+import zhHansMyTasks from "./zh-Hans/my-tasks.json";
 import zhHansSearch from "./zh-Hans/search.json";
 import zhHansInbox from "./zh-Hans/inbox.json";
 import zhHansWorkspace from "./zh-Hans/workspace.json";
@@ -60,14 +60,14 @@ import zhHansResources from "./zh-Hans/resources.json";
 import koCommon from "./ko/common.json";
 import koAuth from "./ko/auth.json";
 import koSettings from "./ko/settings.json";
-import koIssues from "./ko/issues.json";
+import koTasks from "./ko/tasks.json";
 import koAgents from "./ko/agents.json";
 import koEditor from "./ko/editor.json";
 import koOnboarding from "./ko/onboarding.json";
 import koInvite from "./ko/invite.json";
 import koLabels from "./ko/labels.json";
 import koMembers from "./ko/members.json";
-import koMyIssues from "./ko/my-issues.json";
+import koMyTasks from "./ko/my-tasks.json";
 import koSearch from "./ko/search.json";
 import koInbox from "./ko/inbox.json";
 import koWorkspace from "./ko/workspace.json";
@@ -87,14 +87,14 @@ import koResources from "./ko/resources.json";
 import jaCommon from "./ja/common.json";
 import jaAuth from "./ja/auth.json";
 import jaSettings from "./ja/settings.json";
-import jaIssues from "./ja/issues.json";
+import jaTasks from "./ja/tasks.json";
 import jaAgents from "./ja/agents.json";
 import jaEditor from "./ja/editor.json";
 import jaOnboarding from "./ja/onboarding.json";
 import jaInvite from "./ja/invite.json";
 import jaLabels from "./ja/labels.json";
 import jaMembers from "./ja/members.json";
-import jaMyIssues from "./ja/my-issues.json";
+import jaMyTasks from "./ja/my-tasks.json";
 import jaSearch from "./ja/search.json";
 import jaInbox from "./ja/inbox.json";
 import jaWorkspace from "./ja/workspace.json";
@@ -120,14 +120,14 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     common: enCommon,
     auth: enAuth,
     settings: enSettings,
-    issues: enIssues,
+    tasks: enTasks,
     agents: enAgents,
     editor: enEditor,
     onboarding: enOnboarding,
     invite: enInvite,
     labels: enLabels,
     members: enMembers,
-    "my-issues": enMyIssues,
+    "my-tasks": enMyTasks,
     search: enSearch,
     inbox: enInbox,
     workspace: enWorkspace,
@@ -150,14 +150,14 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     common: zhHansCommon,
     auth: zhHansAuth,
     settings: zhHansSettings,
-    issues: zhHansIssues,
+    tasks: zhHansTasks,
     agents: zhHansAgents,
     editor: zhHansEditor,
     onboarding: zhHansOnboarding,
     invite: zhHansInvite,
     labels: zhHansLabels,
     members: zhHansMembers,
-    "my-issues": zhHansMyIssues,
+    "my-tasks": zhHansMyTasks,
     search: zhHansSearch,
     inbox: zhHansInbox,
     workspace: zhHansWorkspace,
@@ -180,14 +180,14 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     common: koCommon,
     auth: koAuth,
     settings: koSettings,
-    issues: koIssues,
+    tasks: koTasks,
     agents: koAgents,
     editor: koEditor,
     onboarding: koOnboarding,
     invite: koInvite,
     labels: koLabels,
     members: koMembers,
-    "my-issues": koMyIssues,
+    "my-tasks": koMyTasks,
     search: koSearch,
     inbox: koInbox,
     workspace: koWorkspace,
@@ -210,14 +210,14 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     common: jaCommon,
     auth: jaAuth,
     settings: jaSettings,
-    issues: jaIssues,
+    tasks: jaTasks,
     agents: jaAgents,
     editor: jaEditor,
     onboarding: jaOnboarding,
     invite: jaInvite,
     labels: jaLabels,
     members: jaMembers,
-    "my-issues": jaMyIssues,
+    "my-tasks": jaMyTasks,
     search: jaSearch,
     inbox: jaInbox,
     workspace: jaWorkspace,

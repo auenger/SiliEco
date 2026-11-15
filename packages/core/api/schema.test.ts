@@ -66,14 +66,14 @@ describe("ApiClient schema fallback", () => {
     it("falls back to an empty array when the body is null", async () => {
       stubFetchJson(null);
       const client = new ApiClient("https://api.example.test");
-      const entries = await client.listTimeline("issue-1");
+      const entries = await client.listTimeline("task-1");
       expect(entries).toEqual([]);
     });
 
     it("falls back when the body is not an array", async () => {
       stubFetchJson({ wrong: "shape" });
       const client = new ApiClient("https://api.example.test");
-      const entries = await client.listTimeline("issue-1");
+      const entries = await client.listTimeline("task-1");
       expect(entries).toEqual([]);
     });
 
@@ -88,7 +88,7 @@ describe("ApiClient schema fallback", () => {
         },
       ]);
       const client = new ApiClient("https://api.example.test");
-      const entries = await client.listTimeline("issue-1");
+      const entries = await client.listTimeline("task-1");
       expect(entries).toHaveLength(1);
       expect(entries[0]?.type).toBe("future_kind");
     });
@@ -110,34 +110,34 @@ describe("ApiClient schema fallback", () => {
         },
       ]);
       const client = new ApiClient("https://api.example.test");
-      const entries = await client.listTimeline("issue-1");
+      const entries = await client.listTimeline("task-1");
       const entry = entries[0] as unknown as Record<string, unknown>;
       expect(entry.future_field).toEqual({ nested: "value" });
     });
   });
 
-  describe("listIssues", () => {
+  describe("listTasks", () => {
     it("falls back to an empty list when the response is malformed", async () => {
-      // `issues` having the wrong type triggers the fallback. An object
+      // `tasks` having the wrong type triggers the fallback. An object
       // with only unexpected keys would *succeed* parsing now (every
       // declared field has a default) and just pass the extras through
       // via `.loose()`, so we use a wrong-type payload here instead.
-      stubFetchJson({ issues: "not-an-array", total: 0 });
+      stubFetchJson({ tasks: "not-an-array", total: 0 });
       const client = new ApiClient("https://api.example.test");
-      const res = await client.listIssues();
-      expect(res).toEqual({ issues: [], total: 0 });
+      const res = await client.listTasks();
+      expect(res).toEqual({ tasks: [], total: 0 });
     });
   });
 
-  describe("createIssue", () => {
+  describe("createTask", () => {
     // The create modal decides whether to run its label-attach fallback by
     // reading `labels` off the parsed response, and treats a rejection as a
-    // failed create (keep the draft, failure toast). So: a valid issue with
+    // failed create (keep the draft, failure toast). So: a valid task with
     // any labels shape resolves (labels absent → undefined, valid → Label[],
-    // malformed → undefined), but a body that isn't a usable issue rejects
+    // malformed → undefined), but a body that isn't a usable task rejects
     // rather than fabricating a blank "success".
-    const validIssue = {
-      id: "issue-1",
+    const validTask = {
+      id: "task-1",
       workspace_id: "ws-1",
       number: 1,
       identifier: "SILI-1",
@@ -149,7 +149,7 @@ describe("ApiClient schema fallback", () => {
       assignee_id: null,
       creator_type: "member",
       creator_id: "user-1",
-      parent_issue_id: null,
+      parent_task_id: null,
       project_id: null,
       position: 0,
       stage: null,
@@ -170,56 +170,56 @@ describe("ApiClient schema fallback", () => {
     };
 
     it("keeps labels undefined when the backend omits the field (older backend)", async () => {
-      stubFetchJson(validIssue, 201);
+      stubFetchJson(validTask, 201);
       const client = new ApiClient("https://api.example.test");
-      const issue = await client.createIssue({ title: "Created" });
-      expect(issue.id).toBe("issue-1");
-      expect(issue.labels).toBeUndefined();
+      const task = await client.createTask({ title: "Created" });
+      expect(task.id).toBe("task-1");
+      expect(task.labels).toBeUndefined();
     });
 
     it("validates a well-formed labels array", async () => {
-      stubFetchJson({ ...validIssue, labels: [label] }, 201);
+      stubFetchJson({ ...validTask, labels: [label] }, 201);
       const client = new ApiClient("https://api.example.test");
-      const issue = await client.createIssue({ title: "Created" });
-      expect(issue.labels?.map((l) => l.id)).toEqual(["label-1"]);
+      const task = await client.createTask({ title: "Created" });
+      expect(task.labels?.map((l) => l.id)).toEqual(["label-1"]);
     });
 
     it("degrades a null labels field to undefined so the client falls back", async () => {
-      stubFetchJson({ ...validIssue, labels: null }, 201);
+      stubFetchJson({ ...validTask, labels: null }, 201);
       const client = new ApiClient("https://api.example.test");
-      const issue = await client.createIssue({ title: "Created" });
-      // The issue itself still parses; only the malformed labels degrade.
-      expect(issue.id).toBe("issue-1");
-      expect(issue.labels).toBeUndefined();
+      const task = await client.createTask({ title: "Created" });
+      // The task itself still parses; only the malformed labels degrade.
+      expect(task.id).toBe("task-1");
+      expect(task.labels).toBeUndefined();
     });
 
     it("degrades a labels array of the wrong element shape to undefined", async () => {
-      stubFetchJson({ ...validIssue, labels: [{ nope: true }] }, 201);
+      stubFetchJson({ ...validTask, labels: [{ nope: true }] }, 201);
       const client = new ApiClient("https://api.example.test");
-      const issue = await client.createIssue({ title: "Created" });
-      expect(issue.id).toBe("issue-1");
-      expect(issue.labels).toBeUndefined();
+      const task = await client.createTask({ title: "Created" });
+      expect(task.id).toBe("task-1");
+      expect(task.labels).toBeUndefined();
     });
 
-    it("rejects when the whole response body is not a usable issue (no fake success)", async () => {
-      stubFetchJson({ not: "an issue" }, 201);
+    it("rejects when the whole response body is not a usable task (no fake success)", async () => {
+      stubFetchJson({ not: "an task" }, 201);
       const client = new ApiClient("https://api.example.test");
-      await expect(client.createIssue({ title: "Created" })).rejects.toThrow();
+      await expect(client.createTask({ title: "Created" })).rejects.toThrow();
     });
 
-    it("rejects when the created issue has an empty id", async () => {
-      stubFetchJson({ ...validIssue, id: "" }, 201);
+    it("rejects when the created task has an empty id", async () => {
+      stubFetchJson({ ...validTask, id: "" }, 201);
       const client = new ApiClient("https://api.example.test");
-      await expect(client.createIssue({ title: "Created" })).rejects.toThrow();
+      await expect(client.createTask({ title: "Created" })).rejects.toThrow();
     });
   });
 
-  describe("searchIssues", () => {
+  describe("searchTasks", () => {
     it("falls back to an empty result when the response is malformed", async () => {
-      stubFetchJson({ issues: "not-an-array", total: 0 });
+      stubFetchJson({ tasks: "not-an-array", total: 0 });
       const client = new ApiClient("https://api.example.test");
-      const res = await client.searchIssues({ q: "bug" });
-      expect(res).toEqual({ issues: [], total: 0 });
+      const res = await client.searchTasks({ q: "bug" });
+      expect(res).toEqual({ tasks: [], total: 0 });
     });
   });
 
@@ -241,7 +241,7 @@ describe("ApiClient schema fallback", () => {
       assignee_id: "agent-1",
       status: "active",
       execution_mode: "run_only",
-      issue_title_template: null,
+      task_title_template: null,
       created_by_type: "member",
       created_by_id: "user-1",
       last_run_at: null,
@@ -313,11 +313,11 @@ describe("ApiClient schema fallback", () => {
     });
   });
 
-  describe("listGroupedIssues", () => {
+  describe("listGroupedTasks", () => {
     it("falls back to empty groups when the response is malformed", async () => {
       stubFetchJson({ groups: "not-an-array" });
       const client = new ApiClient("https://api.example.test");
-      const res = await client.listGroupedIssues({ group_by: "assignee" });
+      const res = await client.listGroupedTasks({ group_by: "assignee" });
       expect(res).toEqual({ groups: [] });
     });
   });
@@ -326,7 +326,7 @@ describe("ApiClient schema fallback", () => {
     it("returns [] when the response is not an array", async () => {
       stubFetchJson({ wrong: "shape" });
       const client = new ApiClient("https://api.example.test");
-      const comments = await client.listComments("issue-1");
+      const comments = await client.listComments("task-1");
       expect(comments).toEqual([]);
     });
   });
@@ -335,26 +335,26 @@ describe("ApiClient schema fallback", () => {
     it("returns an empty agent list when the response is malformed", async () => {
       stubFetchJson({ agents: "not-an-array" });
       const client = new ApiClient("https://api.example.test");
-      const preview = await client.previewCommentTriggers("issue-1", "hello");
+      const preview = await client.previewCommentTriggers("task-1", "hello");
       expect(preview).toEqual({ agents: [] });
     });
   });
 
-  describe("listIssueSubscribers", () => {
+  describe("listTaskSubscribers", () => {
     it("returns [] when the response is null", async () => {
       stubFetchJson(null);
       const client = new ApiClient("https://api.example.test");
-      const subs = await client.listIssueSubscribers("issue-1");
+      const subs = await client.listTaskSubscribers("task-1");
       expect(subs).toEqual([]);
     });
   });
 
-  describe("listChildIssues", () => {
-    it("returns { issues: [] } when the issues field is missing", async () => {
+  describe("listChildTasks", () => {
+    it("returns { tasks: [] } when the tasks field is missing", async () => {
       stubFetchJson({});
       const client = new ApiClient("https://api.example.test");
-      const res = await client.listChildIssues("issue-1");
-      expect(res).toEqual({ issues: [] });
+      const res = await client.listChildTasks("task-1");
+      expect(res).toEqual({ tasks: [] });
     });
   });
 

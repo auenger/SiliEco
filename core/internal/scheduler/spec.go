@@ -27,9 +27,9 @@ type CatchUpMode int
 const (
 	// CatchUpLatestOnly only claims the most recently due plan. Use this
 	// for jobs whose handler has its own watermark and recovers missed
-	// data without per-tick replay (e.g. the task_usage hourly rollup,
-	// where rollup_task_usage_hourly_window catches up via
-	// task_usage_hourly_rollup_state.watermark_at).
+	// data without per-tick replay (e.g. the agent_run_usage hourly rollup,
+	// where rollup_agent_run_usage_hourly_window catches up via
+	// agent_run_usage_hourly_rollup_state.watermark_at).
 	CatchUpLatestOnly CatchUpMode = iota
 
 	// CatchUpEveryPlan claims every missed plan_time, oldest first, up
@@ -59,7 +59,7 @@ type Scope struct {
 }
 
 // ScopeGlobal is the singleton scope used by jobs that lock the whole
-// database (e.g. rollup_task_usage_hourly).
+// database (e.g. rollup_agent_run_usage_hourly).
 var ScopeGlobal = Scope{Kind: "global", ID: "global"}
 
 func (s Scope) String() string { return s.Kind + "/" + s.ID }
@@ -112,7 +112,7 @@ type JobSpec struct {
 	// 5-minute delay means the 12:00 plan only becomes eligible at
 	// 12:05 (db_now). This keeps just-arrived data from being missed
 	// by handlers that compare against `now() - 5 min` upper bounds
-	// (e.g. rollup_task_usage_hourly_window).
+	// (e.g. rollup_agent_run_usage_hourly_window).
 	ScheduleDelay time.Duration
 
 	// CatchUpMode selects between latest-only and every-plan replay.

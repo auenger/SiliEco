@@ -94,9 +94,50 @@ func (q *Queries) CreateRuntimeProfile(ctx context.Context, arg CreateRuntimePro
 }
 
 const deleteAgentRuntimesByProfile = `-- name: DeleteAgentRuntimesByProfile :many
-DELETE FROM agent_runtime
-WHERE profile_id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, owner_id, daemon_id, provider
+WITH RECURSIVE cleanup_target_agent_run AS MATERIALIZED (
+    SELECT child.id, child.agent_id, child.task_id, child.status, child.priority, child.dispatched_at, child.started_at, child.completed_at, child.result, child.error, child.created_at, child.context, child.runtime_id, child.session_id, child.work_dir, child.trigger_comment_id, child.chat_session_id, child.autopilot_run_id, child.attempt, child.max_attempts, child.parent_run_id, child.failure_reason, child.trigger_summary, child.force_fresh_session, child.is_leader_run, child.wait_reason, child.initiator_user_id, child.handoff_note, child.prepare_lease_expires_at, child.squad_id, child.runtime_mcp_overlay, child.escalation_for_run_id, child.fire_at, child.originator_user_id, child.runtime_connected_apps, child.coalesced_comment_ids, child.delivered_comment_ids, child.chat_input_run_id, child.chat_finalize_deferred_at, child.originator_source, child.delegated_from_run_id, child.retry_of_run_id, child.rerun_of_run_id, child.rule_version_id, child.trigger_evidence_kind, child.trigger_evidence_ref_id, child.accountable_user_id, child.session_rollout_missing, child.retired_session_id, child.trigger_chat_message_id, child.execution_manifest, child.worktree_branch, child.worktree_base_sha, child.worktree_final_sha, child.worktree_delivery_status, child.workflow_stage_execution_id, child.workflow_review_request_id FROM "agent_run" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_runtime parent WHERE child."runtime_id" = parent."id")
+),
+cleanup_target_agent_run_message AS MATERIALIZED (
+    SELECT child.id, child.run_id, child.seq, child.type, child.tool, child.content, child.input, child.output, child.created_at FROM "agent_run_message" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_run_token AS MATERIALIZED (
+    SELECT child.id, child.token_hash, child.run_id, child.agent_id, child.workspace_id, child.user_id, child.expires_at, child.created_at FROM "agent_run_token" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_run_usage AS MATERIALIZED (
+    SELECT child.id, child.run_id, child.provider, child.model, child.input_tokens, child.output_tokens, child.cache_read_tokens, child.cache_write_tokens, child.created_at, child.updated_at, child.cost_usd_ticks FROM "agent_run_usage" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_runtime AS MATERIALIZED (
+    SELECT agent_runtime.id, agent_runtime.workspace_id, agent_runtime.daemon_id, agent_runtime.name, agent_runtime.runtime_mode, agent_runtime.provider, agent_runtime.status, agent_runtime.device_info, agent_runtime.metadata, agent_runtime.last_seen_at, agent_runtime.created_at, agent_runtime.updated_at, agent_runtime.owner_id, agent_runtime.legacy_daemon_id, agent_runtime.visibility, agent_runtime.profile_id, agent_runtime.custom_name FROM "agent_runtime" agent_runtime WHERE agent_runtime.profile_id = $1 AND agent_runtime.workspace_id = $2
+),
+cleanup_delete_agent_run AS (
+    DELETE FROM "agent_run" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run)
+),
+cleanup_delete_agent_run_message AS (
+    DELETE FROM "agent_run_message" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_message)
+),
+cleanup_delete_agent_run_token AS (
+    DELETE FROM "agent_run_token" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_token)
+),
+cleanup_delete_agent_run_usage AS (
+    DELETE FROM "agent_run_usage" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_usage)
+),
+cleanup_detach_agent_run AS (
+    UPDATE "agent_run" child SET "parent_run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id") THEN NULL ELSE child."parent_run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id")) AND NOT ((child."id") IN (SELECT "id" FROM cleanup_target_agent_run))
+),
+cleanup_detach_autopilot_run AS (
+    UPDATE "autopilot_run" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id"))
+),
+cleanup_detach_chat_session AS (
+    UPDATE "chat_session" child SET "runtime_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_runtime parent WHERE child."runtime_id" = parent."id") THEN NULL ELSE child."runtime_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_runtime parent WHERE child."runtime_id" = parent."id"))
+),
+cleanup_detach_lark_outbound_card_message AS (
+    UPDATE "lark_outbound_card_message" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id"))
+)
+DELETE FROM "agent_runtime" agent_runtime WHERE (agent_runtime."id") IN (SELECT "id" FROM cleanup_target_agent_runtime) RETURNING id, workspace_id, owner_id, daemon_id, provider
 `
 
 type DeleteAgentRuntimesByProfileParams struct {
@@ -325,6 +366,38 @@ func (q *Queries) ListRuntimeProfiles(ctx context.Context, workspaceID pgtype.UU
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockRuntimeProfileForDelete = `-- name: LockRuntimeProfileForDelete :one
+SELECT id, workspace_id, display_name, protocol_family, command_name, description, fixed_args, visibility, created_by, enabled, created_at, updated_at FROM runtime_profile
+WHERE id = $1 AND workspace_id = $2
+FOR UPDATE
+`
+
+type LockRuntimeProfileForDeleteParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+// Lock before enumerating registered runtimes; registration takes KEY SHARE.
+func (q *Queries) LockRuntimeProfileForDelete(ctx context.Context, arg LockRuntimeProfileForDeleteParams) (RuntimeProfile, error) {
+	row := q.db.QueryRow(ctx, lockRuntimeProfileForDelete, arg.ID, arg.WorkspaceID)
+	var i RuntimeProfile
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.DisplayName,
+		&i.ProtocolFamily,
+		&i.CommandName,
+		&i.Description,
+		&i.FixedArgs,
+		&i.Visibility,
+		&i.CreatedBy,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const updateRuntimeProfile = `-- name: UpdateRuntimeProfile :one

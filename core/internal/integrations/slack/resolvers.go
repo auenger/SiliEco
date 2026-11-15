@@ -20,15 +20,15 @@ import (
 // (no new query, no schema change) plus the shared engine.ChatSession — so
 // "adding Slack" stays "implement Channel + register a ResolverSet".
 
-// originSlackChat is the issue.origin_type label for issues created via the
-// Slack /issue command.
+// originSlackChat is the task.origin_type label for tasks created via the
+// Slack /task command.
 const originSlackChat = "slack_chat"
 
 // NewSlackResolverSet assembles the Slack ResolverSet over the generated
 // queries + a tx starter (for the shared session service). The replier delivers
-// the outbound binding-prompt / status / issue-created notices; pass a nil
+// the outbound binding-prompt / status / task-created notices; pass a nil
 // engine.OutboundReplier to disable them (the inbound pipeline — route,
-// identity, dedup, session, /issue, run trigger — is fully functional without
+// identity, dedup, session, /task, run trigger — is fully functional without
 // it). typing shows the "processing" reaction on ingest; pass nil to disable it
 // (SILI-3874). (SILI-3666 wired the replier; stage 3 had both nil.)
 func NewSlackResolverSet(q *db.Queries, tx engine.TxStarter, replier engine.OutboundReplier, typing *TypingIndicatorManager) engine.ResolverSet {

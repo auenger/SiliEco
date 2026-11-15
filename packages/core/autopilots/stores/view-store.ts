@@ -141,7 +141,7 @@ export const useAutopilotsViewStore = create<AutopilotsViewState>()(
       clearFilters: () => set({ filters: EMPTY_AUTOPILOT_FILTERS }),
     }),
     {
-      name: "silieco_autopilots_view",
+      name: "silieco_tr1_autopilots_view",
       storage: createJSONStorage(() =>
         createWorkspaceAwareStorage(defaultStorage),
       ),

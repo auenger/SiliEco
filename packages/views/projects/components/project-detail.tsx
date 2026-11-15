@@ -19,11 +19,11 @@ import { useRecentContextStore } from "@silieco/core/chat";
 import { useWorkspacePaths } from "@silieco/core/paths";
 import { useActorName } from "@silieco/core/workspace/hooks";
 import { PROJECT_STATUS_ORDER, PROJECT_STATUS_CONFIG, PROJECT_PRIORITY_ORDER } from "@silieco/core/projects/config";
-import { getProjectIssueMetrics } from "./project-issue-metrics";
+import { getProjectTaskMetrics } from "./project-task-metrics";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { useNavigation } from "../../navigation";
 import { TitleEditor, ContentEditor, type ContentEditorRef } from "../../editor";
-import { PriorityIcon } from "../../issues/components/priority-icon";
+import { PriorityIcon } from "../../tasks/components/priority-icon";
 import { ProjectResourcesSection } from "./project-resources-section";
 import { ProjectStartDatePicker } from "./project-start-date-picker";
 import { ProjectDueDatePicker } from "./project-due-date-picker";
@@ -241,7 +241,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
     return <div className="flex items-center justify-center h-full text-muted-foreground">{t(($) => $.detail.not_found)}</div>;
   }
 
-  const issueMetrics = getProjectIssueMetrics(project);
+  const taskMetrics = getProjectTaskMetrics(project);
   const statusCfg = PROJECT_STATUS_CONFIG[project.status];
 
   const sidebarContent = (
@@ -418,8 +418,8 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
       </div>
 
       {/* Progress */}
-      {issueMetrics.totalCount > 0 && (() => {
-        const pct = Math.round((issueMetrics.completedCount / issueMetrics.totalCount) * 100);
+      {taskMetrics.totalCount > 0 && (() => {
+        const pct = Math.round((taskMetrics.completedCount / taskMetrics.totalCount) * 100);
         return (
           <div>
             <button
@@ -438,7 +438,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
                 />
               </div>
               <span className="text-caption text-muted-foreground tabular-nums shrink-0">
-                {issueMetrics.completedCount}/{issueMetrics.totalCount}
+                {taskMetrics.completedCount}/{taskMetrics.totalCount}
               </span>
             </div>}
           </div>

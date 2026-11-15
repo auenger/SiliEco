@@ -1825,7 +1825,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Task timeline no longer fully re-renders on every WebSocket event — long tasks scroll smoothly",
           "Editor skips parsing very large or JSON pastes, eliminating freezes",
           "Autopilot skips dispatch when the assignee runtime is offline, avoiding empty runs",
-          "Inbox auto-archives `task_failed` rows once they reach a terminal state",
+          "Inbox auto-archives `run_failed` rows once they reach a terminal state",
           "Hermes sends agent instructions inline with each request",
           "Timeline and Comment switched to client-side virtualization, dropping server-side pagination",
           "Reserved slugs share a single JSON between front and back end, with CI guarding drift",
@@ -1905,7 +1905,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         ],
         improvements: [
           "Settings 'Appearance' tab is renamed to 'Preferences', and the active tab is reflected in the URL so deep links work",
-          "Long tasks open instantly — Timeline switched to cursor-based keyset pagination, and repeated `task_completed` / `task_failed` activity entries are coalesced",
+          "Long tasks open instantly — Timeline switched to cursor-based keyset pagination, and repeated `run_completed` / `run_failed` activity entries are coalesced",
           "Runtime poll and heartbeat schedules are isolated per-runtime, so one busy runtime can no longer starve others",
           "CLI update requests persist in Redis, so a server restart no longer drops them",
           "Runtime cost usage window narrowed from 180 days to 14 days, dropping query load",
@@ -1917,7 +1917,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         fixes: [
           "Daemon cancels the running agent when the task is deleted server-side, eliminating orphan processes",
           "Daemon refreshes a stale Codex `auth.json` when reusing an exec env, fixing intermittent auth errors",
-          "Daemon refuses to write `.gc_meta.json` when `task_id` is empty",
+          "Daemon refuses to write `.gc_meta.json` when `run_id` is empty",
           "Session / resume across ACP backends now trusts the agent-reported session id, fixing cross-session bleed",
           "OpenCode skills are written under `.opencode/skills/` so they are discovered natively",
           "404 task-not-found semantics tightened on both server and the final guard",

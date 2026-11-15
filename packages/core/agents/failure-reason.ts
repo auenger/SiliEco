@@ -1,4 +1,4 @@
-import type { TaskFailureReason } from "../types";
+import type { AgentRunFailureReason } from "../types";
 
 /**
  * Picks the copy key a UI surface should render for a server-supplied
@@ -22,7 +22,7 @@ import type { TaskFailureReason } from "../types";
  * Pure and dependency-free so mobile can import it directly.
  */
 export function resolveFailureReasonKey<K extends string>(
-  reason: TaskFailureReason | string | null | undefined,
+  reason: AgentRunFailureReason | string | null | undefined,
   copy: Readonly<Partial<Record<K, unknown>>>,
 ): K | undefined {
   if (!reason) return undefined;

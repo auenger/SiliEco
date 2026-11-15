@@ -218,7 +218,7 @@ func TestLocalStorage_KeyFromURL_Empty(t *testing.T) {
 }
 
 // TestLocalStorage_ServeFile_ContentDispositionFromSidecar verifies the fix
-// for issue #2442: downloads served from /uploads/* must carry the original
+// for task #2442: downloads served from /uploads/* must carry the original
 // uploaded filename in Content-Disposition, mirroring the S3 Upload path's
 // existing ContentDisposition behavior. Without this, browsers fall back to
 // the storage-key basename (UUID + ext) for the download filename.

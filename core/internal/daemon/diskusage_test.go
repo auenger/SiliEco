@@ -36,32 +36,32 @@ func TestScanDiskUsage_AggregatesAndCategorizes(t *testing.T) {
 	wsA := "11111111-1111-1111-1111-111111111111"
 	wsB := "22222222-2222-2222-2222-222222222222"
 
-	taskA1 := filepath.Join(root, wsA, "aaaaaaaa")
-	writeFile(t, filepath.Join(taskA1, "workdir/main.go"), 1000)
-	writeFile(t, filepath.Join(taskA1, "workdir/node_modules/dep/index.js"), 4000)
-	mustWriteMeta(t, taskA1, execenv.GCMeta{
-		Kind:        execenv.GCKindIssue,
-		IssueID:     "issue-1",
+	runA1 := filepath.Join(root, wsA, "aaaaaaaa")
+	writeFile(t, filepath.Join(runA1, "workdir/main.go"), 1000)
+	writeFile(t, filepath.Join(runA1, "workdir/node_modules/dep/index.js"), 4000)
+	mustWriteMeta(t, runA1, execenv.GCMeta{
+		Kind:        execenv.GCKindTask,
+		TaskID:      "task-1",
 		WorkspaceID: wsA,
 		CompletedAt: time.Now().Add(-3 * time.Hour),
 	})
 
-	taskA2 := filepath.Join(root, wsA, "bbbbbbbb")
-	writeFile(t, filepath.Join(taskA2, "workdir/notes.md"), 500)
-	mustWriteMeta(t, taskA2, execenv.GCMeta{
+	runA2 := filepath.Join(root, wsA, "bbbbbbbb")
+	writeFile(t, filepath.Join(runA2, "workdir/notes.md"), 500)
+	mustWriteMeta(t, runA2, execenv.GCMeta{
 		Kind:          execenv.GCKindChat,
 		ChatSessionID: "chat-1",
 		WorkspaceID:   wsA,
 		CompletedAt:   time.Now().Add(-1 * time.Hour),
 	})
 
-	taskB1 := filepath.Join(root, wsB, "cccccccc")
-	writeFile(t, filepath.Join(taskB1, "workdir/result.txt"), 2000)
+	runB1 := filepath.Join(root, wsB, "cccccccc")
+	writeFile(t, filepath.Join(runB1, "workdir/result.txt"), 2000)
 	// No meta — exercises the unknown-kind / mtime-fallback path. Backdate
 	// the dir mtime so the fallback produces a measurable age (a freshly
 	// created dir has mtime=now, which would round to 0 seconds).
 	backdate := time.Now().Add(-2 * time.Hour)
-	if err := os.Chtimes(taskB1, backdate, backdate); err != nil {
+	if err := os.Chtimes(runB1, backdate, backdate); err != nil {
 		t.Fatal(err)
 	}
 
@@ -70,18 +70,18 @@ func TestScanDiskUsage_AggregatesAndCategorizes(t *testing.T) {
 		t.Fatalf("ScanDiskUsage: %v", err)
 	}
 
-	if len(report.Tasks) != 3 {
-		t.Fatalf("expected 3 tasks, got %d", len(report.Tasks))
+	if len(report.Runs) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(report.Runs))
 	}
 
-	byShort := map[string]TaskDiskUsage{}
-	for _, task := range report.Tasks {
-		byShort[task.TaskShort] = task
+	byShort := map[string]RunDiskUsage{}
+	for _, agentRun := range report.Runs {
+		byShort[agentRun.RunShort] = agentRun
 	}
 
 	a1 := byShort["aaaaaaaa"]
-	if a1.Kind != string(execenv.GCKindIssue) {
-		t.Errorf("task a1 kind = %q, want %q", a1.Kind, execenv.GCKindIssue)
+	if a1.Kind != string(execenv.GCKindTask) {
+		t.Errorf("task a1 kind = %q, want %q", a1.Kind, execenv.GCKindTask)
 	}
 	// Size includes main.go (1000) + node_modules subtree (4000) + the
 	// .gc_meta.json control file we wrote. Bound the meta overhead so we
@@ -140,8 +140,8 @@ func TestScanDiskUsage_AggregatesAndCategorizes(t *testing.T) {
 	if wsByID[wsA].ArtifactSizeBytes != 4000 {
 		t.Errorf("workspace A artifact size = %d, want 4000", wsByID[wsA].ArtifactSizeBytes)
 	}
-	if wsByID[wsA].TaskCount != 2 {
-		t.Errorf("workspace A task count = %d, want 2", wsByID[wsA].TaskCount)
+	if wsByID[wsA].RunCount != 2 {
+		t.Errorf("workspace A task count = %d, want 2", wsByID[wsA].RunCount)
 	}
 	if wsByID[wsB].SizeBytes != 2000 {
 		t.Errorf("workspace B size = %d, want 2000", wsByID[wsB].SizeBytes)
@@ -160,8 +160,8 @@ func TestScanDiskUsage_AggregatesAndCategorizes(t *testing.T) {
 
 	// Scan-wide counts must reflect the full scan, not the (un-truncated
 	// here) slice — they're the contract callers rely on once --top kicks in.
-	if report.TotalTaskCount != 3 {
-		t.Errorf("total_task_count = %d, want 3", report.TotalTaskCount)
+	if report.TotalRunCount != 3 {
+		t.Errorf("total_run_count = %d, want 3", report.TotalRunCount)
 	}
 	if report.TotalWorkspaceCount != 2 {
 		t.Errorf("total_workspace_count = %d, want 2", report.TotalWorkspaceCount)
@@ -172,14 +172,14 @@ func TestScanDiskUsage_AggregatesAndCategorizes(t *testing.T) {
 
 	// Tasks must be sorted by size descending — the consumer treats this as
 	// a stable contract for `--top N` slicing.
-	for i := 1; i < len(report.Tasks); i++ {
-		if report.Tasks[i-1].SizeBytes < report.Tasks[i].SizeBytes {
+	for i := 1; i < len(report.Runs); i++ {
+		if report.Runs[i-1].SizeBytes < report.Runs[i].SizeBytes {
 			t.Errorf("tasks not sorted by size desc: %d < %d at idx %d",
-				report.Tasks[i-1].SizeBytes, report.Tasks[i].SizeBytes, i)
+				report.Runs[i-1].SizeBytes, report.Runs[i].SizeBytes, i)
 		}
 	}
 
-	// JSON round-trip — guards the field names the issue spec calls out.
+	// JSON round-trip — guards the field names the task spec calls out.
 	raw, err := json.Marshal(report)
 	if err != nil {
 		t.Fatalf("marshal report: %v", err)
@@ -194,7 +194,7 @@ func TestScanDiskUsage_AggregatesAndCategorizes(t *testing.T) {
 		`"task_short"`,
 		`"artifact_ratio"`,
 		`"managed_artifact_subpaths"`,
-		`"total_task_count"`,
+		`"total_run_count"`,
 		`"total_workspace_count"`,
 		`"total_artifact_ratio"`,
 	} {
@@ -209,18 +209,18 @@ func TestScanDiskUsage_ManagedCodexSandboxIsExactAndDeduplicated(t *testing.T) {
 
 	root := t.TempDir()
 	wsID := "mmmmmmmm-mmmm-mmmm-mmmm-mmmmmmmmmmmm"
-	taskDir := filepath.Join(root, wsID, "tttttttt")
-	writeFile(t, filepath.Join(taskDir, "codex-home/.sandbox-bin/codex.exe"), 300)
-	writeFile(t, filepath.Join(taskDir, "workdir/repo/.sandbox-bin/cache"), 400)
+	runDir := filepath.Join(root, wsID, "tttttttt")
+	writeFile(t, filepath.Join(runDir, "codex-home/.sandbox-bin/codex.exe"), 300)
+	writeFile(t, filepath.Join(runDir, "workdir/repo/.sandbox-bin/cache"), 400)
 
 	report, err := ScanDiskUsage(root, nil)
 	if err != nil {
 		t.Fatalf("ScanDiskUsage managed-only: %v", err)
 	}
-	if got := report.Tasks[0].SizeBytes; got != 700 {
+	if got := report.Runs[0].SizeBytes; got != 700 {
 		t.Fatalf("size_bytes=%d, want 700", got)
 	}
-	if got := report.Tasks[0].ArtifactSizeBytes; got != 300 {
+	if got := report.Runs[0].ArtifactSizeBytes; got != 300 {
 		t.Fatalf("artifact_size_bytes=%d, want exact managed 300", got)
 	}
 	if got := strings.Join(report.ManagedArtifactSubpaths, ","); got != "codex-home/.sandbox-bin" {
@@ -231,7 +231,7 @@ func TestScanDiskUsage_ManagedCodexSandboxIsExactAndDeduplicated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanDiskUsage broad basename: %v", err)
 	}
-	if got := report.Tasks[0].ArtifactSizeBytes; got != 700 {
+	if got := report.Runs[0].ArtifactSizeBytes; got != 700 {
 		t.Fatalf("artifact_size_bytes=%d, want 700 without double counting", got)
 	}
 }
@@ -241,17 +241,17 @@ func TestScanDiskUsage_LegacyMetaAgeUsesMetaFileMTime(t *testing.T) {
 
 	root := t.TempDir()
 	wsID := "llllllll-llll-llll-llll-llllllllllll"
-	taskDir := filepath.Join(root, wsID, "tttttttt")
-	writeFile(t, filepath.Join(taskDir, "workdir/main.go"), 10)
-	mustWriteMeta(t, taskDir, execenv.GCMeta{
-		Kind: execenv.GCKindIssue, IssueID: "issue-legacy", WorkspaceID: wsID,
+	runDir := filepath.Join(root, wsID, "tttttttt")
+	writeFile(t, filepath.Join(runDir, "workdir/main.go"), 10)
+	mustWriteMeta(t, runDir, execenv.GCMeta{
+		Kind: execenv.GCKindTask, TaskID: "task-legacy", WorkspaceID: wsID,
 	})
 	oldRoot := time.Now().Add(-30 * 24 * time.Hour)
-	if err := os.Chtimes(taskDir, oldRoot, oldRoot); err != nil {
+	if err := os.Chtimes(runDir, oldRoot, oldRoot); err != nil {
 		t.Fatal(err)
 	}
 	recentMeta := time.Now().Add(-2 * time.Hour)
-	if err := os.Chtimes(filepath.Join(taskDir, ".gc_meta.json"), recentMeta, recentMeta); err != nil {
+	if err := os.Chtimes(filepath.Join(runDir, ".gc_meta.json"), recentMeta, recentMeta); err != nil {
 		t.Fatal(err)
 	}
 
@@ -259,7 +259,7 @@ func TestScanDiskUsage_LegacyMetaAgeUsesMetaFileMTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanDiskUsage: %v", err)
 	}
-	if got := report.Tasks[0].AgeSeconds; got < int64(time.Hour.Seconds()) || got > int64((3*time.Hour).Seconds()) {
+	if got := report.Runs[0].AgeSeconds; got < int64(time.Hour.Seconds()) || got > int64((3*time.Hour).Seconds()) {
 		t.Fatalf("age_seconds=%d, want metadata age near 2h instead of stale task root age", got)
 	}
 }
@@ -273,8 +273,8 @@ func TestScanDiskUsage_EmptyWorkspaceArtifactRatio(t *testing.T) {
 
 	root := t.TempDir()
 	wsID := "00000000-0000-0000-0000-000000000000"
-	taskDir := filepath.Join(root, wsID, "tttttttt")
-	if err := os.MkdirAll(filepath.Join(taskDir, "workdir"), 0o755); err != nil {
+	runDir := filepath.Join(root, wsID, "tttttttt")
+	if err := os.MkdirAll(filepath.Join(runDir, "workdir"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -302,21 +302,21 @@ func TestScanDiskUsage_DoesNotEnterGit(t *testing.T) {
 
 	root := t.TempDir()
 	wsID := "wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww"
-	taskDir := filepath.Join(root, wsID, "tttttttt")
+	runDir := filepath.Join(root, wsID, "tttttttt")
 
-	writeFile(t, filepath.Join(taskDir, "workdir/.git/objects/pack"), 9999)
-	writeFile(t, filepath.Join(taskDir, "workdir/.git/node_modules/x"), 5555)
-	writeFile(t, filepath.Join(taskDir, "workdir/main.go"), 100)
+	writeFile(t, filepath.Join(runDir, "workdir/.git/objects/pack"), 9999)
+	writeFile(t, filepath.Join(runDir, "workdir/.git/node_modules/x"), 5555)
+	writeFile(t, filepath.Join(runDir, "workdir/main.go"), 100)
 
 	report, err := ScanDiskUsage(root, []string{"node_modules"})
 	if err != nil {
 		t.Fatalf("ScanDiskUsage: %v", err)
 	}
 
-	if len(report.Tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(report.Tasks))
+	if len(report.Runs) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(report.Runs))
 	}
-	got := report.Tasks[0]
+	got := report.Runs[0]
 	if got.SizeBytes != 100 {
 		t.Errorf("size_bytes = %d, want 100 (only main.go; .git tree skipped)", got.SizeBytes)
 	}
@@ -340,14 +340,14 @@ func TestScanDiskUsage_DoesNotFollowSymlinks(t *testing.T) {
 	writeFile(t, filepath.Join(outside, "huge.bin"), 10000)
 
 	wsID := "ssssssss-ssss-ssss-ssss-ssssssssssss"
-	taskDir := filepath.Join(root, wsID, "tttttttt")
-	writeFile(t, filepath.Join(taskDir, "workdir/main.go"), 100)
-	if err := os.Symlink(outside, filepath.Join(taskDir, "workdir/node_modules")); err != nil {
+	runDir := filepath.Join(root, wsID, "tttttttt")
+	writeFile(t, filepath.Join(runDir, "workdir/main.go"), 100)
+	if err := os.Symlink(outside, filepath.Join(runDir, "workdir/node_modules")); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
 	// Symlinked regular file too — the link's target lives outside taskDir
 	// and must not be summed.
-	if err := os.Symlink(filepath.Join(outside, "huge.bin"), filepath.Join(taskDir, "workdir/big-link")); err != nil {
+	if err := os.Symlink(filepath.Join(outside, "huge.bin"), filepath.Join(runDir, "workdir/big-link")); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
@@ -356,10 +356,10 @@ func TestScanDiskUsage_DoesNotFollowSymlinks(t *testing.T) {
 		t.Fatalf("ScanDiskUsage: %v", err)
 	}
 
-	if len(report.Tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(report.Tasks))
+	if len(report.Runs) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(report.Runs))
 	}
-	got := report.Tasks[0]
+	got := report.Runs[0]
 	if got.SizeBytes != 100 {
 		t.Errorf("size_bytes = %d, want 100 (only main.go; symlinks ignored)", got.SizeBytes)
 	}
@@ -376,7 +376,7 @@ func TestScanDiskUsage_MissingRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanDiskUsage on missing root returned error: %v", err)
 	}
-	if len(report.Tasks) != 0 || len(report.Workspaces) != 0 {
+	if len(report.Runs) != 0 || len(report.Workspaces) != 0 {
 		t.Errorf("expected empty report, got %+v", report)
 	}
 }
@@ -389,14 +389,14 @@ func TestScanDiskUsage_RejectsPatternsWithSeparators(t *testing.T) {
 
 	root := t.TempDir()
 	wsID := "rrrrrrrr-rrrr-rrrr-rrrr-rrrrrrrrrrrr"
-	taskDir := filepath.Join(root, wsID, "tttttttt")
-	writeFile(t, filepath.Join(taskDir, "workdir/node_modules/x"), 1000)
+	runDir := filepath.Join(root, wsID, "tttttttt")
+	writeFile(t, filepath.Join(runDir, "workdir/node_modules/x"), 1000)
 
 	report, err := ScanDiskUsage(root, []string{"workdir/node_modules", "../etc"})
 	if err != nil {
 		t.Fatalf("ScanDiskUsage: %v", err)
 	}
-	if got := report.Tasks[0].ArtifactSizeBytes; got != 0 {
+	if got := report.Runs[0].ArtifactSizeBytes; got != 0 {
 		t.Errorf("artifact_size_bytes = %d, want 0 (separator-bearing patterns dropped)", got)
 	}
 	if got := report.ArtifactPatterns; len(got) != 0 {
@@ -435,11 +435,11 @@ func TestScanDiskUsageRoots_SumsAcrossRoots(t *testing.T) {
 	if agg.Roots[0].Profile != "" || agg.Roots[1].Profile != "desktop-host" {
 		t.Fatalf("root profiles not preserved in order: %+v", agg.Roots)
 	}
-	if agg.Roots[2].Report.TotalTaskCount != 0 {
-		t.Fatalf("missing root TotalTaskCount = %d, want 0", agg.Roots[2].Report.TotalTaskCount)
+	if agg.Roots[2].Report.TotalRunCount != 0 {
+		t.Fatalf("missing root TotalTaskCount = %d, want 0", agg.Roots[2].Report.TotalRunCount)
 	}
-	if agg.TotalTaskCount != 3 {
-		t.Fatalf("TotalTaskCount = %d, want 3 across roots", agg.TotalTaskCount)
+	if agg.TotalRunCount != 3 {
+		t.Fatalf("TotalTaskCount = %d, want 3 across roots", agg.TotalRunCount)
 	}
 	if agg.TotalSizeBytes != 450 {
 		t.Fatalf("TotalSizeBytes = %d, want 450 (100 + 300 + 50)", agg.TotalSizeBytes)
@@ -452,16 +452,16 @@ func TestScanDiskUsageRoots_SumsAcrossRoots(t *testing.T) {
 	}
 }
 
-func mustWriteMeta(t *testing.T, taskDir string, meta execenv.GCMeta) {
+func mustWriteMeta(t *testing.T, runDir string, meta execenv.GCMeta) {
 	t.Helper()
 	data, err := json.Marshal(meta)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(taskDir, ".gc_meta.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(runDir, ".gc_meta.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

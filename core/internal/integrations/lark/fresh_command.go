@@ -13,9 +13,9 @@ type FreshSessionCommand struct {
 }
 
 // parseFreshSessionCommand extracts a first-line /new command from a message
-// body. Matching follows the /issue command rules: case-sensitive,
+// body. Matching follows the /task command rules: case-sensitive,
 // token-bounded, and only the first non-empty line can be a command. That
-// means /new and /issue are mutually exclusive on the same first line.
+// means /new and /task are mutually exclusive on the same first line.
 func parseFreshSessionCommand(body string) (*FreshSessionCommand, bool) {
 	lines := strings.Split(body, "\n")
 

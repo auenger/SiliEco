@@ -37,7 +37,7 @@ func seedWorkspace(t *testing.T, pool *pgxpool.Pool) pgtype.UUID {
 	slug := "ghsnap-" + randHex(t)
 	var wsID pgtype.UUID
 	if err := pool.QueryRow(context.Background(),
-		`INSERT INTO workspace (name, slug, description, issue_prefix) VALUES ($1,$2,$3,$4) RETURNING id`,
+		`INSERT INTO workspace (name, slug, description, task_prefix) VALUES ($1,$2,$3,$4) RETURNING id`,
 		"ghsnap test", slug, "ghsnap test workspace", "GHS").Scan(&wsID); err != nil {
 		t.Fatalf("seed workspace: %v", err)
 	}

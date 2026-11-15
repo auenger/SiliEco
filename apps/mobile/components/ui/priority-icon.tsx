@@ -1,9 +1,9 @@
 /**
  * Mobile PriorityIcon — react-native-svg implementation.
  *
- * Geometry mirrors packages/views/issues/components/priority-icon.tsx
+ * Geometry mirrors packages/views/tasks/components/priority-icon.tsx
  * (16×16 viewBox, 4 ascending bars, "none" rendered as a center dash). Bar
- * counts mirror packages/core/issues/config/priority.ts PRIORITY_CONFIG.bars
+ * counts mirror packages/core/tasks/config/priority.ts PRIORITY_CONFIG.bars
  * — Behavioral parity rule: same priority → same number of filled bars
  * across clients.
  *
@@ -12,9 +12,9 @@
  *     animation polish iteration).
  */
 import Svg, { Line, Rect } from "react-native-svg";
-import type { IssuePriority } from "@silieco/core/types";
+import type { TaskPriority } from "@silieco/core/types";
 
-const BARS: Record<IssuePriority, number> = {
+const BARS: Record<TaskPriority, number> = {
   urgent: 4,
   high: 3,
   medium: 2,
@@ -22,8 +22,8 @@ const BARS: Record<IssuePriority, number> = {
   none: 0,
 };
 
-// Mirrors PRIORITY_CONFIG.color in packages/core/issues/config/priority.ts.
-const COLOR: Record<IssuePriority, string> = {
+// Mirrors PRIORITY_CONFIG.color in packages/core/tasks/config/priority.ts.
+const COLOR: Record<TaskPriority, string> = {
   urgent: "#dc2626", // destructive
   high: "#eab308", // warning
   medium: "#eab308", // warning
@@ -35,7 +35,7 @@ export function PriorityIcon({
   priority,
   size = 14,
 }: {
-  priority: IssuePriority;
+  priority: TaskPriority;
   size?: number;
 }) {
   if (priority === "none") {

@@ -6,7 +6,7 @@ import {
   dateOnlyToLocalDate,
   formatDateOnly,
   isPastDateOnly,
-} from "@silieco/core/issues/date";
+} from "@silieco/core/tasks/date";
 import { Calendar } from "@silieco/ui/components/ui/calendar";
 import {
   Popover,
@@ -50,9 +50,9 @@ interface DateOnlyPickerProps {
 
 /**
  * Entity-agnostic calendar-day picker: the shared behaviour behind every
- * start/due-date pill (issues, projects, …). It owns the Popover + Calendar +
+ * start/due-date pill (tasks, projects, …). It owns the Popover + Calendar +
  * clear wiring and the calendar-day transport ("YYYY-MM-DD", no timezone shift,
- * via @silieco/core/issues/date); each entity wraps it to supply only the field
+ * via @silieco/core/tasks/date); each entity wraps it to supply only the field
  * name (through `onChange`), the icon, and the localized copy. Keeping this in
  * one place stops the per-entity pills from drifting in behaviour or display
  * formatting.

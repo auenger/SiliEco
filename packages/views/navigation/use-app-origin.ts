@@ -14,7 +14,7 @@ import { useOptionalNavigation } from "./context";
  * second copy of the same fact is a copy that can drift.
  *
  * Used to tell an in-app destination written as an absolute URL
- * (`https://<app-host>/acme/issues/1`) from a genuinely external link. `null`
+ * (`https://<app-host>/acme/tasks/1`) from a genuinely external link. `null`
  * degrades to the old behaviour — every absolute URL reads as external — which
  * is why a missing provider is tolerated instead of thrown on.
  */

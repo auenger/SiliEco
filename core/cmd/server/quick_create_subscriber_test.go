@@ -16,15 +16,15 @@ import (
 )
 
 // TestQuickCreateCompletion_SubscribesRequester locks in the fix for the
-// quick-create requester not being subscribed to the issue: the agent runs
-// the CLI and is recorded as the issue's creator, so the issue:created event
+// quick-create requester not being subscribed to the task: the agent runs
+// the CLI and is recorded as the task's creator, so the task:created event
 // only auto-subscribes the agent. The completion path must explicitly
 // subscribe the human requester so they receive follow-up notifications.
 func TestQuickCreateCompletion_SubscribesRequester(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
 
 	var agentID string
 	if err := testPool.QueryRow(ctx,
@@ -34,7 +34,7 @@ func TestQuickCreateCompletion_SubscribesRequester(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(ctx,
+	agentRun, err := runSvc.EnqueueQuickCreateRun(ctx,
 		parseUUID(testWorkspaceID),
 		parseUUID(testUserID),
 		parseUUID(agentID),
@@ -52,24 +52,24 @@ func TestQuickCreateCompletion_SubscribesRequester(t *testing.T) {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, task.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, agentRun.ID)
 	})
 
 	if _, err := testPool.Exec(ctx,
-		`UPDATE agent_task_queue SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
-		task.ID,
+		`UPDATE agent_run SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
+		agentRun.ID,
 	); err != nil {
-		t.Fatalf("dispatch task: %v", err)
+		t.Fatalf("dispatch run: %v", err)
 	}
-	if _, err := queries.StartAgentTask(ctx, task.ID); err != nil {
+	if _, err := queries.StartAgentRun(ctx, agentRun.ID); err != nil {
 		t.Fatalf("StartAgentTask: %v", err)
 	}
 
-	number, err := queries.IncrementIssueCounter(ctx, parseUUID(testWorkspaceID))
+	number, err := queries.IncrementTaskCounter(ctx, parseUUID(testWorkspaceID))
 	if err != nil {
-		t.Fatalf("IncrementIssueCounter: %v", err)
+		t.Fatalf("IncrementTaskCounter: %v", err)
 	}
-	issue, err := queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
+	task, err := queries.CreateTaskWithOrigin(ctx, db.CreateTaskWithOriginParams{
 		WorkspaceID: parseUUID(testWorkspaceID),
 		Title:       "agent-filed bug",
 		Status:      "todo",
@@ -78,32 +78,32 @@ func TestQuickCreateCompletion_SubscribesRequester(t *testing.T) {
 		CreatorID:   parseUUID(agentID),
 		Number:      number,
 		OriginType:  pgtype.Text{String: "quick_create", Valid: true},
-		OriginID:    task.ID,
+		OriginID:    agentRun.ID,
 	})
 	if err != nil {
-		t.Fatalf("CreateIssueWithOrigin: %v", err)
+		t.Fatalf("CreateTaskWithOrigin: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issue.ID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, task.ID)
 	})
 
-	if _, err := taskSvc.CompleteTask(ctx, task.ID, []byte(`{"output":"done"}`), "", "", false, ""); err != nil {
+	if _, err := runSvc.CompleteRun(ctx, agentRun.ID, []byte(`{"output":"done"}`), "", "", false, ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
-	if !isSubscribed(t, queries, util.UUIDToString(issue.ID), "member", testUserID) {
+	if !isSubscribed(t, queries, util.UUIDToString(task.ID), "member", testUserID) {
 		t.Fatal("expected requester to be subscribed after quick-create completion")
 	}
 }
 
 // TestQuickCreateFailure_DoesNotSubscribeRequester confirms the failure path
-// (agent finished without producing an issue) does not invent a subscriber
+// (agent finished without producing an task) does not invent a subscriber
 // row — there is nothing to subscribe to.
 func TestQuickCreateFailure_DoesNotSubscribeRequester(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
 
 	var agentID string
 	if err := testPool.QueryRow(ctx,
@@ -113,7 +113,7 @@ func TestQuickCreateFailure_DoesNotSubscribeRequester(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(ctx,
+	agentRun, err := runSvc.EnqueueQuickCreateRun(ctx,
 		parseUUID(testWorkspaceID),
 		parseUUID(testUserID),
 		parseUUID(agentID),
@@ -131,33 +131,33 @@ func TestQuickCreateFailure_DoesNotSubscribeRequester(t *testing.T) {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, task.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, agentRun.ID)
 	})
 
 	if _, err := testPool.Exec(ctx,
-		`UPDATE agent_task_queue SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
-		task.ID,
+		`UPDATE agent_run SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
+		agentRun.ID,
 	); err != nil {
-		t.Fatalf("dispatch task: %v", err)
+		t.Fatalf("dispatch run: %v", err)
 	}
-	if _, err := queries.StartAgentTask(ctx, task.ID); err != nil {
+	if _, err := queries.StartAgentRun(ctx, agentRun.ID); err != nil {
 		t.Fatalf("StartAgentTask: %v", err)
 	}
 
-	// No issue with origin_type=quick_create + this task id exists. Completion
+	// No task with origin_type=quick_create + this task id exists. Completion
 	// hits the failure branch and writes a failure inbox; no subscriber row.
-	if _, err := taskSvc.CompleteTask(ctx, task.ID, []byte(`{"output":"done"}`), "", "", false, ""); err != nil {
+	if _, err := runSvc.CompleteRun(ctx, agentRun.ID, []byte(`{"output":"done"}`), "", "", false, ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
 	var leaked int
 	if err := testPool.QueryRow(ctx, `
 		SELECT COUNT(*)
-		FROM issue_subscriber s
-		JOIN issue i ON i.id = s.issue_id
+		FROM task_subscriber s
+		JOIN task i ON i.id = s.task_id
 		WHERE s.user_type = 'member' AND s.user_id = $1
 		  AND i.origin_type = 'quick_create' AND i.origin_id = $2
-	`, testUserID, task.ID).Scan(&leaked); err != nil {
+	`, testUserID, agentRun.ID).Scan(&leaked); err != nil {
 		t.Fatalf("count leaked subscribers: %v", err)
 	}
 	if leaked != 0 {
@@ -166,15 +166,15 @@ func TestQuickCreateFailure_DoesNotSubscribeRequester(t *testing.T) {
 }
 
 // TestQuickCreateFailure_SurfacesAgentOutput locks in the fix for GH #5885: when
-// a quick-create agent's `silieco issue create` call fails (e.g. the active-
+// a quick-create agent's `silieco task create` call fails (e.g. the active-
 // duplicate guard rejects it), the failure inbox must carry the agent's real
 // final output — which the prompt requires to be the CLI error — instead of the
-// opaque "agent finished without creating an issue".
+// opaque "agent finished without creating an task".
 func TestQuickCreateFailure_SurfacesAgentOutput(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
 
 	var agentID string
 	if err := testPool.QueryRow(ctx,
@@ -184,7 +184,7 @@ func TestQuickCreateFailure_SurfacesAgentOutput(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(ctx,
+	agentRun, err := runSvc.EnqueueQuickCreateRun(ctx,
 		parseUUID(testWorkspaceID),
 		parseUUID(testUserID),
 		parseUUID(agentID),
@@ -202,34 +202,34 @@ func TestQuickCreateFailure_SurfacesAgentOutput(t *testing.T) {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, task.ID)
-		deleteInboxForTask(task.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, agentRun.ID)
+		deleteInboxForRun(agentRun.ID)
 	})
 
 	if _, err := testPool.Exec(ctx,
-		`UPDATE agent_task_queue SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
-		task.ID,
+		`UPDATE agent_run SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
+		agentRun.ID,
 	); err != nil {
-		t.Fatalf("dispatch task: %v", err)
+		t.Fatalf("dispatch run: %v", err)
 	}
-	if _, err := queries.StartAgentTask(ctx, task.ID); err != nil {
+	if _, err := queries.StartAgentRun(ctx, agentRun.ID); err != nil {
 		t.Fatalf("StartAgentTask: %v", err)
 	}
 
-	// No issue is created; the agent exits with the CLI duplicate error as its
+	// No task is created; the agent exits with the CLI duplicate error as its
 	// only output (per the quick-create prompt contract).
-	const agentErr = "Error: an active issue already exists: JKY-30 (blocked). Pass --allow-duplicate to override."
+	const agentErr = "Error: an active task already exists: JKY-30 (blocked). Pass --allow-duplicate to override."
 	result, _ := json.Marshal(map[string]any{"output": agentErr})
-	if _, err := taskSvc.CompleteTask(ctx, task.ID, result, "", "", false, ""); err != nil {
+	if _, err := runSvc.CompleteRun(ctx, agentRun.ID, result, "", "", false, ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
-	body, errDetail, _ := requireQuickCreateOutcomeInbox(t, task.ID, "quick_create_failed")
+	body, errDetail, _ := requireQuickCreateOutcomeInbox(t, agentRun.ID, "quick_create_failed")
 
 	if !strings.Contains(errDetail, "JKY-30") {
 		t.Fatalf("expected failure detail to carry the agent's real error, got %q", errDetail)
 	}
-	if strings.Contains(errDetail, "agent finished without creating an issue") {
+	if strings.Contains(errDetail, "agent finished without creating an task") {
 		t.Fatalf("failure detail regressed to the generic message: %q", errDetail)
 	}
 	if !strings.Contains(body, "JKY-30") {
@@ -248,7 +248,7 @@ func TestQuickCreateLookupFault_WritesUnconfirmedInbox(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
 
 	var agentID string
 	if err := testPool.QueryRow(ctx,
@@ -258,7 +258,7 @@ func TestQuickCreateLookupFault_WritesUnconfirmedInbox(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(ctx,
+	agentRun, err := runSvc.EnqueueQuickCreateRun(ctx,
 		parseUUID(testWorkspaceID),
 		parseUUID(testUserID),
 		parseUUID(agentID),
@@ -276,17 +276,17 @@ func TestQuickCreateLookupFault_WritesUnconfirmedInbox(t *testing.T) {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, task.ID)
-		deleteInboxForTask(task.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, agentRun.ID)
+		deleteInboxForRun(agentRun.ID)
 	})
 
 	if _, err := testPool.Exec(ctx,
-		`UPDATE agent_task_queue SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
-		task.ID,
+		`UPDATE agent_run SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
+		agentRun.ID,
 	); err != nil {
-		t.Fatalf("dispatch task: %v", err)
+		t.Fatalf("dispatch run: %v", err)
 	}
-	if _, err := queries.StartAgentTask(ctx, task.ID); err != nil {
+	if _, err := queries.StartAgentRun(ctx, agentRun.ID); err != nil {
 		t.Fatalf("StartAgentTask: %v", err)
 	}
 
@@ -294,21 +294,21 @@ func TestQuickCreateLookupFault_WritesUnconfirmedInbox(t *testing.T) {
 	// completion transaction is unaffected (runInTx binds queries to the tx),
 	// and the inbox write still goes to the real pool — so a missing inbox row
 	// can only mean the code dropped the notification.
-	faulting := service.NewTaskService(
-		db.New(failGetIssueByOriginDB{DBTX: testPool, err: errors.New("simulated transient db fault")}),
+	faulting := service.NewAgentRunService(
+		db.New(failGetTaskByOriginDB{DBTX: testPool, err: errors.New("simulated transient db fault")}),
 		testPool, nil, bus,
 	)
 
 	// The agent DID emit a duplicate-style error, but with the lookup faulted we
 	// cannot confirm it is the reason — it must not be presented as such.
 	result, _ := json.Marshal(map[string]any{
-		"output": "Error: an active issue already exists: JKY-30 (blocked).",
+		"output": "Error: an active task already exists: JKY-30 (blocked).",
 	})
-	if _, err := faulting.CompleteTask(ctx, task.ID, result, "", "", false, ""); err != nil {
+	if _, err := faulting.CompleteRun(ctx, agentRun.ID, result, "", "", false, ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
-	body, errDetail, title := requireQuickCreateOutcomeInbox(t, task.ID, "quick_create_unconfirmed")
+	body, errDetail, title := requireQuickCreateOutcomeInbox(t, agentRun.ID, "quick_create_unconfirmed")
 
 	if !strings.Contains(body, "Couldn't confirm") {
 		t.Fatalf("expected the neutral unconfirmed wording, got body %q", body)
@@ -331,7 +331,7 @@ func TestQuickCreateFailure_RedactsAgentOutput(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
 
 	var agentID string
 	if err := testPool.QueryRow(ctx,
@@ -341,7 +341,7 @@ func TestQuickCreateFailure_RedactsAgentOutput(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(ctx,
+	agentRun, err := runSvc.EnqueueQuickCreateRun(ctx,
 		parseUUID(testWorkspaceID),
 		parseUUID(testUserID),
 		parseUUID(agentID),
@@ -359,17 +359,17 @@ func TestQuickCreateFailure_RedactsAgentOutput(t *testing.T) {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, task.ID)
-		deleteInboxForTask(task.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, agentRun.ID)
+		deleteInboxForRun(agentRun.ID)
 	})
 
 	if _, err := testPool.Exec(ctx,
-		`UPDATE agent_task_queue SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
-		task.ID,
+		`UPDATE agent_run SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
+		agentRun.ID,
 	); err != nil {
-		t.Fatalf("dispatch task: %v", err)
+		t.Fatalf("dispatch run: %v", err)
 	}
-	if _, err := queries.StartAgentTask(ctx, task.ID); err != nil {
+	if _, err := queries.StartAgentRun(ctx, agentRun.ID); err != nil {
 		t.Fatalf("StartAgentTask: %v", err)
 	}
 
@@ -378,11 +378,11 @@ func TestQuickCreateFailure_RedactsAgentOutput(t *testing.T) {
 	result, _ := json.Marshal(map[string]any{
 		"output": "Error: create failed while authenticating with " + fakeToken,
 	})
-	if _, err := taskSvc.CompleteTask(ctx, task.ID, result, "", "", false, ""); err != nil {
+	if _, err := runSvc.CompleteRun(ctx, agentRun.ID, result, "", "", false, ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
-	body, errDetail, _ := requireQuickCreateOutcomeInbox(t, task.ID, "quick_create_failed")
+	body, errDetail, _ := requireQuickCreateOutcomeInbox(t, agentRun.ID, "quick_create_failed")
 
 	if strings.Contains(body, fakeToken) || strings.Contains(errDetail, fakeToken) {
 		t.Fatal("agent output reached the inbox row unredacted")
@@ -394,7 +394,7 @@ func TestQuickCreateFailure_RedactsAgentOutput(t *testing.T) {
 
 // TestQuickCreateLookupCancelled_StillWritesUnconfirmedInbox covers the
 // cancel/timeout shape of the lookup fault, which the plain-error case cannot:
-// when GetIssueByOrigin fails because the caller's context was cancelled or
+// when GetTaskByOrigin fails because the caller's context was cancelled or
 // timed out, reusing that same context for the notification write would fail it
 // for the identical reason and leave the user with nothing. The terminal write
 // must be detached from the caller's cancellation.
@@ -402,7 +402,7 @@ func TestQuickCreateLookupCancelled_StillWritesUnconfirmedInbox(t *testing.T) {
 	setupCtx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
 
 	var agentID string
 	if err := testPool.QueryRow(setupCtx,
@@ -412,7 +412,7 @@ func TestQuickCreateLookupCancelled_StillWritesUnconfirmedInbox(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(setupCtx,
+	agentRun, err := runSvc.EnqueueQuickCreateRun(setupCtx,
 		parseUUID(testWorkspaceID),
 		parseUUID(testUserID),
 		parseUUID(agentID),
@@ -430,17 +430,17 @@ func TestQuickCreateLookupCancelled_StillWritesUnconfirmedInbox(t *testing.T) {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, task.ID)
-		deleteInboxForTask(task.ID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, agentRun.ID)
+		deleteInboxForRun(agentRun.ID)
 	})
 
 	if _, err := testPool.Exec(setupCtx,
-		`UPDATE agent_task_queue SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
-		task.ID,
+		`UPDATE agent_run SET status = 'dispatched', dispatched_at = now() WHERE id = $1`,
+		agentRun.ID,
 	); err != nil {
-		t.Fatalf("dispatch task: %v", err)
+		t.Fatalf("dispatch run: %v", err)
 	}
-	if _, err := queries.StartAgentTask(setupCtx, task.ID); err != nil {
+	if _, err := queries.StartAgentRun(setupCtx, agentRun.ID); err != nil {
 		t.Fatalf("StartAgentTask: %v", err)
 	}
 
@@ -448,32 +448,32 @@ func TestQuickCreateLookupCancelled_StillWritesUnconfirmedInbox(t *testing.T) {
 	// the moment of the origin lookup, exactly as a cancelled request would.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	faulting := service.NewTaskService(
-		db.New(cancelOnGetIssueByOriginDB{DBTX: testPool, cancel: cancel}),
+	faulting := service.NewAgentRunService(
+		db.New(cancelOnGetTaskByOriginDB{DBTX: testPool, cancel: cancel}),
 		testPool, nil, bus,
 	)
 
 	result, _ := json.Marshal(map[string]any{"output": "Error: something went wrong"})
-	if _, err := faulting.CompleteTask(ctx, task.ID, result, "", "", false, ""); err != nil {
+	if _, err := faulting.CompleteRun(ctx, agentRun.ID, result, "", "", false, ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 	if ctx.Err() == nil {
 		t.Fatal("test setup is wrong: the context should have been cancelled during the lookup")
 	}
 
-	body, _, _ := requireQuickCreateOutcomeInbox(t, task.ID, "quick_create_unconfirmed")
+	body, _, _ := requireQuickCreateOutcomeInbox(t, agentRun.ID, "quick_create_unconfirmed")
 	if !strings.Contains(body, "Couldn't confirm") {
 		t.Fatalf("expected the neutral unconfirmed wording, got %q", body)
 	}
 }
 
 // requireQuickCreateOutcomeInbox returns (body, details.error, title) for the
-// quick-create outcome notification of the given type belonging to taskID,
+// quick-create outcome notification of the given type belonging to runID,
 // failing the test when none exists. Scoping by task id keeps
 // concurrent/ordering-sensitive cases from reading a sibling test's row; the
 // type is asserted because the failed and unconfirmed outcomes must never
 // collapse into one another (clients frame them differently).
-func requireQuickCreateOutcomeInbox(t *testing.T, taskID pgtype.UUID, inboxType string) (string, string, string) {
+func requireQuickCreateOutcomeInbox(t *testing.T, runID pgtype.UUID, inboxType string) (string, string, string) {
 	t.Helper()
 	var body, errDetail, title string
 	err := testPool.QueryRow(context.Background(), `
@@ -481,50 +481,50 @@ func requireQuickCreateOutcomeInbox(t *testing.T, taskID pgtype.UUID, inboxType 
 		FROM inbox_item
 		WHERE recipient_type = 'member' AND recipient_id = $1
 		  AND type = $3
-		  AND details->>'task_id' = $2::text
+		  AND details->>'run_id' = $2::text
 		ORDER BY created_at DESC
 		LIMIT 1
-	`, testUserID, taskID, inboxType).Scan(&body, &errDetail, &title)
+	`, testUserID, runID, inboxType).Scan(&body, &errDetail, &title)
 	if err != nil {
 		t.Fatalf("expected a %s notification for the task, got none: %v", inboxType, err)
 	}
 	return body, errDetail, title
 }
 
-func deleteInboxForTask(taskID pgtype.UUID) {
+func deleteInboxForRun(runID pgtype.UUID) {
 	testPool.Exec(context.Background(),
-		`DELETE FROM inbox_item WHERE details->>'task_id' = $1::text`, taskID)
+		`DELETE FROM inbox_item WHERE details->>'run_id' = $1::text`, runID)
 }
 
-// failGetIssueByOriginDB delegates every statement to the real pool except the
+// failGetTaskByOriginDB delegates every statement to the real pool except the
 // quick-create completion lookup, which it fails with a non-ErrNoRows error to
 // simulate a transient DB fault on exactly that query. Everything else —
 // including the inbox write the assertion depends on — still hits the real DB.
-type failGetIssueByOriginDB struct {
+type failGetTaskByOriginDB struct {
 	db.DBTX
 	err error
 }
 
-func (f failGetIssueByOriginDB) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
+func (f failGetTaskByOriginDB) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
 	// sqlc keeps the `-- name: <Query>` header in the generated SQL constant,
 	// so this matches that one query and nothing else.
-	if strings.Contains(sql, "name: GetIssueByOrigin") {
+	if strings.Contains(sql, "name: GetTaskByOrigin") {
 		return errRow{err: f.err}
 	}
 	return f.DBTX.QueryRow(ctx, sql, args...)
 }
 
-// cancelOnGetIssueByOriginDB cancels the caller's context at the moment of the
+// cancelOnGetTaskByOriginDB cancels the caller's context at the moment of the
 // origin lookup and fails it with context.Canceled — the shape a cancelled or
 // timed-out request actually produces, where every later use of that same
 // context is doomed too.
-type cancelOnGetIssueByOriginDB struct {
+type cancelOnGetTaskByOriginDB struct {
 	db.DBTX
 	cancel context.CancelFunc
 }
 
-func (f cancelOnGetIssueByOriginDB) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
-	if strings.Contains(sql, "name: GetIssueByOrigin") {
+func (f cancelOnGetTaskByOriginDB) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
+	if strings.Contains(sql, "name: GetTaskByOrigin") {
 		f.cancel()
 		return errRow{err: context.Canceled}
 	}

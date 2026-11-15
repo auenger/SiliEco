@@ -98,8 +98,8 @@ func TestCommentDeliveryEntrySize_AccountsForLegacyJSONEscaping(t *testing.T) {
 type commentDeliveryFixture struct {
 	runtimeID string
 	agentID   string
-	issueID   string
 	taskID    string
+	runID     string
 	commentID []string
 	threadID  []string
 	content   []string
@@ -111,23 +111,23 @@ type failNthBegin struct {
 	calls    int
 }
 
-type failDeleteCommentDB struct {
-	delegate db.DBTX
+type failDeleteCommentTxStarter struct{ delegate txStarter }
+
+type failDeleteCommentTx struct{ pgx.Tx }
+
+func (f failDeleteCommentTxStarter) Begin(ctx context.Context) (pgx.Tx, error) {
+	tx, err := f.delegate.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return failDeleteCommentTx{Tx: tx}, nil
 }
 
-func (f *failDeleteCommentDB) Exec(ctx context.Context, query string, args ...interface{}) (pgconn.CommandTag, error) {
+func (f failDeleteCommentTx) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	if strings.Contains(query, "-- name: DeleteComment") {
 		return pgconn.CommandTag{}, errors.New("injected comment deletion failure")
 	}
-	return f.delegate.Exec(ctx, query, args...)
-}
-
-func (f *failDeleteCommentDB) Query(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
-	return f.delegate.Query(ctx, query, args...)
-}
-
-func (f *failDeleteCommentDB) QueryRow(ctx context.Context, query string, args ...interface{}) pgx.Row {
-	return f.delegate.QueryRow(ctx, query, args...)
+	return f.Tx.Exec(ctx, query, args...)
 }
 
 func (f *failNthBegin) Begin(ctx context.Context) (pgx.Tx, error) {
@@ -142,114 +142,114 @@ func createCommentDeliveryFixture(t *testing.T, label string) commentDeliveryFix
 	t.Helper()
 	ctx := context.Background()
 	runtimeID := createClaimReclaimRuntime(t, ctx, label+" runtime")
-	agentID, issueID := createClaimReclaimAgentAndIssue(t, ctx, runtimeID, label+" agent")
+	agentID, taskID := createClaimReclaimAgentAndTask(t, ctx, runtimeID, label+" agent")
 
 	contents := []string{"first cross-thread instruction", "second instruction", "latest instruction"}
 	ids := make([]string, 3)
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, created_at)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, created_at)
 		VALUES ($1, $2, 'member', $3, $4, 'comment', now() - interval '3 minutes')
 		RETURNING id
-	`, issueID, testWorkspaceID, testUserID, contents[0]).Scan(&ids[0]); err != nil {
+	`, taskID, testWorkspaceID, testUserID, contents[0]).Scan(&ids[0]); err != nil {
 		t.Fatalf("insert first comment: %v", err)
 	}
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, created_at)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, created_at)
 		VALUES ($1, $2, 'member', $3, $4, 'comment', now() - interval '2 minutes')
 		RETURNING id
-	`, issueID, testWorkspaceID, testUserID, contents[1]).Scan(&ids[1]); err != nil {
+	`, taskID, testWorkspaceID, testUserID, contents[1]).Scan(&ids[1]); err != nil {
 		t.Fatalf("insert second comment: %v", err)
 	}
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
 		VALUES ($1, $2, 'member', $3, $4, 'comment', $5, now() - interval '1 minute')
 		RETURNING id
-	`, issueID, testWorkspaceID, testUserID, contents[2], ids[1]).Scan(&ids[2]); err != nil {
+	`, taskID, testWorkspaceID, testUserID, contents[2], ids[1]).Scan(&ids[2]); err != nil {
 		t.Fatalf("insert trigger comment: %v", err)
 	}
 
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (
-			agent_id, runtime_id, issue_id, status, priority,
+		INSERT INTO agent_run (
+			agent_id, runtime_id, task_id, status, priority,
 			trigger_comment_id, coalesced_comment_ids
 		)
 		VALUES ($1, $2, $3, 'queued', 0, $4, ARRAY[$5::uuid, $6::uuid])
 		RETURNING id
-	`, agentID, runtimeID, issueID, ids[2], ids[1], ids[0]).Scan(&taskID); err != nil {
-		t.Fatalf("insert comment delivery task: %v", err)
+	`, agentID, runtimeID, taskID, ids[2], ids[1], ids[0]).Scan(&runID); err != nil {
+		t.Fatalf("insert comment delivery run: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
 	})
 
 	return commentDeliveryFixture{
 		runtimeID: runtimeID,
 		agentID:   agentID,
-		issueID:   issueID,
 		taskID:    taskID,
+		runID:     runID,
 		commentID: ids,
 		threadID:  []string{ids[0], ids[1], ids[1]},
 		content:   contents,
 	}
 }
 
-func claimCommentDeliveryFixture(t *testing.T, fixture commentDeliveryFixture, capabilities string) AgentTaskResponse {
+func claimCommentDeliveryFixture(t *testing.T, fixture commentDeliveryFixture, capabilities string) AgentRunResponse {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest(http.MethodPost, "/api/daemon/runtimes/"+fixture.runtimeID+"/tasks/claim", nil,
+	req := newDaemonTokenRequest(http.MethodPost, "/api/daemon/runtimes/"+fixture.runtimeID+"/runs/claim", nil,
 		testWorkspaceID, "comment-delivery-matrix")
 	if capabilities != "" {
 		req.Header.Set("X-Client-Capabilities", capabilities)
 	}
 	req = withURLParam(req, "runtimeId", fixture.runtimeID)
-	testHandler.ClaimTaskByRuntime(w, req)
+	testHandler.ClaimRunByRuntime(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("ClaimTaskByRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	var response struct {
-		Task *AgentTaskResponse `json:"task"`
+		AgentRun *AgentRunResponse `json:"run"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode claim response: %v", err)
 	}
-	if response.Task == nil {
-		t.Fatalf("claim returned no task: %s", w.Body.String())
+	if response.AgentRun == nil {
+		t.Fatalf("claim returned no run: %s", w.Body.String())
 	}
-	return *response.Task
+	return *response.AgentRun
 }
 
-func deliveredCommentIDsForTask(t *testing.T, taskID string) []string {
+func deliveredCommentIDsForRun(t *testing.T, runID string) []string {
 	t.Helper()
 	var ids []string
 	if err := testPool.QueryRow(context.Background(), `
 		SELECT delivered_comment_ids::text[]
-		FROM agent_task_queue
+		FROM agent_run
 		WHERE id = $1
-	`, taskID).Scan(&ids); err != nil {
+	`, runID).Scan(&ids); err != nil {
 		t.Fatalf("load delivered comment ids: %v", err)
 	}
 	return ids
 }
 
-func TestClaimTaskByRuntime_CoalescedDeliveryMatrix(t *testing.T) {
+func TestClaimRunByRuntime_CoalescedDeliveryMatrix(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 
 	t.Run("legacy daemon receives one compatible bundle", func(t *testing.T) {
 		fixture := createCommentDeliveryFixture(t, "Legacy comment delivery")
-		task := claimCommentDeliveryFixture(t, fixture, protocol.DaemonCapabilitySkillBundlesV1)
+		agentRun := claimCommentDeliveryFixture(t, fixture, protocol.DaemonCapabilitySkillBundlesV1)
 
 		// A v0.3.41-shaped decoder knows only this old comment field. All input
 		// must still be available through it; structured fields are deliberately
 		// absent to avoid duplicate rendering in intermediate clients.
-		wire, err := json.Marshal(map[string]any{"task": task})
+		wire, err := json.Marshal(map[string]any{"task": agentRun})
 		if err != nil {
 			t.Fatalf("marshal legacy-shaped response: %v", err)
 		}
 		var legacy struct {
-			Task struct {
+			AgentRun struct {
 				TriggerCommentContent string `json:"trigger_comment_content"`
 			} `json:"task"`
 		}
@@ -258,15 +258,15 @@ func TestClaimTaskByRuntime_CoalescedDeliveryMatrix(t *testing.T) {
 		}
 		for i := range fixture.commentID {
 			for _, want := range []string{fixture.commentID[i], fixture.threadID[i], fixture.content[i]} {
-				if !strings.Contains(legacy.Task.TriggerCommentContent, want) {
-					t.Fatalf("legacy trigger bundle missing %q:\n%s", want, legacy.Task.TriggerCommentContent)
+				if !strings.Contains(legacy.AgentRun.TriggerCommentContent, want) {
+					t.Fatalf("legacy trigger bundle missing %q:\n%s", want, legacy.AgentRun.TriggerCommentContent)
 				}
 			}
 		}
-		if len(task.CoalescedComments) != 0 || len(task.CoalescedCommentIDs) != 0 {
-			t.Fatalf("legacy claim leaked structured coalesced fields: ids=%v comments=%v", task.CoalescedCommentIDs, task.CoalescedComments)
+		if len(agentRun.CoalescedComments) != 0 || len(agentRun.CoalescedCommentIDs) != 0 {
+			t.Fatalf("legacy claim leaked structured coalesced fields: ids=%v comments=%v", agentRun.CoalescedCommentIDs, agentRun.CoalescedComments)
 		}
-		if !slices.Equal(deliveredCommentIDsForTask(t, fixture.taskID), fixture.commentID) {
+		if !slices.Equal(deliveredCommentIDsForRun(t, fixture.runID), fixture.commentID) {
 			t.Fatalf("legacy receipt does not match embedded comments")
 		}
 	})
@@ -274,70 +274,70 @@ func TestClaimTaskByRuntime_CoalescedDeliveryMatrix(t *testing.T) {
 	t.Run("capable daemon receives ordered structured comments", func(t *testing.T) {
 		fixture := createCommentDeliveryFixture(t, "Structured comment delivery")
 		capabilities := protocol.DaemonCapabilitySkillBundlesV1 + "," + protocol.DaemonCapabilityCoalescedCommentsV1
-		task := claimCommentDeliveryFixture(t, fixture, capabilities)
+		agentRun := claimCommentDeliveryFixture(t, fixture, capabilities)
 
-		if task.TriggerCommentContent != fixture.content[2] {
-			t.Fatalf("trigger content = %q, want %q", task.TriggerCommentContent, fixture.content[2])
+		if agentRun.TriggerCommentContent != fixture.content[2] {
+			t.Fatalf("trigger content = %q, want %q", agentRun.TriggerCommentContent, fixture.content[2])
 		}
-		if !slices.Equal(task.CoalescedCommentIDs, fixture.commentID[:2]) {
-			t.Fatalf("structured ids = %v, want %v", task.CoalescedCommentIDs, fixture.commentID[:2])
+		if !slices.Equal(agentRun.CoalescedCommentIDs, fixture.commentID[:2]) {
+			t.Fatalf("structured ids = %v, want %v", agentRun.CoalescedCommentIDs, fixture.commentID[:2])
 		}
-		if len(task.CoalescedComments) != 2 {
-			t.Fatalf("structured comments = %d, want 2", len(task.CoalescedComments))
+		if len(agentRun.CoalescedComments) != 2 {
+			t.Fatalf("structured comments = %d, want 2", len(agentRun.CoalescedComments))
 		}
-		for i, comment := range task.CoalescedComments {
+		for i, comment := range agentRun.CoalescedComments {
 			if comment.ID != fixture.commentID[i] || comment.ThreadID != fixture.threadID[i] || comment.Content != fixture.content[i] {
 				t.Fatalf("structured comment[%d] = %+v", i, comment)
 			}
 		}
-		if !slices.Equal(task.DeliveredCommentIDs, fixture.commentID) {
-			t.Fatalf("response receipt = %v, want %v", task.DeliveredCommentIDs, fixture.commentID)
+		if !slices.Equal(agentRun.DeliveredCommentIDs, fixture.commentID) {
+			t.Fatalf("response receipt = %v, want %v", agentRun.DeliveredCommentIDs, fixture.commentID)
 		}
-		if !slices.Equal(deliveredCommentIDsForTask(t, fixture.taskID), fixture.commentID) {
+		if !slices.Equal(deliveredCommentIDsForRun(t, fixture.runID), fixture.commentID) {
 			t.Fatalf("database receipt does not match embedded comments")
 		}
 
-		if _, err := testHandler.TaskService.StartTask(context.Background(), parseUUID(fixture.taskID)); err != nil {
-			t.Fatalf("start claimed task: %v", err)
+		if _, err := testHandler.AgentRunService.StartRun(context.Background(), parseUUID(fixture.runID)); err != nil {
+			t.Fatalf("start claimed run: %v", err)
 		}
-		if w := completeTaskViaHandler(t, fixture.taskID, "done"); w.Code != http.StatusOK {
-			t.Fatalf("complete claimed task: %d %s", w.Code, w.Body.String())
+		if w := completeRunViaHandler(t, fixture.runID, "done"); w.Code != http.StatusOK {
+			t.Fatalf("complete claimed run: %d %s", w.Code, w.Body.String())
 		}
-		if n := pendingTaskCountForAgentIssue(t, fixture.issueID, fixture.agentID); n != 0 {
+		if n := pendingRunCountForAgentTask(t, fixture.taskID, fixture.agentID); n != 0 {
 			t.Fatalf("full receipt produced %d follow-up tasks, want 0", n)
 		}
 	})
 }
 
-func TestClaimTaskByRuntime_CoalescedOnlyStaleTaskDoesNotReuseDeletedTriggerCapabilities(t *testing.T) {
+func TestClaimRunByRuntime_CoalescedOnlyStaleRunDoesNotReuseDeletedTriggerCapabilities(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	fixture := createCommentDeliveryFixture(t, "Deleted trigger stale claim")
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.issueID, fixture.agentID); err != nil {
-		t.Fatalf("assign stale-claim issue: %v", err)
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.taskID, fixture.agentID); err != nil {
+		t.Fatalf("assign stale-claim task: %v", err)
 	}
 	if _, err := testPool.Exec(context.Background(), `DELETE FROM comment WHERE id = $1`, fixture.commentID[2]); err != nil {
 		t.Fatalf("delete trigger directly: %v", err)
 	}
 
 	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest(http.MethodPost, "/api/daemon/runtimes/"+fixture.runtimeID+"/tasks/claim", nil,
+	req := newDaemonTokenRequest(http.MethodPost, "/api/daemon/runtimes/"+fixture.runtimeID+"/runs/claim", nil,
 		testWorkspaceID, "stale-comment-plan-repair")
 	req.Header.Set("X-Client-Capabilities", protocol.DaemonCapabilityCoalescedCommentsV1)
 	req = withURLParam(req, "runtimeId", fixture.runtimeID)
-	testHandler.ClaimTaskByRuntime(w, req)
+	testHandler.ClaimRunByRuntime(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("repair stale claim: got %d: %s", w.Code, w.Body.String())
 	}
 	var response struct {
-		Task *AgentTaskResponse `json:"task"`
+		AgentRun *AgentRunResponse `json:"run"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode stale-plan repair response: %v", err)
 	}
-	if response.Task != nil {
-		t.Fatalf("stale plan was dispatched instead of repaired: %+v", response.Task)
+	if response.AgentRun != nil {
+		t.Fatalf("stale plan was dispatched instead of repaired: %+v", response.AgentRun)
 	}
 	assertRepairedCommentBatch(t, fixture, fixture.commentID[1], fixture.commentID[:1])
 }
@@ -347,8 +347,8 @@ func TestUpdateComment_RequeuesSurvivingCoalescedBatch(t *testing.T) {
 		t.Skip("database not available")
 	}
 	fixture := createCommentDeliveryFixture(t, "Edited trigger batch repair")
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.issueID, fixture.agentID); err != nil {
-		t.Fatalf("assign edited-trigger issue: %v", err)
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.taskID, fixture.agentID); err != nil {
+		t.Fatalf("assign edited-trigger task: %v", err)
 	}
 
 	w := httptest.NewRecorder()
@@ -369,8 +369,8 @@ func TestDeleteComment_RequeuesSurvivingCoalescedBatch(t *testing.T) {
 		t.Skip("database not available")
 	}
 	fixture := createCommentDeliveryFixture(t, "Deleted trigger batch repair")
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.issueID, fixture.agentID); err != nil {
-		t.Fatalf("assign deleted-trigger issue: %v", err)
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.taskID, fixture.agentID); err != nil {
+		t.Fatalf("assign deleted-trigger task: %v", err)
 	}
 
 	w := httptest.NewRecorder()
@@ -396,8 +396,8 @@ func TestUpdateComment_CancelsAndRequeuesWhenEditedInputIsCoalesced(t *testing.T
 		t.Skip("database not available")
 	}
 	fixture := createCommentDeliveryFixture(t, "Edited coalesced input repair")
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.issueID, fixture.agentID); err != nil {
-		t.Fatalf("assign edited-coalesced issue: %v", err)
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.taskID, fixture.agentID); err != nil {
+		t.Fatalf("assign edited-coalesced task: %v", err)
 	}
 
 	w := httptest.NewRecorder()
@@ -418,8 +418,8 @@ func TestDeleteComment_CancelsAndRequeuesWhenDeletedInputIsCoalesced(t *testing.
 		t.Skip("database not available")
 	}
 	fixture := createCommentDeliveryFixture(t, "Deleted coalesced input repair")
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.issueID, fixture.agentID); err != nil {
-		t.Fatalf("assign deleted-coalesced issue: %v", err)
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.taskID, fixture.agentID); err != nil {
+		t.Fatalf("assign deleted-coalesced task: %v", err)
 	}
 
 	w := httptest.NewRecorder()
@@ -438,12 +438,12 @@ func TestDeleteComment_FailureRestoresCancelledCompleteBatch(t *testing.T) {
 		t.Skip("database not available")
 	}
 	fixture := createCommentDeliveryFixture(t, "Failed deletion batch repair")
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.issueID, fixture.agentID); err != nil {
-		t.Fatalf("assign failed-delete issue: %v", err)
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.taskID, fixture.agentID); err != nil {
+		t.Fatalf("assign failed-delete task: %v", err)
 	}
 
 	failingHandler := *testHandler
-	failingHandler.Queries = db.New(&failDeleteCommentDB{delegate: testPool})
+	failingHandler.TxStarter = failDeleteCommentTxStarter{delegate: testPool}
 	w := httptest.NewRecorder()
 	req := newRequest(http.MethodDelete, "/api/comments/"+fixture.commentID[2], nil)
 	req = withURLParam(req, "commentId", fixture.commentID[2])
@@ -465,8 +465,8 @@ func TestDeleteComment_FailureRestoresCancelledCompleteBatch(t *testing.T) {
 func assertRepairedCommentBatch(t *testing.T, fixture commentDeliveryFixture, wantTrigger string, wantCoalesced []string) {
 	t.Helper()
 	var originalStatus string
-	if err := testPool.QueryRow(context.Background(), `SELECT status FROM agent_task_queue WHERE id = $1`, fixture.taskID).Scan(&originalStatus); err != nil {
-		t.Fatalf("load original task: %v", err)
+	if err := testPool.QueryRow(context.Background(), `SELECT status FROM agent_run WHERE id = $1`, fixture.runID).Scan(&originalStatus); err != nil {
+		t.Fatalf("load original run: %v", err)
 	}
 	if originalStatus != "cancelled" {
 		t.Fatalf("original task status = %s, want cancelled", originalStatus)
@@ -476,10 +476,10 @@ func assertRepairedCommentBatch(t *testing.T, fixture commentDeliveryFixture, wa
 	var coalesced, delivered []string
 	if err := testPool.QueryRow(context.Background(), `
 		SELECT trigger_comment_id::text, coalesced_comment_ids::text[], delivered_comment_ids::text[]
-		FROM agent_task_queue
-		WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'
-	`, fixture.issueID, fixture.agentID).Scan(&trigger, &coalesced, &delivered); err != nil {
-		t.Fatalf("load repaired task: %v", err)
+		FROM agent_run
+		WHERE task_id = $1 AND agent_id = $2 AND status = 'queued'
+	`, fixture.taskID, fixture.agentID).Scan(&trigger, &coalesced, &delivered); err != nil {
+		t.Fatalf("load repaired run: %v", err)
 	}
 	if trigger != wantTrigger {
 		t.Fatalf("repaired trigger = %s, want %s", trigger, wantTrigger)
@@ -521,7 +521,7 @@ func TestBuildCoalescedCommentData_SortsEqualTimestampsByID(t *testing.T) {
 	}
 }
 
-func TestClaimTaskByRuntime_PayloadOverflowReceiptsOnlyEmbeddedPrefix(t *testing.T) {
+func TestClaimRunByRuntime_PayloadOverflowReceiptsOnlyEmbeddedPrefix(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -530,28 +530,28 @@ func TestClaimTaskByRuntime_PayloadOverflowReceiptsOnlyEmbeddedPrefix(t *testing
 	if _, err := testPool.Exec(context.Background(), `UPDATE comment SET content = $2 WHERE id = $1`, fixture.commentID[0], oversized); err != nil {
 		t.Fatalf("make first coalesced comment oversized: %v", err)
 	}
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.issueID, fixture.agentID); err != nil {
-		t.Fatalf("assign overflow issue: %v", err)
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.taskID, fixture.agentID); err != nil {
+		t.Fatalf("assign overflow task: %v", err)
 	}
 
-	task := claimCommentDeliveryFixture(t, fixture, protocol.DaemonCapabilityCoalescedCommentsV1)
-	if !slices.Equal(task.DeliveredCommentIDs, []string{fixture.commentID[2]}) {
-		t.Fatalf("overflow receipt = %v, want primary trigger only", task.DeliveredCommentIDs)
+	agentRun := claimCommentDeliveryFixture(t, fixture, protocol.DaemonCapabilityCoalescedCommentsV1)
+	if !slices.Equal(agentRun.DeliveredCommentIDs, []string{fixture.commentID[2]}) {
+		t.Fatalf("overflow receipt = %v, want primary trigger only", agentRun.DeliveredCommentIDs)
 	}
-	if len(task.CoalescedComments) != 0 || len(task.CoalescedCommentIDs) != 0 {
-		t.Fatalf("overflow claim embedded comments beyond stable boundary: ids=%v comments=%d", task.CoalescedCommentIDs, len(task.CoalescedComments))
+	if len(agentRun.CoalescedComments) != 0 || len(agentRun.CoalescedCommentIDs) != 0 {
+		t.Fatalf("overflow claim embedded comments beyond stable boundary: ids=%v comments=%d", agentRun.CoalescedCommentIDs, len(agentRun.CoalescedComments))
 	}
 
-	if _, err := testHandler.TaskService.StartTask(context.Background(), parseUUID(fixture.taskID)); err != nil {
-		t.Fatalf("start overflow task: %v", err)
+	if _, err := testHandler.AgentRunService.StartRun(context.Background(), parseUUID(fixture.runID)); err != nil {
+		t.Fatalf("start overflow run: %v", err)
 	}
-	if w := completeTaskViaHandler(t, fixture.taskID, "done"); w.Code != http.StatusOK {
-		t.Fatalf("complete overflow task: %d %s", w.Code, w.Body.String())
+	if w := completeRunViaHandler(t, fixture.runID, "done"); w.Code != http.StatusOK {
+		t.Fatalf("complete overflow run: %d %s", w.Code, w.Body.String())
 	}
-	if n := pendingTaskCountForAgentIssue(t, fixture.issueID, fixture.agentID); n != 1 {
+	if n := pendingRunCountForAgentTask(t, fixture.taskID, fixture.agentID); n != 1 {
 		t.Fatalf("overflow should create one bounded follow-up, got %d", n)
 	}
-	followupTrigger, _, followupCoalesced := taskTriggerOriginatorCoalesced(t, fixture.issueID, fixture.agentID)
+	followupTrigger, _, followupCoalesced := runTriggerOriginatorCoalesced(t, fixture.taskID, fixture.agentID)
 	covered := append([]string{}, followupCoalesced...)
 	covered = append(covered, followupTrigger)
 	slices.Sort(covered)
@@ -562,7 +562,7 @@ func TestClaimTaskByRuntime_PayloadOverflowReceiptsOnlyEmbeddedPrefix(t *testing
 	}
 }
 
-func TestClaimTaskByRuntime_StaleReclaimReplacesDeliveryReceipt(t *testing.T) {
+func TestClaimRunByRuntime_StaleReclaimReplacesDeliveryReceipt(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -577,10 +577,10 @@ func TestClaimTaskByRuntime_StaleReclaimReplacesDeliveryReceipt(t *testing.T) {
 		t.Fatalf("make reclaimed comment oversized: %v", err)
 	}
 	if _, err := testPool.Exec(context.Background(), `
-		UPDATE agent_task_queue
+		UPDATE agent_run
 		SET dispatched_at = now() - interval '2 minutes', prepare_lease_expires_at = NULL
 		WHERE id = $1
-	`, fixture.taskID); err != nil {
+	`, fixture.runID); err != nil {
 		t.Fatalf("prepare stale receipt reclaim: %v", err)
 	}
 
@@ -589,34 +589,34 @@ func TestClaimTaskByRuntime_StaleReclaimReplacesDeliveryReceipt(t *testing.T) {
 	if !slices.Equal(reclaimed.DeliveredCommentIDs, want) {
 		t.Fatalf("reclaimed response receipt = %v, want replacement %v", reclaimed.DeliveredCommentIDs, want)
 	}
-	if got := deliveredCommentIDsForTask(t, fixture.taskID); !slices.Equal(got, want) {
+	if got := deliveredCommentIDsForRun(t, fixture.runID); !slices.Equal(got, want) {
 		t.Fatalf("reclaimed database receipt = %v, want replacement %v", got, want)
 	}
 }
 
-func TestCreateRetryTask_PreservesCommentPlanAndResetsReceipt(t *testing.T) {
+func TestCreateRetryRun_PreservesCommentPlanAndResetsReceipt(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	runtimeID := createClaimReclaimRuntime(t, ctx, "Comment retry runtime")
-	agentID, issueID := createClaimReclaimAgentAndIssue(t, ctx, runtimeID, "Comment retry agent")
+	agentID, taskID := createClaimReclaimAgentAndTask(t, ctx, runtimeID, "Comment retry agent")
 
 	commentIDs := make([]string, 3)
 	for i := range commentIDs {
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type)
 			VALUES ($1, $2, 'member', $3, $4, 'comment')
 			RETURNING id
-		`, issueID, testWorkspaceID, testUserID, "retry comment").Scan(&commentIDs[i]); err != nil {
+		`, taskID, testWorkspaceID, testUserID, "retry comment").Scan(&commentIDs[i]); err != nil {
 			t.Fatalf("insert retry comment: %v", err)
 		}
 	}
 
 	var parentID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (
-			agent_id, runtime_id, issue_id, status, priority,
+		INSERT INTO agent_run (
+			agent_id, runtime_id, task_id, status, priority,
 			trigger_comment_id, coalesced_comment_ids, delivered_comment_ids,
 			attempt, max_attempts, failure_reason
 		)
@@ -626,14 +626,14 @@ func TestCreateRetryTask_PreservesCommentPlanAndResetsReceipt(t *testing.T) {
 			1, 3, 'timeout'
 		)
 		RETURNING id
-	`, agentID, runtimeID, issueID, commentIDs[2], commentIDs[0], commentIDs[1]).Scan(&parentID); err != nil {
+	`, agentID, runtimeID, taskID, commentIDs[2], commentIDs[0], commentIDs[1]).Scan(&parentID); err != nil {
 		t.Fatalf("insert retry parent: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
 	})
 
-	child, err := testHandler.Queries.CreateRetryTask(ctx, db.CreateRetryTaskParams{ID: util.MustParseUUID(parentID)})
+	child, err := testHandler.Queries.CreateRetryRun(ctx, db.CreateRetryRunParams{ID: util.MustParseUUID(parentID)})
 	if err != nil {
 		t.Fatalf("CreateRetryTask: %v", err)
 	}
@@ -652,32 +652,32 @@ func TestCreateRetryTask_PreservesCommentPlanAndResetsReceipt(t *testing.T) {
 	}
 }
 
-func TestRerunIssue_PreservesSourceCommentPlanAndResetsReceipt(t *testing.T) {
+func TestRerunTask_PreservesSourceCommentPlanAndResetsReceipt(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	runtimeID := createClaimReclaimRuntime(t, ctx, "Comment manual rerun runtime")
-	agentID, issueID := createClaimReclaimAgentAndIssue(t, ctx, runtimeID, "Comment manual rerun agent")
-	if _, err := testPool.Exec(ctx, `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, issueID, agentID); err != nil {
-		t.Fatalf("assign rerun issue: %v", err)
+	agentID, taskID := createClaimReclaimAgentAndTask(t, ctx, runtimeID, "Comment manual rerun agent")
+	if _, err := testPool.Exec(ctx, `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, taskID, agentID); err != nil {
+		t.Fatalf("assign rerun task: %v", err)
 	}
 
 	commentIDs := make([]string, 3)
 	for i := range commentIDs {
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type)
 			VALUES ($1, $2, 'member', $3, 'manual rerun comment', 'comment')
 			RETURNING id
-		`, issueID, testWorkspaceID, testUserID).Scan(&commentIDs[i]); err != nil {
+		`, taskID, testWorkspaceID, testUserID).Scan(&commentIDs[i]); err != nil {
 			t.Fatalf("insert manual rerun comment: %v", err)
 		}
 	}
 
 	var sourceID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (
-			agent_id, runtime_id, issue_id, status, priority,
+		INSERT INTO agent_run (
+			agent_id, runtime_id, task_id, status, priority,
 			trigger_comment_id, coalesced_comment_ids, delivered_comment_ids,
 			started_at, completed_at
 		)
@@ -687,16 +687,16 @@ func TestRerunIssue_PreservesSourceCommentPlanAndResetsReceipt(t *testing.T) {
 			now() - interval '2 minutes', now() - interval '1 minute'
 		)
 		RETURNING id
-	`, agentID, runtimeID, issueID, commentIDs[2], commentIDs[0], commentIDs[1]).Scan(&sourceID); err != nil {
+	`, agentID, runtimeID, taskID, commentIDs[2], commentIDs[0], commentIDs[1]).Scan(&sourceID); err != nil {
 		t.Fatalf("insert manual rerun source: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
 	})
 
-	rerun, err := testHandler.TaskService.RerunIssue(ctx, util.MustParseUUID(issueID), util.MustParseUUID(sourceID), pgtype.UUID{}, pgtype.UUID{}, nil)
+	rerun, err := testHandler.AgentRunService.RerunTask(ctx, util.MustParseUUID(taskID), util.MustParseUUID(sourceID), pgtype.UUID{}, pgtype.UUID{}, nil)
 	if err != nil {
-		t.Fatalf("RerunIssue: %v", err)
+		t.Fatalf("RerunTask: %v", err)
 	}
 	if got := uuidToString(rerun.TriggerCommentID); got != commentIDs[2] {
 		t.Fatalf("rerun trigger = %s, want %s", got, commentIDs[2])
@@ -713,29 +713,29 @@ func TestRerunIssue_PreservesSourceCommentPlanAndResetsReceipt(t *testing.T) {
 	}
 }
 
-func TestRerunIssue_PromotesNewestSurvivorAfterSourceTriggerDeleted(t *testing.T) {
+func TestRerunTask_PromotesNewestSurvivorAfterSourceTriggerDeleted(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fixture := createCommentDeliveryFixture(t, "Deleted trigger manual rerun")
-	if _, err := testPool.Exec(ctx, `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.issueID, fixture.agentID); err != nil {
-		t.Fatalf("assign deleted-trigger rerun issue: %v", err)
+	if _, err := testPool.Exec(ctx, `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, fixture.taskID, fixture.agentID); err != nil {
+		t.Fatalf("assign deleted-trigger rerun task: %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `
-		UPDATE agent_task_queue
+		UPDATE agent_run
 		SET status = 'completed', started_at = now() - interval '2 minutes', completed_at = now() - interval '1 minute'
 		WHERE id = $1
-	`, fixture.taskID); err != nil {
+	`, fixture.runID); err != nil {
 		t.Fatalf("complete deleted-trigger rerun source: %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `DELETE FROM comment WHERE id = $1`, fixture.commentID[2]); err != nil {
 		t.Fatalf("delete rerun source trigger: %v", err)
 	}
 
-	rerun, err := testHandler.TaskService.RerunIssue(ctx, parseUUID(fixture.issueID), parseUUID(fixture.taskID), pgtype.UUID{}, pgtype.UUID{}, nil)
+	rerun, err := testHandler.AgentRunService.RerunTask(ctx, parseUUID(fixture.taskID), parseUUID(fixture.runID), pgtype.UUID{}, pgtype.UUID{}, nil)
 	if err != nil {
-		t.Fatalf("RerunIssue: %v", err)
+		t.Fatalf("RerunTask: %v", err)
 	}
 	if got := uuidToString(rerun.TriggerCommentID); got != fixture.commentID[1] {
 		t.Fatalf("rerun promoted trigger = %s, want newest survivor %s", got, fixture.commentID[1])
@@ -751,87 +751,87 @@ func TestRerunIssue_PromotesNewestSurvivorAfterSourceTriggerDeleted(t *testing.T
 	}
 }
 
-func TestSetTaskDeliveredCommentIDs_CASAndSubset(t *testing.T) {
+func TestSetRunDeliveredCommentIDs_CASAndSubset(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	runtimeID := createClaimReclaimRuntime(t, ctx, "Delivery receipt CAS runtime")
 	otherRuntimeID := createClaimReclaimRuntime(t, ctx, "Delivery receipt CAS other runtime")
-	agentID, issueID := createClaimReclaimAgentAndIssue(t, ctx, runtimeID, "Delivery receipt CAS agent")
+	agentID, taskID := createClaimReclaimAgentAndTask(t, ctx, runtimeID, "Delivery receipt CAS agent")
 
 	commentIDs := make([]string, 2)
 	for i := range commentIDs {
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type)
 			VALUES ($1, $2, 'member', $3, 'receipt CAS comment', 'comment')
 			RETURNING id
-		`, issueID, testWorkspaceID, testUserID).Scan(&commentIDs[i]); err != nil {
+		`, taskID, testWorkspaceID, testUserID).Scan(&commentIDs[i]); err != nil {
 			t.Fatalf("insert receipt CAS comment: %v", err)
 		}
 	}
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (
-			agent_id, runtime_id, issue_id, status, priority, dispatched_at,
+		INSERT INTO agent_run (
+			agent_id, runtime_id, task_id, status, priority, dispatched_at,
 			trigger_comment_id, coalesced_comment_ids
 		)
 		VALUES ($1, $2, $3, 'dispatched', 0, now(), $4, ARRAY[$5::uuid])
 		RETURNING id
-	`, agentID, runtimeID, issueID, commentIDs[1], commentIDs[0]).Scan(&taskID); err != nil {
-		t.Fatalf("insert receipt CAS task: %v", err)
+	`, agentID, runtimeID, taskID, commentIDs[1], commentIDs[0]).Scan(&runID); err != nil {
+		t.Fatalf("insert receipt CAS run: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
 	})
-	task, err := testHandler.Queries.GetAgentTask(ctx, util.MustParseUUID(taskID))
+	agentRun, err := testHandler.Queries.GetAgentRun(ctx, util.MustParseUUID(runID))
 	if err != nil {
 		t.Fatalf("GetAgentTask: %v", err)
 	}
 
-	params := db.SetTaskDeliveredCommentIDsParams{
+	params := db.SetRunDeliveredCommentIDsParams{
 		DeliveredCommentIds:      []pgtype.UUID{util.MustParseUUID(commentIDs[1])},
-		TaskID:                   task.ID,
-		RuntimeID:                task.RuntimeID,
-		DispatchedAt:             task.DispatchedAt,
-		ExpectedTriggerCommentID: task.TriggerCommentID,
+		RunID:                    agentRun.ID,
+		RuntimeID:                agentRun.RuntimeID,
+		DispatchedAt:             agentRun.DispatchedAt,
+		ExpectedTriggerCommentID: agentRun.TriggerCommentID,
 	}
-	if got, err := testHandler.Queries.SetTaskDeliveredCommentIDs(ctx, params); err != nil || len(got) != 1 {
+	if got, err := testHandler.Queries.SetRunDeliveredCommentIDs(ctx, params); err != nil || len(got) != 1 {
 		t.Fatalf("valid receipt = %v, %v; want one id", got, err)
 	}
 	params.DeliveredCommentIds = []pgtype.UUID{}
-	if got, err := testHandler.Queries.SetTaskDeliveredCommentIDs(ctx, params); err != nil || len(got) != 0 {
+	if got, err := testHandler.Queries.SetRunDeliveredCommentIDs(ctx, params); err != nil || len(got) != 0 {
 		t.Fatalf("empty receipt = %v, %v; want authoritative empty array", got, err)
 	}
 
 	params.DeliveredCommentIds = []pgtype.UUID{util.MustParseUUID("00000000-0000-0000-0000-000000000099")}
-	if _, err := testHandler.Queries.SetTaskDeliveredCommentIDs(ctx, params); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := testHandler.Queries.SetRunDeliveredCommentIDs(ctx, params); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("foreign receipt id error = %v, want pgx.ErrNoRows", err)
 	}
 	params.DeliveredCommentIds = []pgtype.UUID{util.MustParseUUID(commentIDs[1])}
 	params.RuntimeID = util.MustParseUUID(otherRuntimeID)
-	if _, err := testHandler.Queries.SetTaskDeliveredCommentIDs(ctx, params); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := testHandler.Queries.SetRunDeliveredCommentIDs(ctx, params); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("wrong runtime error = %v, want pgx.ErrNoRows", err)
 	}
-	params.RuntimeID = task.RuntimeID
-	if _, err := testPool.Exec(ctx, `UPDATE agent_task_queue SET status = 'running', started_at = now() WHERE id = $1`, taskID); err != nil {
+	params.RuntimeID = agentRun.RuntimeID
+	if _, err := testPool.Exec(ctx, `UPDATE agent_run SET status = 'running', started_at = now() WHERE id = $1`, runID); err != nil {
 		t.Fatalf("mark task running: %v", err)
 	}
-	if _, err := testHandler.Queries.SetTaskDeliveredCommentIDs(ctx, params); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := testHandler.Queries.SetRunDeliveredCommentIDs(ctx, params); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("running task receipt error = %v, want pgx.ErrNoRows", err)
 	}
 }
 
-func TestClaimTaskByRuntime_FinalizationFailureRequeuesImmediately(t *testing.T) {
+func TestClaimRunByRuntime_FinalizationFailureRequeuesImmediately(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	fixture := createCommentDeliveryFixture(t, "Claim finalization failure")
-	priorTokenHash := "prior-valid-token-" + fixture.taskID
+	priorTokenHash := "prior-valid-token-" + fixture.runID
 	if _, err := testPool.Exec(context.Background(), `
-		INSERT INTO task_token (token_hash, task_id, agent_id, workspace_id, user_id, expires_at)
+		INSERT INTO agent_run_token (token_hash, run_id, agent_id, workspace_id, user_id, expires_at)
 		VALUES ($1, $2, $3, $4, $5, now() + interval '1 hour')
-	`, priorTokenHash, fixture.taskID, fixture.agentID, testWorkspaceID, testUserID); err != nil {
+	`, priorTokenHash, fixture.runID, fixture.agentID, testWorkspaceID, testUserID); err != nil {
 		t.Fatalf("insert prior task token: %v", err)
 	}
 
@@ -841,16 +841,16 @@ func TestClaimTaskByRuntime_FinalizationFailureRequeuesImmediately(t *testing.T)
 	// split the analytics-cache lock from the map it guards. Swap the field on the
 	// shared service and restore it when the test ends. failingHandler shares the
 	// same *TaskService pointer, so it observes the failing starter.
-	originalTxStarter := testHandler.TaskService.TxStarter
-	testHandler.TaskService.TxStarter = &failNthBegin{delegate: testPool, failAt: 2}
-	defer func() { testHandler.TaskService.TxStarter = originalTxStarter }()
+	originalTxStarter := testHandler.AgentRunService.TxStarter
+	testHandler.AgentRunService.TxStarter = &failNthBegin{delegate: testPool, failAt: 2}
+	defer func() { testHandler.AgentRunService.TxStarter = originalTxStarter }()
 
 	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest(http.MethodPost, "/api/daemon/runtimes/"+fixture.runtimeID+"/tasks/claim", nil,
+	req := newDaemonTokenRequest(http.MethodPost, "/api/daemon/runtimes/"+fixture.runtimeID+"/runs/claim", nil,
 		testWorkspaceID, "comment-delivery-finalize-failure")
 	req.Header.Set("X-Client-Capabilities", protocol.DaemonCapabilityCoalescedCommentsV1)
 	req = withURLParam(req, "runtimeId", fixture.runtimeID)
-	failingHandler.ClaimTaskByRuntime(w, req)
+	failingHandler.ClaimRunByRuntime(w, req)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("failed finalization status = %d, want 500: %s", w.Code, w.Body.String())
 	}
@@ -863,23 +863,23 @@ func TestClaimTaskByRuntime_FinalizationFailureRequeuesImmediately(t *testing.T)
 	var delivered []string
 	if err := testPool.QueryRow(context.Background(), `
 		SELECT status, dispatched_at IS NOT NULL, delivered_comment_ids::text[]
-		FROM agent_task_queue
+		FROM agent_run
 		WHERE id = $1
-	`, fixture.taskID).Scan(&status, &dispatched, &delivered); err != nil {
-		t.Fatalf("load requeued task: %v", err)
+	`, fixture.runID).Scan(&status, &dispatched, &delivered); err != nil {
+		t.Fatalf("load requeued run: %v", err)
 	}
 	if status != "queued" || dispatched || len(delivered) != 0 {
 		t.Fatalf("failed claim state = status=%s dispatched=%v delivered=%v; want queued/false/[]", status, dispatched, delivered)
 	}
 	var tokens int
-	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM task_token WHERE task_id = $1`, fixture.taskID).Scan(&tokens); err != nil {
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM agent_run_token WHERE run_id = $1`, fixture.runID).Scan(&tokens); err != nil {
 		t.Fatalf("count task tokens: %v", err)
 	}
 	if tokens != 1 {
 		t.Fatalf("failed claim left %d task token(s), want only the prior valid token", tokens)
 	}
 	var priorStillExists bool
-	if err := testPool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM task_token WHERE token_hash = $1)`, priorTokenHash).Scan(&priorStillExists); err != nil {
+	if err := testPool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM agent_run_token WHERE token_hash = $1)`, priorTokenHash).Scan(&priorStillExists); err != nil {
 		t.Fatalf("check prior task token: %v", err)
 	}
 	if !priorStillExists {
@@ -888,30 +888,30 @@ func TestClaimTaskByRuntime_FinalizationFailureRequeuesImmediately(t *testing.T)
 
 	// No 90-second stale-dispatch delay: the very next normal poll can claim
 	// the same complete batch and earn a receipt.
-	task := claimCommentDeliveryFixture(t, fixture, protocol.DaemonCapabilityCoalescedCommentsV1)
-	if task.ID != fixture.taskID {
-		t.Fatalf("immediate retry claimed task %s, want %s", task.ID, fixture.taskID)
+	agentRun := claimCommentDeliveryFixture(t, fixture, protocol.DaemonCapabilityCoalescedCommentsV1)
+	if agentRun.ID != fixture.runID {
+		t.Fatalf("immediate retry claimed task %s, want %s", agentRun.ID, fixture.runID)
 	}
-	if !slices.Equal(task.DeliveredCommentIDs, fixture.commentID) {
-		t.Fatalf("immediate retry receipt = %v, want %v", task.DeliveredCommentIDs, fixture.commentID)
+	if !slices.Equal(agentRun.DeliveredCommentIDs, fixture.commentID) {
+		t.Fatalf("immediate retry receipt = %v, want %v", agentRun.DeliveredCommentIDs, fixture.commentID)
 	}
 }
 
-func TestFinalizeTaskClaim_ReceiptCASFailureRollsBackInsertedToken(t *testing.T) {
+func TestFinalizeRunClaim_ReceiptCASFailureRollsBackInsertedToken(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fixture := createCommentDeliveryFixture(t, "Claim receipt rollback")
-	task, err := testHandler.TaskService.ClaimTaskForRuntime(ctx, parseUUID(fixture.runtimeID))
-	if err != nil || task == nil {
-		t.Fatalf("claim fixture task: task=%v err=%v", task, err)
+	agentRun, err := testHandler.AgentRunService.ClaimRunForRuntime(ctx, parseUUID(fixture.runtimeID))
+	if err != nil || agentRun == nil {
+		t.Fatalf("claim fixture run: task=%v err=%v", agentRun, err)
 	}
-	tokenHash := "rolled-back-token-" + fixture.taskID
-	_, err = testHandler.TaskService.FinalizeTaskClaim(ctx, *task, db.CreateTaskTokenParams{
+	tokenHash := "rolled-back-token-" + fixture.runID
+	_, err = testHandler.AgentRunService.FinalizeRunClaim(ctx, *agentRun, db.CreateAgentRunTokenParams{
 		TokenHash:   tokenHash,
-		TaskID:      task.ID,
-		AgentID:     task.AgentID,
+		RunID:       agentRun.ID,
+		AgentID:     agentRun.AgentID,
 		WorkspaceID: parseUUID(testWorkspaceID),
 		UserID:      parseUUID(testUserID),
 		ExpiresAt:   pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
@@ -920,39 +920,39 @@ func TestFinalizeTaskClaim_ReceiptCASFailureRollsBackInsertedToken(t *testing.T)
 		t.Fatalf("FinalizeTaskClaim accepted an out-of-plan receipt")
 	}
 	var tokenCount int
-	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM task_token WHERE token_hash = $1`, tokenHash).Scan(&tokenCount); err != nil {
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_run_token WHERE token_hash = $1`, tokenHash).Scan(&tokenCount); err != nil {
 		t.Fatalf("count rolled-back token: %v", err)
 	}
 	if tokenCount != 0 {
 		t.Fatalf("receipt CAS failure committed %d generated token(s)", tokenCount)
 	}
-	if got := deliveredCommentIDsForTask(t, fixture.taskID); len(got) != 0 {
+	if got := deliveredCommentIDsForRun(t, fixture.runID); len(got) != 0 {
 		t.Fatalf("receipt CAS failure advanced receipt: %v", got)
 	}
 }
 
-func TestFinalizeTaskClaim_TriggerDeletedAfterClaimRejectsStaleProvenance(t *testing.T) {
+func TestFinalizeRunClaim_TriggerDeletedAfterClaimRejectsStaleProvenance(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fixture := createCommentDeliveryFixture(t, "Claim trigger deletion race")
-	task, err := testHandler.TaskService.ClaimTaskForRuntime(ctx, parseUUID(fixture.runtimeID))
-	if err != nil || task == nil {
-		t.Fatalf("claim fixture task: task=%v err=%v", task, err)
+	agentRun, err := testHandler.AgentRunService.ClaimRunForRuntime(ctx, parseUUID(fixture.runtimeID))
+	if err != nil || agentRun == nil {
+		t.Fatalf("claim fixture run: task=%v err=%v", agentRun, err)
 	}
-	if !task.TriggerCommentID.Valid {
+	if !agentRun.TriggerCommentID.Valid {
 		t.Fatalf("claim snapshot unexpectedly lacks trigger")
 	}
 	if _, err := testPool.Exec(ctx, `DELETE FROM comment WHERE id = $1`, fixture.commentID[2]); err != nil {
 		t.Fatalf("delete trigger after claim snapshot: %v", err)
 	}
 
-	tokenHash := "deleted-trigger-race-token-" + fixture.taskID
-	_, err = testHandler.TaskService.FinalizeTaskClaim(ctx, *task, db.CreateTaskTokenParams{
+	tokenHash := "deleted-trigger-race-token-" + fixture.runID
+	_, err = testHandler.AgentRunService.FinalizeRunClaim(ctx, *agentRun, db.CreateAgentRunTokenParams{
 		TokenHash:   tokenHash,
-		TaskID:      task.ID,
-		AgentID:     task.AgentID,
+		RunID:       agentRun.ID,
+		AgentID:     agentRun.AgentID,
 		WorkspaceID: parseUUID(testWorkspaceID),
 		UserID:      parseUUID(testUserID),
 		ExpiresAt:   pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
@@ -961,13 +961,13 @@ func TestFinalizeTaskClaim_TriggerDeletedAfterClaimRejectsStaleProvenance(t *tes
 		t.Fatalf("FinalizeTaskClaim accepted a receipt after persisted trigger changed")
 	}
 	var tokenCount int
-	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM task_token WHERE token_hash = $1`, tokenHash).Scan(&tokenCount); err != nil {
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_run_token WHERE token_hash = $1`, tokenHash).Scan(&tokenCount); err != nil {
 		t.Fatalf("count stale-provenance token: %v", err)
 	}
 	if tokenCount != 0 {
 		t.Fatalf("stale trigger race committed %d generated token(s)", tokenCount)
 	}
-	if got := deliveredCommentIDsForTask(t, fixture.taskID); len(got) != 0 {
+	if got := deliveredCommentIDsForRun(t, fixture.runID); len(got) != 0 {
 		t.Fatalf("stale trigger race advanced receipt: %v", got)
 	}
 }

@@ -32,17 +32,17 @@ func TestBuildAgentSkillBundlesProducesRefsAndFullBundles(t *testing.T) {
 }
 
 func TestBuildAgentSkillBundlesAssignsBuiltinID(t *testing.T) {
-	_, refs := BuildAgentSkillBundles([]AgentSkillData{{Name: "silieco-working-on-issues", Content: "body"}})
+	_, refs := BuildAgentSkillBundles([]AgentSkillData{{Name: "silieco-working-on-tasks", Content: "body"}})
 	if len(refs) != 1 {
 		t.Fatalf("refs = %d, want 1", len(refs))
 	}
-	if refs[0].ID != "builtin:silieco-working-on-issues" || refs[0].Source != "builtin" {
+	if refs[0].ID != "builtin:silieco-working-on-tasks" || refs[0].Source != "builtin" {
 		t.Fatalf("builtin ref = %+v", refs[0])
 	}
 }
 
 func TestResolveRequiredSkillsSupportsCanonicalAndLegacyBuiltinRefs(t *testing.T) {
-	svc := &TaskService{}
+	svc := &AgentRunService{}
 	for _, ref := range []string{"builtin:silieco-split-feature", "silieco-split-feature"} {
 		sk, missing := svc.ResolveRequiredSkills(t.Context(), pgtype.UUID{}, []string{ref})
 		if len(missing) != 0 || len(sk) != 1 || sk[0].Name != "silieco-split-feature" {

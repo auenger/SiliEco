@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-func TestDeriveTaskThreadNamePrefersClaimedThreadName(t *testing.T) {
+func TestDeriveRunThreadNamePrefersClaimedThreadName(t *testing.T) {
 	t.Parallel()
 
-	got := deriveTaskThreadName(Task{
+	got := deriveRunThreadName(AgentRun{
 		ThreadName:            "  Fix login redirect  ",
 		TriggerCommentContent: "please look at this comment",
 		ChatMessage:           "chat fallback",
@@ -18,11 +18,11 @@ func TestDeriveTaskThreadNamePrefersClaimedThreadName(t *testing.T) {
 	}
 }
 
-func TestDeriveTaskThreadNameFallsBackToTaskContext(t *testing.T) {
+func TestDeriveRunThreadNameFallsBackToRunContext(t *testing.T) {
 	t.Parallel()
 
-	got := deriveTaskThreadName(Task{QuickCreatePrompt: "create issue for billing sync"})
-	if got != "create issue for billing sync" {
+	got := deriveRunThreadName(AgentRun{QuickCreatePrompt: "create task for billing sync"})
+	if got != "create task for billing sync" {
 		t.Fatalf("thread name = %q, want quick-create prompt", got)
 	}
 }

@@ -22,10 +22,10 @@ import { cn } from "@silieco/ui/lib/utils";
 import { ImageIcon } from "./shared";
 import { useLocale } from "../i18n";
 import type { LandingDict } from "../i18n";
-import { StatusIcon, PriorityIcon } from "@silieco/views/issues/components";
-import { STATUS_CONFIG } from "@silieco/core/issues/config/status";
-import { PRIORITY_CONFIG } from "@silieco/core/issues/config/priority";
-import type { IssueStatus, IssuePriority } from "@silieco/core/types";
+import { StatusIcon, PriorityIcon } from "@silieco/views/tasks/components";
+import { STATUS_CONFIG } from "@silieco/core/tasks/config/status";
+import { PRIORITY_CONFIG } from "@silieco/core/tasks/config/priority";
+import type { TaskStatus, TaskPriority } from "@silieco/core/types";
 
 /* ------------------------------------------------------------------ */
 /*  Mock ActorAvatar — mirrors the real ActorAvatar styling exactly     */
@@ -56,7 +56,7 @@ function MockAvatar({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Mock PropRow — mirrors the real PropRow from issue-detail           */
+/*  Mock PropRow — mirrors the real PropRow from task-detail           */
 /* ------------------------------------------------------------------ */
 
 function PropRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -137,12 +137,12 @@ const allAssignees: Assignee[] = [
   { type: "agent", id: "tina", name: "Tina-dev" },
 ];
 
-const statusCycle: IssueStatus[] = ["backlog", "todo", "in_progress", "in_review", "done"];
-const priorityCycle: IssuePriority[] = ["none", "low", "medium", "high", "urgent"];
+const statusCycle: TaskStatus[] = ["backlog", "todo", "in_progress", "in_review", "done"];
+const priorityCycle: TaskPriority[] = ["none", "low", "medium", "high", "urgent"];
 
 function TeammatesVisual() {
-  const [status, setStatus] = useState<IssueStatus>("in_progress");
-  const [priority, setPriority] = useState<IssuePriority>("medium");
+  const [status, setStatus] = useState<TaskStatus>("in_progress");
+  const [priority, setPriority] = useState<TaskPriority>("medium");
   const [assignee, setAssignee] = useState<Assignee>(allAssignees[3]!); // Claude
   const [pickerOpen, setPickerOpen] = useState(true);
   const [statusOpen, setStatusOpen] = useState(false);
@@ -659,7 +659,7 @@ function SkillsVisual() {
 {`CREATE TABLE IF NOT EXISTS notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id),
-  issue_id UUID REFERENCES issues(id),
+  task_id UUID REFERENCES tasks(id),
   type TEXT NOT NULL,
   read BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now()

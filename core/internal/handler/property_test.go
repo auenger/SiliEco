@@ -16,17 +16,17 @@ import (
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 )
 
-func makePropertyDef(propType string, options []PropertyOption) db.IssueProperty {
+func makePropertyDef(propType string, options []PropertyOption) db.TaskProperty {
 	cfg, _ := json.Marshal(PropertyConfig{Options: options})
-	return db.IssueProperty{Type: propType, Config: cfg}
+	return db.TaskProperty{Type: propType, Config: cfg}
 }
 
-// withIssuePropertyParams sets both chi URL params in one route context —
+// withTaskPropertyParams sets both chi URL params in one route context —
 // withURLParam builds a fresh context per call, so chaining it would drop
 // the first param.
-func withIssuePropertyParams(req *http.Request, issueID, propertyID string) *http.Request {
+func withTaskPropertyParams(req *http.Request, taskID, propertyID string) *http.Request {
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("id", issueID)
+	rctx.URLParams.Add("id", taskID)
 	rctx.URLParams.Add("propertyId", propertyID)
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
@@ -50,34 +50,34 @@ func createTestProperty(t *testing.T, body map[string]any) PropertyResponse {
 // 20-active cap and list assertions would couple unrelated tests).
 func deleteTestProperty(t *testing.T, id string) {
 	t.Helper()
-	if _, err := testPool.Exec(context.Background(), `DELETE FROM issue_property WHERE id = $1`, id); err != nil {
+	if _, err := testPool.Exec(context.Background(), `DELETE FROM task_property WHERE id = $1`, id); err != nil {
 		t.Fatalf("cleanup property %s: %v", id, err)
 	}
 }
 
-func createPropertyTestIssue(t *testing.T, title string) string {
+func createPropertyTestTask(t *testing.T, title string) string {
 	t.Helper()
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, number)
+		INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, number)
 		VALUES ($1, $2, 'todo', 'none', 'member', $3,
-		        COALESCE((SELECT MAX(number) FROM issue WHERE workspace_id = $1), 0) + 1)
+		        COALESCE((SELECT MAX(number) FROM task WHERE workspace_id = $1), 0) + 1)
 		RETURNING id
-	`, testWorkspaceID, title, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("create test issue: %v", err)
+	`, testWorkspaceID, title, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("create test task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
-	return issueID
+	return taskID
 }
 
-func setIssuePropertyRaw(t *testing.T, issueID, propertyID string, value any) *httptest.ResponseRecorder {
+func setTaskPropertyRaw(t *testing.T, taskID, propertyID string, value any) *httptest.ResponseRecorder {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := newRequest("PUT", "/api/issues/"+issueID+"/properties/"+propertyID, map[string]any{"value": value})
-	req = withIssuePropertyParams(req, issueID, propertyID)
-	testHandler.SetIssueProperty(w, req)
+	req := newRequest("PUT", "/api/tasks/"+taskID+"/properties/"+propertyID, map[string]any{"value": value})
+	req = withTaskPropertyParams(req, taskID, propertyID)
+	testHandler.SetTaskProperty(w, req)
 	return w
 }
 
@@ -219,10 +219,10 @@ func TestPropertyDefinitionValidation(t *testing.T) {
 // actors are rejected outright (even though the fixture user is the workspace
 // owner), while value writes from the same agent context succeed.
 func TestPropertyAdminGate(t *testing.T) {
-	// Agent actor (task_token path is trusted directly by resolveActor).
+	// Agent actor (agent_run_token path is trusted directly by resolveActor).
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/properties", map[string]any{"name": "AgentMade", "type": "text"})
-	req.Header.Set("X-Actor-Source", "task_token")
+	req.Header.Set("X-Actor-Source", "agent_run_token")
 	req.Header.Set("X-Agent-ID", uuid.NewString())
 	testHandler.CreateProperty(w, req)
 	if w.Code != http.StatusForbidden {
@@ -230,20 +230,20 @@ func TestPropertyAdminGate(t *testing.T) {
 	}
 
 	property := createTestProperty(t, map[string]any{"name": "AgentWritable" + uuid.NewString()[:8], "type": "text"})
-	issueID := createPropertyTestIssue(t, "agent value write")
+	taskID := createPropertyTestTask(t, "agent value write")
 
 	w = httptest.NewRecorder()
-	req = newRequest("PUT", "/api/issues/"+issueID+"/properties/"+property.ID, map[string]any{"value": "set by agent"})
-	req.Header.Set("X-Actor-Source", "task_token")
+	req = newRequest("PUT", "/api/tasks/"+taskID+"/properties/"+property.ID, map[string]any{"value": "set by agent"})
+	req.Header.Set("X-Actor-Source", "agent_run_token")
 	req.Header.Set("X-Agent-ID", uuid.NewString())
-	req = withIssuePropertyParams(req, issueID, property.ID)
-	testHandler.SetIssueProperty(w, req)
+	req = withTaskPropertyParams(req, taskID, property.ID)
+	testHandler.SetTaskProperty(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("agent SetIssueProperty: expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("agent SetTaskProperty: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestIssuePropertyValues(t *testing.T) {
+func TestTaskPropertyValues(t *testing.T) {
 	sel := createTestProperty(t, map[string]any{
 		"name": "Env" + uuid.NewString()[:8], "type": "select",
 		"config": map[string]any{"options": []map[string]any{
@@ -263,21 +263,21 @@ func TestIssuePropertyValues(t *testing.T) {
 	link := createTestProperty(t, map[string]any{"name": "Spec" + uuid.NewString()[:8], "type": "url"})
 	num := createTestProperty(t, map[string]any{"name": "Effort" + uuid.NewString()[:8], "type": "number"})
 
-	issueID := createPropertyTestIssue(t, "property value matrix")
+	taskID := createPropertyTestTask(t, "property value matrix")
 
 	// select: valid option id.
-	if w := setIssuePropertyRaw(t, issueID, sel.ID, sel.Config.Options[0].ID); w.Code != http.StatusOK {
+	if w := setTaskPropertyRaw(t, taskID, sel.ID, sel.Config.Options[0].ID); w.Code != http.StatusOK {
 		t.Fatalf("select set: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	// select: unknown option → 400 listing legal ids (agents self-correct on this).
-	if w := setIssuePropertyRaw(t, issueID, sel.ID, "nope"); w.Code != http.StatusBadRequest ||
+	if w := setTaskPropertyRaw(t, taskID, sel.ID, "nope"); w.Code != http.StatusBadRequest ||
 		!strings.Contains(w.Body.String(), sel.Config.Options[0].ID) {
 		t.Fatalf("select invalid: expected 400 listing option ids, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// multi_select: duplicates dropped, order canonicalized to config order.
 	webID, iosID := multi.Config.Options[2].ID, multi.Config.Options[0].ID
-	w := setIssuePropertyRaw(t, issueID, multi.ID, []string{webID, iosID, webID})
+	w := setTaskPropertyRaw(t, taskID, multi.ID, []string{webID, iosID, webID})
 	if w.Code != http.StatusOK {
 		t.Fatalf("multi_select set: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -291,22 +291,22 @@ func TestIssuePropertyValues(t *testing.T) {
 	}
 
 	// date / url / number validation.
-	if w := setIssuePropertyRaw(t, issueID, date.ID, "13/07/2026"); w.Code != http.StatusBadRequest {
+	if w := setTaskPropertyRaw(t, taskID, date.ID, "13/07/2026"); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad date: expected 400, got %d", w.Code)
 	}
-	if w := setIssuePropertyRaw(t, issueID, date.ID, "2026-07-13"); w.Code != http.StatusOK {
+	if w := setTaskPropertyRaw(t, taskID, date.ID, "2026-07-13"); w.Code != http.StatusOK {
 		t.Fatalf("good date: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if w := setIssuePropertyRaw(t, issueID, link.ID, "javascript:alert(1)"); w.Code != http.StatusBadRequest {
+	if w := setTaskPropertyRaw(t, taskID, link.ID, "javascript:alert(1)"); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad url: expected 400, got %d", w.Code)
 	}
-	if w := setIssuePropertyRaw(t, issueID, link.ID, "https://example.com/spec"); w.Code != http.StatusOK {
+	if w := setTaskPropertyRaw(t, taskID, link.ID, "https://example.com/spec"); w.Code != http.StatusOK {
 		t.Fatalf("good url: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if w := setIssuePropertyRaw(t, issueID, num.ID, "3"); w.Code != http.StatusBadRequest {
+	if w := setTaskPropertyRaw(t, taskID, num.ID, "3"); w.Code != http.StatusBadRequest {
 		t.Fatalf("string into number: expected 400, got %d", w.Code)
 	}
-	if w := setIssuePropertyRaw(t, issueID, num.ID, 3.5); w.Code != http.StatusOK {
+	if w := setTaskPropertyRaw(t, taskID, num.ID, 3.5); w.Code != http.StatusOK {
 		t.Fatalf("good number: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
@@ -318,13 +318,13 @@ func TestIssuePropertyValues(t *testing.T) {
 	if warch.Code != http.StatusOK {
 		t.Fatalf("archive: expected 200, got %d: %s", warch.Code, warch.Body.String())
 	}
-	if w := setIssuePropertyRaw(t, issueID, sel.ID, sel.Config.Options[1].ID); w.Code != http.StatusBadRequest {
+	if w := setTaskPropertyRaw(t, taskID, sel.ID, sel.Config.Options[1].ID); w.Code != http.StatusBadRequest {
 		t.Fatalf("set on archived: expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 	wdel := httptest.NewRecorder()
-	req = newRequest("DELETE", "/api/issues/"+issueID+"/properties/"+sel.ID, nil)
-	req = withIssuePropertyParams(req, issueID, sel.ID)
-	testHandler.DeleteIssueProperty(wdel, req)
+	req = newRequest("DELETE", "/api/tasks/"+taskID+"/properties/"+sel.ID, nil)
+	req = withTaskPropertyParams(req, taskID, sel.ID)
+	testHandler.DeleteTaskProperty(wdel, req)
 	if wdel.Code != http.StatusOK {
 		t.Fatalf("unset on archived: expected 200, got %d: %s", wdel.Code, wdel.Body.String())
 	}
@@ -371,7 +371,7 @@ func TestValidatePropertyNameReserved(t *testing.T) {
 }
 
 // TestPropertyOptionRemovalGuard: removing a select option still referenced
-// by issues is rejected with a usage census; renames (same id) and removal
+// by tasks is rejected with a usage census; renames (same id) and removal
 // of unused options pass.
 func TestPropertyOptionRemovalGuard(t *testing.T) {
 	property := createTestProperty(t, map[string]any{
@@ -383,8 +383,8 @@ func TestPropertyOptionRemovalGuard(t *testing.T) {
 	})
 	usedID := property.Config.Options[0].ID
 	unusedID := property.Config.Options[1].ID
-	issueID := createPropertyTestIssue(t, "option removal guard")
-	if w := setIssuePropertyRaw(t, issueID, property.ID, usedID); w.Code != http.StatusOK {
+	taskID := createPropertyTestTask(t, "option removal guard")
+	if w := setTaskPropertyRaw(t, taskID, property.ID, usedID); w.Code != http.StatusOK {
 		t.Fatalf("seed value: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
@@ -400,7 +400,7 @@ func TestPropertyOptionRemovalGuard(t *testing.T) {
 
 	// Dropping the in-use option → 409 naming it with the census.
 	w := patchConfig([]map[string]any{{"id": unusedID, "name": "Unused", "color": "#6b7280"}})
-	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "Used") || !strings.Contains(w.Body.String(), "1 issues") {
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "Used") || !strings.Contains(w.Body.String(), "1 tasks") {
 		t.Fatalf("in-use removal: expected 409 with census, got %d: %s", w.Code, w.Body.String())
 	}
 
@@ -420,12 +420,12 @@ func TestPropertyOptionRemovalGuard(t *testing.T) {
 	}
 }
 
-// TestListIssuesPropertyFilterAndSort covers the server-side list support:
+// TestListTasksPropertyFilterAndSort covers the server-side list support:
 // containment filtering (select / multi_select / checkbox) beyond the first
 // page window, and typed property sort expressions with missing-last
-// semantics. The shared workspace fixture may hold foreign issues, so
+// semantics. The shared workspace fixture may hold foreign tasks, so
 // assertions check relative order / membership rather than exact lists.
-func TestListIssuesPropertyFilterAndSort(t *testing.T) {
+func TestListTasksPropertyFilterAndSort(t *testing.T) {
 	sel := createTestProperty(t, map[string]any{
 		"name": "FS" + uuid.NewString()[:8], "type": "select",
 		"config": map[string]any{"options": []map[string]any{
@@ -445,58 +445,58 @@ func TestListIssuesPropertyFilterAndSort(t *testing.T) {
 	box := createTestProperty(t, map[string]any{"name": "FB" + uuid.NewString()[:8], "type": "checkbox"})
 	num := createTestProperty(t, map[string]any{"name": "FN" + uuid.NewString()[:8], "type": "number"})
 
-	// 54 padding issues at explicit ascending positions, then the matching
-	// issue at the highest position — genuinely beyond the 50-row first page
+	// 54 padding tasks at explicit ascending positions, then the matching
+	// task at the highest position — genuinely beyond the 50-row first page
 	// (review round 3: without explicit positions everything ties at 0 and
 	// the created_at DESC tie-breaker put the target on page one).
-	setPosition := func(issueID string, position float64) {
+	setPosition := func(taskID string, position float64) {
 		t.Helper()
 		if _, err := testPool.Exec(context.Background(),
-			`UPDATE issue SET position = $1 WHERE id = $2`, position, issueID); err != nil {
+			`UPDATE task SET position = $1 WHERE id = $2`, position, taskID); err != nil {
 			t.Fatalf("set position: %v", err)
 		}
 	}
 	for i := 0; i < 54; i++ {
-		setPosition(createPropertyTestIssue(t, fmt.Sprintf("filter pad %02d", i)), float64(i))
+		setPosition(createPropertyTestTask(t, fmt.Sprintf("filter pad %02d", i)), float64(i))
 	}
-	target := createPropertyTestIssue(t, "filter target beyond page one")
+	target := createPropertyTestTask(t, "filter target beyond page one")
 	setPosition(target, 1000)
-	if w := setIssuePropertyRaw(t, target, sel.ID, hitID); w.Code != http.StatusOK {
+	if w := setTaskPropertyRaw(t, target, sel.ID, hitID); w.Code != http.StatusOK {
 		t.Fatalf("seed select: %d %s", w.Code, w.Body.String())
 	}
-	if w := setIssuePropertyRaw(t, target, multi.ID, []string{multiB}); w.Code != http.StatusOK {
+	if w := setTaskPropertyRaw(t, target, multi.ID, []string{multiB}); w.Code != http.StatusOK {
 		t.Fatalf("seed multi: %d %s", w.Code, w.Body.String())
 	}
-	if w := setIssuePropertyRaw(t, target, box.ID, true); w.Code != http.StatusOK {
+	if w := setTaskPropertyRaw(t, target, box.ID, true); w.Code != http.StatusOK {
 		t.Fatalf("seed checkbox: %d %s", w.Code, w.Body.String())
 	}
 
-	numLow := createPropertyTestIssue(t, "sort low")
-	numHigh := createPropertyTestIssue(t, "sort high")
-	if w := setIssuePropertyRaw(t, numLow, num.ID, 1); w.Code != http.StatusOK {
+	numLow := createPropertyTestTask(t, "sort low")
+	numHigh := createPropertyTestTask(t, "sort high")
+	if w := setTaskPropertyRaw(t, numLow, num.ID, 1); w.Code != http.StatusOK {
 		t.Fatalf("seed low: %d %s", w.Code, w.Body.String())
 	}
-	if w := setIssuePropertyRaw(t, numHigh, num.ID, 9.5); w.Code != http.StatusOK {
+	if w := setTaskPropertyRaw(t, numHigh, num.ID, 9.5); w.Code != http.StatusOK {
 		t.Fatalf("seed high: %d %s", w.Code, w.Body.String())
 	}
 
-	listIssues := func(query string) []IssueResponse {
+	listTasks := func(query string) []TaskResponse {
 		t.Helper()
 		w := httptest.NewRecorder()
-		testHandler.ListIssues(w, newRequest("GET", "/api/issues"+query, nil))
+		testHandler.ListTasks(w, newRequest("GET", "/api/tasks"+query, nil))
 		if w.Code != http.StatusOK {
-			t.Fatalf("ListIssues%s: expected 200, got %d: %s", query, w.Code, w.Body.String())
+			t.Fatalf("ListTasks%s: expected 200, got %d: %s", query, w.Code, w.Body.String())
 		}
 		var resp struct {
-			Issues []IssueResponse `json:"issues"`
+			Tasks []TaskResponse `json:"tasks"`
 		}
 		json.NewDecoder(w.Body).Decode(&resp)
-		return resp.Issues
+		return resp.Tasks
 	}
-	ids := func(list []IssueResponse) map[string]int {
+	ids := func(list []TaskResponse) map[string]int {
 		out := make(map[string]int, len(list))
-		for i, issue := range list {
-			out[issue.ID] = i
+		for i, task := range list {
+			out[task.ID] = i
 		}
 		return out
 	}
@@ -507,64 +507,64 @@ func TestListIssuesPropertyFilterAndSort(t *testing.T) {
 
 	// Preconditions: the UNFILTERED first page must not contain the target
 	// (otherwise the assertions below prove nothing about windowing).
-	if _, present := ids(listIssues("?limit=50&sort=position&status=todo"))[target]; present {
+	if _, present := ids(listTasks("?limit=50&sort=position&status=todo"))[target]; present {
 		t.Fatalf("windowing precondition broken: target already on the unfiltered first page")
 	}
 
-	// Select filter finds the issue past the 50-row window.
-	got := listIssues(filterQuery(sel.ID, hitID))
+	// Select filter finds the task past the 50-row window.
+	got := listTasks(filterQuery(sel.ID, hitID))
 	if _, present := ids(got)[target]; !present {
-		t.Fatalf("select filter missed the issue beyond page one")
+		t.Fatalf("select filter missed the task beyond page one")
 	}
-	for _, issue := range got {
-		if issue.Properties[sel.ID] != hitID {
-			t.Fatalf("select filter returned non-matching issue %s", issue.ID)
+	for _, task := range got {
+		if task.Properties[sel.ID] != hitID {
+			t.Fatalf("select filter returned non-matching task %s", task.ID)
 		}
 	}
 
 	// Multi and checkbox containment forms.
-	if _, present := ids(listIssues(filterQuery(multi.ID, multiB)))[target]; !present {
-		t.Fatalf("multi_select filter missed the issue")
+	if _, present := ids(listTasks(filterQuery(multi.ID, multiB)))[target]; !present {
+		t.Fatalf("multi_select filter missed the task")
 	}
-	if _, present := ids(listIssues(filterQuery(box.ID, "true")))[target]; !present {
-		t.Fatalf("checkbox filter missed the issue")
+	if _, present := ids(listTasks(filterQuery(box.ID, "true")))[target]; !present {
+		t.Fatalf("checkbox filter missed the task")
 	}
 	// AND across definitions: matching select + non-matching checkbox → empty of target.
 	buf, _ := json.Marshal(map[string][]string{sel.ID: {hitID}, box.ID: {"false"}})
-	if _, present := ids(listIssues("?limit=50&properties=" + url.QueryEscape(string(buf))))[target]; present {
+	if _, present := ids(listTasks("?limit=50&properties=" + url.QueryEscape(string(buf))))[target]; present {
 		t.Fatalf("AND semantics failed: target matched with contradictory checkbox filter")
 	}
 
 	// The open_only branch honors the same filter via the static
-	// properties_filter param in ListOpenIssues (clean-room review: it used
+	// properties_filter param in ListOpenTasks (clean-room review: it used
 	// to be parsed and then silently dropped on this path).
-	openGot := listIssues(filterQuery(sel.ID, hitID) + "&open_only=true")
+	openGot := listTasks(filterQuery(sel.ID, hitID) + "&open_only=true")
 	if _, present := ids(openGot)[target]; !present {
 		t.Fatalf("open_only ignored the properties filter: target missing")
 	}
-	for _, issue := range openGot {
-		if issue.Properties[sel.ID] != hitID {
-			t.Fatalf("open_only properties filter returned non-matching issue %s", issue.ID)
+	for _, task := range openGot {
+		if task.Properties[sel.ID] != hitID {
+			t.Fatalf("open_only properties filter returned non-matching task %s", task.ID)
 		}
 	}
 	openBuf, _ := json.Marshal(map[string][]string{sel.ID: {hitID}, box.ID: {"false"}})
-	if _, present := ids(listIssues("?open_only=true&properties=" + url.QueryEscape(string(openBuf))))[target]; present {
+	if _, present := ids(listTasks("?open_only=true&properties=" + url.QueryEscape(string(openBuf))))[target]; present {
 		t.Fatalf("open_only AND semantics failed: target matched contradictory filter")
 	}
 
 	// Property sort: asc = low before high, valueless after both (missing last).
-	sorted := listIssues("?limit=200&sort=property:" + num.ID + "&direction=asc")
+	sorted := listTasks("?limit=200&sort=property:" + num.ID + "&direction=asc")
 	pos := ids(sorted)
 	lowIdx, lowOK := pos[numLow]
 	highIdx, highOK := pos[numHigh]
 	padIdx, padOK := pos[target]
 	if !lowOK || !highOK || !padOK {
-		t.Fatalf("sorted list missing seeded issues (low=%v high=%v pad=%v)", lowOK, highOK, padOK)
+		t.Fatalf("sorted list missing seeded tasks (low=%v high=%v pad=%v)", lowOK, highOK, padOK)
 	}
 	if !(lowIdx < highIdx && highIdx < padIdx) {
 		t.Fatalf("asc property sort order wrong: low=%d high=%d valueless=%d", lowIdx, highIdx, padIdx)
 	}
-	sorted = listIssues("?limit=200&sort=property:" + num.ID + "&direction=desc")
+	sorted = listTasks("?limit=200&sort=property:" + num.ID + "&direction=desc")
 	pos = ids(sorted)
 	if !(pos[numHigh] < pos[numLow] && pos[numLow] < pos[target]) {
 		t.Fatalf("desc property sort order wrong: high=%d low=%d valueless=%d", pos[numHigh], pos[numLow], pos[target])
@@ -572,11 +572,11 @@ func TestListIssuesPropertyFilterAndSort(t *testing.T) {
 
 	// Malformed property sort id → 400; unknown definition → 200 position order.
 	w := httptest.NewRecorder()
-	testHandler.ListIssues(w, newRequest("GET", "/api/issues?sort=property:nope", nil))
+	testHandler.ListTasks(w, newRequest("GET", "/api/tasks?sort=property:nope", nil))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("malformed property sort: expected 400, got %d", w.Code)
 	}
-	if got := listIssues("?limit=5&sort=property:" + uuid.NewString()); len(got) == 0 {
+	if got := listTasks("?limit=5&sort=property:" + uuid.NewString()); len(got) == 0 {
 		t.Fatalf("unknown-definition sort should fall back to position order, got empty")
 	}
 }

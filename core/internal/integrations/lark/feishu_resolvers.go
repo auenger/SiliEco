@@ -22,8 +22,8 @@ import (
 // feishuChannel stashes in channel.InboundMessage.Raw — the documented adapter
 // boundary (the core never reads Raw).
 
-// originFeishuChat is the issue.origin_type label written for issues created
-// via the Feishu /issue command. Kept as "lark_chat" (unchanged from the
+// originFeishuChat is the task.origin_type label written for tasks created
+// via the Feishu /task command. Kept as "lark_chat" (unchanged from the
 // pre-cutover dispatcher) so analytics classification does not shift.
 const originFeishuChat = "lark_chat"
 
@@ -204,7 +204,7 @@ func (r *feishuSessionBinder) EnsureSession(ctx context.Context, p engine.Ensure
 
 func (r *feishuSessionBinder) AppendMessage(ctx context.Context, p engine.AppendParams) (engine.AppendResult, error) {
 	// CommandText is the user's OWN typed text: the Feishu enricher inlines
-	// quoted/forwarded context into Body, so /issue parsing must use the
+	// quoted/forwarded context into Body, so /task parsing must use the
 	// un-enriched command body stashed in Raw, not Body.
 	lm, err := larkMsgFromRaw(p.Message)
 	if err != nil {
@@ -273,10 +273,10 @@ func dispatchResultFromEngine(res engine.Result) DispatchResult {
 		InstallationID:  res.InstallationID,
 		ChatSessionID:   res.ChatSessionID,
 		SenderOpenID:    OpenID(res.Sender),
-		IssueID:         res.IssueID,
-		IssueNumber:     res.IssueNumber,
-		IssueIdentifier: res.IssueIdentifier,
-		IssueTitle:      res.IssueTitle,
+		TaskID:         res.TaskID,
+		TaskNumber:     res.TaskNumber,
+		TaskIdentifier: res.TaskIdentifier,
+		TaskTitle:      res.TaskTitle,
 	}
 }
 

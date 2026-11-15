@@ -8,7 +8,7 @@ import { useT } from "../../i18n";
 /**
  * Project due-date pill. Thin wrapper over the shared DateOnlyPicker (see
  * ProjectStartDatePicker); `highlightOverdue` paints a past due date red, the
- * same as the issue due-date pill.
+ * same as the task due-date pill.
  */
 export function ProjectDueDatePicker({
   dueDate,

@@ -37,8 +37,16 @@ func (q *Queries) AcceptInvitation(ctx context.Context, id pgtype.UUID) (Workspa
 }
 
 const createInvitation = `-- name: CreateInvitation :one
-INSERT INTO workspace_invitation (workspace_id, inviter_id, invitee_email, invitee_user_id, role)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO workspace_invitation (workspace_id, inviter_id, invitee_email, invitee_user_id, role) SELECT
+    $1 AS workspace_id,
+    $2 AS inviter_id,
+    $3 AS invitee_email,
+    $4 AS invitee_user_id,
+    $5 AS role
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_inviter_id WHERE ref_inviter_id.id = ($2) FOR KEY SHARE))
+  AND (($4)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_invitee_user_id WHERE ref_invitee_user_id.id = ($4) FOR KEY SHARE))
+
 RETURNING id, workspace_id, inviter_id, invitee_email, invitee_user_id, role, status, created_at, updated_at, expires_at
 `
 

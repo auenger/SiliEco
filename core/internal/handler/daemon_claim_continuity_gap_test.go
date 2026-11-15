@@ -11,19 +11,19 @@ import (
 // claimContinuityGapProbe decodes just the continuity-gap fields off a claim
 // response so the two SILI-5305 disclosure paths can be asserted end-to-end.
 type claimContinuityGapProbe struct {
-	Task *struct {
+	AgentRun *struct {
 		ID                            string `json:"id"`
 		PriorSessionID                string `json:"prior_session_id"`
 		PriorSessionResumeUnavailable bool   `json:"prior_session_resume_unavailable"`
-	} `json:"task"`
+	} `json:"run"`
 }
 
-func claimOneTaskForRuntime(t *testing.T, runtimeID, daemonID string) claimContinuityGapProbe {
+func claimOneRunForRuntime(t *testing.T, runtimeID, daemonID string) claimContinuityGapProbe {
 	t.Helper()
 	w := httptest.NewRecorder()
 	req := newDaemonTokenRequest(http.MethodPost, "/api/daemon/runtimes/"+runtimeID+"/claim", nil, testWorkspaceID, daemonID)
 	req = withURLParam(req, "runtimeId", runtimeID)
-	testHandler.ClaimTaskByRuntime(w, req)
+	testHandler.ClaimRunByRuntime(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("ClaimTaskByRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -31,7 +31,7 @@ func claimOneTaskForRuntime(t *testing.T, runtimeID, daemonID string) claimConti
 	if err := json.NewDecoder(w.Body).Decode(&probe); err != nil {
 		t.Fatalf("decode claim response: %v", err)
 	}
-	if probe.Task == nil {
+	if probe.AgentRun == nil {
 		t.Fatal("expected a claimed task in the response")
 	}
 	return probe
@@ -42,7 +42,7 @@ func claimOneTaskForRuntime(t *testing.T, runtimeID, daemonID string) claimConti
 // chat session withheld its Codex session (rollout missing), the next chat claim
 // resumes the older pointer but MUST still set prior_session_resume_unavailable
 // so the run discloses the gap instead of silently continuing.
-func TestClaimTaskByRuntime_ChatRolloutMissingDisclosesGap(t *testing.T) {
+func TestClaimRunByRuntime_ChatRolloutMissingDisclosesGap(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -64,10 +64,10 @@ func TestClaimTaskByRuntime_ChatRolloutMissingDisclosesGap(t *testing.T) {
 
 	// Most recent terminal turn on this session withheld its Codex session.
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, started_at, completed_at, chat_session_id, session_rollout_missing)
+		INSERT INTO agent_run (agent_id, runtime_id, status, priority, started_at, completed_at, chat_session_id, session_rollout_missing)
 		VALUES ($1, $2, 'completed', 0, now() - interval '1 minute', now() - interval '1 minute', $3, TRUE)
 	`, agentID, runtimeID, sessionID); err != nil {
-		t.Fatalf("insert withheld chat task: %v", err)
+		t.Fatalf("insert withheld chat run: %v", err)
 	}
 
 	if _, err := testPool.Exec(ctx, `
@@ -76,18 +76,18 @@ func TestClaimTaskByRuntime_ChatRolloutMissingDisclosesGap(t *testing.T) {
 		t.Fatalf("insert chat message: %v", err)
 	}
 
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, chat_session_id)
+		INSERT INTO agent_run (agent_id, runtime_id, status, priority, chat_session_id)
 		VALUES ($1, $2, 'queued', 1000, $3) RETURNING id
-	`, agentID, runtimeID, sessionID).Scan(&taskID); err != nil {
-		t.Fatalf("create chat follow-up task: %v", err)
+	`, agentID, runtimeID, sessionID).Scan(&runID); err != nil {
+		t.Fatalf("create chat follow-up run: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID) })
 
-	probe := claimOneTaskForRuntime(t, runtimeID, "chat-gap-claim-test")
-	if !probe.Task.PriorSessionResumeUnavailable {
-		t.Fatalf("expected chat claim to disclose the continuity gap; response task=%+v", *probe.Task)
+	probe := claimOneRunForRuntime(t, runtimeID, "chat-gap-claim-test")
+	if !probe.AgentRun.PriorSessionResumeUnavailable {
+		t.Fatalf("expected chat claim to disclose the continuity gap; response task=%+v", *probe.AgentRun)
 	}
 }
 
@@ -95,7 +95,7 @@ func TestClaimTaskByRuntime_ChatRolloutMissingDisclosesGap(t *testing.T) {
 // claim-response half of SILI-5305 Must-fix 2 for manual rerun: when the exact
 // source task withheld its Codex session, the rerun has nothing resumable from
 // it and MUST disclose the gap rather than silently start fresh.
-func TestClaimTaskByRuntime_RerunSourceRolloutMissingDisclosesGap(t *testing.T) {
+func TestClaimRunByRuntime_RerunSourceRolloutMissingDisclosesGap(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -104,43 +104,43 @@ func TestClaimTaskByRuntime_RerunSourceRolloutMissingDisclosesGap(t *testing.T) 
 	agentID := createHandlerTestAgent(t, "RerunGapClaimAgent", []byte("[]"))
 	runtimeID := handlerTestRuntimeID(t)
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id, number)
-		VALUES ($1, 'rerun gap issue', 'todo', 'none', 'member', $2, 'agent', $3,
-		        (SELECT COALESCE(MAX(number), 0) + 1 FROM issue WHERE workspace_id = $1))
+		INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id, number)
+		VALUES ($1, 'rerun gap task', 'todo', 'none', 'member', $2, 'agent', $3,
+		        (SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE workspace_id = $1))
 		RETURNING id
-	`, testWorkspaceID, testUserID, agentID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, agentID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	// Source task whose Codex session was withheld (rollout missing).
 	var srcID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, started_at, completed_at, session_rollout_missing)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, started_at, completed_at, session_rollout_missing)
 		VALUES ($1, $2, $3, 'completed', 0, now() - interval '2 minutes', now() - interval '2 minutes', TRUE)
 		RETURNING id
-	`, agentID, runtimeID, issueID).Scan(&srcID); err != nil {
-		t.Fatalf("insert source task: %v", err)
+	`, agentID, runtimeID, taskID).Scan(&srcID); err != nil {
+		t.Fatalf("insert source run: %v", err)
 	}
 
 	// A manual rerun of that source task, queued to claim (rerun carries
 	// force_fresh_session=true; the disclosure must still fire from the source).
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, rerun_of_task_id, force_fresh_session)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, rerun_of_run_id, force_fresh_session)
 		VALUES ($1, $2, $3, 'queued', 1000, $4, TRUE) RETURNING id
-	`, agentID, runtimeID, issueID, srcID).Scan(&taskID); err != nil {
-		t.Fatalf("create rerun task: %v", err)
+	`, agentID, runtimeID, taskID, srcID).Scan(&runID); err != nil {
+		t.Fatalf("create rerun run: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID) })
 
-	probe := claimOneTaskForRuntime(t, runtimeID, "rerun-gap-claim-test")
-	if !probe.Task.PriorSessionResumeUnavailable {
-		t.Fatalf("expected rerun claim to disclose the source task's continuity gap; response task=%+v", *probe.Task)
+	probe := claimOneRunForRuntime(t, runtimeID, "rerun-gap-claim-test")
+	if !probe.AgentRun.PriorSessionResumeUnavailable {
+		t.Fatalf("expected rerun claim to disclose the source task's continuity gap; response task=%+v", *probe.AgentRun)
 	}
 }

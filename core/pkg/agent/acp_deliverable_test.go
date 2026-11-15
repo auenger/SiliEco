@@ -301,7 +301,7 @@ var acpDeliverableEmissionPaths = []struct {
 // TestACPBackendsDeliverFinalAnswerWithoutNarration pins the boundary across
 // every ACP backend: interim narration stays in the streamed transcript but
 // must not reach Result.Output, which becomes the channel reply and the
-// auto-generated issue comment (#6006, SILI-5394).
+// auto-generated task comment (#6006, SILI-5394).
 func TestACPBackendsDeliverFinalAnswerWithoutNarration(t *testing.T) {
 	t.Parallel()
 
@@ -340,7 +340,7 @@ func TestACPBackendsDeliverFinalAnswerWithoutNarration(t *testing.T) {
 func TestACPBackendsToolTerminatedTurnFallsBackToLatestTextBlock(t *testing.T) {
 	t.Parallel()
 
-	const want = "Done. Posted the summary to the issue."
+	const want = "Done. Posted the summary to the task."
 
 	for _, c := range acpDeliverableCases {
 		for _, path := range acpDeliverableEmissionPaths {

@@ -14,7 +14,7 @@ for (const mode of ["seed", "missing"]) test(`${mode} agent review can be explic
     const run=await api.createManualWorkflowRun(`Review recovery browser ${Date.now()}`);runId=run.runId;
     await fixture();
     const token=api.getToken();if(!token)throw new Error("Missing test login");
-    await page.addInitScript(token=>{localStorage.setItem("silieco_token",token);localStorage.setItem("silieco:chat:isOpen","false");},token);
+    await page.addInitScript(token=>{localStorage.setItem("silieco_tr1_token",token);localStorage.setItem("silieco:tr1:chat:isOpen","false");},token);
     await page.setViewportSize({width:1440,height:1000});
     await page.goto(`/${api.getWorkspaceSlug()}/projects/${run.projectId}?run=${runId}`,{waitUntil:"domcontentloaded"});
     await page.getByRole("button",{name:"Recover review",exact:true}).click();
@@ -33,7 +33,7 @@ for (const mode of ["seed", "missing"]) test(`${mode} agent review can be explic
     const response=page.waitForResponse(r=>r.url().endsWith("/recover")&&r.request().method()==="POST");
     await submit.click();
     const recovered=await response;expect(recovered.status(),await recovered.text()).toBe(200);
-    const result=await recovered.json();expect(result.task_id).not.toBe(result.failed_task_id);expect(result.allowed_attempts).toBe(3);expect(result.max_attempts).toBe(6);
+    const result=await recovered.json();expect(result.run_id).not.toBe(result.failed_run_id);expect(result.allowed_attempts).toBe(3);expect(result.max_attempts).toBe(6);
     await expect(dialog).not.toBeVisible();
     await expect(page.getByText("Review is queued.",{exact:true})).toBeVisible();
     await expect(page.getByRole("button",{name:"Recover review",exact:true})).not.toBeVisible();

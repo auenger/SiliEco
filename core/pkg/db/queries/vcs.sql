@@ -31,7 +31,7 @@ RETURNING *;
 
 -- name: DeleteVCSConnection :exec
 -- These tables carry no FKs, so the cascade that once removed the connection's
--- mirrored PRs, their issue links, and CI statuses is gone (migration 213). Do
+-- mirrored PRs, their task links, and CI statuses is gone (migration 213). Do
 -- that cleanup explicitly here, in one statement so it commits or rolls back
 -- atomically with the connection row. The target CTE also scopes every child
 -- delete to a connection that actually belongs to the workspace, so a wrong
@@ -40,7 +40,7 @@ WITH target AS (
     SELECT vcs_connection.id FROM vcs_connection WHERE vcs_connection.id = $1 AND vcs_connection.workspace_id = $2
 ),
 cleared_links AS (
-    DELETE FROM issue_vcs_pull_request
+    DELETE FROM task_vcs_pull_request
     WHERE pull_request_id IN (
         SELECT vcs_pull_request.id FROM vcs_pull_request
         WHERE vcs_pull_request.connection_id IN (SELECT target.id FROM target)
@@ -71,7 +71,7 @@ RETURNING *;
 -- mutable column is applied only when the incoming event is at least as new as
 -- the stored row; a stale event keeps the existing values. The row is still
 -- touched (and thus RETURNED) either way, so callers always get the current PR
--- — the webhook needs pr.id to link the issue even on a stale redelivery.
+-- — the webhook needs pr.id to link the task even on a stale redelivery.
 INSERT INTO vcs_pull_request (
     workspace_id, connection_id, provider, repo_owner, repo_name, pr_number,
     title, state, html_url, branch, author_login, author_avatar_url,
@@ -102,7 +102,7 @@ ON CONFLICT (connection_id, repo_owner, repo_name, pr_number) DO UPDATE SET
     updated_at        = now()
 RETURNING *;
 
--- name: ListVCSPullRequestsByIssue :many
+-- name: ListVCSPullRequestsByTask :many
 -- Aggregates each PR's commit statuses for its CURRENT head sha into
 -- passed/failed/pending counts. vcs_commit_status holds one row per
 -- (connection, sha, context) with a normalized state, so a count by state is
@@ -116,12 +116,12 @@ WITH checks AS (
         SUM(CASE WHEN cs.state = 'passed'  THEN 1 ELSE 0 END)::bigint AS passed,
         SUM(CASE WHEN cs.state = 'pending' THEN 1 ELSE 0 END)::bigint AS pending
     FROM vcs_pull_request pr
-    JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
+    JOIN task_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
     JOIN vcs_commit_status cs
         ON cs.connection_id = pr.connection_id
        AND cs.sha = pr.head_sha
        AND pr.head_sha <> ''
-    WHERE ipr.issue_id = sqlc.arg('issue_id') AND NOT ipr.reference_only
+    WHERE ipr.task_id = sqlc.arg('task_id') AND NOT ipr.reference_only
     GROUP BY pr.id
 )
 SELECT
@@ -131,31 +131,31 @@ SELECT
     COALESCE(c.failed, 0)::bigint  AS checks_failed,
     COALESCE(c.pending, 0)::bigint AS checks_pending
 FROM vcs_pull_request pr
-JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
+JOIN task_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
 LEFT JOIN checks c ON c.pr_id = pr.id
-WHERE ipr.issue_id = sqlc.arg('issue_id') AND NOT ipr.reference_only
+WHERE ipr.task_id = sqlc.arg('task_id') AND NOT ipr.reference_only
 ORDER BY pr.pr_created_at DESC;
 
--- name: GetIssueCombinedPullRequestCloseAggregate :one
--- Cross-provider close gate. An issue can carry PRs from GitHub AND a
+-- name: GetTaskCombinedPullRequestCloseAggregate :one
+-- Cross-provider close gate. An task can carry PRs from GitHub AND a
 -- self-hosted VCS provider at the same time, so auto-advance has to see BOTH
 -- table pairs. Reading only one (as the per-provider aggregates do) lets a
--- merged close-intent PR/MR on one provider advance an issue that still has an
+-- merged close-intent PR/MR on one provider advance an task that still has an
 -- open PR on the other — either webhook is blind to the other's in-flight work.
 -- Sum the in-flight (open/draft) and merged-with-close-intent counts across
--- github_pull_request+issue_pull_request and vcs_pull_request+
--- issue_vcs_pull_request. reference_only links are excluded on both sides, so a
+-- github_pull_request+task_pull_request and vcs_pull_request+
+-- task_vcs_pull_request. reference_only links are excluded on both sides, so a
 -- bare body mention neither counts as in-flight nor gates advance.
 WITH combined AS (
     SELECT pr.state AS state, ipr.close_intent AS close_intent
     FROM github_pull_request pr
-    JOIN issue_pull_request ipr ON ipr.pull_request_id = pr.id
-    WHERE ipr.issue_id = $1 AND NOT ipr.reference_only
+    JOIN task_pull_request ipr ON ipr.pull_request_id = pr.id
+    WHERE ipr.task_id = $1 AND NOT ipr.reference_only
     UNION ALL
     SELECT pr.state AS state, ipr.close_intent AS close_intent
     FROM vcs_pull_request pr
-    JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
-    WHERE ipr.issue_id = $1 AND NOT ipr.reference_only
+    JOIN task_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
+    WHERE ipr.task_id = $1 AND NOT ipr.reference_only
 )
 SELECT
     COALESCE(SUM(CASE WHEN state IN ('open', 'draft') THEN 1 ELSE 0 END), 0)::bigint AS open_count,
@@ -182,34 +182,34 @@ ON CONFLICT (connection_id, sha, context) DO UPDATE SET
     updated_at  = EXCLUDED.updated_at
 WHERE EXCLUDED.updated_at >= vcs_commit_status.updated_at;
 
--- name: ListIssueIDsForVCSPRHead :many
--- Issues linked to any PR whose head sha matches the given status, so a
--- commit-status event can fan out a PR-card refresh to the right issues.
-SELECT DISTINCT ipr.issue_id
+-- name: ListTaskIDsForVCSPRHead :many
+-- Tasks linked to any PR whose head sha matches the given status, so a
+-- commit-status event can fan out a PR-card refresh to the right tasks.
+SELECT DISTINCT ipr.task_id
 FROM vcs_pull_request pr
-JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
+JOIN task_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
 WHERE pr.connection_id = $1 AND pr.head_sha = $2 AND pr.head_sha <> '';
 
 -- =====================
--- Issue ↔ VCS PR link
+-- Task ↔ VCS PR link
 -- =====================
 
--- name: LinkIssueToVCSPullRequest :exec
+-- name: LinkTaskToVCSPullRequest :exec
 -- reference_only marks a link justified ONLY by a bare body mention (no closing
 -- keyword and no title/branch reference), mirroring the GitHub link upsert.
 -- preserve_close_intent freezes both close_intent and reference_only once a
 -- terminal merge/close event has been recorded.
-INSERT INTO issue_vcs_pull_request (
-    issue_id, pull_request_id, linked_by_type, linked_by_id, close_intent, reference_only
+INSERT INTO task_vcs_pull_request (
+    task_id, pull_request_id, linked_by_type, linked_by_id, close_intent, reference_only
 ) VALUES (
     $1, $2, sqlc.narg('linked_by_type'), sqlc.narg('linked_by_id'), $3, sqlc.arg('reference_only')
 )
-ON CONFLICT (issue_id, pull_request_id) DO UPDATE SET
+ON CONFLICT (task_id, pull_request_id) DO UPDATE SET
     close_intent = CASE
-        WHEN sqlc.arg('preserve_close_intent') THEN issue_vcs_pull_request.close_intent
+        WHEN sqlc.arg('preserve_close_intent') THEN task_vcs_pull_request.close_intent
         ELSE EXCLUDED.close_intent
     END,
     reference_only = CASE
-        WHEN sqlc.arg('preserve_close_intent') THEN issue_vcs_pull_request.reference_only
+        WHEN sqlc.arg('preserve_close_intent') THEN task_vcs_pull_request.reference_only
         ELSE EXCLUDED.reference_only
     END;

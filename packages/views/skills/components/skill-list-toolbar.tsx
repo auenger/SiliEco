@@ -180,7 +180,7 @@ export function SkillListToolbar({
       {/* Left: name search + result count. The count only appears while
           search/filters narrow the list — in the idle state it would just
           duplicate the total already shown in the page header. Below md the
-          search (and its count) disappear entirely, following the issues
+          search (and its count) disappear entirely, following the tasks
           header's small-screen treatment. */}
       <div className="flex min-w-0 items-center gap-2">
         <div className="relative hidden md:block">
@@ -384,7 +384,7 @@ export function SkillListToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Display settings — same paradigm as the issues header: Popover
+        {/* Display settings — same paradigm as the tasks header: Popover
             with bordered sections, trigger shows the active sort (direction
             arrow + field label), sort row is a nested select + a direction
             toggle button, columns are label+Switch rows. Mutates the same

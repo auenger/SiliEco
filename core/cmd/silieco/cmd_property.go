@@ -14,8 +14,8 @@ import (
 )
 
 // silieco property {list|get|create|update|archive|unarchive} — workspace
-// custom property definitions, and silieco issue property {list|set|unset} —
-// typed values on a single issue. See core/internal/handler/property.go
+// custom property definitions, and silieco task property {list|set|unset} —
+// typed values on a single task. See core/internal/handler/property.go
 // for the validation contract (7 types, 20 active definitions/workspace,
 // owner/admin-only definition management, agents rejected on definition
 // writes).
@@ -81,7 +81,7 @@ var propertyUpdateCmd = &cobra.Command{
 	Use:   "update <id-or-name>",
 	Short: "Update a property definition (owner/admin only; type is immutable)",
 	Long: `Update a property definition. --option flags REPLACE the full option list;
-existing options are matched by name so their ids (and issue values) survive.`,
+existing options are matched by name so their ids (and task values) survive.`,
 	Args: exactArgs(1),
 	RunE: runPropertyUpdate,
 }
@@ -100,20 +100,20 @@ var propertyUnarchiveCmd = &cobra.Command{
 	RunE:  makePropertyArchiveRun(false),
 }
 
-var issuePropertyCmd = &cobra.Command{
+var taskPropertyCmd = &cobra.Command{
 	Use:   "property",
 	Short: "Manage custom property values on a task",
 }
 
-var issuePropertyListCmd = &cobra.Command{
-	Use:   "list <issue-id>",
+var taskPropertyListCmd = &cobra.Command{
+	Use:   "list <task-id>",
 	Short: "List custom property values set on a task",
 	Args:  exactArgs(1),
-	RunE:  runIssuePropertyList,
+	RunE:  runTaskPropertyList,
 }
 
-var issuePropertySetCmd = &cobra.Command{
-	Use:   "set <issue-id>",
+var taskPropertySetCmd = &cobra.Command{
+	Use:   "set <task-id>",
 	Short: "Set a custom property value on a task",
 	Long: `Set a custom property value. The property is addressed by --name
 (case-insensitive) or UUID. Value forms by type:
@@ -124,14 +124,14 @@ var issuePropertySetCmd = &cobra.Command{
   date          --value 2026-07-13
   text / url    --value "any string"`,
 	Args: exactArgs(1),
-	RunE: runIssuePropertySet,
+	RunE: runTaskPropertySet,
 }
 
-var issuePropertyUnsetCmd = &cobra.Command{
-	Use:   "unset <issue-id>",
+var taskPropertyUnsetCmd = &cobra.Command{
+	Use:   "unset <task-id>",
 	Short: "Remove a custom property value from a task",
 	Args:  exactArgs(1),
-	RunE:  runIssuePropertyUnset,
+	RunE:  runTaskPropertyUnset,
 }
 
 func init() {
@@ -159,18 +159,18 @@ func init() {
 	propertyArchiveCmd.Flags().String("output", "table", "Output format: table or json")
 	propertyUnarchiveCmd.Flags().String("output", "table", "Output format: table or json")
 
-	issuePropertyCmd.AddCommand(issuePropertyListCmd)
-	issuePropertyCmd.AddCommand(issuePropertySetCmd)
-	issuePropertyCmd.AddCommand(issuePropertyUnsetCmd)
+	taskPropertyCmd.AddCommand(taskPropertyListCmd)
+	taskPropertyCmd.AddCommand(taskPropertySetCmd)
+	taskPropertyCmd.AddCommand(taskPropertyUnsetCmd)
 
-	issuePropertyListCmd.Flags().String("output", "table", "Output format: table or json")
-	issuePropertySetCmd.Flags().String("output", "table", "Output format: table or json")
-	issuePropertySetCmd.Flags().String("name", "", "Property name or UUID (required)")
-	issuePropertySetCmd.Flags().String("value", "", "Property value (required; see --help for per-type forms)")
-	issuePropertyUnsetCmd.Flags().String("output", "table", "Output format: table or json")
-	issuePropertyUnsetCmd.Flags().String("name", "", "Property name or UUID (required)")
+	taskPropertyListCmd.Flags().String("output", "table", "Output format: table or json")
+	taskPropertySetCmd.Flags().String("output", "table", "Output format: table or json")
+	taskPropertySetCmd.Flags().String("name", "", "Property name or UUID (required)")
+	taskPropertySetCmd.Flags().String("value", "", "Property value (required; see --help for per-type forms)")
+	taskPropertyUnsetCmd.Flags().String("output", "table", "Output format: table or json")
+	taskPropertyUnsetCmd.Flags().String("name", "", "Property name or UUID (required)")
 
-	issueCmd.AddCommand(issuePropertyCmd)
+	taskCmd.AddCommand(taskPropertyCmd)
 }
 
 // fetchProperties loads the full definition catalog (including archived — the
@@ -209,7 +209,7 @@ func resolvePropertyRef(properties []propertyDTO, ref string) (propertyDTO, erro
 
 // parseOptionFlags converts repeatable --option flags ("Name" or
 // "Name:#rrggbb") into config options. When updating, pass the existing
-// options so same-named options keep their ids (issue values reference ids).
+// options so same-named options keep their ids (task values reference ids).
 const defaultOptionColor = "#6b7280"
 
 func parseOptionFlags(flags []string, existing []propertyOptionDTO) []map[string]string {
@@ -430,12 +430,12 @@ func makePropertyArchiveRun(archive bool) func(*cobra.Command, []string) error {
 }
 
 // ---------------------------------------------------------------------------
-// issue property {list|set|unset}
+// task property {list|set|unset}
 // ---------------------------------------------------------------------------
 
-// encodeIssuePropertyValue converts the CLI --value string into the typed
+// encodeTaskPropertyValue converts the CLI --value string into the typed
 // JSON the API expects, translating option names to ids for select types.
-func encodeIssuePropertyValue(property propertyDTO, raw string) (json.RawMessage, error) {
+func encodeTaskPropertyValue(property propertyDTO, raw string) (json.RawMessage, error) {
 	optionNames := make([]string, len(property.Config.Options))
 	for i, opt := range property.Config.Options {
 		optionNames[i] = opt.Name
@@ -489,9 +489,9 @@ func encodeIssuePropertyValue(property propertyDTO, raw string) (json.RawMessage
 	}
 }
 
-// formatIssuePropertyValue renders a stored value for humans: option ids
+// formatTaskPropertyValue renders a stored value for humans: option ids
 // become option names, everything else prints via formatMetadataValue.
-func formatIssuePropertyValue(property propertyDTO, value any) string {
+func formatTaskPropertyValue(property propertyDTO, value any) string {
 	optionName := func(id string) string {
 		for _, opt := range property.Config.Options {
 			if opt.ID == id {
@@ -526,7 +526,7 @@ func formatIssuePropertyValue(property propertyDTO, value any) string {
 	return formatMetadataValue(value)
 }
 
-type issuePropertyValueRow struct {
+type taskPropertyValueRow struct {
 	PropertyID string `json:"property_id"`
 	Name       string `json:"name"`
 	Type       string `json:"type"`
@@ -535,39 +535,39 @@ type issuePropertyValueRow struct {
 	Archived   bool   `json:"archived,omitempty"`
 }
 
-func buildIssuePropertyRows(properties []propertyDTO, bag map[string]any) []issuePropertyValueRow {
-	rows := make([]issuePropertyValueRow, 0, len(bag))
+func buildTaskPropertyRows(properties []propertyDTO, bag map[string]any) []taskPropertyValueRow {
+	rows := make([]taskPropertyValueRow, 0, len(bag))
 	for _, p := range properties {
 		value, present := bag[p.ID]
 		if !present {
 			continue
 		}
-		rows = append(rows, issuePropertyValueRow{
+		rows = append(rows, taskPropertyValueRow{
 			PropertyID: p.ID,
 			Name:       p.Name,
 			Type:       p.Type,
 			Value:      value,
-			Display:    formatIssuePropertyValue(p, value),
+			Display:    formatTaskPropertyValue(p, value),
 			Archived:   p.Archived,
 		})
 	}
 	return rows
 }
 
-func fetchIssuePropertyBag(ctx context.Context, client *cli.APIClient, issueID string) (map[string]any, error) {
-	var issue struct {
+func fetchTaskPropertyBag(ctx context.Context, client *cli.APIClient, taskID string) (map[string]any, error) {
+	var task struct {
 		Properties map[string]any `json:"properties"`
 	}
-	if err := client.GetJSON(ctx, "/api/issues/"+issueID, &issue); err != nil {
-		return nil, fmt.Errorf("get issue: %w", err)
+	if err := client.GetJSON(ctx, "/api/tasks/"+taskID, &task); err != nil {
+		return nil, fmt.Errorf("get task: %w", err)
 	}
-	if issue.Properties == nil {
+	if task.Properties == nil {
 		return map[string]any{}, nil
 	}
-	return issue.Properties, nil
+	return task.Properties, nil
 }
 
-func printIssuePropertyRows(rows []issuePropertyValueRow) {
+func printTaskPropertyRows(rows []taskPropertyValueRow) {
 	headers := []string{"NAME", "VALUE", "TYPE"}
 	tableRows := make([][]string, len(rows))
 	for i, row := range rows {
@@ -576,7 +576,7 @@ func printIssuePropertyRows(rows []issuePropertyValueRow) {
 	cli.PrintTable(os.Stdout, headers, tableRows)
 }
 
-func runIssuePropertyList(cmd *cobra.Command, args []string) error {
+func runTaskPropertyList(cmd *cobra.Command, args []string) error {
 	client, err := newAPIClient(cmd)
 	if err != nil {
 		return err
@@ -584,28 +584,28 @@ func runIssuePropertyList(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	issueRef, err := resolveIssueRef(ctx, client, args[0])
+	taskRef, err := resolveTaskRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf("resolve task: %w", err)
 	}
 	properties, err := fetchProperties(ctx, client)
 	if err != nil {
 		return err
 	}
-	bag, err := fetchIssuePropertyBag(ctx, client, issueRef.ID)
+	bag, err := fetchTaskPropertyBag(ctx, client, taskRef.ID)
 	if err != nil {
 		return err
 	}
-	rows := buildIssuePropertyRows(properties, bag)
+	rows := buildTaskPropertyRows(properties, bag)
 	output, _ := cmd.Flags().GetString("output")
 	if output == "json" {
 		return cli.PrintJSON(os.Stdout, rows)
 	}
-	printIssuePropertyRows(rows)
+	printTaskPropertyRows(rows)
 	return nil
 }
 
-func runIssuePropertySet(cmd *cobra.Command, args []string) error {
+func runTaskPropertySet(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	if name == "" {
 		return fmt.Errorf("--name is required")
@@ -622,9 +622,9 @@ func runIssuePropertySet(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	issueRef, err := resolveIssueRef(ctx, client, args[0])
+	taskRef, err := resolveTaskRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf("resolve task: %w", err)
 	}
 	properties, err := fetchProperties(ctx, client)
 	if err != nil {
@@ -634,7 +634,7 @@ func runIssuePropertySet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	value, err := encodeIssuePropertyValue(property, rawValue)
+	value, err := encodeTaskPropertyValue(property, rawValue)
 	if err != nil {
 		return err
 	}
@@ -642,20 +642,20 @@ func runIssuePropertySet(cmd *cobra.Command, args []string) error {
 	var result struct {
 		Properties map[string]any `json:"properties"`
 	}
-	path := "/api/issues/" + issueRef.ID + "/properties/" + property.ID
+	path := "/api/tasks/" + taskRef.ID + "/properties/" + property.ID
 	if err := client.PutJSON(ctx, path, map[string]any{"value": value}, &result); err != nil {
 		return fmt.Errorf("set property: %w", err)
 	}
-	rows := buildIssuePropertyRows(properties, result.Properties)
+	rows := buildTaskPropertyRows(properties, result.Properties)
 	output, _ := cmd.Flags().GetString("output")
 	if output == "json" {
 		return cli.PrintJSON(os.Stdout, rows)
 	}
-	printIssuePropertyRows(rows)
+	printTaskPropertyRows(rows)
 	return nil
 }
 
-func runIssuePropertyUnset(cmd *cobra.Command, args []string) error {
+func runTaskPropertyUnset(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	if name == "" {
 		return fmt.Errorf("--name is required")
@@ -668,9 +668,9 @@ func runIssuePropertyUnset(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	issueRef, err := resolveIssueRef(ctx, client, args[0])
+	taskRef, err := resolveTaskRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf("resolve task: %w", err)
 	}
 	properties, err := fetchProperties(ctx, client)
 	if err != nil {
@@ -681,7 +681,7 @@ func runIssuePropertyUnset(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	path := "/api/issues/" + issueRef.ID + "/properties/" + property.ID
+	path := "/api/tasks/" + taskRef.ID + "/properties/" + property.ID
 	if err := client.DeleteJSON(ctx, path); err != nil {
 		return fmt.Errorf("unset property: %w", err)
 	}

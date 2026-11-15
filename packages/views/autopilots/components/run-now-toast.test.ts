@@ -6,7 +6,7 @@ import { runNowToastKind, runNowBlockedKey } from "./run-now-toast";
 // future status) must NOT show a false "triggered".
 describe("runNowToastKind", () => {
   it("shows success only for explicit start statuses", () => {
-    expect(runNowToastKind("issue_created")).toBe("success");
+    expect(runNowToastKind("task_created")).toBe("success");
     expect(runNowToastKind("running")).toBe("success");
   });
 

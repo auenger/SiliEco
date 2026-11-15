@@ -177,7 +177,7 @@ type WorkflowInstanceResponse struct {
 	CreatedAt         string                           `json:"created_at"`
 	UpdatedAt         string                           `json:"updated_at"`
 	Stages            []WorkflowInstanceStageResponse  `json:"stages,omitempty"`
-	Tasks             []IssueResponse                  `json:"tasks,omitempty"`
+	Tasks             []TaskResponse                   `json:"tasks,omitempty"`
 	Decisions         []WorkflowGateDecisionResponse   `json:"decisions,omitempty"`
 	Changes           []WorkflowInstanceChangeResponse `json:"changes,omitempty"`
 }
@@ -1168,7 +1168,7 @@ func (h *Handler) ListWorkflowInstances(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusInternalServerError, "failed to load workflow instance plan")
 			return
 		}
-		count, countErr := h.Queries.CountIssuesInWorkflowInstance(r.Context(), db.CountIssuesInWorkflowInstanceParams{
+		count, countErr := h.Queries.CountTasksInWorkflowInstance(r.Context(), db.CountTasksInWorkflowInstanceParams{
 			WorkspaceID: wsUUID, WorkflowInstanceID: row.ID,
 		})
 		if countErr != nil {
@@ -1309,7 +1309,7 @@ func (h *Handler) CreateWorkflowInstance(w http.ResponseWriter, r *http.Request)
 	}
 	instanceStages := make([]db.WorkflowInstanceStage, 0, len(templateStages))
 	for _, templateStage := range templateStages {
-		required, missing := h.TaskService.ResolveRequiredSkills(r.Context(), wsUUID, templateStage.RequiredSkills)
+		required, missing := h.AgentRunService.ResolveRequiredSkills(r.Context(), wsUUID, templateStage.RequiredSkills)
 		if len(missing) > 0 {
 			writeError(w, http.StatusConflict, "required SOP skill is unavailable: "+strings.Join(missing, ", "))
 			return
@@ -1344,7 +1344,7 @@ func (h *Handler) CreateWorkflowInstance(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	if start && instanceStages[0].ExecutionMode == "agent" {
-		executionSvc := &service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter, TaskService: h.TaskService}
+		executionSvc := &service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter, AgentRunService: h.AgentRunService}
 		if _, err := executionSvc.EnsureStageExecutionInTx(r.Context(), qtx, service.EnsureWorkflowExecutionParams{
 			WorkspaceID: wsUUID, InstanceID: row.ID, StageID: instanceStages[0].ID, ExpectedRevision: row.Revision,
 			ExecutorID: instanceStages[0].ExecutorID, InputSnapshot: row.Inputs,
@@ -1406,7 +1406,7 @@ func (h *Handler) GetWorkflowInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load workflow instance plan")
 		return
 	}
-	tasks, err := h.Queries.ListIssuesForWorkflowInstance(r.Context(), db.ListIssuesForWorkflowInstanceParams{
+	tasks, err := h.Queries.ListTasksForWorkflowInstance(r.Context(), db.ListTasksForWorkflowInstanceParams{
 		WorkspaceID: wsUUID, WorkflowInstanceID: instanceID,
 	})
 	if err != nil {
@@ -1418,10 +1418,10 @@ func (h *Handler) GetWorkflowInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load workspace")
 		return
 	}
-	resp.Tasks = make([]IssueResponse, len(tasks))
+	resp.Tasks = make([]TaskResponse, len(tasks))
 	resp.TaskCount = int64(len(tasks))
 	for i, task := range tasks {
-		resp.Tasks[i] = issueToResponse(task, workspace.IssuePrefix)
+		resp.Tasks[i] = taskToResponse(task, workspace.TaskPrefix)
 	}
 	reworks, err := h.Queries.ListWorkflowReworks(r.Context(), db.ListWorkflowReworksParams{WorkspaceID: wsUUID, WorkflowInstanceID: instanceID})
 	if err != nil {
@@ -1630,7 +1630,7 @@ func (h *Handler) TransitionWorkflowInstance(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if req.Outcome == "approved" {
-		tasks, err := qtx.LockWorkflowStageIssues(r.Context(), db.LockWorkflowStageIssuesParams{WorkspaceID: wsUUID, WorkflowInstanceID: instanceID, WorkflowStageID: current.ID})
+		tasks, err := qtx.LockWorkflowStageTasks(r.Context(), db.LockWorkflowStageTasksParams{WorkspaceID: wsUUID, WorkflowInstanceID: instanceID, WorkflowStageID: current.ID})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to validate stage delivery")
 			return
@@ -1687,7 +1687,7 @@ func (h *Handler) TransitionWorkflowInstance(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if !completing && target.ExecutionMode == "agent" {
-		executionSvc := &service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter, TaskService: h.TaskService}
+		executionSvc := &service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter, AgentRunService: h.AgentRunService}
 		if _, err := executionSvc.EnsureStageExecutionInTx(r.Context(), qtx, service.EnsureWorkflowExecutionParams{
 			WorkspaceID: wsUUID, InstanceID: updated.ID, StageID: target.ID, ExpectedRevision: updated.Revision,
 			ExecutorID: target.ExecutorID, InputSnapshot: updated.Inputs,
@@ -1700,8 +1700,8 @@ func (h *Handler) TransitionWorkflowInstance(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "failed to commit workflow transition")
 		return
 	}
-	if h.TaskService != nil {
-		h.TaskService.BroadcastCancelledTasks(r.Context(), reworkEffects.CancelledTasks)
+	if h.AgentRunService != nil {
+		h.AgentRunService.BroadcastCancelledRuns(r.Context(), reworkEffects.CancelledRuns)
 	}
 	resp := workflowInstanceToResponse(updated)
 	h.publish(protocol.EventWorkflowInstanceUpdated, workspaceID, actorType, actorID, map[string]any{"instance": resp})
@@ -1728,7 +1728,7 @@ func (h *Handler) ArchiveWorkflowInstance(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusConflict, "workflow instance is already archived")
 		return
 	}
-	taskCount, err := h.Queries.CountIssuesInWorkflowInstance(r.Context(), db.CountIssuesInWorkflowInstanceParams{
+	taskCount, err := h.Queries.CountTasksInWorkflowInstance(r.Context(), db.CountTasksInWorkflowInstanceParams{
 		WorkspaceID: wsUUID, WorkflowInstanceID: instanceID,
 	})
 	if err != nil {
@@ -1772,7 +1772,7 @@ func (h *Handler) ListWorkflowTasks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "workflow instance not found")
 		return
 	}
-	rows, err := h.Queries.ListIssuesForWorkflowInstance(r.Context(), db.ListIssuesForWorkflowInstanceParams{
+	rows, err := h.Queries.ListTasksForWorkflowInstance(r.Context(), db.ListTasksForWorkflowInstanceParams{
 		WorkspaceID: wsUUID, WorkflowInstanceID: instanceID,
 	})
 	if err != nil {
@@ -1784,9 +1784,9 @@ func (h *Handler) ListWorkflowTasks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load workspace")
 		return
 	}
-	resp := make([]IssueResponse, len(rows))
+	resp := make([]TaskResponse, len(rows))
 	for i, row := range rows {
-		resp[i] = issueToResponse(row, workspace.IssuePrefix)
+		resp[i] = taskToResponse(row, workspace.TaskPrefix)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": resp, "total": len(resp)})
 }
@@ -1838,7 +1838,7 @@ func (h *Handler) AttachWorkflowTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "stage does not belong to this workflow instance")
 		return
 	}
-	task, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
+	task, err := h.Queries.GetTaskInWorkspace(r.Context(), db.GetTaskInWorkspaceParams{
 		ID: taskID, WorkspaceID: wsUUID,
 	})
 	if err != nil {
@@ -1850,7 +1850,7 @@ func (h *Handler) AttachWorkflowTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	executionSvc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
-	row, err := executionSvc.MoveIssueStage(r.Context(), wsUUID, taskID, instanceID, stageID)
+	row, err := executionSvc.MoveTaskStage(r.Context(), wsUUID, taskID, instanceID, stageID)
 	if err != nil {
 		if errors.Is(err, service.ErrWorkflowExecutionConflict) {
 			writeError(w, http.StatusConflict, "workflow task membership changed or Run is closed")
@@ -1862,7 +1862,7 @@ func (h *Handler) AttachWorkflowTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspace, _ := h.Queries.GetWorkspace(r.Context(), wsUUID)
-	resp := issueToResponse(row, workspace.IssuePrefix)
+	resp := taskToResponse(row, workspace.TaskPrefix)
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	h.publish(protocol.EventWorkflowTaskChanged, workspaceID, actorType, actorID, map[string]any{
 		"instance_id": uuidToString(instanceID), "task": resp,
@@ -1884,7 +1884,7 @@ func (h *Handler) DetachWorkflowTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	executionSvc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
-	row, err := executionSvc.MoveIssueStage(r.Context(), wsUUID, taskID, instanceID, pgtype.UUID{})
+	row, err := executionSvc.MoveTaskStage(r.Context(), wsUUID, taskID, instanceID, pgtype.UUID{})
 	if err != nil {
 		if errors.Is(err, service.ErrWorkflowExecutionConflict) {
 			writeError(w, http.StatusConflict, "workflow task membership changed or Run is closed")
@@ -1894,7 +1894,7 @@ func (h *Handler) DetachWorkflowTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspace, _ := h.Queries.GetWorkspace(r.Context(), wsUUID)
-	resp := issueToResponse(row, workspace.IssuePrefix)
+	resp := taskToResponse(row, workspace.TaskPrefix)
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	h.publish(protocol.EventWorkflowTaskChanged, workspaceID, actorType, actorID, map[string]any{
 		"instance_id": uuidToString(instanceID), "task": resp,

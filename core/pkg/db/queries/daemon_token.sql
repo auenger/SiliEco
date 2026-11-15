@@ -1,6 +1,11 @@
 -- name: CreateDaemonToken :one
-INSERT INTO daemon_token (token_hash, workspace_id, daemon_id, expires_at)
-VALUES ($1, $2, $3, $4)
+INSERT INTO daemon_token (token_hash, workspace_id, daemon_id, expires_at) SELECT
+    $1 AS token_hash,
+    $2 AS workspace_id,
+    $3 AS daemon_id,
+    $4 AS expires_at
+WHERE (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($2) FOR KEY SHARE))
+
 RETURNING *;
 
 -- name: GetDaemonTokenByHash :one

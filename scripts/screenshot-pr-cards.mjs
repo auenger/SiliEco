@@ -1,6 +1,6 @@
-// Standalone screenshot capture for the 6 PR-card demo issues. Logs in as
+// Standalone screenshot capture for the 6 PR-card demo tasks. Logs in as
 // dev@localhost via the local /auth send-code → verify-code flow, then opens
-// each /dev/issues/DEV-N and saves a clipped PNG focused on the right sidebar.
+// each /dev/tasks/DEV-N and saves a clipped PNG focused on the right sidebar.
 //
 // Run: pnpm exec node scripts/screenshot-pr-cards.mjs
 // Output: ./.screenshots/pr-card-DEV-{2..7}.png
@@ -14,7 +14,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:18181";
 const DB = process.env.DATABASE_URL || "postgres://silieco:silieco@localhost:5432/silieco_silieco_101?sslmode=disable";
 const EMAIL = "dev@localhost";
 const SLUG = "dev";
-const ISSUES = [2, 3, 4, 5, 6, 7];
+const TASKS = [2, 3, 4, 5, 6, 7];
 
 async function loginAndGetToken() {
   const client = new pg.Client(DB);
@@ -54,10 +54,10 @@ async function main() {
 
   // Set token before navigation so the renderer hits an authenticated state.
   await page.goto(`${FRONTEND}/login`);
-  await page.evaluate((t) => localStorage.setItem("silieco_token", t), token);
+  await page.evaluate((t) => localStorage.setItem("silieco_tr1_token", t), token);
 
-  for (const n of ISSUES) {
-    const url = `${FRONTEND}/${SLUG}/issues/DEV-${n}`;
+  for (const n of TASKS) {
+    const url = `${FRONTEND}/${SLUG}/tasks/DEV-${n}`;
     console.log("→", url);
     await page.goto(url, { waitUntil: "domcontentloaded" });
     // Wait for the PR section header to appear so the card has rendered.

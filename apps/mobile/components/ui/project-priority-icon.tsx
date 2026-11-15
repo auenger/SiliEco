@@ -1,10 +1,10 @@
 /**
- * Mobile ProjectPriorityIcon — reuses the same 4-bar geometry as the issue
- * PriorityIcon. Project priority enum is identical to issue priority enum
+ * Mobile ProjectPriorityIcon — reuses the same 4-bar geometry as the task
+ * PriorityIcon. Project priority enum is identical to task priority enum
  * (urgent/high/medium/low/none), so visually identical bars communicate the
  * same meaning across surfaces — desirable for behavioral parity.
  *
- * Colors are kept identical to the issue PriorityIcon hex map.
+ * Colors are kept identical to the task PriorityIcon hex map.
  */
 import Svg, { Line, Rect } from "react-native-svg";
 import type { ProjectPriority } from "@silieco/core/types";

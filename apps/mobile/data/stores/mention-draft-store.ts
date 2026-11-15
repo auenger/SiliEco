@@ -1,10 +1,10 @@
 /**
  * Cross-route draft store for the comment composer's @mention chips.
  *
- * The mention picker route (`app/(app)/[workspace]/issue/[id]/picker/mention.tsx`)
+ * The mention picker route (`app/(app)/[workspace]/task/[id]/picker/mention.tsx`)
  * lives in its own formSheet and cannot share callbacks with the composer
  * that opened it. Same pattern as how label / assignee pickers
- * communicate with their issue-detail screen — except those write straight
+ * communicate with their task-detail screen — except those write straight
  * to a mutation (durable state), while this store holds purely client-side
  * draft state until the composer either sends or unmounts.
  *
@@ -13,18 +13,18 @@
  * touch them.
  *
  * Lifecycle: composer's `useEffect` cleanup calls `clear()` so navigating
- * to another issue starts with an empty mention array. Send success also
+ * to another task starts with an empty mention array. Send success also
  * clears.
  */
 import { create } from "zustand";
 
-export type MentionTargetType = "member" | "agent" | "squad" | "all" | "issue";
+export type MentionTargetType = "member" | "agent" | "squad" | "all" | "task";
 
 export interface MentionChipDraft {
   type: MentionTargetType;
-  /** UUID for member / agent / squad / issue; literal "all" for @all. */
+  /** UUID for member / agent / squad / task; literal "all" for @all. */
   id: string;
-  /** Display name without leading `@`. For type "issue" this stores the
+  /** Display name without leading `@`. For type "task" this stores the
    *  human identifier (e.g. "SILI-123"). */
   name: string;
 }

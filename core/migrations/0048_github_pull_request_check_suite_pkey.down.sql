@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.github_pull_request_check_suite_pkey;

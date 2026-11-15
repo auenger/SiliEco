@@ -56,27 +56,27 @@ func seedChannelBinding(t *testing.T, ctx context.Context, agentID, sessionID, c
 func claimChatChannelFields(t *testing.T, runtimeID string) (channelType string, inThread bool) {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/tasks/claim", nil,
+	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/runs/claim", nil,
 		testWorkspaceID, "claim-channel-type")
 	req = withURLParam(req, "runtimeId", runtimeID)
 
-	testHandler.ClaimTaskByRuntime(w, req)
+	testHandler.ClaimRunByRuntime(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("ClaimTaskByRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	var resp struct {
-		Task *struct {
+		AgentRun *struct {
 			ChatChannelType string `json:"chat_channel_type"`
 			ChatInThread    bool   `json:"chat_in_thread"`
-		} `json:"task"`
+		} `json:"run"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode claim response: %v", err)
 	}
-	if resp.Task == nil {
+	if resp.AgentRun == nil {
 		t.Fatal("expected a claimed task")
 	}
-	return resp.Task.ChatChannelType, resp.Task.ChatInThread
+	return resp.AgentRun.ChatChannelType, resp.AgentRun.ChatInThread
 }
 
 func TestClaim_FeishuBoundSessionReportsChannelType(t *testing.T) {
@@ -88,8 +88,8 @@ func TestClaim_FeishuBoundSessionReportsChannelType(t *testing.T) {
 	// last_thread_id != last_message_id: the shape that would set ChatInThread on
 	// Slack. Feishu must still report false — there is no reader to thread into.
 	seedChannelBinding(t, ctx, agentID, sessionID, "feishu", "msg-1", "thread-9")
-	insertChannelChatTask(t, ctx, agentID, runtimeID, sessionID)
-	requeueTaskForClaim(t, ctx, sessionID)
+	insertChannelChatRun(t, ctx, agentID, runtimeID, sessionID)
+	requeueRunForClaim(t, ctx, sessionID)
 
 	channelType, inThread := claimChatChannelFields(t, runtimeID)
 	if channelType != "feishu" {
@@ -107,8 +107,8 @@ func TestClaim_SlackBoundSessionStillReportsThreadState(t *testing.T) {
 	ctx := context.Background()
 	agentID, sessionID, runtimeID, _ := setupDirectChatSession(t, ctx, "slack-backed chat")
 	seedChannelBinding(t, ctx, agentID, sessionID, "slack", "msg-1", "thread-9")
-	insertChannelChatTask(t, ctx, agentID, runtimeID, sessionID)
-	requeueTaskForClaim(t, ctx, sessionID)
+	insertChannelChatRun(t, ctx, agentID, runtimeID, sessionID)
+	requeueRunForClaim(t, ctx, sessionID)
 
 	channelType, inThread := claimChatChannelFields(t, runtimeID)
 	if channelType != "slack" {
@@ -125,8 +125,8 @@ func TestClaim_UnboundSessionReportsNoChannelType(t *testing.T) {
 	}
 	ctx := context.Background()
 	agentID, sessionID, runtimeID, _ := setupDirectChatSession(t, ctx, "web chat")
-	insertChannelChatTask(t, ctx, agentID, runtimeID, sessionID)
-	requeueTaskForClaim(t, ctx, sessionID)
+	insertChannelChatRun(t, ctx, agentID, runtimeID, sessionID)
+	requeueRunForClaim(t, ctx, sessionID)
 
 	channelType, inThread := claimChatChannelFields(t, runtimeID)
 	if channelType != "" {
@@ -139,13 +139,13 @@ func TestClaim_UnboundSessionReportsNoChannelType(t *testing.T) {
 
 // requeueTaskForClaim puts the session's task back in the queue so the claim
 // endpoint can hand it out (insertChannelChatTask creates it already running).
-func requeueTaskForClaim(t *testing.T, ctx context.Context, sessionID string) {
+func requeueRunForClaim(t *testing.T, ctx context.Context, sessionID string) {
 	t.Helper()
 	if _, err := testPool.Exec(ctx, `
-		UPDATE agent_task_queue
+		UPDATE agent_run
 		SET status = 'queued', started_at = NULL, dispatched_at = NULL
 		WHERE chat_session_id = $1
 	`, sessionID); err != nil {
-		t.Fatalf("requeue task: %v", err)
+		t.Fatalf("requeue run: %v", err)
 	}
 }

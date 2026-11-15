@@ -2,7 +2,7 @@
  * Registry of workspace navigation *pages* and their icons.
  *
  * A "page" here is a collection or tool surface that has no specific resource
- * of its own — Issues, Projects, Settings, etc. Its icon is a stable, static
+ * of its own — Tasks, Projects, Settings, etc. Its icon is a stable, static
  * choice keyed by the URL route segment (`/{slug}/{segment}/...`).
  *
  * This is the source of truth the sidebar nav uses (via `resolveRouteIconName`
@@ -48,8 +48,8 @@ export type RouteIconName =
 export type NavLabelKey =
   | "inbox"
   | "chat"
-  | "my_issues"
-  | "issues"
+  | "my_tasks"
+  | "tasks"
   | "projects"
   | "resources"
   | "workflows"
@@ -65,8 +65,8 @@ export type NavLabelKey =
 export type WorkspacePageKey =
   | "inbox"
   | "chat"
-  | "myIssues"
-  | "issues"
+  | "myTasks"
+  | "tasks"
   | "projects"
   | "resources"
   | "workflows"
@@ -94,8 +94,8 @@ export interface WorkspacePage {
 export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   inbox: { segment: "inbox", icon: "Inbox", navKey: "inbox" },
   chat: { segment: "chat", icon: "MessageSquare", navKey: "chat" },
-  myIssues: { segment: "my-tasks", icon: "CircleUser", navKey: "my_issues" },
-  issues: { segment: "tasks", icon: "ListTodo", navKey: "issues" },
+  myTasks: { segment: "my-tasks", icon: "CircleUser", navKey: "my_tasks" },
+  tasks: { segment: "tasks", icon: "ListTodo", navKey: "tasks" },
   projects: { segment: "projects", icon: "FolderKanban", navKey: "projects" },
   resources: { segment: "resources", icon: "FileText", navKey: "resources" },
   workflows: { segment: "workflows", icon: "GitBranch", navKey: "workflows" },
@@ -115,9 +115,6 @@ const PAGE_BY_SEGMENT: Record<string, WorkspacePageKey> = Object.fromEntries(
     key,
   ]),
 );
-// Old bookmarks remain recognizable even though new navigation emits Task URLs.
-PAGE_BY_SEGMENT.issues = "issues";
-PAGE_BY_SEGMENT["my-issues"] = "myIssues";
 
 /** The page whose route segment is `segment`, or null if none matches. */
 export function pageForSegment(segment: string): WorkspacePageKey | null {

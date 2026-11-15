@@ -236,14 +236,14 @@ VALUES ($1, 'head-a', 0, 'backend', 'completed', 'success', false)
 	})
 	var propertyID string
 	if err := testPool.QueryRow(ctx, `
-INSERT INTO issue_property (workspace_id, name, type)
+INSERT INTO task_property (workspace_id, name, type)
 VALUES ($1, 'Delete cleanup property', 'text')
 RETURNING id
 `, wsID).Scan(&propertyID); err != nil {
-		t.Fatalf("create issue property: %v", err)
+		t.Fatalf("create task property: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM issue_property WHERE id = $1`, propertyID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM task_property WHERE id = $1`, propertyID)
 	})
 
 	w := httptest.NewRecorder()
@@ -280,11 +280,11 @@ RETURNING id
 	}
 
 	var propertyCount int
-	if err := testPool.QueryRow(ctx, `SELECT COUNT(*) FROM issue_property WHERE id = $1`, propertyID).Scan(&propertyCount); err != nil {
-		t.Fatalf("verify issue property cleanup: %v", err)
+	if err := testPool.QueryRow(ctx, `SELECT COUNT(*) FROM task_property WHERE id = $1`, propertyID).Scan(&propertyCount); err != nil {
+		t.Fatalf("verify task property cleanup: %v", err)
 	}
 	if propertyCount != 0 {
-		t.Fatalf("issue properties were not cleaned up for deleted workspace: %d", propertyCount)
+		t.Fatalf("task properties were not cleaned up for deleted workspace: %d", propertyCount)
 	}
 }
 
@@ -473,7 +473,7 @@ type revocationFixture struct {
 	MemberID     string
 	RuntimeID    string
 	AgentID      string
-	TaskID       string
+	RunID        string
 	DaemonID     string
 	TokenHash    string
 }
@@ -486,7 +486,7 @@ func setupRevocationFixture(t *testing.T, slug, daemonID string) revocationFixtu
 
 	var wsID string
 	if err := testPool.QueryRow(ctx, `
-INSERT INTO workspace (name, slug, description, issue_prefix)
+INSERT INTO workspace (name, slug, description, task_prefix)
 VALUES ($1, $2, $3, $4)
 RETURNING id
 `, "Revocation "+slug, slug, "revocation test", "REV").Scan(&wsID); err != nil {
@@ -541,7 +541,7 @@ RETURNING id
 	if err := testPool.QueryRow(ctx, `
 INSERT INTO agent (
     workspace_id, name, description, runtime_mode, runtime_config,
-    runtime_id, visibility, max_concurrent_tasks, owner_id
+    runtime_id, visibility, max_concurrent_runs, owner_id
 )
 VALUES ($1, 'Target Agent', '', 'local', '{}'::jsonb, $2, 'workspace', 1, $3)
 RETURNING id
@@ -549,13 +549,13 @@ RETURNING id
 		t.Fatalf("insert agent: %v", err)
 	}
 
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority)
+INSERT INTO agent_run (agent_id, runtime_id, status, priority)
 VALUES ($1, $2, 'queued', 0)
 RETURNING id
-`, agentID, runtimeID).Scan(&taskID); err != nil {
-		t.Fatalf("insert task: %v", err)
+`, agentID, runtimeID).Scan(&runID); err != nil {
+		t.Fatalf("insert run: %v", err)
 	}
 
 	// daemon_token row — paired with the runtime's daemon_id so the
@@ -576,7 +576,7 @@ VALUES ($1, $2, $3, now() + interval '1 day')
 		MemberID:     memberID,
 		RuntimeID:    runtimeID,
 		AgentID:      agentID,
-		TaskID:       taskID,
+		RunID:        runID,
 		DaemonID:     daemonID,
 		TokenHash:    tokenHash,
 	}
@@ -610,12 +610,12 @@ func assertRevoked(t *testing.T, fx revocationFixture) {
 		t.Fatal("agent was not archived")
 	}
 
-	var taskStatus string
-	if err := testPool.QueryRow(ctx, `SELECT status FROM agent_task_queue WHERE id = $1`, fx.TaskID).Scan(&taskStatus); err != nil {
-		t.Fatalf("query task: %v", err)
+	var runStatus string
+	if err := testPool.QueryRow(ctx, `SELECT status FROM agent_run WHERE id = $1`, fx.RunID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run: %v", err)
 	}
-	if taskStatus != "cancelled" {
-		t.Fatalf("expected task cancelled, got %q", taskStatus)
+	if runStatus != "cancelled" {
+		t.Fatalf("expected task cancelled, got %q", runStatus)
 	}
 
 	var tokenExists bool
@@ -752,14 +752,14 @@ func TestLeaveWorkspace_RevokesOwnRuntimes(t *testing.T) {
 
 // TestDeleteMember_CancelsTasksFromAgentReassignment covers a subtle
 // case: an agent's runtime_id can be changed via UpdateAgent, but
-// agent_task_queue.runtime_id keeps the value from when the task was
+// agent_run.runtime_id keeps the value from when the task was
 // queued. So after a leaving member is removed, an agent currently bound
 // to their runtime gets archived — but tasks that agent queued under a
 // PRIOR runtime (still owned by another active member) keep their old
 // runtime_id and would not be caught by a runtime-only sweep. Because
 // ClaimAgentTask does not gate on agent.archived_at, those orphaned
 // queued tasks would remain claimable.
-func TestDeleteMember_CancelsTasksFromAgentReassignment(t *testing.T) {
+func TestDeleteMember_CancelsRunsFromAgentReassignment(t *testing.T) {
 	fx := setupRevocationFixture(t, "handler-tests-revoke-reassign", "daemon-revoke-reassign")
 	ctx := context.Background()
 
@@ -780,13 +780,13 @@ RETURNING id
 	// Queue a task on the agent while it was still pinned to the OTHER
 	// runtime (simulating a task created before the agent was reassigned
 	// to the leaving member's runtime).
-	var orphanTaskID string
+	var orphanRunID string
 	if err := testPool.QueryRow(ctx, `
-INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority)
+INSERT INTO agent_run (agent_id, runtime_id, status, priority)
 VALUES ($1, $2, 'queued', 0)
 RETURNING id
-`, fx.AgentID, otherRuntimeID).Scan(&orphanTaskID); err != nil {
-		t.Fatalf("insert orphan task: %v", err)
+`, fx.AgentID, otherRuntimeID).Scan(&orphanRunID); err != nil {
+		t.Fatalf("insert orphan run: %v", err)
 	}
 
 	w := httptest.NewRecorder()
@@ -805,8 +805,8 @@ RETURNING id
 	// cancelled. Without the by-agent leg in CancelAgentTasksByRuntimeOrAgent
 	// this stays 'queued' and would be picked up by the other runtime.
 	var orphanStatus string
-	if err := testPool.QueryRow(ctx, `SELECT status FROM agent_task_queue WHERE id = $1`, orphanTaskID).Scan(&orphanStatus); err != nil {
-		t.Fatalf("query orphan task: %v", err)
+	if err := testPool.QueryRow(ctx, `SELECT status FROM agent_run WHERE id = $1`, orphanRunID).Scan(&orphanStatus); err != nil {
+		t.Fatalf("query orphan run: %v", err)
 	}
 	if orphanStatus != "cancelled" {
 		t.Fatalf("expected orphan task cancelled (archived agent leftover on other runtime), got %q", orphanStatus)
@@ -834,7 +834,7 @@ func TestDeleteMember_NoRuntimes_DeletesMember(t *testing.T) {
 
 	var wsID string
 	if err := testPool.QueryRow(ctx, `
-INSERT INTO workspace (name, slug, description, issue_prefix)
+INSERT INTO workspace (name, slug, description, task_prefix)
 VALUES ($1, $2, $3, $4)
 RETURNING id
 `, "Revocation no runtimes", slug, "revocation no-runtimes test", "REV").Scan(&wsID); err != nil {

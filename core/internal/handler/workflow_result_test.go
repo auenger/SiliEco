@@ -84,28 +84,28 @@ func testWorkflowResultDownload(t *testing.T, runID, executionID string, result 
 func testWorkflowDeleteFailurePreservesCalls(t *testing.T, executionID string) {
 	t.Helper()
 	ctx := context.Background()
-	var issueID, taskID, before string
-	if err := testPool.QueryRow(ctx, `SELECT e.main_issue_id,e.main_task_id,t.status FROM workflow_stage_execution e JOIN agent_task_queue t ON t.id=e.main_task_id WHERE e.id=$1`, executionID).Scan(&issueID, &taskID, &before); err != nil {
+	var taskID, runID, before string
+	if err := testPool.QueryRow(ctx, `SELECT e.main_task_id,e.main_run_id,t.status FROM workflow_stage_execution e JOIN agent_run t ON t.id=e.main_run_id WHERE e.id=$1`, executionID).Scan(&taskID, &runID, &before); err != nil {
 		t.Fatal(err)
 	}
 	name := "workflow_delete_failure_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if _, err := testPool.Exec(ctx, "CREATE FUNCTION "+name+"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.id='"+issueID+"'::uuid THEN RAISE EXCEPTION 'injected deletion failure'; END IF; RETURN OLD; END $$"); err != nil {
+	if _, err := testPool.Exec(ctx, "CREATE FUNCTION "+name+"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.id='"+taskID+"'::uuid THEN RAISE EXCEPTION 'injected deletion failure'; END IF; RETURN OLD; END $$"); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), "DROP TRIGGER IF EXISTS "+name+" ON issue")
+		testPool.Exec(context.Background(), "DROP TRIGGER IF EXISTS "+name+" ON task")
 		testPool.Exec(context.Background(), "DROP FUNCTION IF EXISTS "+name+"()")
 	})
-	if _, err := testPool.Exec(ctx, "CREATE TRIGGER "+name+" BEFORE DELETE ON issue FOR EACH ROW EXECUTE FUNCTION "+name+"()"); err != nil {
+	if _, err := testPool.Exec(ctx, "CREATE TRIGGER "+name+" BEFORE DELETE ON task FOR EACH ROW EXECUTE FUNCTION "+name+"()"); err != nil {
 		t.Fatal(err)
 	}
 	response := httptest.NewRecorder()
-	testHandler.DeleteIssue(response, workflowRequest(http.MethodDelete, "/api/issues/"+issueID, nil, map[string]string{"id": issueID}))
+	testHandler.DeleteTask(response, workflowRequest(http.MethodDelete, "/api/tasks/"+taskID, nil, map[string]string{"id": taskID}))
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("injected deletion: %d %s", response.Code, response.Body.String())
 	}
 	batch := httptest.NewRecorder()
-	testHandler.BatchDeleteIssues(batch, newRequest(http.MethodPost, "/api/issues/batch-delete", map[string]any{"issue_ids": []string{issueID}}))
+	testHandler.BatchDeleteTasks(batch, newRequest(http.MethodPost, "/api/tasks/batch-delete", map[string]any{"task_ids": []string{taskID}}))
 	var batchResult struct {
 		Deleted int `json:"deleted"`
 	}
@@ -116,21 +116,21 @@ func testWorkflowDeleteFailurePreservesCalls(t *testing.T, executionID string) {
 		t.Fatalf("failed batch deletion: %d %s", batch.Code, batch.Body.String())
 	}
 	var after string
-	if err := testPool.QueryRow(ctx, `SELECT status FROM agent_task_queue WHERE id=$1`, taskID).Scan(&after); err != nil || after != before {
-		t.Fatalf("failed deletion changed task: before=%s after=%s err=%v", before, after, err)
+	if err := testPool.QueryRow(ctx, `SELECT status FROM agent_run WHERE id=$1`, runID).Scan(&after); err != nil || after != before {
+		t.Fatalf("failed deletion changed run: before=%s after=%s err=%v", before, after, err)
 	}
 	var exists bool
-	if err := testPool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM issue WHERE id=$1)`, issueID).Scan(&exists); err != nil || !exists {
-		t.Fatalf("failed deletion lost issue: %v %v", exists, err)
+	if err := testPool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM task WHERE id=$1)`, taskID).Scan(&exists); err != nil || !exists {
+		t.Fatalf("failed deletion lost task: %v %v", exists, err)
 	}
-	if _, err := testPool.Exec(ctx, "DROP TRIGGER "+name+" ON issue"); err != nil {
+	if _, err := testPool.Exec(ctx, "DROP TRIGGER "+name+" ON task"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := testPool.Exec(ctx, `UPDATE workflow_instance SET status='completed' WHERE id=(SELECT workflow_instance_id FROM workflow_stage_execution WHERE id=$1)`, executionID); err != nil {
 		t.Fatal(err)
 	}
 	closed := httptest.NewRecorder()
-	testHandler.BatchDeleteIssues(closed, newRequest(http.MethodPost, "/api/issues/batch-delete", map[string]any{"issue_ids": []string{issueID}}))
+	testHandler.BatchDeleteTasks(closed, newRequest(http.MethodPost, "/api/tasks/batch-delete", map[string]any{"task_ids": []string{taskID}}))
 	if err := json.Unmarshal(closed.Body.Bytes(), &batchResult); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func testWorkflowDeleteFailurePreservesCalls(t *testing.T, executionID string) {
 		t.Fatal(err)
 	}
 	success := httptest.NewRecorder()
-	testHandler.BatchDeleteIssues(success, newRequest(http.MethodPost, "/api/issues/batch-delete", map[string]any{"issue_ids": []string{issueID}}))
+	testHandler.BatchDeleteTasks(success, newRequest(http.MethodPost, "/api/tasks/batch-delete", map[string]any{"task_ids": []string{taskID}}))
 	if err := json.Unmarshal(success.Body.Bytes(), &batchResult); err != nil {
 		t.Fatal(err)
 	}

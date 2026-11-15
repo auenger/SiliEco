@@ -9,7 +9,7 @@ import { useT } from "../../i18n";
  * Project start-date pill. Thin wrapper over the shared DateOnlyPicker — it only
  * supplies the field name (via onChange), the icon, and the "projects" copy; all
  * calendar/clear/format behaviour lives in the base so it can't drift from the
- * issue pickers. The same component serves both the create-project modal (map
+ * task pickers. The same component serves both the create-project modal (map
  * the emitted value into local draft state) and the project sidebar.
  */
 export function ProjectStartDatePicker({

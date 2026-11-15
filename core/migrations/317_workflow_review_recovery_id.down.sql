@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY workflow_review_recovery_id_idx;

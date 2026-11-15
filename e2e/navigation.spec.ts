@@ -18,9 +18,9 @@ test.describe("Navigation", () => {
     await expect(page).toHaveURL(/\/agents/, { timeout: ROUTE_CHANGE_TIMEOUT });
     await waitForPageText(page, "Agents");
 
-    await page.getByRole("link", { name: "Issues", exact: true }).click();
-    await expect(page).toHaveURL(/\/issues/, { timeout: ROUTE_CHANGE_TIMEOUT });
-    await waitForPageText(page, "Issues");
+    await page.getByRole("link", { name: "Tasks", exact: true }).click();
+    await expect(page).toHaveURL(/\/tasks/, { timeout: ROUTE_CHANGE_TIMEOUT });
+    await waitForPageText(page, "Tasks");
   });
 
   test("settings page loads via sidebar", async ({ page }) => {

@@ -1,19 +1,24 @@
--- name: AddIssueSubscriber :exec
-INSERT INTO issue_subscriber (issue_id, user_type, user_id, reason)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (issue_id, user_type, user_id) DO NOTHING;
+-- name: AddTaskSubscriber :exec
+INSERT INTO task_subscriber (task_id, user_type, user_id, reason) SELECT
+    $1 AS task_id,
+    $2 AS user_type,
+    $3 AS user_id,
+    $4 AS reason
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM task AS ref_task_id WHERE ref_task_id.id = ($1) FOR KEY SHARE))
 
--- name: RemoveIssueSubscriber :exec
-DELETE FROM issue_subscriber
-WHERE issue_id = $1 AND user_type = $2 AND user_id = $3;
+ON CONFLICT (task_id, user_type, user_id) DO NOTHING;
 
--- name: ListIssueSubscribers :many
-SELECT * FROM issue_subscriber
-WHERE issue_id = $1
+-- name: RemoveTaskSubscriber :exec
+DELETE FROM task_subscriber
+WHERE task_id = $1 AND user_type = $2 AND user_id = $3;
+
+-- name: ListTaskSubscribers :many
+SELECT * FROM task_subscriber
+WHERE task_id = $1
 ORDER BY created_at;
 
--- name: IsIssueSubscriber :one
+-- name: IsTaskSubscriber :one
 SELECT EXISTS(
-    SELECT 1 FROM issue_subscriber
-    WHERE issue_id = $1 AND user_type = $2 AND user_id = $3
+    SELECT 1 FROM task_subscriber
+    WHERE task_id = $1 AND user_type = $2 AND user_id = $3
 ) AS subscribed;

@@ -23,11 +23,11 @@ import {
   useUpdateProperty,
 } from "@silieco/core/properties";
 import type {
-  IssueProperty,
-  IssuePropertyOption,
-  IssuePropertyType,
+  TaskProperty,
+  TaskPropertyOption,
+  TaskPropertyType,
 } from "@silieco/core/types";
-import { ISSUE_PROPERTY_TYPES } from "@silieco/core/types";
+import { TASK_PROPERTY_TYPES } from "@silieco/core/types";
 import { Button } from "@silieco/ui/components/ui/button";
 import { Badge } from "@silieco/ui/components/ui/badge";
 import { Input } from "@silieco/ui/components/ui/input";
@@ -89,7 +89,7 @@ interface OptionDraft {
 
 interface PropertyDraft {
   name: string;
-  type: IssuePropertyType;
+  type: TaskPropertyType;
   description: string;
   icon: string;
   options: OptionDraft[];
@@ -114,9 +114,9 @@ export function PropertiesTab() {
 
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [editing, setEditing] = useState<IssueProperty | null>(null);
+  const [editing, setEditing] = useState<TaskProperty | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [pendingArchive, setPendingArchive] = useState<IssueProperty | null>(null);
+  const [pendingArchive, setPendingArchive] = useState<TaskProperty | null>(null);
 
   const { data: members = [] } = useQuery(memberListOptions(wsId));
   const currentMember = members.find((m) => m.user_id === user?.id) ?? null;
@@ -359,7 +359,7 @@ function PropertyEditorDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  property?: IssueProperty | null;
+  property?: TaskProperty | null;
 }) {
   const { t } = useT("settings");
   const create = useCreateProperty();
@@ -374,10 +374,10 @@ function PropertyEditorDialog({
       property
         ? {
             name: property.name,
-            type: (property.type as IssuePropertyType) ?? "text",
+            type: (property.type as TaskPropertyType) ?? "text",
             description: property.description ?? "",
             icon: property.icon ?? "",
-            options: (property.config.options ?? []).map((option: IssuePropertyOption) => ({
+            options: (property.config.options ?? []).map((option: TaskPropertyOption) => ({
               id: option.id,
               name: option.name,
               color: option.color,
@@ -389,7 +389,7 @@ function PropertyEditorDialog({
 
   const showOptions = typeHasOptions(draft.type);
   const validOptions = draft.options.filter((option) => option.name.trim());
-  const propertyTypeItems = ISSUE_PROPERTY_TYPES.map((type) => ({
+  const propertyTypeItems = TASK_PROPERTY_TYPES.map((type) => ({
     value: type,
     label: <PropertyTypeLabel type={type} />,
   }));
@@ -528,7 +528,7 @@ function PropertyEditorDialog({
                     value &&
                     setDraft((current) => ({
                       ...current,
-                      type: value as IssuePropertyType,
+                      type: value as TaskPropertyType,
                       options:
                         typeHasOptions(value) && current.options.length === 0
                           ? [{ name: "", color: COLOR_PICKER_PRESETS[6] }]
@@ -652,7 +652,7 @@ function ArchivePropertyDialog({
   property,
   onClose,
 }: {
-  property: IssueProperty | null;
+  property: TaskProperty | null;
   onClose: () => void;
 }) {
   const { t } = useT("settings");

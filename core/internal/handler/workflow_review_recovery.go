@@ -41,8 +41,8 @@ func workflowReviewStatusToResponse(status service.WorkflowAgentReviewStatus) Wo
 		response.ResultRevision = status.Request.ResultRevision
 		response.BasisHash = &status.Request.BasisHash
 	}
-	if status.Task != nil {
-		response.Call = &WorkflowReviewStatusCallResponse{ID: uuidToString(status.Task.ID), Status: status.Task.Status, FailureReason: textToPtr(status.Task.FailureReason), Attempt: status.Task.Attempt, MaxAttempts: status.Task.MaxAttempts}
+	if status.AgentRun != nil {
+		response.Call = &WorkflowReviewStatusCallResponse{ID: uuidToString(status.AgentRun.ID), Status: status.AgentRun.Status, FailureReason: textToPtr(status.AgentRun.FailureReason), Attempt: status.AgentRun.Attempt, MaxAttempts: status.AgentRun.MaxAttempts}
 	}
 	if status.RetryAt != nil {
 		formatted := status.RetryAt.UTC().Format(time.RFC3339Nano)
@@ -76,7 +76,7 @@ func (h *Handler) RecoverWorkflowAgentReview(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var request struct {
-		FailedTaskID           string `json:"failed_task_id"`
+		FailedRunID            string `json:"failed_run_id"`
 		ExpectedResultRevision int32  `json:"expected_result_revision"`
 		ExpectedBasisHash      string `json:"expected_basis_hash"`
 		Reason                 string `json:"reason"`
@@ -91,7 +91,7 @@ func (h *Handler) RecoverWorkflowAgentReview(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "unexpected recovery request content")
 		return
 	}
-	failedTaskID, ok := parseUUIDOrBadRequest(w, request.FailedTaskID, "failed_task_id")
+	failedRunID, ok := parseUUIDOrBadRequest(w, request.FailedRunID, "failed_run_id")
 	if !ok {
 		return
 	}
@@ -103,11 +103,11 @@ func (h *Handler) RecoverWorkflowAgentReview(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "invalid review basis hash")
 		return
 	}
-	svc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter, TaskService: h.TaskService}
-	recovered, err := svc.RecoverAgentReview(r.Context(), service.RecoverWorkflowAgentReviewParams{WorkspaceID: wsID, InstanceID: runID, ExecutionID: executionID, RequestID: requestID, FailedTaskID: failedTaskID, ActorID: actorID, ExpectedResultRevision: request.ExpectedResultRevision, ExpectedBasisHash: request.ExpectedBasisHash, Reason: request.Reason})
+	svc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter, AgentRunService: h.AgentRunService}
+	recovered, err := svc.RecoverAgentReview(r.Context(), service.RecoverWorkflowAgentReviewParams{WorkspaceID: wsID, InstanceID: runID, ExecutionID: executionID, RequestID: requestID, FailedRunID: failedRunID, ActorID: actorID, ExpectedResultRevision: request.ExpectedResultRevision, ExpectedBasisHash: request.ExpectedBasisHash, Reason: request.Reason})
 	if err != nil {
 		writeWorkflowReviewError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"recovery_id": uuidToString(recovered.ID), "instance_id": uuidToString(recovered.WorkflowInstanceID), "execution_id": uuidToString(recovered.ExecutionID), "request_id": uuidToString(recovered.RequestID), "failed_task_id": uuidToString(recovered.FailedTaskID), "task_id": uuidToString(recovered.NewTaskID), "allowed_attempts": recovered.AllowedAttempts, "max_attempts": recovered.MaxAttempts})
+	writeJSON(w, http.StatusOK, map[string]any{"recovery_id": uuidToString(recovered.ID), "instance_id": uuidToString(recovered.WorkflowInstanceID), "execution_id": uuidToString(recovered.ExecutionID), "request_id": uuidToString(recovered.RequestID), "failed_run_id": uuidToString(recovered.FailedRunID), "run_id": uuidToString(recovered.NewRunID), "allowed_attempts": recovered.AllowedAttempts, "max_attempts": recovered.MaxAttempts})
 }

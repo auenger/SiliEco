@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY workflow_review_call_identity_uidx;

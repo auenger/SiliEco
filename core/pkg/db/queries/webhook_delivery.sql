@@ -11,12 +11,25 @@ INSERT INTO webhook_delivery (
     dedupe_key, dedupe_source, signature_status, status,
     selected_headers, content_type, raw_body,
     replayed_from_delivery_id
-) VALUES (
-    $1, $2, $3, $4, $5,
-    sqlc.narg('dedupe_key'), sqlc.narg('dedupe_source'), $6, $7,
-    $8, sqlc.narg('content_type'), sqlc.narg('raw_body'),
-    sqlc.narg('replayed_from_delivery_id')
-) RETURNING *;
+) SELECT
+    $1 AS workspace_id,
+    $2 AS autopilot_id,
+    $3 AS trigger_id,
+    $4 AS provider,
+    $5 AS event,
+    sqlc.narg('dedupe_key') AS dedupe_key,
+    sqlc.narg('dedupe_source') AS dedupe_source,
+    $6 AS signature_status,
+    $7 AS status,
+    $8 AS selected_headers,
+    sqlc.narg('content_type') AS content_type,
+    sqlc.narg('raw_body') AS raw_body,
+    sqlc.narg('replayed_from_delivery_id') AS replayed_from_delivery_id
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot AS ref_autopilot_id WHERE ref_autopilot_id.id = ($2) FOR KEY SHARE))
+  AND (($3)::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot_trigger AS ref_trigger_id WHERE ref_trigger_id.id = ($3) FOR KEY SHARE))
+  AND ((sqlc.narg('replayed_from_delivery_id'))::uuid IS NULL OR EXISTS (SELECT 1 FROM webhook_delivery AS ref_replayed_from_delivery_id WHERE ref_replayed_from_delivery_id.id = (sqlc.narg('replayed_from_delivery_id')) FOR KEY SHARE))
+ RETURNING *;
 
 -- name: GetWebhookDelivery :one
 SELECT * FROM webhook_delivery
@@ -122,9 +135,11 @@ SET status = $3,
     lease_token = NULL,
     lease_expires_at = NULL,
     last_attempt_at = now()
-WHERE id = $1
+WHERE webhook_delivery.id = $1
   AND lease_token = $2
   AND status = 'queued'
+
+  AND ((sqlc.narg('autopilot_run_id'))::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot_run AS ref_autopilot_run_id WHERE ref_autopilot_run_id.id = (sqlc.narg('autopilot_run_id')) FOR KEY SHARE))
 RETURNING *;
 
 -- name: UpdateWebhookDeliveryDispatched :one
@@ -137,7 +152,9 @@ SET status = $2,
     response_status = sqlc.narg('response_status'),
     response_body = sqlc.narg('response_body'),
     last_attempt_at = now()
-WHERE id = $1
+WHERE webhook_delivery.id = $1
+
+  AND ((sqlc.narg('autopilot_run_id'))::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot_run AS ref_autopilot_run_id WHERE ref_autopilot_run_id.id = (sqlc.narg('autopilot_run_id')) FOR KEY SHARE))
 RETURNING *;
 
 -- name: UpdateWebhookDeliveryTerminal :one

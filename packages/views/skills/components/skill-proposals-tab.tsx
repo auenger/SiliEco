@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useT } from "../../i18n";
 
 const dialogClass = "w-[calc(100vw_-_2rem)] max-w-none sm:max-w-4xl";
-const categories: SkillProposalCategory[] = ["skill_instruction", "insufficient_input", "tool_failure", "contract_issue", "model_capability", "human_correction", "positive_example"];
+const categories: SkillProposalCategory[] = ["skill_instruction", "insufficient_input", "tool_failure", "contract_task", "model_capability", "human_correction", "positive_example"];
 function useCategoryLabel() {
   const { t } = useT("skills");
   return (category: string) => categories.includes(category as SkillProposalCategory) ? t(($) => $.proposals.categories[category as SkillProposalCategory]) : category;

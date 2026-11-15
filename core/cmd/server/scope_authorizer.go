@@ -15,8 +15,8 @@ import (
 // authorizer. Declared as an interface so the authorizer can be unit tested
 // with an in-memory fake (no DB required).
 type scopeAuthQuerier interface {
-	GetAgentTask(ctx context.Context, id pgtype.UUID) (db.AgentTaskQueue, error)
-	GetIssue(ctx context.Context, id pgtype.UUID) (db.Issue, error)
+	GetAgentRun(ctx context.Context, id pgtype.UUID) (db.AgentRun, error)
+	GetTask(ctx context.Context, id pgtype.UUID) (db.Task, error)
 	GetChatSession(ctx context.Context, id pgtype.UUID) (db.ChatSession, error)
 	IsChatSessionMemberParticipant(ctx context.Context, arg db.IsChatSessionMemberParticipantParams) (bool, error)
 }
@@ -58,23 +58,23 @@ func (a *dbScopeAuthorizer) AuthorizeScope(ctx context.Context, userID, workspac
 		return false, nil
 	}
 	switch scopeType {
-	case realtime.ScopeTask:
-		task, err := a.q.GetAgentTask(ctx, idUUID)
+	case realtime.ScopeRun:
+		agentRun, err := a.q.GetAgentRun(ctx, idUUID)
 		if err != nil {
 			return scopeLookupErr(err)
 		}
-		// Issue tasks: visible to any workspace member.
-		if task.IssueID.Valid {
-			issue, err := a.q.GetIssue(ctx, task.IssueID)
+		// Task tasks: visible to any workspace member.
+		if agentRun.TaskID.Valid {
+			task, err := a.q.GetTask(ctx, agentRun.TaskID)
 			if err != nil {
 				return scopeLookupErr(err)
 			}
-			return issue.WorkspaceID == wsUUID, nil
+			return task.WorkspaceID == wsUUID, nil
 		}
 		// Chat tasks: only the chat session's creator may subscribe, mirroring
 		// the HTTP layer's creator-only access on chat resources.
-		if task.ChatSessionID.Valid {
-			sess, err := a.q.GetChatSession(ctx, task.ChatSessionID)
+		if agentRun.ChatSessionID.Valid {
+			sess, err := a.q.GetChatSession(ctx, agentRun.ChatSessionID)
 			if err != nil {
 				return scopeLookupErr(err)
 			}

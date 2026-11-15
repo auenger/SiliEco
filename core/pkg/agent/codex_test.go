@@ -347,7 +347,7 @@ func TestCodexHandleServerRequestUnknownReturnsError(t *testing.T) {
 	}
 }
 
-func TestCodexLegacyEventTaskStarted(t *testing.T) {
+func TestCodexLegacyEventRunStarted(t *testing.T) {
 	t.Parallel()
 
 	c, _, _ := newTestCodexClient(t)
@@ -412,7 +412,7 @@ func TestCodexLegacyEventExecCommand(t *testing.T) {
 	}
 }
 
-func TestCodexLegacyEventTaskComplete(t *testing.T) {
+func TestCodexLegacyEventRunComplete(t *testing.T) {
 	t.Parallel()
 
 	c, _, _ := newTestCodexClient(t)
@@ -779,19 +779,19 @@ func TestParseCodexSessionFileSubtractsCachedInput(t *testing.T) {
 
 // The per-task CODEX_HOME must win over the ambient env / global home so usage
 // is read from the same task-local sessions Codex actually wrote to (SILI-4424).
-func TestCodexSessionRootPrefersExplicitTaskHome(t *testing.T) {
+func TestCodexSessionRootPrefersExplicitRunHome(t *testing.T) {
 	// Cannot use t.Parallel() with t.Setenv.
 	envHome := t.TempDir()
-	taskHome := t.TempDir()
+	runHome := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(envHome, "sessions"), 0o755); err != nil {
 		t.Fatalf("mkdir env sessions: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(taskHome, "sessions"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(runHome, "sessions"), 0o755); err != nil {
 		t.Fatalf("mkdir task sessions: %v", err)
 	}
 	t.Setenv("CODEX_HOME", envHome)
 
-	if got, want := codexSessionRoot(taskHome), filepath.Join(taskHome, "sessions"); got != want {
+	if got, want := codexSessionRoot(runHome), filepath.Join(runHome, "sessions"); got != want {
 		t.Errorf("explicit task home ignored: got %q, want %q", got, want)
 	}
 	if got, want := codexSessionRoot(""), filepath.Join(envHome, "sessions"); got != want {
@@ -799,12 +799,12 @@ func TestCodexSessionRootPrefersExplicitTaskHome(t *testing.T) {
 	}
 }
 
-func TestScanCodexSessionUsageReadsPerTaskHome(t *testing.T) {
+func TestScanCodexSessionUsageReadsPerRunHome(t *testing.T) {
 	t.Parallel()
-	taskHome := t.TempDir()
+	runHome := t.TempDir()
 	threadID := "task-thread"
 	startTime := time.Now().Add(-time.Minute)
-	dateDir := filepath.Join(taskHome, "sessions",
+	dateDir := filepath.Join(runHome, "sessions",
 		fmt.Sprintf("%04d", startTime.Year()),
 		fmt.Sprintf("%02d", int(startTime.Month())),
 		fmt.Sprintf("%02d", startTime.Day()),
@@ -821,7 +821,7 @@ func TestScanCodexSessionUsageReadsPerTaskHome(t *testing.T) {
 		t.Fatalf("write session file: %v", err)
 	}
 
-	got := scanCodexSessionUsage(startTime, taskHome, threadID, false)
+	got := scanCodexSessionUsage(startTime, runHome, threadID, false)
 	if got == nil {
 		t.Fatal("expected usage scanned from the per-task home")
 	}
@@ -835,10 +835,10 @@ func TestScanCodexSessionUsageReadsPerTaskHome(t *testing.T) {
 
 func TestScanCodexSessionUsageSubtractsResumeBaseline(t *testing.T) {
 	t.Parallel()
-	taskHome := t.TempDir()
+	runHome := t.TempDir()
 	threadID := "resumed-thread"
 	startTime := time.Date(2026, time.July, 13, 0, 0, 10, 0, time.UTC)
-	dateDir := filepath.Join(taskHome, "sessions", "2026", "07", "13")
+	dateDir := filepath.Join(runHome, "sessions", "2026", "07", "13")
 	if err := os.MkdirAll(dateDir, 0o755); err != nil {
 		t.Fatalf("mkdir date dir: %v", err)
 	}
@@ -853,7 +853,7 @@ func TestScanCodexSessionUsageSubtractsResumeBaseline(t *testing.T) {
 		t.Fatalf("write session file: %v", err)
 	}
 
-	got := scanCodexSessionUsage(startTime, taskHome, threadID, true)
+	got := scanCodexSessionUsage(startTime, runHome, threadID, true)
 	if got == nil {
 		t.Fatal("expected usage")
 	}
@@ -986,10 +986,10 @@ func TestParseCodexSessionFileSinceAllMissingTimestamps(t *testing.T) {
 
 func TestScanCodexSessionUsageFindsCrossDayResumeWithCacheOnlyDelta(t *testing.T) {
 	t.Parallel()
-	taskHome := t.TempDir()
+	runHome := t.TempDir()
 	threadID := "cross-day-thread"
 	startTime := time.Date(2026, time.July, 13, 0, 0, 10, 0, time.UTC)
-	previousDateDir := filepath.Join(taskHome, "sessions", "2026", "07", "12")
+	previousDateDir := filepath.Join(runHome, "sessions", "2026", "07", "12")
 	if err := os.MkdirAll(previousDateDir, 0o755); err != nil {
 		t.Fatalf("mkdir previous date dir: %v", err)
 	}
@@ -1006,7 +1006,7 @@ func TestScanCodexSessionUsageFindsCrossDayResumeWithCacheOnlyDelta(t *testing.T
 		t.Fatalf("set session mtime: %v", err)
 	}
 
-	got := scanCodexSessionUsage(startTime, taskHome, threadID, true)
+	got := scanCodexSessionUsage(startTime, runHome, threadID, true)
 	if got == nil {
 		t.Fatal("expected cross-day cache-only usage")
 	}
@@ -1023,7 +1023,7 @@ func TestScanCodexSessionUsageFollowsLinkedSessionsRoot(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	taskHome := filepath.Join(root, "task-home")
+	runHome := filepath.Join(root, "task-home")
 	store := filepath.Join(root, "session-store")
 	threadID := "linked-thread"
 	startTime := time.Date(2026, time.July, 13, 0, 0, 10, 0, time.UTC)
@@ -1031,10 +1031,10 @@ func TestScanCodexSessionUsageFollowsLinkedSessionsRoot(t *testing.T) {
 	if err := os.MkdirAll(dateDir, 0o755); err != nil {
 		t.Fatalf("mkdir store date dir: %v", err)
 	}
-	if err := os.MkdirAll(taskHome, 0o755); err != nil {
+	if err := os.MkdirAll(runHome, 0o755); err != nil {
 		t.Fatalf("mkdir task home: %v", err)
 	}
-	if err := os.Symlink(store, filepath.Join(taskHome, "sessions")); err != nil {
+	if err := os.Symlink(store, filepath.Join(runHome, "sessions")); err != nil {
 		t.Fatalf("link sessions root: %v", err)
 	}
 
@@ -1051,7 +1051,7 @@ func TestScanCodexSessionUsageFollowsLinkedSessionsRoot(t *testing.T) {
 		t.Fatalf("set rollout mtime: %v", err)
 	}
 
-	got := scanCodexSessionUsage(startTime, taskHome, threadID, true)
+	got := scanCodexSessionUsage(startTime, runHome, threadID, true)
 	if got == nil {
 		t.Fatal("expected usage through linked sessions root")
 	}
@@ -1063,9 +1063,9 @@ func TestScanCodexSessionUsageFollowsLinkedSessionsRoot(t *testing.T) {
 
 func TestScanCodexSessionUsageSelectsCurrentThread(t *testing.T) {
 	t.Parallel()
-	taskHome := t.TempDir()
+	runHome := t.TempDir()
 	startTime := time.Date(2026, time.July, 13, 0, 0, 10, 0, time.UTC)
-	dateDir := filepath.Join(taskHome, "sessions", "2026", "07", "13")
+	dateDir := filepath.Join(runHome, "sessions", "2026", "07", "13")
 	if err := os.MkdirAll(dateDir, 0o755); err != nil {
 		t.Fatalf("mkdir date dir: %v", err)
 	}
@@ -1085,7 +1085,7 @@ func TestScanCodexSessionUsageSelectsCurrentThread(t *testing.T) {
 	writeRollout("current-thread", 60, startTime.Add(time.Second))
 	writeRollout("newer-subagent-thread", 900, startTime.Add(2*time.Second))
 
-	got := scanCodexSessionUsage(startTime, taskHome, "current-thread", false)
+	got := scanCodexSessionUsage(startTime, runHome, "current-thread", false)
 	if got == nil {
 		t.Fatal("expected current thread usage")
 	}
@@ -1097,9 +1097,9 @@ func TestScanCodexSessionUsageSelectsCurrentThread(t *testing.T) {
 
 func TestScanCodexSessionUsageUsesSessionMetadataWhenFilenameDrifts(t *testing.T) {
 	t.Parallel()
-	taskHome := t.TempDir()
+	runHome := t.TempDir()
 	startTime := time.Date(2026, time.July, 13, 0, 0, 10, 0, time.UTC)
-	dateDir := filepath.Join(taskHome, "sessions", "2026", "07", "13")
+	dateDir := filepath.Join(runHome, "sessions", "2026", "07", "13")
 	if err := os.MkdirAll(dateDir, 0o755); err != nil {
 		t.Fatalf("mkdir date dir: %v", err)
 	}
@@ -1125,7 +1125,7 @@ func TestScanCodexSessionUsageUsesSessionMetadataWhenFilenameDrifts(t *testing.T
 	// A future filename format can still be attributed by canonical session_meta.
 	writeRollout("future-filename", "current-thread", 60, startTime.Add(time.Second))
 
-	got := scanCodexSessionUsage(startTime, taskHome, "current-thread", false)
+	got := scanCodexSessionUsage(startTime, runHome, "current-thread", false)
 	if got == nil {
 		t.Fatal("expected current thread usage from session metadata")
 	}
@@ -2331,7 +2331,7 @@ func TestCodexExecuteThreadStartTimeoutLifecycleIsFailClosed(t *testing.T) {
 	backend, err := New("codex", Config{
 		ExecutablePath: fakePath,
 		Logger:         logger,
-		TaskID:         "task-thread-start-timeout",
+		RunID:         "task-thread-start-timeout",
 		RuntimeID:      "runtime-thread-start-timeout",
 	})
 	if err != nil {
@@ -2362,7 +2362,7 @@ func TestCodexExecuteThreadStartTimeoutLifecycleIsFailClosed(t *testing.T) {
 	sent := findCodexLifecyclePhase(t, entries, "thread_start_sent")
 	failure := findCodexLifecyclePhase(t, entries, "thread_start_failure")
 	for key, want := range map[string]any{
-		"task_id":         "task-thread-start-timeout",
+		"run_id":         "task-thread-start-timeout",
 		"runtime_id":      "runtime-thread-start-timeout",
 		"attempt":         float64(1),
 		"active_launches": float64(1),

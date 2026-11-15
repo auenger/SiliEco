@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { useWorkspacePaths } from "@silieco/core/paths";
 import { useModalStore } from "@silieco/core/modals";
-import { useIssueDraftStore } from "@silieco/core/issues/stores/draft-store";
+import { useTaskDraftStore } from "@silieco/core/tasks/stores/draft-store";
 import {
   inboxListOptions,
   archivedInboxListOptions,
@@ -24,7 +24,7 @@ import {
   useArchiveCompletedInbox,
 } from "@silieco/core/inbox/mutations";
 
-import { IssueDetail } from "../../issues/components";
+import { TaskDetail } from "../../tasks/components";
 import { ErrorBoundary } from "@silieco/ui/components/common/error-boundary";
 import { useNavigation } from "../../navigation";
 import { toast } from "sonner";
@@ -67,18 +67,18 @@ import { useT } from "../../i18n";
 export function InboxPage() {
   const { t } = useT("inbox");
   const { searchParams, replace } = useNavigation();
-  const urlIssue = searchParams.get("issue") ?? "";
+  const urlTask = searchParams.get("task") ?? "";
   const urlView: InboxView =
     searchParams.get("view") === ARCHIVED_VIEW_PARAM ? "archived" : "inbox";
   const wsPaths = useWorkspacePaths();
 
-  const [selectedKey, setSelectedKeyState] = useState(() => urlIssue);
+  const [selectedKey, setSelectedKeyState] = useState(() => urlTask);
   const [view, setViewState] = useState<InboxView>(() => urlView);
 
   // Sync from URL when searchParams change (e.g. navigation)
   useEffect(() => {
-    setSelectedKeyState(urlIssue);
-  }, [urlIssue]);
+    setSelectedKeyState(urlTask);
+  }, [urlTask]);
   useEffect(() => {
     setViewState(urlView);
   }, [urlView]);
@@ -104,11 +104,11 @@ export function InboxPage() {
   const visibleItems = isArchivedView ? archivedItems : items;
 
   const selected =
-    visibleItems.find((i) => (i.issue_id ?? i.id) === selectedKey) ?? null;
+    visibleItems.find((i) => (i.task_id ?? i.id) === selectedKey) ?? null;
 
   // Track the last key we actually resolved against the inbox list. Lets the
   // fallback effect distinguish "shared-link to a notification not in our
-  // inbox" (never resolved → redirect to the issue page) from "item was in
+  // inbox" (never resolved → redirect to the task page) from "item was in
   // our inbox and just got removed" (was resolved → stay on /inbox).
   const lastResolvedKeyRef = useRef<string>("");
   useEffect(() => {
@@ -116,13 +116,13 @@ export function InboxPage() {
   }, [selected, selectedKey]);
 
   // Both the view and the selection live in the URL, so every write has to
-  // carry the other one — a bare `?issue=` would silently drop the user out of
+  // carry the other one — a bare `?task=` would silently drop the user out of
   // the archived view on the next selection.
   const buildInboxUrl = useCallback(
     (nextView: InboxView, key: string) => {
       const params = new URLSearchParams();
       if (nextView === "archived") params.set("view", ARCHIVED_VIEW_PARAM);
-      if (key) params.set("issue", key);
+      if (key) params.set("task", key);
       const query = params.toString();
       const inboxPath = wsPaths.inbox();
       return query ? `${inboxPath}?${query}` : inboxPath;
@@ -137,7 +137,7 @@ export function InboxPage() {
 
   // Switching views always clears the selection: the two lists are mutually
   // exclusive, so a key carried across would never resolve, and the fallback
-  // effect below would bounce the user to the issue page.
+  // effect below would bounce the user to the task page.
   const setView = useCallback((nextView: InboxView) => {
     setViewState(nextView);
     setSelectedKeyState("");
@@ -153,11 +153,11 @@ export function InboxPage() {
   // the archived view means acting on an empty list that simply hasn't arrived.
   const viewLoading = isArchivedView ? archivedLoading : loading;
 
-  // Shared inbox links (?issue=<id>) may point to notifications not in this
-  // user's inbox (archived, or never received). Fall back to the issue page
+  // Shared inbox links (?task=<id>) may point to notifications not in this
+  // user's inbox (archived, or never received). Fall back to the task page
   // so the URL still resolves to something meaningful. But if the key was
-  // previously resolvable (e.g. the issue was just deleted in another tab
-  // and `onInboxIssueDeleted` pruned the cache), the issue detail would 404
+  // previously resolvable (e.g. the task was just deleted in another tab
+  // and `onInboxTaskDeleted` pruned the cache), the task detail would 404
   // too — clear the selection and stay on /inbox instead.
   useEffect(() => {
     if (viewLoading) return;
@@ -167,10 +167,10 @@ export function InboxPage() {
       setSelectedKey("");
       return;
     }
-    replace(wsPaths.issueDetail(selectedKey));
+    replace(wsPaths.taskDetail(selectedKey));
   }, [viewLoading, selectedKey, selected, replace, wsPaths, setSelectedKey]);
 
-  // Never strand the user on an empty archive: when the last archived issue is
+  // Never strand the user on an empty archive: when the last archived task is
   // restored (or a new notification revives it into the main inbox), fall back
   // to the main list. Same fallback chat's archived view has. Gated on the load
   // so a cold `?view=archived` open doesn't bounce before the data lands.
@@ -181,7 +181,7 @@ export function InboxPage() {
     // message for the main list and leave the user with no idea it failed.
     if (archivedError) return;
     // Let the fallback effect above settle an unresolved selection first. On a
-    // deep link like `?view=archived&issue=X` into an empty archive both would
+    // deep link like `?view=archived&task=X` into an empty archive both would
     // otherwise fire in the same commit, and this one's replace() would land
     // last and swallow the redirect to X.
     if (selectedKey) return;
@@ -235,7 +235,7 @@ export function InboxPage() {
   }, [selectedId, selectedRead, markReadMutate, t]);
 
   const handleSelect = (item: InboxItem) => {
-    setSelectedKey(item.issue_id ?? item.id);
+    setSelectedKey(item.task_id ?? item.id);
   };
 
   // Both archive and unarchive remove the row from the list it was actioned
@@ -245,13 +245,13 @@ export function InboxPage() {
   const advanceSelectionPast = (id: string, list: InboxItem[]) => {
     const idx = list.findIndex((i) => i.id === id);
     const target = idx >= 0 ? list[idx] : null;
-    const wasSelected = !!target && (target.issue_id ?? target.id) === selectedKey;
+    const wasSelected = !!target && (target.task_id ?? target.id) === selectedKey;
     if (!wasSelected) return;
     // List is sorted newest-first; prefer the next (older) item, fall back
     // to the previous (newer) one when actioning at the bottom, and only
     // clear the selection when nothing else is left.
     const next = list[idx + 1] ?? list[idx - 1] ?? null;
-    setSelectedKey(next ? (next.issue_id ?? next.id) : "");
+    setSelectedKey(next ? (next.task_id ?? next.id) : "");
   };
 
   const handleArchive = (id: string) => {
@@ -303,7 +303,7 @@ export function InboxPage() {
   };
 
   const handleArchiveAllRead = () => {
-    const readKeys = items.filter((i) => i.read).map((i) => i.issue_id ?? i.id);
+    const readKeys = items.filter((i) => i.read).map((i) => i.task_id ?? i.id);
     if (readKeys.includes(selectedKey)) setSelectedKey("");
     archiveAllReadMutation.mutate(undefined, {
       onError: (err) =>
@@ -427,21 +427,21 @@ export function InboxPage() {
     </>
   );
 
-  const detailContent = selected?.issue_id ? (
-    // Key by issue_id (not inbox-item id): a new comment/reaction generates a
-    // new inbox notification for the same issue, and the dedup helper picks the
-    // newest one — keying on its id would remount IssueDetail on every event,
+  const detailContent = selected?.task_id ? (
+    // Key by task_id (not inbox-item id): a new comment/reaction generates a
+    // new inbox notification for the same task, and the dedup helper picks the
+    // newest one — keying on its id would remount TaskDetail on every event,
     // wiping the comment composer draft and resetting scroll position.
-    <ErrorBoundary resetKeys={[selected.issue_id]}>
-      <IssueDetail
-        key={selected.issue_id}
-        issueId={selected.issue_id}
+    <ErrorBoundary resetKeys={[selected.task_id]}>
+      <TaskDetail
+        key={selected.task_id}
+        taskId={selected.task_id}
         defaultSidebarOpen={false}
-        layoutId="silieco_inbox_issue_detail_layout"
+        layoutId="silieco_inbox_task_detail_layout"
         highlightCommentId={selected.details?.comment_id ?? undefined}
         onDelete={() => {
-          // Issue deletion CASCADE-deletes the inbox item server-side, and the
-          // issue:deleted WS event prunes it from the inbox cache. Just clear
+          // Task deletion CASCADE-deletes the inbox item server-side, and the
+          // task:deleted WS event prunes it from the inbox cache. Just clear
           // the selection — calling archive here would 404 on a row that no
           // longer exists.
           setSelectedKey("");
@@ -481,13 +481,13 @@ export function InboxPage() {
               // candidate (still editable).
               const prompt = selected.details?.original_prompt ?? "";
               const agentId = selected.details?.agent_id;
-              useIssueDraftStore.getState().setManual({
+              useTaskDraftStore.getState().setManual({
                 description: prompt,
                 ...(agentId
                   ? { assigneeType: "agent" as const, assigneeId: agentId }
                   : {}),
               });
-              useModalStore.getState().open("create-issue");
+              useModalStore.getState().open("create-task");
             }}
           >
             {t(($) => $.detail.edit_advanced)}

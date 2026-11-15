@@ -24,7 +24,7 @@ import {
   workspaceKeys,
   workspaceListOptions,
 } from "@silieco/core/workspace/queries";
-import { issueKeys } from "@silieco/core/issues/queries";
+import { taskKeys } from "@silieco/core/tasks/queries";
 import { api } from "@silieco/core/api";
 import {
   resolvePostAuthDestination,
@@ -130,7 +130,7 @@ export function WorkspaceTab() {
   const [name, setName] = useState(workspace?.name ?? "");
   const [description, setDescription] = useState(workspace?.description ?? "");
   const [context, setContext] = useState(workspace?.context ?? "");
-  const [issuePrefix, setIssuePrefix] = useState(workspace?.issue_prefix ?? "");
+  const [taskPrefix, setTaskPrefix] = useState(workspace?.task_prefix ?? "");
   const [prefixSaveStatus, setPrefixSaveStatus] =
     useState<SettingsSaveStatus>("idle");
   const [actionId, setActionId] = useState<string | null>(null);
@@ -161,7 +161,7 @@ export function WorkspaceTab() {
     setName(workspace?.name ?? "");
     setDescription(workspace?.description ?? "");
     setContext(workspace?.context ?? "");
-    setIssuePrefix(workspace?.issue_prefix ?? "");
+    setTaskPrefix(workspace?.task_prefix ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on id only; see comment above
   }, [workspace?.id]);
 
@@ -171,9 +171,9 @@ export function WorkspaceTab() {
   const normalizePrefix = (raw: string) =>
     raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10);
 
-  const normalizedPrefix = normalizePrefix(issuePrefix);
+  const normalizedPrefix = normalizePrefix(taskPrefix);
   const prefixChanged =
-    !!workspace && normalizedPrefix !== workspace.issue_prefix;
+    !!workspace && normalizedPrefix !== workspace.task_prefix;
   const prefixInvalid = normalizedPrefix.length === 0;
 
   const detailsDraft = useMemo(
@@ -221,14 +221,14 @@ export function WorkspaceTab() {
     setPrefixSaveStatus("saving");
     try {
       const updated = await api.updateWorkspace(workspace.id, {
-        issue_prefix: nextPrefix,
+        task_prefix: nextPrefix,
       });
       qc.setQueryData(workspaceKeys.list(), (old: Workspace[] | undefined) =>
         old?.map((ws) => (ws.id === updated.id ? updated : ws)),
       );
-      // Issue identifiers are computed from the workspace prefix at read time,
-      // so every cached issue key is stale after this confirmed change.
-      await qc.invalidateQueries({ queryKey: issueKeys.all(updated.id) });
+      // Task identifiers are computed from the workspace prefix at read time,
+      // so every cached task key is stale after this confirmed change.
+      await qc.invalidateQueries({ queryKey: taskKeys.all(updated.id) });
       setPrefixSaveStatus("saved");
       toast.success(t(($) => $.workspace.toast_saved), {
         id: "settings-auto-save",
@@ -249,7 +249,7 @@ export function WorkspaceTab() {
     setConfirmAction({
       title: t(($) => $.workspace.prefix_confirm_title),
       description: t(($) => $.workspace.prefix_confirm_description, {
-        oldPrefix: workspace.issue_prefix,
+        oldPrefix: workspace.task_prefix,
         newPrefix: nextPrefix,
       }),
       variant: "destructive",
@@ -429,30 +429,30 @@ export function WorkspaceTab() {
           </SettingsRow>
 
           <SettingsRow
-            label={t(($) => $.workspace.issue_prefix_label)}
-            description={t(($) => $.workspace.issue_prefix_hint, {
-              example: `${normalizedPrefix || workspace.issue_prefix}-123`,
+            label={t(($) => $.workspace.task_prefix_label)}
+            description={t(($) => $.workspace.task_prefix_hint, {
+              example: `${normalizedPrefix || workspace.task_prefix}-123`,
             })}
             size="code"
           >
               <Input
                 type="text"
-                name="workspace-issue-prefix"
+                name="workspace-task-prefix"
                 autoComplete="off"
                 autoCapitalize="characters"
                 spellCheck={false}
-                aria-label={t(($) => $.workspace.issue_prefix_label)}
-                value={issuePrefix}
+                aria-label={t(($) => $.workspace.task_prefix_label)}
+                value={taskPrefix}
                 onChange={(event) => {
                   setPrefixSaveStatus("idle");
-                  setIssuePrefix(normalizePrefix(event.target.value));
+                  setTaskPrefix(normalizePrefix(event.target.value));
                 }}
                 onBlur={handlePrefixBlur}
                 disabled={!canManageWorkspace}
                 maxLength={10}
                 aria-invalid={prefixInvalid}
                 className="font-mono uppercase"
-                placeholder={workspace.issue_prefix}
+                placeholder={workspace.task_prefix}
               />
           </SettingsRow>
 

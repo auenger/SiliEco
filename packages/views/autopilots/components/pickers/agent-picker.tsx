@@ -12,7 +12,7 @@ import {
   PickerItem,
   PickerSection,
   PickerEmpty,
-} from "../../../issues/components/pickers/property-picker";
+} from "../../../tasks/components/pickers/property-picker";
 import { useT } from "../../../i18n";
 import { matchesPinyin } from "../../../editor/extensions/pinyin-match";
 

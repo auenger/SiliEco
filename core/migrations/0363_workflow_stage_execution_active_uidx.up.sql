@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY workflow_stage_execution_active_uidx ON public.workflow_stage_execution USING btree (workspace_id, workflow_instance_id) WHERE (status = ANY (ARRAY['pending'::text, 'queued'::text, 'running'::text, 'awaiting_review'::text, 'blocked'::text]));

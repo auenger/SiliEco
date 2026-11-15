@@ -9,9 +9,9 @@ import { setApiInstance } from "../api";
 import type { ApiClient } from "../api/client";
 import { setCurrentWorkspace } from "../platform/workspace-storage";
 import {
-  getIssueSurfaceViewStore,
-  pruneIssueSurfaceViewStates,
-} from "../issues/stores/surface-view-store";
+  getTaskSurfaceViewStore,
+  pruneTaskSurfaceViewStates,
+} from "../tasks/stores/surface-view-store";
 import { useDeleteProject } from "./mutations";
 
 vi.mock("../hooks", () => ({
@@ -37,13 +37,13 @@ describe("useDeleteProject", () => {
 
   afterEach(() => {
     qc.clear();
-    pruneIssueSurfaceViewStates([]);
+    pruneTaskSurfaceViewStates([]);
     setCurrentWorkspace(null, null);
     vi.restoreAllMocks();
   });
 
-  it("clears the deleted project's issue surface view state", async () => {
-    const store = getIssueSurfaceViewStore("project:p1");
+  it("clears the deleted project's task surface view state", async () => {
+    const store = getTaskSurfaceViewStore("project:p1");
     store.getState().setViewMode("list");
     expect(store.getState().viewMode).toBe("list");
 

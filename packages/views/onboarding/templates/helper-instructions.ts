@@ -5,7 +5,7 @@
  * `api.createAgent` after a user finishes Step 3 with a runtime selected.
  * That field becomes the agent's `## Agent Identity` block in the
  * generated CLAUDE.md / AGENTS.md / GEMINI.md, read on every task the
- * Helper runs — not just the first onboarding issue.
+ * Helper runs — not just the first onboarding task.
  *
  * Structure (matches the design product reviewed):
  *   1. Identity
@@ -144,7 +144,7 @@ export type HelperInstructionsLang = keyof typeof HELPER_INSTRUCTIONS;
  *   1. The `description` field on the auto-created Helper agent (runtime
  *      path's `api.createAgent` call)
  *   2. The `## Description` section of the markdown block embedded in the
- *      skip-path create-agent-guide issue body (so the user can copy/paste)
+ *      skip-path create-agent-guide task body (so the user can copy/paste)
  *
  * Both consumers must stay in the same language as the user's locale —
  * hence the localized map. Kept short and product-y, no agent jargon.

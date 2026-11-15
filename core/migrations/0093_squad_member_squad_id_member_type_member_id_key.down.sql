@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.squad_member_squad_id_member_type_member_id_key;

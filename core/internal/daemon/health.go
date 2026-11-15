@@ -26,14 +26,14 @@ type HealthResponse struct {
 	// lifecycle CLI (`daemon start/stop`) acts on the host process namespace,
 	// so a foreign-OS daemon can't be started/stopped by the app even though
 	// /health is reachable. See #3916.
-	OS              string   `json:"os"`
-	Uptime          string   `json:"uptime"`
-	DaemonID        string   `json:"daemon_id"`
-	DeviceName      string   `json:"device_name"`
-	ServerURL       string   `json:"server_url"`
-	CLIVersion      string   `json:"cli_version"`
-	ActiveTaskCount int64    `json:"active_task_count"`
-	Agents          []string `json:"agents"`
+	OS             string   `json:"os"`
+	Uptime         string   `json:"uptime"`
+	DaemonID       string   `json:"daemon_id"`
+	DeviceName     string   `json:"device_name"`
+	ServerURL      string   `json:"server_url"`
+	CLIVersion     string   `json:"cli_version"`
+	ActiveRunCount int64    `json:"active_run_count"`
+	Agents         []string `json:"agents"`
 	// SkippedAgents maps a provider that WAS discovered on this machine to the
 	// reason the last registration round dropped it (version undetectable,
 	// below the minimum supported version). Purely diagnostic, and omitted when
@@ -69,47 +69,47 @@ type repoCheckoutRequest struct {
 	WorkDir      string `json:"workdir"`
 	Ref          string `json:"ref,omitempty"`
 	AgentName    string `json:"agent_name"`
-	TaskID       string `json:"task_id"`
+	RunID        string `json:"run_id"`
 	CheckoutMode string `json:"checkout_mode,omitempty"`
 }
 
-type activeRepoCheckoutTask struct {
+type activeRepoCheckoutRun struct {
 	WorkspaceID string
-	TaskID      string
+	RunID       string
 	AgentID     string
 	AgentName   string
 	WorkDir     string
 }
 
-func (d *Daemon) registerActiveRepoCheckoutTask(token string, task activeRepoCheckoutTask) {
-	d.repoCheckoutTasksMu.Lock()
-	defer d.repoCheckoutTasksMu.Unlock()
-	if d.repoCheckoutTasks == nil {
-		d.repoCheckoutTasks = make(map[string]activeRepoCheckoutTask)
+func (d *Daemon) registerActiveRepoCheckoutRun(token string, agentRun activeRepoCheckoutRun) {
+	d.repoCheckoutRunsMu.Lock()
+	defer d.repoCheckoutRunsMu.Unlock()
+	if d.repoCheckoutRuns == nil {
+		d.repoCheckoutRuns = make(map[string]activeRepoCheckoutRun)
 	}
-	d.repoCheckoutTasks[token] = task
+	d.repoCheckoutRuns[token] = agentRun
 }
 
-func (d *Daemon) clearActiveRepoCheckoutTask(token string) {
-	d.repoCheckoutTasksMu.Lock()
-	delete(d.repoCheckoutTasks, token)
-	d.repoCheckoutTasksMu.Unlock()
+func (d *Daemon) clearActiveRepoCheckoutRun(token string) {
+	d.repoCheckoutRunsMu.Lock()
+	delete(d.repoCheckoutRuns, token)
+	d.repoCheckoutRunsMu.Unlock()
 }
 
-func (d *Daemon) activeRepoCheckoutTask(r *http.Request) (activeRepoCheckoutTask, bool) {
+func (d *Daemon) activeRepoCheckoutRun(r *http.Request) (activeRepoCheckoutRun, bool) {
 	const bearer = "Bearer "
 	header := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(header, bearer) {
-		return activeRepoCheckoutTask{}, false
+		return activeRepoCheckoutRun{}, false
 	}
 	token := strings.TrimSpace(strings.TrimPrefix(header, bearer))
 	if token == "" {
-		return activeRepoCheckoutTask{}, false
+		return activeRepoCheckoutRun{}, false
 	}
-	d.repoCheckoutTasksMu.RLock()
-	task, ok := d.repoCheckoutTasks[token]
-	d.repoCheckoutTasksMu.RUnlock()
-	return task, ok
+	d.repoCheckoutRunsMu.RLock()
+	agentRun, ok := d.repoCheckoutRuns[token]
+	d.repoCheckoutRunsMu.RUnlock()
+	return agentRun, ok
 }
 
 func authorizeRepoCheckoutWorkDir(activeRoot, requested string) (string, error) {
@@ -167,18 +167,18 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 		}
 
 		resp := HealthResponse{
-			Status:          status,
-			PID:             os.Getpid(),
-			OS:              runtime.GOOS,
-			Uptime:          time.Since(startedAt).Truncate(time.Second).String(),
-			DaemonID:        d.cfg.DaemonID,
-			DeviceName:      d.cfg.DeviceName,
-			ServerURL:       d.cfg.ServerBaseURL,
-			CLIVersion:      d.cfg.CLIVersion,
-			ActiveTaskCount: d.activeTasks.Load(),
-			Agents:          agents,
-			SkippedAgents:   d.skippedAgentsSnapshot(),
-			Workspaces:      wsList,
+			Status:         status,
+			PID:            os.Getpid(),
+			OS:             runtime.GOOS,
+			Uptime:         time.Since(startedAt).Truncate(time.Second).String(),
+			DaemonID:       d.cfg.DaemonID,
+			DeviceName:     d.cfg.DeviceName,
+			ServerURL:      d.cfg.ServerBaseURL,
+			CLIVersion:     d.cfg.CLIVersion,
+			ActiveRunCount: d.activeRuns.Load(),
+			Agents:         agents,
+			SkippedAgents:  d.skippedAgentsSnapshot(),
+			Workspaces:     wsList,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -235,7 +235,7 @@ func (d *Daemon) repoCheckoutHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		activeTask, ok := d.activeRepoCheckoutTask(r)
+		activeRun, ok := d.activeRepoCheckoutRun(r)
 		if !ok {
 			http.Error(w, "repo checkout requires an active task credential", http.StatusUnauthorized)
 			return
@@ -263,18 +263,18 @@ func (d *Daemon) repoCheckoutHandler() http.HandlerFunc {
 			http.Error(w, "invalid checkout_mode", http.StatusBadRequest)
 			return
 		}
-		if req.WorkspaceID != activeTask.WorkspaceID || req.TaskID != activeTask.TaskID {
+		if req.WorkspaceID != activeRun.WorkspaceID || req.RunID != activeRun.RunID {
 			http.Error(w, "repo checkout task context does not match the active task", http.StatusForbidden)
 			return
 		}
-		authorizedWorkDir, authErr := authorizeRepoCheckoutWorkDir(activeTask.WorkDir, req.WorkDir)
+		authorizedWorkDir, authErr := authorizeRepoCheckoutWorkDir(activeRun.WorkDir, req.WorkDir)
 		if authErr != nil {
 			http.Error(w, "repo checkout workdir is not owned by the active task", http.StatusForbidden)
 			return
 		}
-		req.WorkspaceID = activeTask.WorkspaceID
-		req.TaskID = activeTask.TaskID
-		req.AgentName = activeTask.AgentName
+		req.WorkspaceID = activeRun.WorkspaceID
+		req.RunID = activeRun.RunID
+		req.AgentName = activeRun.AgentName
 		req.WorkDir = authorizedWorkDir
 
 		if d.repoCache == nil {
@@ -294,7 +294,7 @@ func (d *Daemon) repoCheckoutHandler() http.HandlerFunc {
 
 		checkoutRef := strings.TrimSpace(req.Ref)
 		if checkoutRef == "" {
-			checkoutRef = d.taskRepoDefaultRef(req.WorkspaceID, req.TaskID, req.URL)
+			checkoutRef = d.runRepoDefaultRef(req.WorkspaceID, req.RunID, req.URL)
 		}
 
 		result, err := d.repoCache.CreateWorktree(repocache.WorktreeParams{
@@ -303,7 +303,7 @@ func (d *Daemon) repoCheckoutHandler() http.HandlerFunc {
 			WorkDir:             req.WorkDir,
 			Ref:                 checkoutRef,
 			AgentName:           req.AgentName,
-			TaskID:              req.TaskID,
+			RunID:               req.RunID,
 			CoAuthoredByEnabled: d.workspaceCoAuthoredByEnabled(req.WorkspaceID),
 			IsolatedGitMetadata: req.CheckoutMode == repoCheckoutModeIsolated,
 		})

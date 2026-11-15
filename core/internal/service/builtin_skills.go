@@ -21,7 +21,7 @@ const builtinSkillsRoot = "builtin_skills"
 // <name> directory carries a "silieco-" prefix so its on-disk slug can never
 // collide with a workspace skill a user authored (see writeSkillFiles, which
 // derives the skill directory from AgentSkillData.Name).
-func (s *TaskService) BuiltinSkills() []AgentSkillData {
+func (s *AgentRunService) BuiltinSkills() []AgentSkillData {
 	return loadBuiltinSkills()
 }
 

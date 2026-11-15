@@ -227,7 +227,7 @@ func TestAgentEnv_AgentActorRejectedForOwnedAgent(t *testing.T) {
 	if _, err := testPool.Exec(ctx, `UPDATE agent SET owner_id = $1 WHERE id = $2`, ownerUserID, hostAgentID); err != nil {
 		t.Fatalf("assign host agent owner: %v", err)
 	}
-	hostTaskID := createHandlerTestTaskForAgent(t, hostAgentID)
+	hostRunID := createHandlerTestRunForAgent(t, hostAgentID)
 
 	cases := []struct {
 		name string
@@ -245,7 +245,7 @@ func TestAgentEnv_AgentActorRejectedForOwnedAgent(t *testing.T) {
 			}
 			req := withURLParam(newRequestAs(ownerUserID, method, "/api/agents/"+targetID+"/env", tc.body), "id", targetID)
 			req.Header.Set("X-Agent-ID", hostAgentID)
-			req.Header.Set("X-Task-ID", hostTaskID)
+			req.Header.Set("X-Run-ID", hostRunID)
 			w := httptest.NewRecorder()
 			tc.fn(w, req)
 			if w.Code != http.StatusForbidden {

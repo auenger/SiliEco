@@ -71,7 +71,7 @@ const EMPTY_ATTACHMENTS: Attachment[] = [];
 export interface UploadDraftBinding {
   /**
    * Identity for the live-editor registry — unique per composer target
-   * (e.g. `comment:new:{issueId}`, `issue-create:manual`). A reopened
+   * (e.g. `comment:new:{taskId}`, `task-create:manual`). A reopened
    * composer for the same target registers its editor under the same key,
    * which is how a settle handler finds it.
    */
@@ -360,7 +360,7 @@ export function useCoordinatedUploads(
     };
   }, [uploads, editorRef, editorHoldsThisTarget]);
 
-  const issueId = ctx.issueId;
+  const taskId = ctx.taskId;
   const commentId = ctx.commentId;
   const chatSessionId = ctx.chatSessionId;
 
@@ -416,7 +416,7 @@ export function useCoordinatedUploads(
           clientUploadId,
           file,
           api,
-          ctx: { issueId, commentId, chatSessionId },
+          ctx: { taskId, commentId, chatSessionId },
           onSettled: (outcome) => {
             if (outcome.status === "uploaded") {
               if (target) {
@@ -481,7 +481,7 @@ export function useCoordinatedUploads(
         });
       });
     },
-    [binding, editorRef, issueId, commentId, chatSessionId, t],
+    [binding, editorRef, taskId, commentId, chatSessionId, t],
   );
 
   const removeUpload = useCallback(

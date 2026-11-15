@@ -1,5 +1,9 @@
 $ErrorActionPreference = "Stop"
-$baseUrl = if ($env:SILIECO_DOWNLOAD_BASE_URL) { $env:SILIECO_DOWNLOAD_BASE_URL.TrimEnd('/') } else { "http://yilia.me:6688/cli" }
+$baseUrl = if ($env:SILIECO_DOWNLOAD_BASE_URL) { $env:SILIECO_DOWNLOAD_BASE_URL.TrimEnd('/') } else { "" }
+
+if (-not $baseUrl) { throw "Set SILIECO_DOWNLOAD_BASE_URL to this deployment's /cli URL." }
+$appUrl = if ($env:SILIECO_APP_URL) { $env:SILIECO_APP_URL } else { $baseUrl -replace "/cli$", "" }
+$serverUrl = if ($env:SILIECO_SERVER_URL) { $env:SILIECO_SERVER_URL } else { $appUrl }
 
 $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64) { "arm64" } else { "amd64" }
 $archive = "silieco-windows-$arch.zip"
@@ -28,9 +32,9 @@ try {
   }
   $env:Path = "$binDir;$env:Path"
   Write-Host "==> Silieco CLI 已安装到 $binDir\silieco.exe"
-  & (Join-Path $binDir "silieco.exe") version
+  & (Join-Path $binDir "silieco.exe") --version
   Write-Host "`n下一步："
-  Write-Host "  silieco setup self-host --server-url http://yilia.me:6688 --app-url http://yilia.me:6688"
+  Write-Host "  silieco setup self-host --server-url $serverUrl --app-url $appUrl"
 } finally {
   Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
 }

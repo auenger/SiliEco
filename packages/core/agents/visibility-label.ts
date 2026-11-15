@@ -13,7 +13,7 @@ export const VISIBILITY_LABEL: Record<AgentVisibility, string> = {
 /**
  * Honest descriptions for assignability. The previous "Only you can assign"
  * text was a lie — workspace owners and admins can assign private agents too
- * (server `issue.go:1471-1490`).
+ * (server `task.go:1471-1490`).
  */
 export const VISIBILITY_DESCRIPTION: Record<AgentVisibility, string> = {
   workspace: "All members can assign",

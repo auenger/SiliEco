@@ -19,6 +19,7 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/service"
 	"github.com/silieco-ai/silieco/core/internal/util"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
@@ -860,7 +861,7 @@ func (h *Handler) SetChatSessionArchived(w http.ResponseWriter, r *http.Request)
 // DeleteChatSession hard-deletes a chat session owned by the caller. The
 // row lock + cancel + delete run inside a single tx so a concurrent
 // SendChatMessage cannot enqueue a task that would later be orphaned by
-// the FK ON DELETE SET NULL on agent_task_queue.chat_session_id. Cancel
+// the FK ON DELETE SET NULL on agent_run.chat_session_id. Cancel
 // failure aborts the delete; events fire only after commit.
 func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
@@ -883,8 +884,21 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
+	// Hidden builder agents own this session. Lock their aggregate before the
+	// session to preserve the agent -> chat_session -> run deletion order.
+	if session.Kind == "direct" && session.AgentID.Valid {
+		if err := relational.LockForDelete(r.Context(), tx, relational.DeleteSystemAgentByID, session.AgentID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to lock builder deletion dependencies")
+			return
+		}
+	}
+	if err := relational.LockForDelete(r.Context(), tx, relational.DeleteChatSession, session.ID, session.WorkspaceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock deletion dependencies")
+		return
+	}
+
 	// FOR UPDATE on the chat_session row blocks any concurrent INSERT into
-	// agent_task_queue that references it (the FK validation needs a
+	// agent_run that references it (the FK validation needs a
 	// KEY SHARE lock). After we commit the delete, the blocked INSERT
 	// fails its FK check, so it can't land an orphaned task.
 	if _, err := qtx.LockChatSessionForDelete(r.Context(), session.ID); err != nil {
@@ -897,7 +911,7 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cancelled, err := qtx.CancelAgentTasksByChatSession(r.Context(), session.ID)
+	cancelled, err := qtx.CancelAgentRunsByChatSession(r.Context(), session.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to cancel chat session tasks")
 		return
@@ -958,7 +972,7 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 
 	// Post-commit broadcasts. Subscribers should never observe events for a
 	// tx that didn't actually persist.
-	h.TaskService.BroadcastCancelledTasks(r.Context(), cancelled)
+	h.AgentRunService.BroadcastCancelledRuns(r.Context(), cancelled)
 
 	resolvedSessionID := uuidToString(session.ID)
 	h.publishChat(protocol.EventChatSessionDeleted, workspaceID, "member", userID, resolvedSessionID, protocol.ChatSessionDeletedPayload{
@@ -979,8 +993,8 @@ type SendChatMessageRequest struct {
 
 type SendChatMessageResponse struct {
 	MessageID string   `json:"message_id"`
-	TaskID    string   `json:"task_id,omitempty"`
-	TaskIDs   []string `json:"task_ids,omitempty"`
+	RunID     string   `json:"run_id,omitempty"`
+	RunIDs    []string `json:"run_ids,omitempty"`
 	// AttachmentIDs are the attachment rows actually bound to this message by
 	// the server. The client diffs these against the ids it requested so it
 	// can warn the user when an attachment silently failed to bind — no extra
@@ -1101,13 +1115,13 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	// creator-only), so they are the task initiator — surfaced to the agent
 	// under `## Task Initiator`. actorType/actorID were resolved above for the
 	// invoke gate.
-	sent, err := h.TaskService.SendDirectChatMessage(r.Context(), session, agent, parseUUID(userID), req.Content, attachmentIDs, actorType, parseUUID(actorID))
+	sent, err := h.AgentRunService.SendDirectChatMessage(r.Context(), session, agent, parseUUID(userID), req.Content, attachmentIDs, actorType, parseUUID(actorID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send chat message: "+err.Error())
 		return
 	}
 	msg := sent.Message
-	task := sent.Task
+	agentRun := sent.AgentRun
 
 	// AttachmentIDs actually bound by the server. Requested-but-unbound ids are
 	// surfaced to the client so it can warn the user (see SendChatMessageResponse).
@@ -1119,16 +1133,16 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	taskContext := h.TaskService.AnalyticsContextForTask(r.Context(), task)
+	runContext := h.AgentRunService.AnalyticsContextForRun(r.Context(), agentRun)
 	platform, _, _ := middleware.ClientMetadataFromContext(r.Context())
 	obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.ChatMessageSent(
 		userID,
 		workspaceID,
 		uuidToString(session.ID),
-		uuidToString(task.ID),
+		uuidToString(agentRun.ID),
 		uuidToString(session.AgentID),
-		taskContext.RuntimeMode,
-		taskContext.Provider,
+		runContext.RuntimeMode,
+		runContext.Provider,
 		platform,
 	))
 
@@ -1139,7 +1153,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		MessageID:     uuidToString(msg.ID),
 		Role:          "user",
 		Content:       req.Content,
-		TaskID:        uuidToString(task.ID),
+		RunID:         uuidToString(agentRun.ID),
 		SenderUserID:  userID,
 		CreatedAt:     timestampToString(msg.CreatedAt),
 	})
@@ -1156,8 +1170,8 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, SendChatMessageResponse{
 		MessageID:     uuidToString(msg.ID),
-		TaskID:        uuidToString(task.ID),
-		CreatedAt:     timestampToString(task.CreatedAt),
+		RunID:         uuidToString(agentRun.ID),
+		CreatedAt:     timestampToString(agentRun.CreatedAt),
 		AttachmentIDs: boundAttachmentIDs,
 	})
 }
@@ -1209,7 +1223,7 @@ func (h *Handler) sendGroupChatMessage(
 		agents = append(agents, agent)
 	}
 
-	sent, err := h.TaskService.SendGroupChatMessage(
+	sent, err := h.AgentRunService.SendGroupChatMessage(
 		r.Context(), session, parseUUID(userID), req.Content, attachmentIDs,
 		actorType, parseUUID(actorID), agents,
 	)
@@ -1222,13 +1236,13 @@ func (h *Handler) sendGroupChatMessage(
 	for _, id := range sent.BoundAttachmentIDs {
 		boundAttachmentIDs = append(boundAttachmentIDs, uuidToString(id))
 	}
-	taskIDs := make([]string, 0, len(sent.Tasks))
-	for _, task := range sent.Tasks {
-		taskIDs = append(taskIDs, uuidToString(task.ID))
+	runIDs := make([]string, 0, len(sent.Runs))
+	for _, agentRun := range sent.Runs {
+		runIDs = append(runIDs, uuidToString(agentRun.ID))
 	}
-	firstTaskID := ""
-	if len(taskIDs) > 0 {
-		firstTaskID = taskIDs[0]
+	firstRunID := ""
+	if len(runIDs) > 0 {
+		firstRunID = runIDs[0]
 	}
 
 	resolvedSessionID := uuidToString(session.ID)
@@ -1237,15 +1251,15 @@ func (h *Handler) sendGroupChatMessage(
 		MessageID:     uuidToString(sent.Message.ID),
 		Role:          "user",
 		Content:       req.Content,
-		TaskID:        firstTaskID,
+		RunID:         firstRunID,
 		SenderUserID:  userID,
 		CreatedAt:     timestampToString(sent.Message.CreatedAt),
 	})
 
 	writeJSON(w, http.StatusCreated, SendChatMessageResponse{
 		MessageID:     uuidToString(sent.Message.ID),
-		TaskID:        firstTaskID,
-		TaskIDs:       taskIDs,
+		RunID:         firstRunID,
+		RunIDs:        runIDs,
 		CreatedAt:     timestampToString(sent.Message.CreatedAt),
 		AttachmentIDs: boundAttachmentIDs,
 	})
@@ -1396,8 +1410,8 @@ func (h *Handler) ListChatMessagesPage(w http.ResponseWriter, r *http.Request) {
 // (elapsed seconds = now - CreatedAt). It must come from the server because
 // optimistic seeds don't have a real task created_at and the timer needs to
 // survive refresh / reopen.
-type PendingChatTaskResponse struct {
-	TaskID    string `json:"task_id,omitempty"`
+type PendingChatRunResponse struct {
+	RunID     string `json:"run_id,omitempty"`
 	Status    string `json:"status,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
 }
@@ -1451,7 +1465,7 @@ func (h *Handler) MarkChatSessionRead(w http.ResponseWriter, r *http.Request) {
 type ChatDraftRestoreResponse struct {
 	ID            string               `json:"id"`
 	ChatSessionID string               `json:"chat_session_id"`
-	TaskID        string               `json:"task_id"`
+	RunID         string               `json:"run_id"`
 	Content       string               `json:"content"`
 	Attachments   []AttachmentResponse `json:"attachments,omitempty"`
 	CreatedAt     string               `json:"created_at"`
@@ -1509,7 +1523,7 @@ func (h *Handler) ListChatDraftRestores(w http.ResponseWriter, r *http.Request) 
 		item := ChatDraftRestoreResponse{
 			ID:            uuidToString(row.ID),
 			ChatSessionID: uuidToString(row.ChatSessionID),
-			TaskID:        uuidToString(row.TaskID),
+			RunID:         uuidToString(row.RunID),
 			Content:       row.Content,
 			CreatedAt:     timestampToString(row.CreatedAt),
 		}
@@ -1591,12 +1605,12 @@ func pruneRuntimeAgentChatDraftRestores(ctx context.Context, q *db.Queries, runt
 }
 
 // PendingChatTasksResponse is the aggregate view consumed by the FAB.
-type PendingChatTasksResponse struct {
-	Tasks []PendingChatTaskItem `json:"tasks"`
+type PendingChatRunsResponse struct {
+	Runs []PendingChatRunItem `json:"runs"`
 }
 
-type PendingChatTaskItem struct {
-	TaskID        string `json:"task_id"`
+type PendingChatRunItem struct {
+	RunID         string `json:"run_id"`
 	Status        string `json:"status"`
 	ChatSessionID string `json:"chat_session_id"`
 }
@@ -1609,8 +1623,8 @@ type CancelledChatMessageResponse struct {
 	Attachments    []AttachmentResponse `json:"attachments,omitempty"`
 }
 
-type CancelTaskByUserResponse struct {
-	AgentTaskResponse
+type CancelRunByUserResponse struct {
+	AgentRunResponse
 	CancelledChatMessage *CancelledChatMessageResponse `json:"cancelled_chat_message,omitempty"`
 }
 
@@ -1618,7 +1632,7 @@ type CancelTaskByUserResponse struct {
 // user in this workspace. Drives the FAB's "running" indicator when the chat
 // window is closed (no per-session query is subscribed). Tasks belonging to
 // private agents the caller has lost access to are dropped from the response.
-func (h *Handler) ListPendingChatTasks(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ListPendingChatRuns(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -1639,11 +1653,11 @@ func (h *Handler) ListPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 	// No accessible agents → every row would be filtered out anyway. Skip the
 	// DB round-trip and return an empty list (mirrors HasPendingChatTasks).
 	if len(allowed) == 0 {
-		writeJSON(w, http.StatusOK, PendingChatTasksResponse{Tasks: []PendingChatTaskItem{}})
+		writeJSON(w, http.StatusOK, PendingChatRunsResponse{Runs: []PendingChatRunItem{}})
 		return
 	}
 
-	rows, err := h.Queries.ListPendingChatTasksByCreator(r.Context(), db.ListPendingChatTasksByCreatorParams{
+	rows, err := h.Queries.ListPendingChatRunsByCreator(r.Context(), db.ListPendingChatRunsByCreatorParams{
 		WorkspaceID:   parseUUID(workspaceID),
 		ParticipantID: parseUUID(userID),
 	})
@@ -1656,25 +1670,25 @@ func (h *Handler) ListPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 	// out private agents the caller has lost access to directly against the
 	// already-loaded `allowed` set — no second ListAllChatSessionsByCreator
 	// scan on this hot path (SILI-4159).
-	items := make([]PendingChatTaskItem, 0, len(rows))
+	items := make([]PendingChatRunItem, 0, len(rows))
 	for _, row := range rows {
 		agentID := uuidToString(row.AgentID)
 		if _, ok := allowed[agentID]; !ok {
 			continue
 		}
-		items = append(items, PendingChatTaskItem{
-			TaskID:        uuidToString(row.TaskID),
+		items = append(items, PendingChatRunItem{
+			RunID:         uuidToString(row.RunID),
 			Status:        row.Status,
 			ChatSessionID: uuidToString(row.ChatSessionID),
 		})
 	}
-	writeJSON(w, http.StatusOK, PendingChatTasksResponse{Tasks: items})
+	writeJSON(w, http.StatusOK, PendingChatRunsResponse{Runs: items})
 }
 
 // HasPendingChatTasksResponse is the boolean fast-path payload consumed by the
 // FAB, which only needs to know whether any in-flight chat task exists — not
 // the full list.
-type HasPendingChatTasksResponse struct {
+type HasPendingChatRunsResponse struct {
 	HasPending bool `json:"has_pending"`
 }
 
@@ -1688,7 +1702,7 @@ type HasPendingChatTasksResponse struct {
 // pushed into the query as agent_ids, so a member who lost access to a private
 // agent never sees a true from a task on that agent (SILI-4159). An empty
 // accessible-agent set short-circuits to false without hitting the DB.
-func (h *Handler) HasPendingChatTasks(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HasPendingChatRuns(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -1709,7 +1723,7 @@ func (h *Handler) HasPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 	// No accessible agents → nothing the caller may see can be pending.
 	// Skip the round-trip and return false.
 	if len(allowed) == 0 {
-		writeJSON(w, http.StatusOK, HasPendingChatTasksResponse{HasPending: false})
+		writeJSON(w, http.StatusOK, HasPendingChatRunsResponse{HasPending: false})
 		return
 	}
 
@@ -1718,7 +1732,7 @@ func (h *Handler) HasPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 		agentIDs = append(agentIDs, parseUUID(id))
 	}
 
-	hasPending, err := h.Queries.HasPendingChatTasksByCreator(r.Context(), db.HasPendingChatTasksByCreatorParams{
+	hasPending, err := h.Queries.HasPendingChatRunsByCreator(r.Context(), db.HasPendingChatRunsByCreatorParams{
 		WorkspaceID: parseUUID(workspaceID),
 		CreatorID:   parseUUID(userID),
 		AgentIds:    agentIDs,
@@ -1728,13 +1742,13 @@ func (h *Handler) HasPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, HasPendingChatTasksResponse{HasPending: hasPending})
+	writeJSON(w, http.StatusOK, HasPendingChatRunsResponse{HasPending: hasPending})
 }
 
 // GetPendingChatTask returns the most recent in-flight task (queued / dispatched
 // / running) for a chat session. The frontend polls this on mount / session
 // switch so pending UI state survives refresh and reopen.
-func (h *Handler) GetPendingChatTask(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetPendingChatRun(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -1747,17 +1761,17 @@ func (h *Handler) GetPendingChatTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.Queries.GetPendingChatTask(r.Context(), session.ID)
+	agentRun, err := h.Queries.GetPendingChatRun(r.Context(), session.ID)
 	if err != nil {
 		// No in-flight task — return an empty object, not an error.
-		writeJSON(w, http.StatusOK, PendingChatTaskResponse{})
+		writeJSON(w, http.StatusOK, PendingChatRunResponse{})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, PendingChatTaskResponse{
-		TaskID:    uuidToString(task.ID),
-		Status:    task.Status,
-		CreatedAt: timestampToString(task.CreatedAt),
+	writeJSON(w, http.StatusOK, PendingChatRunResponse{
+		RunID:     uuidToString(agentRun.ID),
+		Status:    agentRun.Status,
+		CreatedAt: timestampToString(agentRun.CreatedAt),
 	})
 }
 
@@ -1769,12 +1783,12 @@ func (h *Handler) GetPendingChatTask(w http.ResponseWriter, r *http.Request) {
 // current workspace.
 //
 // Tenancy is enforced uniformly through the task's owning agent: every
-// agent_task_queue row carries a NOT NULL agent_id (ON DELETE CASCADE, so the
+// agent_run row carries a NOT NULL agent_id (ON DELETE CASCADE, so the
 // agent always exists), and agents are workspace-scoped. GetAgentTaskInWorkspace
 // is therefore the single tenant guard that works regardless of which optional
-// source FK (issue / chat_session / autopilot_run) is set — which is what makes
-// run_only autopilot tasks and quick_create tasks (whose issue does not exist
-// yet) cancellable at all. Keying cancellation off issue_id / chat_session_id
+// source FK (task / chat_session / autopilot_run) is set — which is what makes
+// run_only autopilot tasks and quick_create tasks (whose task does not exist
+// yet) cancellable at all. Keying cancellation off task_id / chat_session_id
 // alone is exactly what 404'd these tasks before (SILI-2827).
 //
 // On top of tenancy, two privacy models layer on:
@@ -1785,7 +1799,7 @@ func (h *Handler) GetPendingChatTask(w http.ResponseWriter, r *http.Request) {
 //     access. Cancellation mirrors that gate via canAccessPrivateAgent so the
 //     id-only endpoint is never more permissive than the surface that exposes
 //     the task.
-func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CancelRunByUser(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -1795,14 +1809,14 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	taskID := chi.URLParam(r, "taskId")
-	taskUUID, ok := parseUUIDOrBadRequest(w, taskID, "task id")
+	runID := chi.URLParam(r, "runId")
+	runUUID, ok := parseUUIDOrBadRequest(w, runID, "task id")
 	if !ok {
 		return
 	}
 
-	task, err := h.Queries.GetAgentTaskInWorkspace(r.Context(), db.GetAgentTaskInWorkspaceParams{
-		ID:          taskUUID,
+	agentRun, err := h.Queries.GetAgentRunInWorkspace(r.Context(), db.GetAgentRunInWorkspaceParams{
+		ID:          runUUID,
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
@@ -1810,11 +1824,11 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if task.ChatSessionID.Valid {
+	if agentRun.ChatSessionID.Valid {
 		// Chat privacy: only the member who opened the conversation may
 		// cancel its task, even though the workspace is shared.
 		cs, err := h.Queries.GetChatSessionInWorkspace(r.Context(), db.GetChatSessionInWorkspaceParams{
-			ID:          task.ChatSessionID,
+			ID:          agentRun.ChatSessionID,
 			WorkspaceID: wsUUID,
 		})
 		if err != nil {
@@ -1826,11 +1840,11 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Issue / autopilot / quick_create tasks are all visible on the
+		// Task / autopilot / quick_create tasks are all visible on the
 		// agent Activity tab + workspace snapshot, which gate private
 		// agents. Mirror that gate here.
 		agent, err := h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{
-			ID:          task.AgentID,
+			ID:          agentRun.AgentID,
 			WorkspaceID: wsUUID,
 		})
 		if err != nil {
@@ -1844,7 +1858,7 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cancelled, err := h.TaskService.CancelTaskWithResult(r.Context(), taskUUID, service.CancelTaskOptions{
+	cancelled, err := h.AgentRunService.CancelRunWithResult(r.Context(), runUUID, service.CancelRunOptions{
 		ClientSupportsDraftRestore: requestHasClientCapability(r, protocol.AppCapabilityChatDraftRestoreV1),
 	})
 	if err != nil {
@@ -1852,10 +1866,10 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := CancelTaskByUserResponse{
-		AgentTaskResponse: taskToResponse(cancelled.Task, workspaceID),
+	resp := CancelRunByUserResponse{
+		AgentRunResponse: agentRunToResponse(cancelled.AgentRun, workspaceID),
 	}
-	h.hydrateTaskAttributions(r.Context(), []*TaskAttribution{resp.AgentTaskResponse.Attribution})
+	h.hydrateAgentRunAttributions(r.Context(), []*AgentRunAttribution{resp.AgentRunResponse.Attribution})
 	if cancelled.CancelledChatMessage != nil {
 		attachments := make([]AttachmentResponse, 0, len(cancelled.CancelledChatMessage.Attachments))
 		attachmentMode := attachmentURLModeFromRequest(r)
@@ -1939,7 +1953,7 @@ type ChatMessageResponse struct {
 	ChatSessionID     string   `json:"chat_session_id"`
 	Role              string   `json:"role"`
 	Content           string   `json:"content"`
-	TaskID            *string  `json:"task_id"`
+	RunID             *string  `json:"run_id"`
 	CreatedAt         string   `json:"created_at"`
 	SenderUserID      *string  `json:"sender_user_id,omitempty"`
 	SenderAgentID     *string  `json:"sender_agent_id,omitempty"`
@@ -2000,7 +2014,7 @@ func chatMessageToResponse(m db.ChatMessage, attachments []AttachmentResponse) C
 		ChatSessionID:     uuidToString(m.ChatSessionID),
 		Role:              m.Role,
 		Content:           m.Content,
-		TaskID:            uuidToPtr(m.TaskID),
+		RunID:             uuidToPtr(m.RunID),
 		CreatedAt:         timestampToString(m.CreatedAt),
 		SenderUserID:      uuidToPtr(m.SenderUserID),
 		SenderAgentID:     uuidToPtr(m.SenderAgentID),

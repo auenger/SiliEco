@@ -3,7 +3,7 @@ import { defaultSchema, type Options } from 'rehype-sanitize'
 
 /**
  * Canonical sanitize schema + URL transform for every product-level Markdown
- * renderer (Chat via ui/markdown/Markdown.tsx, Issue/Comment via
+ * renderer (Chat via ui/markdown/Markdown.tsx, Task/Comment via
  * views/editor/readonly-content.tsx).
  *
  * This is the ONLY copy. Both renderers previously carried a verbatim fork of

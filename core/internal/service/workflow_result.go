@@ -30,7 +30,7 @@ type SubmitWorkflowResultParams struct {
 	ExecutionID      pgtype.UUID
 	ActorType        string
 	ActorID          pgtype.UUID
-	SourceTaskID     pgtype.UUID
+	SourceRunID      pgtype.UUID
 	ExpectedRevision int32
 	Submission       json.RawMessage
 }
@@ -52,15 +52,15 @@ func (s *WorkflowExecutionService) authorizeResult(ctx context.Context, q *db.Qu
 	if err != nil {
 		return empty, err
 	}
-	if execution.WorkflowInstanceID != run.ID || execution.WorkflowStageID != run.CurrentStageID || execution.PlanRevision != run.Revision || run.Status != "active" || run.ArchivedAt.Valid || execution.ResultRevision != p.ExpectedRevision || !execution.MainIssueID.Valid || (execution.Status != "queued" && execution.Status != "running" && execution.Status != "awaiting_review") {
+	if execution.WorkflowInstanceID != run.ID || execution.WorkflowStageID != run.CurrentStageID || execution.PlanRevision != run.Revision || run.Status != "active" || run.ArchivedAt.Valid || execution.ResultRevision != p.ExpectedRevision || !execution.MainTaskID.Valid || (execution.Status != "queued" && execution.Status != "running" && execution.Status != "awaiting_review") {
 		return empty, ErrWorkflowExecutionConflict
 	}
-	// A moved/cancelled issue cannot submit against its former stage binding.
-	issue, err := q.GetWorkflowResultIssue(ctx, db.GetWorkflowResultIssueParams{ID: execution.MainIssueID, WorkspaceID: p.WorkspaceID})
+	// A moved/cancelled task cannot submit against its former stage binding.
+	task, err := q.GetWorkflowResultTask(ctx, db.GetWorkflowResultTaskParams{ID: execution.MainTaskID, WorkspaceID: p.WorkspaceID})
 	if err != nil {
 		return empty, err
 	}
-	if issue.WorkflowInstanceID != run.ID || issue.WorkflowStageID != execution.WorkflowStageID || issue.Status == "cancelled" {
+	if task.WorkflowInstanceID != run.ID || task.WorkflowStageID != execution.WorkflowStageID || task.Status == "cancelled" {
 		return empty, ErrWorkflowExecutionConflict
 	}
 	if _, err := q.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{WorkspaceID: p.WorkspaceID, UserID: run.CreatedBy}); err != nil {
@@ -83,14 +83,14 @@ func (s *WorkflowExecutionService) authorizeResult(ctx context.Context, q *db.Qu
 			return empty, ErrWorkflowResultAccess
 		}
 	case "agent":
-		if p.ActorID != execution.ExecutorID || !p.SourceTaskID.Valid || p.SourceTaskID != execution.MainTaskID {
+		if p.ActorID != execution.ExecutorID || !p.SourceRunID.Valid || p.SourceRunID != execution.MainRunID {
 			return empty, ErrWorkflowResultAccess
 		}
-		task, err := q.GetWorkflowResultTask(ctx, db.GetWorkflowResultTaskParams{ID: p.SourceTaskID, WorkspaceID: p.WorkspaceID})
+		agentRun, err := q.GetWorkflowResultRun(ctx, db.GetWorkflowResultRunParams{ID: p.SourceRunID, WorkspaceID: p.WorkspaceID})
 		if err != nil {
 			return empty, ErrWorkflowResultAccess
 		}
-		if task.AgentID != p.ActorID || task.WorkflowStageExecutionID != execution.ID || task.IssueID != execution.MainIssueID || (task.Status != "running" && task.Status != "completed") {
+		if agentRun.AgentID != p.ActorID || agentRun.WorkflowStageExecutionID != execution.ID || agentRun.TaskID != execution.MainTaskID || (agentRun.Status != "running" && agentRun.Status != "completed") {
 			return empty, ErrWorkflowResultAccess
 		}
 	default:
@@ -150,7 +150,7 @@ func (s *WorkflowExecutionService) SubmitResult(ctx context.Context, p SubmitWor
 		if err != nil {
 			return empty, err
 		}
-		attachment, err := q.GetWorkflowExecutionAttachment(ctx, db.GetWorkflowExecutionAttachmentParams{AttachmentID: attachmentID, WorkspaceID: p.WorkspaceID, IssueID: execution.MainIssueID, TaskID: execution.MainTaskID})
+		attachment, err := q.GetWorkflowExecutionAttachment(ctx, db.GetWorkflowExecutionAttachmentParams{AttachmentID: attachmentID, WorkspaceID: p.WorkspaceID, TaskID: execution.MainTaskID, RunID: execution.MainRunID})
 		if err != nil {
 			return empty, ErrWorkflowResultAccess
 		}

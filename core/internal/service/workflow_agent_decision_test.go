@@ -27,10 +27,10 @@ func TestWorkflowAgentDecisionRequiresCompletedReviewAndHybridHuman(t *testing.T
 			if _, err := pool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=jsonb_set(config_snapshot,'{gate}',$2::jsonb) WHERE id=$1`, e.ID, gate); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, e.MainIssueID); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, e.MainTaskID); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, e.MainTaskID); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, e.MainRunID); err != nil {
 				t.Fatal(err)
 			}
 			// Concurrent scans recover durable state without producing another call.
@@ -56,22 +56,22 @@ func TestWorkflowAgentDecisionRequiresCompletedReviewAndHybridHuman(t *testing.T
 				t.Fatal(err)
 			}
 			var reviewCalls int
-			if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE workflow_review_request_id=$1`, request.ID).Scan(&reviewCalls); err != nil || reviewCalls != 1 {
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE workflow_review_request_id=$1`, request.ID).Scan(&reviewCalls); err != nil || reviewCalls != 1 {
 				t.Fatalf("scan duplicated review calls: %d %v", reviewCalls, err)
 			}
-			decisionParams := RecordWorkflowAgentDecisionParams{WorkspaceID: p.WorkspaceID, RequestID: request.ID, ActorID: e.ExecutorID, TaskID: request.TaskID, ExpectedResultRevision: request.ResultRevision, ExpectedBasisHash: request.BasisHash, Outcome: "approved"}
+			decisionParams := RecordWorkflowAgentDecisionParams{WorkspaceID: p.WorkspaceID, RequestID: request.ID, ActorID: e.ExecutorID, RunID: request.RunID, ExpectedResultRevision: request.ResultRevision, ExpectedBasisHash: request.BasisHash, Outcome: "approved"}
 			if _, err := svc.RecordAgentDecision(ctx, decisionParams); !errors.Is(err, ErrWorkflowReviewAccess) {
 				t.Fatalf("queued call decided: %v", err)
 			}
 			var wg sync.WaitGroup
-			claims := make(chan *db.AgentTaskQueue, 2)
+			claims := make(chan *db.AgentRun, 2)
 			claimErrors := make(chan error, 2)
 			for range 2 {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					task, err := svc.TaskService.ClaimTask(ctx, e.ExecutorID)
-					claims <- task
+					agentRun, err := svc.AgentRunService.ClaimRun(ctx, e.ExecutorID)
+					claims <- agentRun
 					claimErrors <- err
 				}()
 			}
@@ -83,34 +83,34 @@ func TestWorkflowAgentDecisionRequiresCompletedReviewAndHybridHuman(t *testing.T
 					t.Fatal(err)
 				}
 			}
-			var claimed *db.AgentTaskQueue
+			var claimed *db.AgentRun
 			count := 0
-			for task := range claims {
-				if task != nil {
-					claimed = task
+			for agentRun := range claims {
+				if agentRun != nil {
+					claimed = agentRun
 					count++
 				}
 			}
-			if count != 1 || claimed.ID != request.TaskID {
+			if count != 1 || claimed.ID != request.RunID {
 				t.Fatalf("review claim count %d: %+v", count, claimed)
 			}
 			if _, err := pool.Exec(ctx, `UPDATE workflow_instance SET status='waiting' WHERE id=$1`, p.InstanceID); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := svc.TaskService.FinalizeTaskClaim(ctx, *claimed, db.CreateTaskTokenParams{}, nil, false); !errors.Is(err, ErrWorkflowExecutionConflict) {
+			if _, err := svc.AgentRunService.FinalizeRunClaim(ctx, *claimed, db.CreateAgentRunTokenParams{}, nil, false); !errors.Is(err, ErrWorkflowExecutionConflict) {
 				t.Fatalf("paused review received token: %v", err)
 			}
-			if _, err := svc.TaskService.StartTask(ctx, request.TaskID); !errors.Is(err, ErrWorkflowExecutionConflict) {
+			if _, err := svc.AgentRunService.StartRun(ctx, request.RunID); !errors.Is(err, ErrWorkflowExecutionConflict) {
 				t.Fatalf("paused review started: %v", err)
 			}
 			if _, err := pool.Exec(ctx, `UPDATE workflow_instance SET status='active' WHERE id=$1`, p.InstanceID); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := svc.TaskService.StartTask(ctx, request.TaskID); err != nil {
+			if _, err := svc.AgentRunService.StartRun(ctx, request.RunID); err != nil {
 				t.Fatal(err)
 			}
 			wrong := decisionParams
-			wrong.TaskID = e.MainTaskID
+			wrong.RunID = e.MainRunID
 			if _, err := svc.RecordAgentDecision(ctx, wrong); !errors.Is(err, ErrWorkflowReviewAccess) {
 				t.Fatalf("executor call reviewed: %v", err)
 			}
@@ -148,7 +148,7 @@ func TestWorkflowAgentDecisionRequiresCompletedReviewAndHybridHuman(t *testing.T
 					t.Fatalf("unfinished reviewer bypassed: %v", err)
 				}
 			}
-			if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, request.TaskID); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, request.RunID); err != nil {
 				t.Fatal(err)
 			}
 			for range 2 {
@@ -209,7 +209,7 @@ func TestWorkflowAgentDecisionRequiresCompletedReviewAndHybridHuman(t *testing.T
 				}
 			}
 			wrong = decisionParams
-			wrong.TaskID = e.MainTaskID
+			wrong.RunID = e.MainRunID
 			if _, err := svc.RecordAgentDecision(ctx, wrong); !errors.Is(err, ErrWorkflowReviewAccess) {
 				t.Fatalf("executor replayed reviewer decision: %v", err)
 			}

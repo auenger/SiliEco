@@ -54,8 +54,8 @@ export function InboxRow({ item, onPress }: Props) {
                 {displayTitle}
               </Text>
             </View>
-            {item.issue_status ? (
-              <StatusIcon status={item.issue_status} size={14} />
+            {item.task_status ? (
+              <StatusIcon status={item.task_status} size={14} />
             ) : null}
           </View>
           {/* Bottom row: [type-aware detail label] (left) | [time] (right).

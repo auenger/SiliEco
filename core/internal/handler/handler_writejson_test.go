@@ -10,7 +10,7 @@ import (
 
 // TestWriteMeasuredJSONByteIdenticalToWriteJSON locks the load-bearing assumption
 // behind the F2 claim-observability patch: swapping writeJSON for writeMeasuredJSON
-// at the /tasks/claim response sites must not change a single byte on the wire.
+// at the /runs/claim response sites must not change a single byte on the wire.
 //
 // writeJSON encodes via json.NewEncoder(w).Encode (which appends a trailing
 // newline); writeMeasuredJSON marshals via json.Marshal and appends the newline
@@ -49,7 +49,7 @@ func TestWriteMeasuredJSONByteIdenticalToWriteJSON(t *testing.T) {
 			ID:   "11111111-2222-3333-4444-555555555555",
 			Name: "agent <CC> & friends",
 			Skills: []skill{
-				{Name: "silieco-working-on-issues", Description: "do work <safely> & well", Files: map[string]string{"SKILL.md": "# Title\n<b>x</b> & y"}},
+				{Name: "silieco-working-on-tasks", Description: "do work <safely> & well", Files: map[string]string{"SKILL.md": "# Title\n<b>x</b> & y"}},
 				{Name: "silieco-mentioning", Description: "ping people", Files: map[string]string{"SKILL.md": "line1\nline2"}},
 			},
 			Args: []string{"--flag", "a<b", "c&d"},

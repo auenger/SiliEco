@@ -140,7 +140,7 @@ func setupIntegrationTestFixture(ctx context.Context, pool *pgxpool.Pool) (strin
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id
+			runtime_id, visibility, max_concurrent_runs, owner_id
 		)
 		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'workspace', 1, $4)
 	`, workspaceID, "Integration Test Agent", runtimeID, userID); err != nil {
@@ -173,6 +173,7 @@ func authRequest(t *testing.T, method, path string, body any) *http.Response {
 		t.Fatalf("failed to create request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Silieco-Protocol", "task-run-v1")
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	req.Header.Set("X-Workspace-ID", testWorkspaceID)
 
@@ -346,6 +347,7 @@ func TestSendCodeAndVerify(t *testing.T) {
 
 	// Verify the token works with /api/me
 	req, _ := http.NewRequest("GET", testServer.URL+"/api/me", nil)
+	req.Header.Set("X-Silieco-Protocol", "task-run-v1")
 	req.Header.Set("Authorization", "Bearer "+loginResp.Token)
 	meResp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -400,6 +402,7 @@ func TestVerifyCodeNewUserHasNoWorkspace(t *testing.T) {
 
 	// New users should have no workspaces (/workspaces/new creates one)
 	req, _ := http.NewRequest("GET", testServer.URL+"/api/workspaces", nil)
+	req.Header.Set("X-Silieco-Protocol", "task-run-v1")
 	req.Header.Set("Authorization", "Bearer "+loginResp.Token)
 	workspacesResp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -423,7 +426,7 @@ func TestVerifyCodeNewUserHasNoWorkspace(t *testing.T) {
 }
 
 func TestProtectedRoutesRequireAuth(t *testing.T) {
-	paths := []string{"/api/me", "/api/issues", "/api/agents", "/api/inbox", "/api/workspaces"}
+	paths := []string{"/api/me", "/api/tasks", "/api/agents", "/api/inbox", "/api/workspaces"}
 
 	for _, path := range paths {
 		resp, err := http.Get(testServer.URL + path)
@@ -459,6 +462,7 @@ func TestInvalidJWT(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req, _ := http.NewRequest("GET", testServer.URL+"/api/me", nil)
+			req.Header.Set("X-Silieco-Protocol", "task-run-v1")
 			if tc.token != "" {
 				req.Header.Set("Authorization", "Bearer "+tc.token)
 			}
@@ -474,111 +478,111 @@ func TestInvalidJWT(t *testing.T) {
 	}
 }
 
-// ---- Issues CRUD through full router ----
+// ---- Tasks CRUD through full router ----
 
-func TestIssuesCRUDThroughRouter(t *testing.T) {
+func TestTasksCRUDThroughRouter(t *testing.T) {
 	// Create
-	resp := authRequest(t, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":    "Integration test issue",
+	resp := authRequest(t, "POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
+		"title":    "Integration test task",
 		"status":   "todo",
 		"priority": "high",
 	})
 	if resp.StatusCode != 201 {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		t.Fatalf("CreateIssue: expected 201, got %d: %s", resp.StatusCode, body)
+		t.Fatalf("CreateTask: expected 201, got %d: %s", resp.StatusCode, body)
 	}
 
 	var created map[string]any
 	readJSON(t, resp, &created)
-	issueID := created["id"].(string)
-	if created["title"] != "Integration test issue" {
-		t.Fatalf("expected title 'Integration test issue', got '%s'", created["title"])
+	taskID := created["id"].(string)
+	if created["title"] != "Integration test task" {
+		t.Fatalf("expected title 'Integration test task', got '%s'", created["title"])
 	}
 
 	// Get
-	resp = authRequest(t, "GET", "/api/issues/"+issueID, nil)
+	resp = authRequest(t, "GET", "/api/tasks/"+taskID, nil)
 	if resp.StatusCode != 200 {
-		t.Fatalf("GetIssue: expected 200, got %d", resp.StatusCode)
+		t.Fatalf("GetTask: expected 200, got %d", resp.StatusCode)
 	}
 	var fetched map[string]any
 	readJSON(t, resp, &fetched)
-	if fetched["id"] != issueID {
-		t.Fatalf("expected id %s, got %s", issueID, fetched["id"])
+	if fetched["id"] != taskID {
+		t.Fatalf("expected id %s, got %s", taskID, fetched["id"])
 	}
 
 	// Update status only — should preserve title
-	resp = authRequest(t, "PUT", "/api/issues/"+issueID, map[string]any{
+	resp = authRequest(t, "PUT", "/api/tasks/"+taskID, map[string]any{
 		"status": "in_progress",
 	})
 	if resp.StatusCode != 200 {
-		t.Fatalf("UpdateIssue: expected 200, got %d", resp.StatusCode)
+		t.Fatalf("UpdateTask: expected 200, got %d", resp.StatusCode)
 	}
 	var updated map[string]any
 	readJSON(t, resp, &updated)
 	if updated["status"] != "in_progress" {
 		t.Fatalf("expected status 'in_progress', got '%s'", updated["status"])
 	}
-	if updated["title"] != "Integration test issue" {
+	if updated["title"] != "Integration test task" {
 		t.Fatalf("title should be preserved, got '%s'", updated["title"])
 	}
 
 	// Update title only — should preserve status
-	resp = authRequest(t, "PUT", "/api/issues/"+issueID, map[string]any{
-		"title": "Renamed integration issue",
+	resp = authRequest(t, "PUT", "/api/tasks/"+taskID, map[string]any{
+		"title": "Renamed integration task",
 	})
 	if resp.StatusCode != 200 {
-		t.Fatalf("UpdateIssue title: expected 200, got %d", resp.StatusCode)
+		t.Fatalf("UpdateTask title: expected 200, got %d", resp.StatusCode)
 	}
 	var updated2 map[string]any
 	readJSON(t, resp, &updated2)
-	if updated2["title"] != "Renamed integration issue" {
-		t.Fatalf("expected title 'Renamed integration issue', got '%s'", updated2["title"])
+	if updated2["title"] != "Renamed integration task" {
+		t.Fatalf("expected title 'Renamed integration task', got '%s'", updated2["title"])
 	}
 	if updated2["status"] != "in_progress" {
 		t.Fatalf("status should be preserved, got '%s'", updated2["status"])
 	}
 
 	// List
-	resp = authRequest(t, "GET", "/api/issues?workspace_id="+testWorkspaceID, nil)
+	resp = authRequest(t, "GET", "/api/tasks?workspace_id="+testWorkspaceID, nil)
 	if resp.StatusCode != 200 {
-		t.Fatalf("ListIssues: expected 200, got %d", resp.StatusCode)
+		t.Fatalf("ListTasks: expected 200, got %d", resp.StatusCode)
 	}
 	var listResp map[string]any
 	readJSON(t, resp, &listResp)
 	total := listResp["total"].(float64)
 	if total < 1 {
-		t.Fatal("expected at least 1 issue")
+		t.Fatal("expected at least 1 task")
 	}
 
 	// Delete
-	resp = authRequest(t, "DELETE", "/api/issues/"+issueID, nil)
+	resp = authRequest(t, "DELETE", "/api/tasks/"+taskID, nil)
 	resp.Body.Close()
 	if resp.StatusCode != 204 {
-		t.Fatalf("DeleteIssue: expected 204, got %d", resp.StatusCode)
+		t.Fatalf("DeleteTask: expected 204, got %d", resp.StatusCode)
 	}
 
 	// Verify deleted
-	resp = authRequest(t, "GET", "/api/issues/"+issueID, nil)
+	resp = authRequest(t, "GET", "/api/tasks/"+taskID, nil)
 	resp.Body.Close()
 	if resp.StatusCode != 404 {
-		t.Fatalf("GetIssue after delete: expected 404, got %d", resp.StatusCode)
+		t.Fatalf("GetTask after delete: expected 404, got %d", resp.StatusCode)
 	}
 }
 
 // ---- Comments through full router ----
 
 func TestCommentsThroughRouter(t *testing.T) {
-	// Create issue
-	resp := authRequest(t, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+	// Create task
+	resp := authRequest(t, "POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Comment integration test",
 	})
-	var issue map[string]any
-	readJSON(t, resp, &issue)
-	issueID := issue["id"].(string)
+	var task map[string]any
+	readJSON(t, resp, &task)
+	taskID := task["id"].(string)
 
 	// Create comment
-	resp = authRequest(t, "POST", "/api/issues/"+issueID+"/comments", map[string]any{
+	resp = authRequest(t, "POST", "/api/tasks/"+taskID+"/comments", map[string]any{
 		"content": "Integration test comment",
 		"type":    "comment",
 	})
@@ -594,14 +598,14 @@ func TestCommentsThroughRouter(t *testing.T) {
 	}
 
 	// Create second comment
-	resp = authRequest(t, "POST", "/api/issues/"+issueID+"/comments", map[string]any{
+	resp = authRequest(t, "POST", "/api/tasks/"+taskID+"/comments", map[string]any{
 		"content": "Second comment",
 		"type":    "comment",
 	})
 	resp.Body.Close()
 
 	// List comments
-	resp = authRequest(t, "GET", "/api/issues/"+issueID+"/comments", nil)
+	resp = authRequest(t, "GET", "/api/tasks/"+taskID+"/comments", nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("ListComments: expected 200, got %d", resp.StatusCode)
 	}
@@ -612,7 +616,7 @@ func TestCommentsThroughRouter(t *testing.T) {
 	}
 
 	// Cleanup
-	resp = authRequest(t, "DELETE", "/api/issues/"+issueID, nil)
+	resp = authRequest(t, "DELETE", "/api/tasks/"+taskID, nil)
 	resp.Body.Close()
 }
 
@@ -757,6 +761,7 @@ func TestDeleteWorkspaceRequiresOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
+	req.Header.Set("X-Silieco-Protocol", "task-run-v1")
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	req.Header.Set("X-Workspace-ID", wsID)
 
@@ -800,7 +805,7 @@ func TestInboxUnreadSummaryThroughRouter(t *testing.T) {
 	var itemID string
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title)
-		VALUES ($1, 'member', $2, 'issue_assigned', 'Summary fixture')
+		VALUES ($1, 'member', $2, 'task_assigned', 'Summary fixture')
 		RETURNING id
 	`, testWorkspaceID, testUserID).Scan(&itemID); err != nil {
 		t.Fatalf("failed to seed inbox item: %v", err)
@@ -852,38 +857,38 @@ func TestInboxUnreadSummaryThroughRouter(t *testing.T) {
 
 type inboxItemJSON struct {
 	ID       string  `json:"id"`
-	IssueID  *string `json:"issue_id"`
+	TaskID   *string `json:"task_id"`
 	Title    string  `json:"title"`
 	Read     bool    `json:"read"`
 	Archived bool    `json:"archived"`
 }
 
-// seedArchivedFixtureIssue creates an issue owned by the test user and returns
+// seedArchivedFixtureTask creates an task owned by the test user and returns
 // its id, registering the cleanup that cascades to its inbox_item rows.
 //
 // `number` is taken from the workspace counter the way the real create path
-// does it (see IncrementIssueCounter). Letting it default to 0 works only for a
-// test that seeds ONE issue — a second one collides on uq_issue_workspace_number.
-func seedArchivedFixtureIssue(t *testing.T, title string) string {
+// does it (see IncrementTaskCounter). Letting it default to 0 works only for a
+// test that seeds ONE task — a second one collides on uq_task_workspace_number.
+func seedArchivedFixtureTask(t *testing.T, title string) string {
 	t.Helper()
 	ctx := context.Background()
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
 		WITH bumped AS (
-			UPDATE workspace SET issue_counter = issue_counter + 1
+			UPDATE workspace SET task_counter = task_counter + 1
 			WHERE id = $1
-			RETURNING issue_counter
+			RETURNING task_counter
 		)
-		INSERT INTO issue (workspace_id, title, creator_type, creator_id, number)
-		SELECT $1, $2, 'member', $3, bumped.issue_counter FROM bumped
+		INSERT INTO task (workspace_id, title, creator_type, creator_id, number)
+		SELECT $1, $2, 'member', $3, bumped.task_counter FROM bumped
 		RETURNING id
-	`, testWorkspaceID, title, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("failed to seed issue: %v", err)
+	`, testWorkspaceID, title, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("failed to seed task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
-	return issueID
+	return taskID
 }
 
 func listArchivedInbox(t *testing.T) []inboxItemJSON {
@@ -901,11 +906,11 @@ func listArchivedInbox(t *testing.T) []inboxItemJSON {
 }
 
 func TestArchivedInboxThroughRouter(t *testing.T) {
-	issueID := seedArchivedFixtureIssue(t, "Archived fixture")
+	taskID := seedArchivedFixtureTask(t, "Archived fixture")
 	if _, err := testPool.Exec(context.Background(), `
-		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, issue_id, archived)
+		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, task_id, archived)
 		VALUES ($1, 'member', $2, 'new_comment', 'archived one', $3, true)
-	`, testWorkspaceID, testUserID, issueID); err != nil {
+	`, testWorkspaceID, testUserID, taskID); err != nil {
 		t.Fatalf("failed to seed inbox item: %v", err)
 	}
 
@@ -923,17 +928,17 @@ func TestArchivedInboxThroughRouter(t *testing.T) {
 	}
 }
 
-// The main inbox and the archived list must stay mutually exclusive per issue.
-// Archiving is issue-level, so a NEW notification on an already-archived issue
+// The main inbox and the archived list must stay mutually exclusive per task.
+// Archiving is task-level, so a NEW notification on an already-archived task
 // leaves old archived rows sitting next to a fresh active one — without the
-// query's NOT EXISTS guard the issue would render in BOTH lists.
-func TestArchivedInboxExcludesIssuesWithActiveItems(t *testing.T) {
+// query's NOT EXISTS guard the task would render in BOTH lists.
+func TestArchivedInboxExcludesTasksWithActiveItems(t *testing.T) {
 	ctx := context.Background()
-	revivedIssue := seedArchivedFixtureIssue(t, "Revived fixture")
-	quietIssue := seedArchivedFixtureIssue(t, "Quiet fixture")
+	revivedTask := seedArchivedFixtureTask(t, "Revived fixture")
+	quietTask := seedArchivedFixtureTask(t, "Quiet fixture")
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, issue_id, archived, created_at)
+		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, task_id, archived, created_at)
 		VALUES
 			-- Archived a while ago, then a new notification arrived: back in the
 			-- main inbox, so it must NOT appear in the archive.
@@ -941,52 +946,52 @@ func TestArchivedInboxExcludesIssuesWithActiveItems(t *testing.T) {
 			($1, 'member', $2, 'status_changed', 'revived-new', $3, false, now()),
 			-- Archived with no follow-up: belongs in the archive.
 			($1, 'member', $2, 'new_comment',    'quiet-old',   $4, true,  now() - interval '2 hours')
-	`, testWorkspaceID, testUserID, revivedIssue, quietIssue); err != nil {
+	`, testWorkspaceID, testUserID, revivedTask, quietTask); err != nil {
 		t.Fatalf("failed to seed inbox items: %v", err)
 	}
 
 	var sawRevived, sawQuiet bool
 	for _, item := range listArchivedInbox(t) {
-		if item.IssueID == nil {
+		if item.TaskID == nil {
 			continue
 		}
-		if *item.IssueID == revivedIssue {
+		if *item.TaskID == revivedTask {
 			sawRevived = true
 		}
-		if *item.IssueID == quietIssue {
+		if *item.TaskID == quietTask {
 			sawQuiet = true
 		}
 	}
 	if sawRevived {
-		t.Fatal("an issue with an active inbox item must not appear in the archived list")
+		t.Fatal("an task with an active inbox item must not appear in the archived list")
 	}
 	if !sawQuiet {
-		t.Fatal("an issue whose items are all archived must appear in the archived list")
+		t.Fatal("an task whose items are all archived must appear in the archived list")
 	}
 }
 
-// Unarchive restores the whole issue group (mirroring issue-level archive) and
+// Unarchive restores the whole task group (mirroring task-level archive) and
 // leaves `read` alone. Restoring an item that was archived while unread raises
 // the unread badge again — that is correct, not a regression: the unread count
 // only ever included non-archived rows.
 func TestUnarchiveInboxPreservesUnread(t *testing.T) {
 	ctx := context.Background()
-	issueID := seedArchivedFixtureIssue(t, "Unarchive fixture")
+	taskID := seedArchivedFixtureTask(t, "Unarchive fixture")
 
 	var unreadItemID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, issue_id, read, archived, created_at)
+		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, task_id, read, archived, created_at)
 		VALUES ($1, 'member', $2, 'new_comment', 'archived unread', $3, false, true, now())
 		RETURNING id
-	`, testWorkspaceID, testUserID, issueID).Scan(&unreadItemID); err != nil {
+	`, testWorkspaceID, testUserID, taskID).Scan(&unreadItemID); err != nil {
 		t.Fatalf("failed to seed inbox item: %v", err)
 	}
-	// A read sibling on the same issue: the restore is issue-level, so it must
+	// A read sibling on the same task: the restore is task-level, so it must
 	// come back too — and come back READ, not reset.
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, issue_id, read, archived, created_at)
+		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, task_id, read, archived, created_at)
 		VALUES ($1, 'member', $2, 'status_changed', 'archived read', $3, true, true, now() - interval '1 hour')
-	`, testWorkspaceID, testUserID, issueID); err != nil {
+	`, testWorkspaceID, testUserID, taskID); err != nil {
 		t.Fatalf("failed to seed sibling inbox item: %v", err)
 	}
 
@@ -1005,8 +1010,8 @@ func TestUnarchiveInboxPreservesUnread(t *testing.T) {
 
 	// Both siblings are back, each with its original read state.
 	rows, err := testPool.Query(ctx, `
-		SELECT title, read, archived FROM inbox_item WHERE issue_id = $1 ORDER BY title
-	`, issueID)
+		SELECT title, read, archived FROM inbox_item WHERE task_id = $1 ORDER BY title
+	`, taskID)
 	if err != nil {
 		t.Fatalf("failed to read back inbox items: %v", err)
 	}
@@ -1051,7 +1056,7 @@ func TestUnarchiveInboxRejectsForeignItem(t *testing.T) {
 	var foreignItemID string
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, archived)
-		VALUES ($1, 'member', gen_random_uuid(), 'issue_assigned', 'someone else', true)
+		VALUES ($1, 'member', gen_random_uuid(), 'task_assigned', 'someone else', true)
 		RETURNING id
 	`, testWorkspaceID).Scan(&foreignItemID); err != nil {
 		t.Fatalf("failed to seed foreign inbox item: %v", err)
@@ -1075,34 +1080,34 @@ func TestUnarchiveInboxRejectsForeignItem(t *testing.T) {
 	}
 }
 
-// An issue's inbox notifications are deduplicated per issue: opening the issue
+// An task's inbox notifications are deduplicated per task: opening the task
 // marks only the NEWEST item read, leaving older siblings unread. The summary
-// must mirror the inbox UI (issue is read when its newest item is read), so a
-// read-newest / unread-older issue must NOT light the switcher dot (SILI-3695).
-func TestInboxUnreadSummaryDedupesByIssue(t *testing.T) {
+// must mirror the inbox UI (task is read when its newest item is read), so a
+// read-newest / unread-older task must NOT light the switcher dot (SILI-3695).
+func TestInboxUnreadSummaryDedupesByTask(t *testing.T) {
 	ctx := context.Background()
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_type, creator_id)
+		INSERT INTO task (workspace_id, title, creator_type, creator_id)
 		VALUES ($1, 'Dedup fixture', 'member', $2)
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("failed to seed issue: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("failed to seed task: %v", err)
 	}
-	// Deleting the issue cascades to its inbox_item rows (FK ON DELETE CASCADE).
+	// Deleting the task cascades to its inbox_item rows (FK ON DELETE CASCADE).
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	// Older sibling stays unread; newer sibling is read (the one "opening the
-	// issue" would have marked read).
+	// task" would have marked read).
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, issue_id, read, created_at)
+		INSERT INTO inbox_item (workspace_id, recipient_type, recipient_id, type, title, task_id, read, created_at)
 		VALUES
 			($1, 'member', $2, 'new_comment',    'older', $3, false, now() - interval '1 hour'),
 			($1, 'member', $2, 'status_changed', 'newer', $3, true,  now())
-	`, testWorkspaceID, testUserID, issueID); err != nil {
+	`, testWorkspaceID, testUserID, taskID); err != nil {
 		t.Fatalf("failed to seed inbox items: %v", err)
 	}
 
@@ -1117,15 +1122,15 @@ func TestInboxUnreadSummaryDedupesByIssue(t *testing.T) {
 	readJSON(t, resp, &summary)
 	for _, s := range summary {
 		if s.WorkspaceID == testWorkspaceID && s.Count > 0 {
-			t.Fatalf("issue whose newest item is read must not count as unread, got count %d", s.Count)
+			t.Fatalf("task whose newest item is read must not count as unread, got count %d", s.Count)
 		}
 	}
 
-	// Now mark the newest item unread again → the issue becomes unread and the
+	// Now mark the newest item unread again → the task becomes unread and the
 	// workspace reappears in the summary.
 	if _, err := testPool.Exec(ctx, `
-		UPDATE inbox_item SET read = false WHERE issue_id = $1 AND title = 'newer'
-	`, issueID); err != nil {
+		UPDATE inbox_item SET read = false WHERE task_id = $1 AND title = 'newer'
+	`, taskID); err != nil {
 		t.Fatalf("failed to flip newest item unread: %v", err)
 	}
 	resp = authRequest(t, "GET", "/api/inbox/unread-summary", nil)
@@ -1150,7 +1155,7 @@ func TestNonExistentResources(t *testing.T) {
 		name string
 		path string
 	}{
-		{"issue", "/api/issues/" + fakeUUID},
+		{"task", "/api/tasks/" + fakeUUID},
 		{"agent", "/api/agents/" + fakeUUID},
 		{"workspace", "/api/workspaces/" + fakeUUID},
 	}
@@ -1169,7 +1174,7 @@ func TestNonExistentResources(t *testing.T) {
 // ---- Invalid request bodies ----
 
 func TestInvalidRequestBodies(t *testing.T) {
-	resp := authRequest(t, "POST", "/api/issues?workspace_id="+testWorkspaceID, nil)
+	resp := authRequest(t, "POST", "/api/tasks?workspace_id="+testWorkspaceID, nil)
 	defer resp.Body.Close()
 	// Sending nil body should fail with 400
 	if resp.StatusCode != 400 {
@@ -1214,14 +1219,14 @@ func TestWebSocketIntegration(t *testing.T) {
 	// Allow Hub goroutine to process the register and add client to room
 	time.Sleep(100 * time.Millisecond)
 
-	// Create an issue — this should trigger a WebSocket broadcast
-	resp := authRequest(t, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":  "WebSocket test issue",
+	// Create an task — this should trigger a WebSocket broadcast
+	resp := authRequest(t, "POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
+		"title":  "WebSocket test task",
 		"status": "todo",
 	})
-	var issue map[string]any
-	readJSON(t, resp, &issue)
-	issueID := issue["id"].(string)
+	var task map[string]any
+	readJSON(t, resp, &task)
+	taskID := task["id"].(string)
 
 	// Read the WebSocket message
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -1230,17 +1235,17 @@ func TestWebSocketIntegration(t *testing.T) {
 		t.Fatalf("WebSocket read error: %v", err)
 	}
 
-	// Verify the message contains the issue event
+	// Verify the message contains the task event
 	var wsMsg map[string]any
 	if err := json.Unmarshal(msg, &wsMsg); err != nil {
 		t.Fatalf("failed to parse WebSocket message: %v", err)
 	}
-	if wsMsg["type"] != "issue:created" {
-		t.Fatalf("expected type 'issue:created', got '%s'", wsMsg["type"])
+	if wsMsg["type"] != "task:created" {
+		t.Fatalf("expected type 'task:created', got '%s'", wsMsg["type"])
 	}
 
-	// Update the issue — should trigger another broadcast
-	resp = authRequest(t, "PUT", "/api/issues/"+issueID, map[string]any{
+	// Update the task — should trigger another broadcast
+	resp = authRequest(t, "PUT", "/api/tasks/"+taskID, map[string]any{
 		"status": "in_progress",
 	})
 	resp.Body.Close()
@@ -1252,12 +1257,12 @@ func TestWebSocketIntegration(t *testing.T) {
 	}
 	var updateMsg map[string]any
 	json.Unmarshal(msg, &updateMsg)
-	if updateMsg["type"] != "issue:updated" {
-		t.Fatalf("expected type 'issue:updated', got '%s'", updateMsg["type"])
+	if updateMsg["type"] != "task:updated" {
+		t.Fatalf("expected type 'task:updated', got '%s'", updateMsg["type"])
 	}
 
-	// Delete the issue — should trigger another broadcast
-	resp = authRequest(t, "DELETE", "/api/issues/"+issueID, nil)
+	// Delete the task — should trigger another broadcast
+	resp = authRequest(t, "DELETE", "/api/tasks/"+taskID, nil)
 	resp.Body.Close()
 
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -1267,7 +1272,7 @@ func TestWebSocketIntegration(t *testing.T) {
 	}
 	var deleteMsg map[string]any
 	json.Unmarshal(msg, &deleteMsg)
-	if deleteMsg["type"] != "issue:deleted" {
-		t.Fatalf("expected type 'issue:deleted', got '%s'", deleteMsg["type"])
+	if deleteMsg["type"] != "task:deleted" {
+		t.Fatalf("expected type 'task:deleted', got '%s'", deleteMsg["type"])
 	}
 }

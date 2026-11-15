@@ -14,9 +14,16 @@ import (
 const createGitHubInstallation = `-- name: CreateGitHubInstallation :one
 INSERT INTO github_installation (
     workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6
-)
+) SELECT
+    $1 AS workspace_id,
+    $2 AS installation_id,
+    $3 AS account_login,
+    $4 AS account_type,
+    $5 AS account_avatar_url,
+    $6 AS connected_by_id
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($6)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_connected_by_id WHERE ref_connected_by_id.id = ($6) FOR KEY SHARE))
+
 ON CONFLICT (workspace_id, installation_id) DO UPDATE SET
     account_login = EXCLUDED.account_login,
     account_type = EXCLUDED.account_type,
@@ -60,7 +67,7 @@ func (q *Queries) CreateGitHubInstallation(ctx context.Context, arg CreateGitHub
 }
 
 const deleteGitHubInstallation = `-- name: DeleteGitHubInstallation :exec
-DELETE FROM github_installation WHERE id = $1 AND workspace_id = $2
+DELETE FROM github_installation WHERE github_installation.id = $1 AND workspace_id = $2
 `
 
 type DeleteGitHubInstallationParams struct {
@@ -190,82 +197,6 @@ func (q *Queries) GetGitHubPullRequest(ctx context.Context, arg GetGitHubPullReq
 	return i, err
 }
 
-const getIssuePullRequestCloseAggregate = `-- name: GetIssuePullRequestCloseAggregate :one
-SELECT
-    COALESCE(SUM(CASE WHEN pr.state IN ('open', 'draft') THEN 1 ELSE 0 END), 0)::bigint AS open_count,
-    COALESCE(SUM(CASE WHEN pr.state = 'merged' AND ipr.close_intent THEN 1 ELSE 0 END), 0)::bigint AS merged_with_close_intent_count
-FROM github_pull_request pr
-JOIN issue_pull_request ipr ON ipr.pull_request_id = pr.id
-WHERE ipr.issue_id = $1 AND NOT ipr.reference_only
-`
-
-type GetIssuePullRequestCloseAggregateRow struct {
-	OpenCount                  int64 `json:"open_count"`
-	MergedWithCloseIntentCount int64 `json:"merged_with_close_intent_count"`
-}
-
-// Aggregates the issue's linked PRs into the two counts that gate
-// auto-advance: how many are still in flight (`open` or `draft`) and how
-// many merged PRs declared explicit closing intent on the link row. The
-// webhook auto-advances the issue when open_count = 0 AND
-// merged_with_close_intent_count > 0. Both the PR state and the link row
-// (with close_intent) are persisted before this query runs, so the result
-// is event-agnostic — a link-only sibling closing after a closing-keyword
-// PR has already merged still resolves the issue.
-//
-// reference_only links (a PR that merely mentions the issue identifier in its
-// body) are excluded: they are hidden from the issue PR list, so they must not
-// silently gate auto-advance either. An open body-only mention would otherwise
-// keep open_count > 0 and block the issue from advancing while being invisible
-// in the UI. (reference_only rows never carry close_intent, so excluding them
-// does not change merged_with_close_intent_count.)
-func (q *Queries) GetIssuePullRequestCloseAggregate(ctx context.Context, issueID pgtype.UUID) (GetIssuePullRequestCloseAggregateRow, error) {
-	row := q.db.QueryRow(ctx, getIssuePullRequestCloseAggregate, issueID)
-	var i GetIssuePullRequestCloseAggregateRow
-	err := row.Scan(&i.OpenCount, &i.MergedWithCloseIntentCount)
-	return i, err
-}
-
-const getIssueReviewHeadSha = `-- name: GetIssueReviewHeadSha :one
-SELECT head_sha FROM (
-    SELECT pr.head_sha AS head_sha, pr.state AS state, pr.pr_updated_at AS pr_updated_at
-    FROM github_pull_request pr
-    JOIN issue_pull_request ipr ON ipr.pull_request_id = pr.id
-    WHERE ipr.issue_id = $1 AND pr.head_sha <> '' AND NOT ipr.reference_only
-    UNION ALL
-    SELECT pr.head_sha AS head_sha, pr.state AS state, pr.pr_updated_at AS pr_updated_at
-    FROM vcs_pull_request pr
-    JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
-    WHERE ipr.issue_id = $1 AND pr.head_sha <> '' AND NOT ipr.reference_only
-) combined
-ORDER BY (state IN ('open', 'draft')) DESC, pr_updated_at DESC
-LIMIT 1
-`
-
-// Returns the head SHA of the commit currently "under review" for an issue:
-// the most-recently-updated linked PR that still has an open/draft state and a
-// non-empty head_sha. Used by the reviewer-loop dedup (TEN-356) so a pending
-// review task pinned to an old head does not satisfy a request after HEAD
-// advanced. Prefers in-flight PRs (open/draft) over merged/closed ones so a
-// stale merged sibling can't shadow the live review target; falls back to the
-// newest linked PR with a head_sha when none are open. Returns no rows (empty
-// string) when the issue has no linked PR — callers treat that as "no SHA key"
-// and dedup on (issue_id, agent_id) alone, preserving pre-TEN-356 behavior.
-//
-// Spans both GitHub and self-hosted VCS PRs: a self-hosted PR pushing a new
-// commit must move the dedup head SHA the same way a GitHub PR does, otherwise
-// a fresh review round could be merged away against a stale key.
-// reference_only links are excluded on both arms, matching the PR-list and
-// close-aggregate queries: a body-only mention is hidden from the list and the
-// close gate, so it must not win this ORDER BY and become the review dedup head
-// SHA either, masking the real working PR's SHA.
-func (q *Queries) GetIssueReviewHeadSha(ctx context.Context, issueID pgtype.UUID) (string, error) {
-	row := q.db.QueryRow(ctx, getIssueReviewHeadSha, issueID)
-	var head_sha string
-	err := row.Scan(&head_sha)
-	return head_sha, err
-}
-
 const getPendingGitHubInstallation = `-- name: GetPendingGitHubInstallation :one
 SELECT installation_id, account_login, account_type, account_avatar_url, received_at, updated_at FROM github_pending_installation WHERE installation_id = $1
 `
@@ -284,26 +215,109 @@ func (q *Queries) GetPendingGitHubInstallation(ctx context.Context, installation
 	return i, err
 }
 
-const linkIssueToPullRequest = `-- name: LinkIssueToPullRequest :exec
+const getTaskPullRequestCloseAggregate = `-- name: GetTaskPullRequestCloseAggregate :one
+SELECT
+    COALESCE(SUM(CASE WHEN pr.state IN ('open', 'draft') THEN 1 ELSE 0 END), 0)::bigint AS open_count,
+    COALESCE(SUM(CASE WHEN pr.state = 'merged' AND ipr.close_intent THEN 1 ELSE 0 END), 0)::bigint AS merged_with_close_intent_count
+FROM github_pull_request pr
+JOIN task_pull_request ipr ON ipr.pull_request_id = pr.id
+WHERE ipr.task_id = $1 AND NOT ipr.reference_only
+`
 
-INSERT INTO issue_pull_request (
-    issue_id, pull_request_id, linked_by_type, linked_by_id, close_intent, reference_only
-) VALUES (
-    $1, $2, $4, $5, $3, $6
-)
-ON CONFLICT (issue_id, pull_request_id) DO UPDATE SET
+type GetTaskPullRequestCloseAggregateRow struct {
+	OpenCount                  int64 `json:"open_count"`
+	MergedWithCloseIntentCount int64 `json:"merged_with_close_intent_count"`
+}
+
+// Aggregates the task's linked PRs into the two counts that gate
+// auto-advance: how many are still in flight (`open` or `draft`) and how
+// many merged PRs declared explicit closing intent on the link row. The
+// webhook auto-advances the task when open_count = 0 AND
+// merged_with_close_intent_count > 0. Both the PR state and the link row
+// (with close_intent) are persisted before this query runs, so the result
+// is event-agnostic — a link-only sibling closing after a closing-keyword
+// PR has already merged still resolves the task.
+//
+// reference_only links (a PR that merely mentions the task identifier in its
+// body) are excluded: they are hidden from the task PR list, so they must not
+// silently gate auto-advance either. An open body-only mention would otherwise
+// keep open_count > 0 and block the task from advancing while being invisible
+// in the UI. (reference_only rows never carry close_intent, so excluding them
+// does not change merged_with_close_intent_count.)
+func (q *Queries) GetTaskPullRequestCloseAggregate(ctx context.Context, taskID pgtype.UUID) (GetTaskPullRequestCloseAggregateRow, error) {
+	row := q.db.QueryRow(ctx, getTaskPullRequestCloseAggregate, taskID)
+	var i GetTaskPullRequestCloseAggregateRow
+	err := row.Scan(&i.OpenCount, &i.MergedWithCloseIntentCount)
+	return i, err
+}
+
+const getTaskReviewHeadSha = `-- name: GetTaskReviewHeadSha :one
+SELECT head_sha FROM (
+    SELECT pr.head_sha AS head_sha, pr.state AS state, pr.pr_updated_at AS pr_updated_at
+    FROM github_pull_request pr
+    JOIN task_pull_request ipr ON ipr.pull_request_id = pr.id
+    WHERE ipr.task_id = $1 AND pr.head_sha <> '' AND NOT ipr.reference_only
+    UNION ALL
+    SELECT pr.head_sha AS head_sha, pr.state AS state, pr.pr_updated_at AS pr_updated_at
+    FROM vcs_pull_request pr
+    JOIN task_vcs_pull_request ipr ON ipr.pull_request_id = pr.id
+    WHERE ipr.task_id = $1 AND pr.head_sha <> '' AND NOT ipr.reference_only
+) combined
+ORDER BY (state IN ('open', 'draft')) DESC, pr_updated_at DESC
+LIMIT 1
+`
+
+// Returns the head SHA of the commit currently "under review" for an task:
+// the most-recently-updated linked PR that still has an open/draft state and a
+// non-empty head_sha. Used by the reviewer-loop dedup (TEN-356) so a pending
+// review run pinned to an old head does not satisfy a request after HEAD
+// advanced. Prefers in-flight PRs (open/draft) over merged/closed ones so a
+// stale merged sibling can't shadow the live review target; falls back to the
+// newest linked PR with a head_sha when none are open. Returns no rows (empty
+// string) when the task has no linked PR — callers treat that as "no SHA key"
+// and dedup on (task_id, agent_id) alone, preserving pre-TEN-356 behavior.
+//
+// Spans both GitHub and self-hosted VCS PRs: a self-hosted PR pushing a new
+// commit must move the dedup head SHA the same way a GitHub PR does, otherwise
+// a fresh review round could be merged away against a stale key.
+// reference_only links are excluded on both arms, matching the PR-list and
+// close-aggregate queries: a body-only mention is hidden from the list and the
+// close gate, so it must not win this ORDER BY and become the review dedup head
+// SHA either, masking the real working PR's SHA.
+func (q *Queries) GetTaskReviewHeadSha(ctx context.Context, taskID pgtype.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getTaskReviewHeadSha, taskID)
+	var head_sha string
+	err := row.Scan(&head_sha)
+	return head_sha, err
+}
+
+const linkTaskToPullRequest = `-- name: LinkTaskToPullRequest :exec
+
+INSERT INTO task_pull_request (
+    task_id, pull_request_id, linked_by_type, linked_by_id, close_intent, reference_only
+) SELECT
+    $1 AS task_id,
+    $2 AS pull_request_id,
+    $4 AS linked_by_type,
+    $5 AS linked_by_id,
+    $3 AS close_intent,
+    $6 AS reference_only
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM task AS ref_task_id WHERE ref_task_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM github_pull_request AS ref_pull_request_id WHERE ref_pull_request_id.id = ($2) FOR KEY SHARE))
+
+ON CONFLICT (task_id, pull_request_id) DO UPDATE SET
     close_intent = CASE
-        WHEN $7 THEN issue_pull_request.close_intent
+        WHEN $7 THEN task_pull_request.close_intent
         ELSE EXCLUDED.close_intent
     END,
     reference_only = CASE
-        WHEN $7 THEN issue_pull_request.reference_only
+        WHEN $7 THEN task_pull_request.reference_only
         ELSE EXCLUDED.reference_only
     END
 `
 
-type LinkIssueToPullRequestParams struct {
-	IssueID             pgtype.UUID `json:"issue_id"`
+type LinkTaskToPullRequestParams struct {
+	TaskID              pgtype.UUID `json:"task_id"`
 	PullRequestID       pgtype.UUID `json:"pull_request_id"`
 	CloseIntent         bool        `json:"close_intent"`
 	LinkedByType        pgtype.Text `json:"linked_by_type"`
@@ -313,7 +327,7 @@ type LinkIssueToPullRequestParams struct {
 }
 
 // =====================
-// Issue ↔ Pull Request link
+// Task ↔ Pull Request link
 // =====================
 // close_intent reflects the PR's explicit close declaration at the moment
 // the webhook is allowed to update that intent. Open/edit/merge webhooks use
@@ -324,10 +338,10 @@ type LinkIssueToPullRequestParams struct {
 // reference_only marks a link justified ONLY by a bare body mention (no closing
 // keyword, no title/branch reference). It follows the same preserve gate as
 // close_intent so a post-terminal edit can't retroactively hide a PR that did
-// the work. The issue's PR list filters these out (see ListPullRequestsByIssue).
-func (q *Queries) LinkIssueToPullRequest(ctx context.Context, arg LinkIssueToPullRequestParams) error {
-	_, err := q.db.Exec(ctx, linkIssueToPullRequest,
-		arg.IssueID,
+// the work. The task's PR list filters these out (see ListPullRequestsByTask).
+func (q *Queries) LinkTaskToPullRequest(ctx context.Context, arg LinkTaskToPullRequestParams) error {
+	_, err := q.db.Exec(ctx, linkTaskToPullRequest,
+		arg.TaskID,
 		arg.PullRequestID,
 		arg.CloseIntent,
 		arg.LinkedByType,
@@ -417,37 +431,12 @@ func (q *Queries) ListGitHubInstallationsByWorkspace(ctx context.Context, worksp
 	return items, nil
 }
 
-const listIssueIDsForPullRequest = `-- name: ListIssueIDsForPullRequest :many
-SELECT issue_id FROM issue_pull_request
-WHERE pull_request_id = $1
-`
-
-func (q *Queries) ListIssueIDsForPullRequest(ctx context.Context, pullRequestID pgtype.UUID) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, listIssueIDsForPullRequest, pullRequestID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []pgtype.UUID{}
-	for rows.Next() {
-		var issue_id pgtype.UUID
-		if err := rows.Scan(&issue_id); err != nil {
-			return nil, err
-		}
-		items = append(items, issue_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listPullRequestsByIssue = `-- name: ListPullRequestsByIssue :many
-WITH issue_prs AS (
+const listPullRequestsByTask = `-- name: ListPullRequestsByTask :many
+WITH task_prs AS (
     SELECT pr.id, pr.snapshot_head_sha
     FROM github_pull_request pr
-    JOIN issue_pull_request ipr ON ipr.pull_request_id = pr.id
-    WHERE ipr.issue_id = $1 AND NOT ipr.reference_only
+    JOIN task_pull_request ipr ON ipr.pull_request_id = pr.id
+    WHERE ipr.task_id = $1 AND NOT ipr.reference_only
 ),
 checks AS (
     SELECT
@@ -467,7 +456,7 @@ checks AS (
             '{}'
         )::text[] AS failed_names
     FROM github_pull_request_check_run cr
-    JOIN issue_prs ip ON ip.id = cr.pr_id
+    JOIN task_prs ip ON ip.id = cr.pr_id
     WHERE cr.head_sha = ip.snapshot_head_sha AND ip.snapshot_head_sha <> ''
     GROUP BY cr.pr_id
 )
@@ -486,13 +475,13 @@ SELECT
     COALESCE(c.running, 0)::bigint AS checks_running,
     COALESCE(c.failed_names, '{}')::text[] AS failed_check_names
 FROM github_pull_request pr
-JOIN issue_pull_request ipr ON ipr.pull_request_id = pr.id
+JOIN task_pull_request ipr ON ipr.pull_request_id = pr.id
 LEFT JOIN checks c ON c.pr_id = pr.id
-WHERE ipr.issue_id = $1 AND NOT ipr.reference_only
+WHERE ipr.task_id = $1 AND NOT ipr.reference_only
 ORDER BY pr.pr_created_at DESC
 `
 
-type ListPullRequestsByIssueRow struct {
+type ListPullRequestsByTaskRow struct {
 	ID                  pgtype.UUID        `json:"id"`
 	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
 	InstallationID      int64              `json:"installation_id"`
@@ -528,25 +517,25 @@ type ListPullRequestsByIssueRow struct {
 	FailedCheckNames    []string           `json:"failed_check_names"`
 }
 
-// Returns the issue's linked PRs with the GitHub API snapshot (SILI-5265): the
+// Returns the task's linked PRs with the GitHub API snapshot (SILI-5265): the
 // mergeability verdict, the CI rollup, and per-check counts for the PR's
 // CURRENT snapshot head SHA. Checks are aggregated from
 // github_pull_request_check_run — the run-level snapshot written by the API
 // refresh pipeline — NOT the legacy suite-level webhook aggregation, which is
-// removed. The `issue_prs` CTE narrows to this issue's PR ids first so the
+// removed. The `task_prs` CTE narrows to this task's PR ids first so the
 // aggregation only touches check rows for those PRs. Rows for an OLD head are
 // excluded by the snapshot_head_sha filter. reference_only links (a PR that
-// merely mentions the issue identifier in its body, with no closing keyword and
+// merely mentions the task identifier in its body, with no closing keyword and
 // no title/branch reference) are filtered out — they are not working PRs.
-func (q *Queries) ListPullRequestsByIssue(ctx context.Context, issueID pgtype.UUID) ([]ListPullRequestsByIssueRow, error) {
-	rows, err := q.db.Query(ctx, listPullRequestsByIssue, issueID)
+func (q *Queries) ListPullRequestsByTask(ctx context.Context, taskID pgtype.UUID) ([]ListPullRequestsByTaskRow, error) {
+	rows, err := q.db.Query(ctx, listPullRequestsByTask, taskID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListPullRequestsByIssueRow{}
+	items := []ListPullRequestsByTaskRow{}
 	for rows.Next() {
-		var i ListPullRequestsByIssueRow
+		var i ListPullRequestsByTaskRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -592,18 +581,43 @@ func (q *Queries) ListPullRequestsByIssue(ctx context.Context, issueID pgtype.UU
 	return items, nil
 }
 
-const unlinkIssueFromPullRequest = `-- name: UnlinkIssueFromPullRequest :exec
-DELETE FROM issue_pull_request
-WHERE issue_id = $1 AND pull_request_id = $2
+const listTaskIDsForPullRequest = `-- name: ListTaskIDsForPullRequest :many
+SELECT task_id FROM task_pull_request
+WHERE pull_request_id = $1
 `
 
-type UnlinkIssueFromPullRequestParams struct {
-	IssueID       pgtype.UUID `json:"issue_id"`
+func (q *Queries) ListTaskIDsForPullRequest(ctx context.Context, pullRequestID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listTaskIDsForPullRequest, pullRequestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var task_id pgtype.UUID
+		if err := rows.Scan(&task_id); err != nil {
+			return nil, err
+		}
+		items = append(items, task_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const unlinkTaskFromPullRequest = `-- name: UnlinkTaskFromPullRequest :exec
+DELETE FROM task_pull_request
+WHERE task_id = $1 AND pull_request_id = $2
+`
+
+type UnlinkTaskFromPullRequestParams struct {
+	TaskID        pgtype.UUID `json:"task_id"`
 	PullRequestID pgtype.UUID `json:"pull_request_id"`
 }
 
-func (q *Queries) UnlinkIssueFromPullRequest(ctx context.Context, arg UnlinkIssueFromPullRequestParams) error {
-	_, err := q.db.Exec(ctx, unlinkIssueFromPullRequest, arg.IssueID, arg.PullRequestID)
+func (q *Queries) UnlinkTaskFromPullRequest(ctx context.Context, arg UnlinkTaskFromPullRequestParams) error {
+	_, err := q.db.Exec(ctx, unlinkTaskFromPullRequest, arg.TaskID, arg.PullRequestID)
 	return err
 }
 
@@ -670,13 +684,29 @@ INSERT INTO github_pull_request (
     merged_at, closed_at, pr_created_at, pr_updated_at,
     head_sha, mergeable_state,
     additions, deletions, changed_files
-) VALUES (
-    $1, $2, $3, $4, $5,
-    $6, $7, $8, $15, $16, $17,
-    $18, $19, $9, $10,
-    $11, $20,
-    $12, $13, $14
-)
+) SELECT
+    $1 AS workspace_id,
+    $2 AS installation_id,
+    $3 AS repo_owner,
+    $4 AS repo_name,
+    $5 AS pr_number,
+    $6 AS title,
+    $7 AS state,
+    $8 AS html_url,
+    $15 AS branch,
+    $16 AS author_login,
+    $17 AS author_avatar_url,
+    $18 AS merged_at,
+    $19 AS closed_at,
+    $9 AS pr_created_at,
+    $10 AS pr_updated_at,
+    $11 AS head_sha,
+    $20 AS mergeable_state,
+    $12 AS additions,
+    $13 AS deletions,
+    $14 AS changed_files
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+
 ON CONFLICT (workspace_id, repo_owner, repo_name, pr_number) DO UPDATE SET
     installation_id = EXCLUDED.installation_id,
     title = EXCLUDED.title,

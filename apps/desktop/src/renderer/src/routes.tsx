@@ -6,7 +6,8 @@ import {
   useParams,
 } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
-import { IssueDetailPage } from "./pages/issue-detail-page";
+import { TaskDetailPage } from "./pages/task-detail-page";
+import { ProjectFilesRoute } from "./pages/project-files-page";
 import { ProjectDetailPage } from "./pages/project-detail-page";
 import { AutopilotDetailPage } from "./pages/autopilot-detail-page";
 import { SkillDetailPage } from "./pages/skill-detail-page";
@@ -18,12 +19,12 @@ import {
 } from "./pages/runtime-detail-page";
 import { AttachmentPreviewRoute } from "./pages/attachment-preview-page";
 import { InlineHtmlPreviewRoute } from "./pages/inline-html-preview-page";
-import { IssuesPage } from "@silieco/views/issues/components";
+import { TasksPage } from "@silieco/views/tasks/components";
 import { ProjectsPage } from "@silieco/views/projects/components";
 import { WorkflowsPage } from "@silieco/views/workflows/components";
 import { DashboardPage } from "@silieco/views/dashboard";
 import { AutopilotsPage } from "@silieco/views/autopilots/components";
-import { MyIssuesPage } from "@silieco/views/my-issues";
+import { MyTasksPage } from "@silieco/views/my-tasks";
 import { SkillsPage } from "@silieco/views/skills";
 import { DesktopRuntimesPage } from "./components/desktop-runtimes-page";
 import { DesktopAgentsPage } from "./components/desktop-agents-page";
@@ -72,7 +73,7 @@ function DesktopSettingsRoute() {
 /**
  * Sets document.title from the deepest matched route's handle.title.
  * The tab system observes document.title via MutationObserver.
- * Pages with dynamic titles (e.g. issue detail) override by setting
+ * Pages with dynamic titles (e.g. task detail) override by setting
  * document.title directly via useDocumentTitle().
  */
 function TitleSync() {
@@ -131,7 +132,7 @@ export const appRoutes: RouteObject[] = [
         path: ":workspaceSlug",
         element: <WorkspaceRouteLayout />,
         children: [
-          // A bare `/{slug}` URL is normalized to `/{slug}/issues` by
+          // A bare `/{slug}` URL is normalized to `/{slug}/tasks` by
           // sanitizeTabPath before it ever becomes a session, so the index
           // route is unreachable in practice; null keeps it a harmless
           // safety net instead of an in-router <Navigate> (SILI-4741
@@ -140,24 +141,16 @@ export const appRoutes: RouteObject[] = [
           { path: "browser/:sessionId", element: <Suspense fallback={<div className="flex-1 bg-background" />}><BrowserToolRoute /></Suspense> },
           {
             path: "tasks",
-            element: <IssuesPage />,
+            element: <TasksPage />,
             handle: { title: "Tasks" },
           },
           {
             path: "tasks/:id",
-            element: <IssueDetailPage />,
+            element: <TaskDetailPage />,
             handle: { title: "Task" },
           },
-          {
-            path: "issues",
-            element: <IssuesPage />,
-            handle: { title: "Tasks" },
-          },
-          {
-            path: "issues/:id",
-            element: <IssueDetailPage />,
-            handle: { title: "Task" },
-          },
+
+
           {
             path: "projects",
             element: <ProjectsPage />,
@@ -167,6 +160,11 @@ export const appRoutes: RouteObject[] = [
             path: "projects/:id",
             element: <ProjectDetailPage />,
             handle: { title: "Project" },
+          },
+          {
+            path: "projects/:id/files",
+            element: <ProjectFilesRoute />,
+            handle: { title: "Files" },
           },
           {
             path: "resources",
@@ -195,14 +193,10 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "my-tasks",
-            element: <MyIssuesPage />,
+            element: <MyTasksPage />,
             handle: { title: "My Tasks" },
           },
-          {
-            path: "my-issues",
-            element: <MyIssuesPage />,
-            handle: { title: "My Tasks" },
-          },
+
           {
             path: "runtimes",
             element: <DesktopRuntimesPage />,

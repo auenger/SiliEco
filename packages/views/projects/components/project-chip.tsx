@@ -8,7 +8,7 @@ import { useT } from "../../i18n";
 
 /**
  * Compact presentational representation of a project —
- * `<emoji> <title>`, bordered, truncating to max-w-72. Mirror of IssueChip.
+ * `<emoji> <title>`, bordered, truncating to max-w-72. Mirror of TaskChip.
  *
  * Not a link / button: callers wrap it in whatever interactive shell they
  * need. Pure UI — data is queried internally so callers can pass just an id.

@@ -108,7 +108,7 @@ func TestCreateIsolatedCheckoutFromPartialCacheHasFileContents(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             t.TempDir(),
 		AgentName:           "Linux Codex",
-		TaskID:              "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		RunID:               "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		IsolatedGitMetadata: true,
 	})
 	if err != nil {
@@ -145,7 +145,7 @@ func TestReusedIsolatedCheckoutRepairsPromisorConfig(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             t.TempDir(),
 		AgentName:           "Linux Codex",
-		TaskID:              "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		RunID:               "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		IsolatedGitMetadata: true,
 	}
 	first, err := cache.CreateWorktree(params)
@@ -181,7 +181,7 @@ func TestCreateWorktreeFromPartialCacheHasFileContents(t *testing.T) {
 		RepoURL:     sourceRepo,
 		WorkDir:     t.TempDir(),
 		AgentName:   "tester",
-		TaskID:      "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		RunID:       "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)

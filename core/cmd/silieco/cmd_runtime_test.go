@@ -45,7 +45,7 @@ func captureRuntimeStdout(t *testing.T, fn func() error) (string, error) {
 	return string(out), runErr
 }
 
-func TestRunRuntimeDeleteStrictSuccessPrintsJSON(t *testing.T) {
+func TestExecuteRuntimeDeleteStrictSuccessPrintsJSON(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_TOKEN", "test-token")
 
@@ -86,7 +86,7 @@ func TestRunRuntimeDeleteStrictSuccessPrintsJSON(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeDeleteConflictSuggestsCascade(t *testing.T) {
+func TestExecuteRuntimeDeleteConflictSuggestsCascade(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_TOKEN", "test-token")
 
@@ -115,7 +115,7 @@ func TestRunRuntimeDeleteConflictSuggestsCascade(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeDeleteCascadeConfirmsActiveAgentSnapshot(t *testing.T) {
+func TestExecuteRuntimeDeleteCascadeConfirmsActiveAgentSnapshot(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_TOKEN", "test-token")
 
@@ -146,7 +146,7 @@ func TestRunRuntimeDeleteCascadeConfirmsActiveAgentSnapshot(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status":          "ok",
 				"agents_archived": 2,
-				"tasks_cancelled": 1,
+				"runs_cancelled": 1,
 			})
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)

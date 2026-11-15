@@ -27,15 +27,15 @@ const (
 	otherMemberID   = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 )
 
-func issueWithAgentAssignee() db.Issue {
-	return db.Issue{
+func taskWithAgentAssignee() db.Task {
+	return db.Task{
 		AssigneeType: testText("agent"),
 		AssigneeID:   testUUID(agentAssigneeID),
 	}
 }
 
-func issueNoAssignee() db.Issue {
-	return db.Issue{}
+func taskNoAssignee() db.Task {
+	return db.Task{}
 }
 
 func TestHasAgentOrSquadMention(t *testing.T) {
@@ -48,7 +48,7 @@ func TestHasAgentOrSquadMention(t *testing.T) {
 		{"agent", fmt.Sprintf("[@Agent](mention://agent/%s) please fix", agentAssigneeID), true},
 		{"squad", "[@Squad](mention://squad/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa) please coordinate", true},
 		{"member only", fmt.Sprintf("[@Bob](mention://member/%s) take a look", memberID), false},
-		{"issue only", "[PAN-1](mention://issue/44c266e7-f6dd-4be3-9140-5ac40233f79c) is related", false},
+		{"task only", "[PAN-1](mention://task/44c266e7-f6dd-4be3-9140-5ac40233f79c) is related", false},
 		{"all only", "[@all](mention://all/all) heads up", false},
 	}
 
@@ -105,13 +105,13 @@ func TestIsNoteComment(t *testing.T) {
 // before the cascade tries to resolve mentions, parent ownership, or assignee
 // fallback. A nil-Queries Handler would panic if the /note guard were missing or
 // moved below those branches.
-func TestTriggerTasksForComment_NoteShortCircuits(t *testing.T) {
+func TestTriggerRunsForComment_NoteShortCircuits(t *testing.T) {
 	h := &Handler{} // nil Queries / TaskService on purpose
-	issue := issueWithAgentAssignee()
+	task := taskWithAgentAssignee()
 	comment := db.Comment{
 		Content: fmt.Sprintf("/note cc [@Other](mention://agent/%s) just an fyi", otherAgentID),
 	}
 
 	// Must not panic — the guard short-circuits before any DB access.
-	h.triggerTasksForComment(context.Background(), issue, comment, nil, "member", memberID, memberID, "", nil)
+	h.triggerRunsForComment(context.Background(), task, comment, nil, "member", memberID, memberID, "", nil)
 }

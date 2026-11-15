@@ -13,7 +13,7 @@ Read it before editing translations in `packages/views/locales/`, naming routes/
 
 ## Project Shape
 
-Silieco is an AI-native task management platform for small teams, with agents as first-class assignees that can own issues, comment, and change status.
+Silieco is an AI-native task management platform for small teams, with agents as first-class assignees that can own tasks, comment, and change status.
 
 - `core/`: Go backend, Chi router, sqlc, gorilla/websocket.
 - `apps/web/`: Next.js App Router.
@@ -26,11 +26,19 @@ Silieco is an AI-native task management platform for small teams, with agents as
 
 Shared packages export raw `.ts` / `.tsx` and are compiled by consuming apps. Dependency direction is `views -> core + ui`; `core` and `ui` must stay independent.
 
+## Task / AgentRun Naming
+
+- `Task` is the business work item; `AgentRun` is one agent execution. A task can have zero or more runs, and a chat/automation run may have no task.
+- `task_id` / `TaskID` identify business tasks; `run_id` / `RunID` identify executions. Business parent links use `parent_task_id`; execution retry links use `parent_run_id`.
+- `TaskService` owns business tasks; `AgentRunService` owns execution lifecycle. Use `/api/tasks` and `/api/runs`, and `task:*` and `run:*` events respectively.
+- Define Task directly. Do not reintroduce `Issue` aliases, forwarding modules, old routes, or CLI aliases. Third-party GitHub issues and library fields such as Zod `error.issues` retain their external names.
+- This development reset uses one protocol generation and a fresh database baseline. Do not add old-data migrations or old-client adapters without an explicit requirement. Never reset a database automatically during normal startup.
+
 ## State Rules
 
 Keep server state and client state separate.
 
-- TanStack Query owns server state: issues, users, workspaces, inbox, agents, members, and anything fetched from the API.
+- TanStack Query owns server state: tasks, users, workspaces, inbox, agents, members, and anything fetched from the API.
 - Zustand owns client/view state: filters, drafts, modals, tab layout, and navigation history. Current workspace identity is route-driven; platform stores/singletons may mirror slug/id only for headers, persistence namespaces, and reconnects.
 - Shared Zustand stores live in `packages/core/`, never in `packages/views/` or app directories.
 - React Context is for platform plumbing only, such as `WorkspaceIdProvider` and `NavigationProvider`.
@@ -111,15 +119,15 @@ These are hard requirements for every new or modified database design and produc
 - Prefer existing patterns/components over new parallel abstractions.
 - Avoid broad refactors unless required by the task.
 - For internal, non-boundary code, do not add compatibility layers, fallback paths, dual writes, legacy adapters, or temporary shims unless explicitly requested.
-- API boundaries are different: installed desktop clients can talk to newer backends, so response parsing must follow the API compatibility rules below.
+- API boundaries must validate responses even within the supported protocol generation; follow the response validation rules below.
 - If a flow or API is being replaced and the product is not live, prefer removing the old path instead of preserving both.
 - New global pre-workspace routes must be a single word (`/login`, `/inbox`) or `/{noun}/{verb}` (`/workspaces/new`). Do not add hyphenated root routes like `/new-workspace`.
 - Reserved slugs live in `core/internal/handler/reserved_slugs.json`. Edit it, run `pnpm generate:reserved-slugs`, and commit the generated `packages/core/paths/reserved-slugs.ts`.
 - When changing CLI commands/flags, API fields, or product behavior documented by built-in skills under `core/internal/service/builtin_skills/*`, update the relevant `SKILL.md` and `references/*-source-map.md` in the same PR.
 
-## API Compatibility
+## API Response Validation
 
-Frontend code must survive backend response drift, especially in installed desktop builds.
+Clients and servers must use the same supported protocol generation. The Task / AgentRun contract does not support the retired Issue protocol. Response validation and defensive rendering still apply to missing, malformed, or unknown fields within the supported contract.
 
 - Parse API JSON with `parseWithFallback` in `packages/core/api/schema.ts` and a zod schema. Do not cast network JSON to `T`.
 - Endpoint responses consumed by UI logic must pass through a schema before returning.
@@ -133,7 +141,7 @@ Frontend code must survive backend response drift, especially in installed deskt
 
 In `core/internal/handler/`, always know where a UUID came from before using it in write queries.
 
-- Resource path params that may be UUIDs or human-readable IDs must be resolved through loaders such as `loadIssueForUser`, `loadSkillForUser`, `loadAgentForUser`, or `requireDaemonRuntimeAccess`; subsequent writes use the resolved `entity.ID`.
+- Resource path params that may be UUIDs or human-readable IDs must be resolved through loaders such as `loadTaskForUser`, `loadSkillForUser`, `loadAgentForUser`, or `requireDaemonRuntimeAccess`; subsequent writes use the resolved `entity.ID`.
 - Pure UUID inputs from request boundaries use `parseUUIDOrBadRequest(w, s, fieldName)` and return immediately on `ok=false`.
 - Trusted UUID round-trips from sqlc results or test fixtures use `parseUUID(s)`, which panics on invalid input.
 - Outside handlers, `util.ParseUUID(s) (pgtype.UUID, error)` is the safe variant; always check the error.
@@ -155,7 +163,7 @@ CSS for web/desktop is shared from `packages/ui/styles/`. Use semantic tokens su
 
 Desktop routing has three categories:
 
-- Session routes: workspace-scoped tab destinations such as `/:slug/issues`.
+- Session routes: workspace-scoped tab destinations such as `/:slug/tasks`.
 - Transition flows: pre-workspace one-shot actions such as create workspace or accept invite. These are `WindowOverlay` state, not routes.
 - Error/stale states: stale workspace tabs should auto-heal by dropping stale tab groups, not render desktop error pages.
 
@@ -236,4 +244,4 @@ Do not claim verification passed unless you ran it. If you skip checks because t
 ## Domain Reminders
 
 - All queries filter by `workspace_id`; membership gates access; `X-Workspace-ID` selects the workspace.
-- Issue assignees are polymorphic: `assignee_type` plus `assignee_id` can reference a member or an agent.
+- Task assignees are polymorphic: `assignee_type` plus `assignee_id` can reference a member, agent, or squad.

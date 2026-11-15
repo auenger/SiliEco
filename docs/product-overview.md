@@ -1,6 +1,6 @@
 # Silieco 产品全景
 
-> 更新日期：2026-07-31
+> 更新日期：2026-11-06
 > 适用范围：当前仓库中的 Core、Daemon、Web、Desktop、Mobile 与共享 packages。
 
 这份文档描述已经落到代码、数据库迁移或 App 界面中的产品模型。它用于产品、设计、
@@ -53,7 +53,8 @@ Space
 | Space | 团队协作和权限隔离的顶层容器 | `workspace` |
 | Member | 人类用户在某个 Space 中的成员身份 | `member` |
 | Project | Space 下组织目标、Task、SOP 和协作者的容器 | `project` |
-| Task | 最小可执行工作单元，可交给人、Agent 或蜂群 | `issue`（内部兼容表名） |
+| Task | 最小业务工作单元，可交给人、Agent 或蜂群 | `task` |
+| AgentRun | 一次智能体执行，包含运行状态、消息、结果、用量和重试关系 | `agent_run` |
 | Agent | 有身份、运行时、模型、说明、Skills 和权限的 AI 工作者 | `agent` |
 | Swarm 蜂群 | 多个人与 Agent 的稳定路由和协作单元 | `squad`（内部兼容表名） |
 | Runtime | 实际执行 Agent CLI 的计算环境 | `agent_runtime` |
@@ -67,12 +68,17 @@ Space
 | Chat | 人与 Agent 的持久协作对话 | `chat_session` / `chat_message` |
 | Autopilot | 定时、Webhook 或手动触发的自动化 | `autopilot*` |
 
-### Task 与内部 `issue` 命名
+### Task 与 AgentRun
 
-当前产品界面统一使用 Task。数据库、Go 服务的部分类型、REST 路径以及 CLI
-`silieco issue ...` 仍保留 `issue`，是因为这些名称属于已经稳定的兼容协议。它们
-不会在产品层形成一套独立的“Issue”概念。后续迁移要先提供 API/CLI 兼容策略，不能
-直接重命名表或路由。
+Task 是唯一业务任务概念，代码、数据库、API 和 CLI 分别使用 `Task`、`task`、
+`/api/tasks` 与 `silieco task`。AgentRun 是一次执行，执行接口使用 `/api/runs`。
+
+一个 Task 可以关联零到多个 AgentRun；聊天和自动化发起的 AgentRun 可以没有 Task。
+业务任务用 `task_id` 标识，执行记录用 `run_id` 标识。任务的 `done` 与执行的
+`completed` 表示不同层次的状态，不因名称统一而合并生命周期。
+
+当前开发环境采用一次性协议切换和测试数据重置，旧 Issue 接口与别名不再提供。
+Core、Web、Desktop、Mobile、CLI 与 Daemon 应作为同一协议代际发布。
 
 ### 蜂群与内部 `squad` 命名
 
@@ -122,7 +128,7 @@ Task 是 Silieco 的核心工作对象。
 - `blocked`：已阻塞；
 - `cancelled`：已取消。
 
-Task 可以分配给 Member、Agent 或蜂群。Agent 接手 Task 后，Core 创建执行队列记录，
+Task 可以分配给 Member、Agent 或蜂群。Agent 接手 Task 后，Core 创建 AgentRun 执行记录，
 Daemon 认领并启动对应 CLI。执行中的事件、回复、用量、错误与完成状态持续回传 Core，
 App 通过 WebSocket 和查询缓存更新视图。
 
@@ -225,7 +231,7 @@ Agent 是组织中的 AI 工作者，而不是单纯的模型别名。它可以�
 - Runtime、Provider、模型、思考等级与服务等级；
 - 自定义环境变量和 CLI 参数；
 - MCP Server、Connected Apps 与 Skills；
-- 最大并发 Task 数量。
+- 最大并发 AgentRun 数量。
 
 默认助手名称为 **Sili Agent**，品牌头像使用 Silieco Logo。
 
@@ -240,7 +246,7 @@ Daemon 负责：
 
 1. 发现本机可用的 Agent CLI；
 2. 通过稳定协议连接 Core；
-3. 认领排队 Task；
+3. 认领排队 AgentRun；
 4. 准备工作目录、仓库、Skill、MCP 和运行环境；
 5. 启动 Claude Code、Codex 等 Agent CLI；
 6. 流式上报消息、工具调用、状态、用量和错误；
@@ -264,14 +270,13 @@ Daemon 负责：
 群聊触发规则是：
 
 - 人与人正常发送消息时，不触发 Agent；
-- 只有消息中明确 `@` 某个 Agent，Core 才为该 Agent 创建执行 Task；
-- 一条消息可以提及多个 Agent，并分别创建队列任务；
+- 只有消息中明确 `@` 某个 Agent，Core 才为该 Agent 创建 AgentRun；
+- 一条消息可以提及多个 Agent，并分别创建 AgentRun；
 - Agent 执行时读取带说话人标识的群聊历史作为上下文；
 - Agent 回复仍写回同一个群聊，所有参与者共享结果；
 - 创建弹窗将成员搜索和结果放在同一个 Panel 中，并支持后续继续邀请成员。
 
-相关 schema 由迁移 `248_group_chat`、`249_chat_participant_unique_index` 和
-`250_chat_participant_actor_index` 引入。
+群聊成员由 `chat_participant` 数据模型保存，初始化与索引定义随当前数据库基线维护。
 
 ## 9. 蜂群、Skill 与 Autopilot
 
@@ -333,7 +338,7 @@ Client machine
 
 Core 负责信息中转、权限、状态与调度；App 提供协作界面；Daemon 在用户掌控的机器上
 执行实际 Agent 工作。客户端只启动 App 而没有 Daemon 时仍可浏览和管理数据，但不能
-在本机执行 Agent Task。
+在本机运行 AgentRun。
 
 ## 12. 技术实现边界
 
@@ -374,6 +379,6 @@ Daemon，最后依据收益决定是否迁移 Core。详见
 - Workflow Gate 的数据模型已经存在，后续仍需继续完善更严格的自动流转和权限策略。
 - 群聊已完成成员模型、`@Agent` 触发与共享历史，后续可以继续优化上下文裁剪、摘要、
   权限和多 Agent 协作策略。
-- Task、蜂群的内部兼容命名还未完全清理，但不能通过破坏协议的方式直接替换。
+- Task / AgentRun 使用同一协议代际；旧测试数据和旧客户端不在本次切换后的支持范围内。蜂群的内部 `squad` 名称不属于本次重构。
 - Rust 迁移尚未开始形成生产替代实现；现阶段不要同时重写 Core 与 Daemon。
 - 仓库尚未声明许可证。

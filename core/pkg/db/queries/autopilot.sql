@@ -47,13 +47,23 @@ WHERE id = $1 AND workspace_id = $2;
 -- name: CreateAutopilot :one
 INSERT INTO autopilot (
     workspace_id, title, description, assignee_type, assignee_id,
-    status, execution_mode, issue_title_template, project_id,
+    status, execution_mode, task_title_template, project_id,
     created_by_type, created_by_id
-) VALUES (
-    $1, $2, sqlc.narg('description'), $3, $4,
-    $5, $6, sqlc.narg('issue_title_template'), sqlc.narg('project_id'),
-    $7, $8
-) RETURNING *;
+) SELECT
+    $1 AS workspace_id,
+    $2 AS title,
+    sqlc.narg('description') AS description,
+    $3 AS assignee_type,
+    $4 AS assignee_id,
+    $5 AS status,
+    $6 AS execution_mode,
+    sqlc.narg('task_title_template') AS task_title_template,
+    sqlc.narg('project_id') AS project_id,
+    $7 AS created_by_type,
+    $8 AS created_by_id
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND ((sqlc.narg('project_id'))::uuid IS NULL OR EXISTS (SELECT 1 FROM project AS ref_project_id WHERE ref_project_id.id = (sqlc.narg('project_id')) FOR KEY SHARE))
+ RETURNING *;
 
 -- name: UpdateAutopilot :one
 UPDATE autopilot SET
@@ -63,10 +73,12 @@ UPDATE autopilot SET
     assignee_id = COALESCE(sqlc.narg('assignee_id')::uuid, assignee_id),
     status = COALESCE(sqlc.narg('status'), status),
     execution_mode = COALESCE(sqlc.narg('execution_mode'), execution_mode),
-    issue_title_template = sqlc.narg('issue_title_template'),
+    task_title_template = sqlc.narg('task_title_template'),
     project_id = sqlc.narg('project_id'),
     updated_at = now()
-WHERE id = $1
+WHERE autopilot.id = $1
+
+  AND ((sqlc.narg('project_id'))::uuid IS NULL OR EXISTS (SELECT 1 FROM project AS ref_project_id WHERE ref_project_id.id = (sqlc.narg('project_id')) FOR KEY SHARE))
 RETURNING *;
 
 -- name: ArchiveAutopilot :exec
@@ -124,13 +136,21 @@ INSERT INTO autopilot_trigger (
     autopilot_id, kind, enabled, cron_expression, timezone,
     next_run_at, webhook_token, label, provider, event_filters,
     published_by_type, published_by_id
-) VALUES (
-    $1, $2, $3, sqlc.narg('cron_expression'), sqlc.narg('timezone'),
-    sqlc.narg('next_run_at'), sqlc.narg('webhook_token'), sqlc.narg('label'),
-    COALESCE(sqlc.narg('provider')::text, 'generic'),
-    sqlc.narg('event_filters'),
-    sqlc.narg('published_by_type'), sqlc.narg('published_by_id')
-) RETURNING *;
+) SELECT
+    $1 AS autopilot_id,
+    $2 AS kind,
+    $3 AS enabled,
+    sqlc.narg('cron_expression') AS cron_expression,
+    sqlc.narg('timezone') AS timezone,
+    sqlc.narg('next_run_at') AS next_run_at,
+    sqlc.narg('webhook_token') AS webhook_token,
+    sqlc.narg('label') AS label,
+    COALESCE(sqlc.narg('provider')::text, 'generic') AS provider,
+    sqlc.narg('event_filters') AS event_filters,
+    sqlc.narg('published_by_type') AS published_by_type,
+    sqlc.narg('published_by_id') AS published_by_id
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot AS ref_autopilot_id WHERE ref_autopilot_id.id = ($1) FOR KEY SHARE))
+ RETURNING *;
 
 -- name: SetAutopilotTriggerPublisher :exec
 -- Re-stamp a single trigger's responsible publisher after a substantive edit of
@@ -163,7 +183,25 @@ WHERE id = $1
 RETURNING *;
 
 -- name: DeleteAutopilotTrigger :exec
-DELETE FROM autopilot_trigger WHERE id = $1;
+WITH RECURSIVE cleanup_target_autopilot_trigger AS MATERIALIZED (
+    SELECT autopilot_trigger.* FROM "autopilot_trigger" autopilot_trigger WHERE autopilot_trigger.id = $1
+),
+cleanup_target_webhook_delivery AS MATERIALIZED (
+    SELECT child.* FROM "webhook_delivery" child WHERE EXISTS (SELECT 1 FROM cleanup_target_autopilot_trigger parent WHERE child."trigger_id" = parent."id")
+),
+cleanup_delete_webhook_delivery AS (
+    DELETE FROM "webhook_delivery" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_webhook_delivery)
+),
+cleanup_detach_autopilot_run AS (
+    UPDATE "autopilot_run" child SET "trigger_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_autopilot_trigger parent WHERE child."trigger_id" = parent."id") THEN NULL ELSE child."trigger_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_autopilot_trigger parent WHERE child."trigger_id" = parent."id"))
+),
+cleanup_detach_webhook_delivery AS (
+    UPDATE "webhook_delivery" child SET "replayed_from_delivery_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_webhook_delivery parent WHERE child."replayed_from_delivery_id" = parent."id") THEN NULL ELSE child."replayed_from_delivery_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_webhook_delivery parent WHERE child."replayed_from_delivery_id" = parent."id")) AND NOT ((child."id") IN (SELECT "id" FROM cleanup_target_webhook_delivery))
+)
+DELETE FROM "autopilot_trigger" autopilot_trigger WHERE (autopilot_trigger."id") IN (SELECT "id" FROM cleanup_target_autopilot_trigger) ;
+
 
 -- name: AdvanceTriggerNextRun :exec
 UPDATE autopilot_trigger
@@ -237,7 +275,7 @@ RETURNING *;
 -- name: CreateAutopilotRun :one
 -- squad_id is an attribution hook: set to the assignee squad when the
 -- parent autopilot has assignee_type='squad', NULL otherwise. The executing
--- agent_id on agent_task_queue still records who actually ran the work
+-- agent_id on agent_run still records who actually ran the work
 -- (the squad leader); squad_id lets reports group by squad without a join.
 --
 -- planned_at carries the canonical UTC fire time for scheduled triggers
@@ -249,11 +287,19 @@ RETURNING *;
 INSERT INTO autopilot_run (
     autopilot_id, trigger_id, source, status, trigger_payload, squad_id, planned_at,
     webhook_delivery_id
-) VALUES (
-    $1, sqlc.narg('trigger_id'), $2, $3, sqlc.narg('trigger_payload'),
-    sqlc.narg('squad_id'), sqlc.narg('planned_at'),
-    sqlc.narg('webhook_delivery_id')
-) RETURNING *;
+) SELECT
+    $1 AS autopilot_id,
+    sqlc.narg('trigger_id') AS trigger_id,
+    $2 AS source,
+    $3 AS status,
+    sqlc.narg('trigger_payload') AS trigger_payload,
+    sqlc.narg('squad_id') AS squad_id,
+    sqlc.narg('planned_at') AS planned_at,
+    sqlc.narg('webhook_delivery_id') AS webhook_delivery_id
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot AS ref_autopilot_id WHERE ref_autopilot_id.id = ($1) FOR KEY SHARE))
+  AND ((sqlc.narg('trigger_id'))::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot_trigger AS ref_trigger_id WHERE ref_trigger_id.id = (sqlc.narg('trigger_id')) FOR KEY SHARE))
+  AND ((sqlc.narg('squad_id'))::uuid IS NULL OR EXISTS (SELECT 1 FROM squad AS ref_squad_id WHERE ref_squad_id.id = (sqlc.narg('squad_id')) FOR KEY SHARE))
+ RETURNING *;
 
 -- name: GetAutopilotRunByTriggerAndPlanned :one
 -- Idempotent lookup used by DispatchAutopilotForPlan to detect a
@@ -277,7 +323,7 @@ LIMIT 1;
 -- name: RecoverPartialAutopilotRun :exec
 -- Recovers a partial-state autopilot_run from a crashed first attempt
 -- (the runner wrote the run row but died before creating the downstream
--- issue/task) so that a subsequent DispatchAutopilotForPlan call can
+-- task/run) so that a subsequent DispatchAutopilotForPlan call can
 -- create a fresh run at the same (trigger_id, planned_at).
 --
 -- Setting planned_at = NULL clears the partial-unique slot held by
@@ -302,16 +348,20 @@ WHERE autopilot_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
 
--- name: UpdateAutopilotRunIssueCreated :one
+-- name: UpdateAutopilotRunTaskCreated :one
 UPDATE autopilot_run
-SET status = 'issue_created', issue_id = $2
-WHERE id = $1
+SET status = 'task_created', task_id = $2
+WHERE autopilot_run.id = $1
+
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM task AS ref_task_id WHERE ref_task_id.id = ($2) FOR KEY SHARE))
 RETURNING *;
 
 -- name: UpdateAutopilotRunRunning :one
 UPDATE autopilot_run
-SET status = 'running', task_id = $2
-WHERE id = $1
+SET status = 'running', run_id = $2
+WHERE autopilot_run.id = $1
+
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM agent_run AS ref_run_id WHERE ref_run_id.id = ($2) FOR KEY SHARE))
 RETURNING *;
 
 -- name: UpdateAutopilotRunCompleted :one
@@ -327,10 +377,10 @@ WHERE id = $1
 RETURNING *;
 
 -- name: UpdateAutopilotRunSkipped :one
--- Marks an autopilot_run as skipped without enqueueing any task. Used by the
+-- Marks an autopilot_run as skipped without enqueueing any run. Used by the
 -- pre-flight admission check when the assignee agent's runtime is offline:
--- creating an issue / task in that state would just pile a doomed job onto
--- agent_task_queue (the canonical "持续给离线 local agent 入队" symptom from
+-- creating an task / run in that state would just pile a doomed job onto
+-- agent_run (the canonical "持续给离线 local agent 入队" symptom from
 -- SILI-1899). Recording the skip + reason gives the UI / failure monitor / ops
 -- a paper trail without polluting the failure ratio.
 UPDATE autopilot_run
@@ -383,10 +433,10 @@ WHERE t.kind = 'schedule'
 ORDER BY t.id;
 
 -- =====================
--- Task Queue (run_only mode)
+-- Run Queue (run_only mode)
 -- =====================
 
--- name: CreateAutopilotTask :one
+-- name: CreateAutopilotAgentRun :one
 -- run_only autopilot dispatch. Attribution depends on the trigger:
 --   * schedule / webhook / api: no human authorized the run, so originator_user_id
 --     stays NULL and accountable_user_id is the rule_owner (the publisher of the
@@ -398,26 +448,34 @@ ORDER BY t.id;
 -- When no version/publisher resolves on the non-manual path, the caller passes NULL
 -- accountable + originator_source='unattributed' so the row is still not a
 -- NULL-source bypass (SILI-4302 §2).
-INSERT INTO agent_task_queue (
-    agent_id, runtime_id, issue_id, status, priority, autopilot_run_id, trigger_summary,
+INSERT INTO agent_run (
+    agent_id, runtime_id, task_id, status, priority, autopilot_run_id, trigger_summary,
     originator_user_id, accountable_user_id, rule_version_id,
     originator_source, trigger_evidence_kind, trigger_evidence_ref_id
-)
-VALUES (
-    $1, $2, NULL, 'queued', $3, $4, sqlc.narg(trigger_summary),
-    sqlc.narg(originator_user_id),
-    sqlc.narg(accountable_user_id),
-    sqlc.narg(rule_version_id),
-    sqlc.narg(originator_source),
-    sqlc.narg(trigger_evidence_kind),
-    sqlc.narg(trigger_evidence_ref_id)
-)
+) SELECT
+    $1 AS agent_id,
+    $2 AS runtime_id,
+    NULL AS task_id,
+    'queued' AS status,
+    $3 AS priority,
+    $4 AS autopilot_run_id,
+    sqlc.narg(trigger_summary) AS trigger_summary,
+    sqlc.narg(originator_user_id) AS originator_user_id,
+    sqlc.narg(accountable_user_id) AS accountable_user_id,
+    sqlc.narg(rule_version_id) AS rule_version_id,
+    sqlc.narg(originator_source) AS originator_source,
+    sqlc.narg(trigger_evidence_kind) AS trigger_evidence_kind,
+    sqlc.narg(trigger_evidence_ref_id) AS trigger_evidence_ref_id
+WHERE (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM agent_runtime AS ref_runtime_id WHERE ref_runtime_id.id = ($2) FOR KEY SHARE))
+  AND (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM agent AS ref_agent_id WHERE ref_agent_id.id = ($1) FOR KEY SHARE))
+  AND (($4)::uuid IS NULL OR EXISTS (SELECT 1 FROM autopilot_run AS ref_autopilot_run_id WHERE ref_autopilot_run_id.id = ($4) FOR KEY SHARE))
+
 RETURNING *;
 
--- name: GetAutopilotTaskByRun :one
--- Repairs the narrow run_only crash window where the task INSERT committed
--- but the following autopilot_run.task_id update did not.
-SELECT * FROM agent_task_queue
+-- name: GetAutopilotAgentRunByRun :one
+-- Repairs the narrow run_only crash window where the run INSERT committed
+-- but the following autopilot_run.run_id update did not.
+SELECT * FROM agent_run
 WHERE autopilot_run_id = $1
 ORDER BY created_at
 LIMIT 1;
@@ -426,18 +484,18 @@ LIMIT 1;
 -- Run lookup by linked entities
 -- =====================
 
--- name: GetAutopilotRunByIssue :one
+-- name: GetAutopilotRunByTask :one
 SELECT * FROM autopilot_run
-WHERE issue_id = $1 AND status IN ('issue_created', 'running')
+WHERE task_id = $1 AND status IN ('task_created', 'running')
 LIMIT 1;
 
--- name: FailAutopilotRunsByIssue :exec
--- Fails active autopilot runs linked to a given issue.
--- Must be called BEFORE issue deletion (ON DELETE SET NULL clears issue_id).
+-- name: FailAutopilotRunsByTask :exec
+-- Fails active autopilot runs linked to a given task.
+-- Must be called BEFORE task deletion (ON DELETE SET NULL clears task_id).
 UPDATE autopilot_run
-SET status = 'failed', completed_at = now(), failure_reason = 'linked issue was deleted'
-WHERE issue_id = $1
-  AND status IN ('issue_created', 'running');
+SET status = 'failed', completed_at = now(), failure_reason = 'linked task was deleted'
+WHERE task_id = $1
+  AND status IN ('task_created', 'running');
 
 -- =====================
 -- Failure-rate auto-pause
@@ -450,11 +508,11 @@ WHERE issue_id = $1
 -- (e.g. assignee runtime offline at dispatch time, SILI-1899) is neither a
 -- success nor a failure, so it must not dilute the failure ratio (which
 -- would let a 100%-failing autopilot mask itself behind a wall of skips)
--- nor inflate it. issue_created/running are still excluded so in-flight
+-- nor inflate it. task_created/running are still excluded so in-flight
 -- work isn't penalised.
 -- Used by the failure monitor to auto-pause sustained-failure autopilots
 -- (the canonical example from SILI-1336 was an autopilot scheduled every 5 min
--- that 100% failed for days, burning ~1.5k useless tasks per week).
+-- that 100% failed for days, burning ~1.5k useless runs per week).
 WITH stats AS (
     SELECT autopilot_id,
            count(*) FILTER (WHERE status IN ('completed', 'failed')) AS total,

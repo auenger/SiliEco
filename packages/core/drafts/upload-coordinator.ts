@@ -26,7 +26,7 @@ import { createLogger } from "../logger";
 const logger = createLogger("drafts.upload-coordinator");
 
 export interface UploadCoordinatorContext {
-  issueId?: string;
+  taskId?: string;
   commentId?: string;
   chatSessionId?: string;
 }
@@ -74,7 +74,7 @@ export function startUpload({
       const attachment = await api.uploadFile(
         file,
         {
-          issueId: ctx?.issueId,
+          taskId: ctx?.taskId,
           commentId: ctx?.commentId,
           chatSessionId: ctx?.chatSessionId,
         },

@@ -73,7 +73,7 @@ func TestListComments_FoldReplyResolvedKeepsRootAndConclusion(t *testing.T) {
 	fx := newCommentListFixture(t)
 	setCommentResolvedAt(t, fx.R1b, fx.Base.Add(20*time.Minute))
 
-	_, rows := listComments(t, fx.IssueID, "fold=true")
+	_, rows := listComments(t, fx.TaskID, "fold=true")
 	// Order is the chronological default with the folded replies removed.
 	eqIDs(t, ids(rows), []string{fx.Root1, fx.R1b, fx.Root2, fx.R2a, fx.R2b}, "reply-resolved fold")
 
@@ -95,7 +95,7 @@ func TestListComments_FoldRootResolvedKeepsRootOnly(t *testing.T) {
 	fx := newCommentListFixture(t)
 	setCommentResolvedAt(t, fx.Root2, fx.Base.Add(20*time.Minute))
 
-	_, rows := listComments(t, fx.IssueID, "fold=true")
+	_, rows := listComments(t, fx.TaskID, "fold=true")
 	eqIDs(t, ids(rows), []string{fx.Root1, fx.R1a, fx.R1b, fx.R1b1, fx.Root2}, "root-resolved fold")
 
 	m := byID(rows)
@@ -106,16 +106,16 @@ func TestListComments_FoldRootResolvedKeepsRootOnly(t *testing.T) {
 }
 
 // TestListComments_FoldNoOpWhenNothingResolved guards the cost-saving promise's
-// floor: on an issue with no resolutions, fold=true returns the exact same set
+// floor: on an task with no resolutions, fold=true returns the exact same set
 // as the default list, with no annotations. Folding only ever removes settled
-// discussion; it never changes an active issue's read.
+// discussion; it never changes an active task's read.
 func TestListComments_FoldNoOpWhenNothingResolved(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	fx := newCommentListFixture(t)
 
-	_, rows := listComments(t, fx.IssueID, "fold=true")
+	_, rows := listComments(t, fx.TaskID, "fold=true")
 	eqIDs(t, ids(rows),
 		[]string{fx.Root1, fx.R1a, fx.R1b, fx.R1b1, fx.Root2, fx.R2a, fx.R2b},
 		"fold no-op")
@@ -137,7 +137,7 @@ func TestListComments_FoldLatestReplyWins(t *testing.T) {
 	setCommentResolvedAt(t, fx.R1a, fx.Base.Add(5*time.Minute))
 	setCommentResolvedAt(t, fx.R1b, fx.Base.Add(20*time.Minute)) // later → wins
 
-	_, rows := listComments(t, fx.IssueID, "fold=true")
+	_, rows := listComments(t, fx.TaskID, "fold=true")
 	eqIDs(t, ids(rows), []string{fx.Root1, fx.R1b, fx.Root2, fx.R2a, fx.R2b}, "latest reply wins")
 	assertFolded(t, byID(rows)[fx.Root1], 2, "latest-wins fold")
 }
@@ -156,7 +156,7 @@ func TestListComments_FoldComposesWithRecent(t *testing.T) {
 	v := url.Values{}
 	v.Set("fold", "true")
 	v.Set("recent", "10")
-	_, rows := listComments(t, fx.IssueID, v.Encode())
+	_, rows := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(rows), []string{fx.Root1, fx.R1b, fx.Root2, fx.R2a, fx.R2b}, "fold + recent")
 	assertFolded(t, byID(rows)[fx.Root1], 2, "fold + recent")
 }
@@ -175,7 +175,7 @@ func TestListComments_FoldComposesWithSummary(t *testing.T) {
 	v := url.Values{}
 	v.Set("fold", "true")
 	v.Set("summary", "true")
-	_, rows := listComments(t, fx.IssueID, v.Encode())
+	_, rows := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(rows), []string{fx.Root1, fx.R1b, fx.Root2, fx.R2a, fx.R2b}, "fold + summary")
 
 	root1 := byID(rows)[fx.Root1]
@@ -222,7 +222,7 @@ func TestListComments_FoldRejectsPartialThreadModes(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			w, _ := listComments(t, fx.IssueID, tc.query())
+			w, _ := listComments(t, fx.TaskID, tc.query())
 			if w.Code != http.StatusBadRequest {
 				t.Fatalf("%s: expected 400, got %d: %s", tc.name, w.Code, w.Body.String())
 			}
@@ -243,7 +243,7 @@ func TestListComments_FoldComposesWithThread(t *testing.T) {
 	v := url.Values{}
 	v.Set("fold", "true")
 	v.Set("thread", fx.R1a) // anchor on a reply; server resolves to root1
-	_, rows := listComments(t, fx.IssueID, v.Encode())
+	_, rows := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(rows), []string{fx.Root1, fx.R1b}, "fold + thread")
 	assertFolded(t, byID(rows)[fx.Root1], 2, "fold + thread")
 }

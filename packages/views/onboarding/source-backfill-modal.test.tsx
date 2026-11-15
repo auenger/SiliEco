@@ -8,7 +8,7 @@ import enOnboarding from "../locales/en/onboarding.json";
 
 const TEST_RESOURCES = { en: { common: enCommon, onboarding: enOnboarding } };
 
-const { mockUser, mockSaveQuestionnaire, mockWorkspace, mockAgentDoneTotal, mockListIssues } =
+const { mockUser, mockSaveQuestionnaire, mockWorkspace, mockAgentDoneTotal, mockListTasks } =
   vi.hoisted(() => ({
     mockUser: { value: null as null | Record<string, unknown> },
     mockSaveQuestionnaire: vi.fn(),
@@ -16,7 +16,7 @@ const { mockUser, mockSaveQuestionnaire, mockWorkspace, mockAgentDoneTotal, mock
       value: { id: "ws-1", slug: "ws-1" } as null | { id: string; slug: string },
     },
     mockAgentDoneTotal: { value: 3 },
-    mockListIssues: vi.fn(),
+    mockListTasks: vi.fn(),
   }));
 
 vi.mock("@silieco/core/auth", async () => {
@@ -57,7 +57,7 @@ vi.mock("@silieco/core/api", async () => {
     ...actual,
     api: {
       ...actual.api,
-      listIssues: mockListIssues,
+      listTasks: mockListTasks,
     },
   };
 });
@@ -104,13 +104,13 @@ function mockPrefersReducedMotion(matches: boolean) {
 beforeEach(() => {
   mockSaveQuestionnaire.mockReset();
   mockSaveQuestionnaire.mockResolvedValue(undefined);
-  mockListIssues.mockReset();
-  // Default: agents have already completed enough issues that the
+  mockListTasks.mockReset();
+  // Default: agents have already completed enough tasks that the
   // workspace-level gate passes — tests about the user-level gate and
   // submit/skip semantics shouldn't have to care about it.
   mockAgentDoneTotal.value = 3;
-  mockListIssues.mockImplementation(async () => ({
-    issues: [],
+  mockListTasks.mockImplementation(async () => ({
+    tasks: [],
     total: mockAgentDoneTotal.value,
   }));
   mockWorkspace.value = { id: "ws-1", slug: "ws-1" };
@@ -155,10 +155,10 @@ describe("SourceBackfillModal", () => {
       screen.queryByText(/How did you hear about Silieco/i),
     ).not.toBeInTheDocument();
     // A settled user must not even pay for the count query.
-    expect(mockListIssues).not.toHaveBeenCalled();
+    expect(mockListTasks).not.toHaveBeenCalled();
   });
 
-  it("opens for an onboarded user with empty source once agents completed enough issues", async () => {
+  it("opens for an onboarded user with empty source once agents completed enough tasks", async () => {
     setUser({
       id: "u1",
       onboarded_at: "2026-01-01T00:00:00Z",
@@ -172,7 +172,7 @@ describe("SourceBackfillModal", () => {
     });
   });
 
-  it("stays closed while agents have completed fewer issues than the threshold", async () => {
+  it("stays closed while agents have completed fewer tasks than the threshold", async () => {
     mockAgentDoneTotal.value = 2;
     setUser({
       id: "u1",
@@ -182,7 +182,7 @@ describe("SourceBackfillModal", () => {
     renderModal();
     // Let the count query settle before asserting the negative.
     await waitFor(() => {
-      expect(mockListIssues).toHaveBeenCalled();
+      expect(mockListTasks).toHaveBeenCalled();
     });
     expect(
       screen.queryByText(/How did you hear about Silieco/i),
@@ -200,10 +200,10 @@ describe("SourceBackfillModal", () => {
     expect(
       screen.queryByText(/How did you hear about Silieco/i),
     ).not.toBeInTheDocument();
-    expect(mockListIssues).not.toHaveBeenCalled();
+    expect(mockListTasks).not.toHaveBeenCalled();
   });
 
-  it("counts done issues assigned to agents or squads in the current workspace", async () => {
+  it("counts done tasks assigned to agents or squads in the current workspace", async () => {
     setUser({
       id: "u1",
       onboarded_at: "2026-01-01T00:00:00Z",
@@ -211,7 +211,7 @@ describe("SourceBackfillModal", () => {
     });
     renderModal();
     await waitFor(() => {
-      expect(mockListIssues).toHaveBeenCalledWith({
+      expect(mockListTasks).toHaveBeenCalledWith({
         workspace_id: "ws-1",
         statuses: ["done"],
         assignee_types: ["agent", "squad"],
@@ -373,6 +373,6 @@ describe("SourceBackfillModal", () => {
     expect(
       screen.queryByText(/How did you hear about Silieco/i),
     ).not.toBeInTheDocument();
-    expect(mockListIssues).not.toHaveBeenCalled();
+    expect(mockListTasks).not.toHaveBeenCalled();
   });
 });

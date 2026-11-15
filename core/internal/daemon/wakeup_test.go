@@ -17,7 +17,7 @@ import (
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
-func TestTaskWakeupURL(t *testing.T) {
+func TestRunWakeupURL(t *testing.T) {
 	tests := []struct {
 		name       string
 		baseURL    string
@@ -52,7 +52,7 @@ func TestTaskWakeupURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := taskWakeupURL(tt.baseURL, tt.runtimeIDs)
+			got, err := runWakeupURL(tt.baseURL, tt.runtimeIDs)
 			if err != nil {
 				t.Fatalf("taskWakeupURL: %v", err)
 			}
@@ -93,8 +93,8 @@ func TestWSHeartbeatFreshnessSuppressesHTTP(t *testing.T) {
 	}
 }
 
-func TestReadTaskWakeupMessagesTimesOutWithoutPeerTraffic(t *testing.T) {
-	overrideTaskWakeupTimings(t, 60*time.Millisecond, 20*time.Millisecond, taskWakeupBackoffResetAfter)
+func TestReadRunWakeupMessagesTimesOutWithoutPeerTraffic(t *testing.T) {
+	overrideRunWakeupTimings(t, 60*time.Millisecond, 20*time.Millisecond, runWakeupBackoffResetAfter)
 
 	upgrader := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +107,7 @@ func TestReadTaskWakeupMessagesTimesOutWithoutPeerTraffic(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	conn, _, err := websocket.DefaultDialer.Dial(taskWakeupTestWSURL(srv.URL), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(runWakeupTestWSURL(srv.URL), nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestReadTaskWakeupMessagesTimesOutWithoutPeerTraffic(t *testing.T) {
 	d := New(Config{}, slog.Default())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- d.readTaskWakeupMessages(conn, make(chan taskWakeup, 1))
+		errCh <- d.readRunWakeupMessages(conn, make(chan runWakeup, 1))
 	}()
 
 	select {
@@ -130,15 +130,15 @@ func TestReadTaskWakeupMessagesTimesOutWithoutPeerTraffic(t *testing.T) {
 	}
 }
 
-func TestReadTaskWakeupMessagesExtendsDeadlineOnServerPing(t *testing.T) {
-	overrideTaskWakeupTimings(t, 120*time.Millisecond, 50*time.Millisecond, taskWakeupBackoffResetAfter)
+func TestReadRunWakeupMessagesExtendsDeadlineOnServerPing(t *testing.T) {
+	overrideRunWakeupTimings(t, 120*time.Millisecond, 50*time.Millisecond, runWakeupBackoffResetAfter)
 
 	clientReceived := make(chan struct{})
-	taskFrame := mustProtocolFrame(t, protocol.Message{
-		Type: protocol.EventDaemonTaskAvailable,
-		Payload: marshalRaw(protocol.TaskAvailablePayload{
+	runFrame := mustProtocolFrame(t, protocol.Message{
+		Type: protocol.EventDaemonRunAvailable,
+		Payload: marshalRaw(protocol.RunAvailablePayload{
 			RuntimeID: "runtime-1",
-			TaskID:    "task-1",
+			RunID:     "task-1",
 		}),
 	})
 
@@ -158,28 +158,28 @@ func TestReadTaskWakeupMessagesExtendsDeadlineOnServerPing(t *testing.T) {
 			}
 		}
 
-		if !writeWSMessage(t, conn, websocket.TextMessage, taskFrame) {
+		if !writeWSMessage(t, conn, websocket.TextMessage, runFrame) {
 			return
 		}
 		waitForClientWakeup(t, clientReceived)
 	}))
 	defer srv.Close()
 
-	conn, _, err := websocket.DefaultDialer.Dial(taskWakeupTestWSURL(srv.URL), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(runWakeupTestWSURL(srv.URL), nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
 	defer conn.Close()
 
 	d := New(Config{}, slog.Default())
-	taskWakeups := make(chan taskWakeup, 1)
+	runWakeups := make(chan runWakeup, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- d.readTaskWakeupMessages(conn, taskWakeups)
+		errCh <- d.readRunWakeupMessages(conn, runWakeups)
 	}()
 
 	select {
-	case wakeup := <-taskWakeups:
+	case wakeup := <-runWakeups:
 		if wakeup.runtimeID != "runtime-1" {
 			t.Fatalf("wakeup runtimeID = %q, want runtime-1", wakeup.runtimeID)
 		}
@@ -191,8 +191,8 @@ func TestReadTaskWakeupMessagesExtendsDeadlineOnServerPing(t *testing.T) {
 	}
 }
 
-func TestReadTaskWakeupMessagesExtendsDeadlineOnApplicationMessage(t *testing.T) {
-	overrideTaskWakeupTimings(t, 120*time.Millisecond, 50*time.Millisecond, taskWakeupBackoffResetAfter)
+func TestReadRunWakeupMessagesExtendsDeadlineOnApplicationMessage(t *testing.T) {
+	overrideRunWakeupTimings(t, 120*time.Millisecond, 50*time.Millisecond, runWakeupBackoffResetAfter)
 
 	clientReceived := make(chan struct{})
 	ackFrame := mustProtocolFrame(t, protocol.Message{
@@ -201,11 +201,11 @@ func TestReadTaskWakeupMessagesExtendsDeadlineOnApplicationMessage(t *testing.T)
 			RuntimeID: "runtime-1",
 		}),
 	})
-	taskFrame := mustProtocolFrame(t, protocol.Message{
-		Type: protocol.EventDaemonTaskAvailable,
-		Payload: marshalRaw(protocol.TaskAvailablePayload{
+	runFrame := mustProtocolFrame(t, protocol.Message{
+		Type: protocol.EventDaemonRunAvailable,
+		Payload: marshalRaw(protocol.RunAvailablePayload{
 			RuntimeID: "runtime-1",
-			TaskID:    "task-1",
+			RunID:     "task-1",
 		}),
 	})
 
@@ -224,28 +224,28 @@ func TestReadTaskWakeupMessagesExtendsDeadlineOnApplicationMessage(t *testing.T)
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
-		if !writeWSMessage(t, conn, websocket.TextMessage, taskFrame) {
+		if !writeWSMessage(t, conn, websocket.TextMessage, runFrame) {
 			return
 		}
 		waitForClientWakeup(t, clientReceived)
 	}))
 	defer srv.Close()
 
-	conn, _, err := websocket.DefaultDialer.Dial(taskWakeupTestWSURL(srv.URL), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(runWakeupTestWSURL(srv.URL), nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
 	defer conn.Close()
 
 	d := New(Config{}, slog.Default())
-	taskWakeups := make(chan taskWakeup, 1)
+	runWakeups := make(chan runWakeup, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- d.readTaskWakeupMessages(conn, taskWakeups)
+		errCh <- d.readRunWakeupMessages(conn, runWakeups)
 	}()
 
 	select {
-	case wakeup := <-taskWakeups:
+	case wakeup := <-runWakeups:
 		if wakeup.runtimeID != "runtime-1" {
 			t.Fatalf("wakeup runtimeID = %q, want runtime-1", wakeup.runtimeID)
 		}
@@ -257,13 +257,13 @@ func TestReadTaskWakeupMessagesExtendsDeadlineOnApplicationMessage(t *testing.T)
 	}
 }
 
-// A WS tasks.claim response carries the full claimed Task payload. Agent
+// A WS runs.claim response carries the full claimed Task payload. Agent
 // instructions, project context, comments, and skill references can make one
 // valid response much larger than the old 64 KiB control-socket ceiling. The
 // reader must deliver that response to the pending RPC and remain connected
 // for the next task-available hint.
-func TestReadTaskWakeupMessagesAcceptsLargeRPCResponse(t *testing.T) {
-	overrideTaskWakeupTimings(t, time.Second, 100*time.Millisecond, taskWakeupBackoffResetAfter)
+func TestReadRunWakeupMessagesAcceptsLargeRPCResponse(t *testing.T) {
+	overrideRunWakeupTimings(t, time.Second, 100*time.Millisecond, runWakeupBackoffResetAfter)
 
 	requestIDs := make(chan string, 1)
 	clientReceived := make(chan struct{})
@@ -327,21 +327,21 @@ func TestReadTaskWakeupMessagesAcceptsLargeRPCResponse(t *testing.T) {
 			return
 		}
 
-		taskFrame := mustProtocolFrame(t, protocol.Message{
-			Type: protocol.EventDaemonTaskAvailable,
-			Payload: marshalRaw(protocol.TaskAvailablePayload{
+		runFrame := mustProtocolFrame(t, protocol.Message{
+			Type: protocol.EventDaemonRunAvailable,
+			Payload: marshalRaw(protocol.RunAvailablePayload{
 				RuntimeID: "runtime-1",
-				TaskID:    "task-next",
+				RunID:     "task-next",
 			}),
 		})
-		if !writeWSMessage(t, conn, websocket.TextMessage, taskFrame) {
+		if !writeWSMessage(t, conn, websocket.TextMessage, runFrame) {
 			return
 		}
 		waitForClientWakeup(t, clientReceived)
 	}))
 	defer srv.Close()
 
-	conn, _, err := websocket.DefaultDialer.Dial(taskWakeupTestWSURL(srv.URL), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(runWakeupTestWSURL(srv.URL), nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
@@ -364,24 +364,24 @@ func TestReadTaskWakeupMessagesAcceptsLargeRPCResponse(t *testing.T) {
 		return item, nil
 	})
 
-	taskWakeups := make(chan taskWakeup, 1)
+	runWakeups := make(chan runWakeup, 1)
 	readerErrors := make(chan error, 1)
 	go func() {
-		readerErrors <- d.readTaskWakeupMessages(conn, taskWakeups)
+		readerErrors <- d.readRunWakeupMessages(conn, runWakeups)
 	}()
 
 	type callResult struct {
-		status int
-		err    error
-		tasks  []*Task
+		status    int
+		err       error
+		agentRuns []*AgentRun
 	}
 	callDone := make(chan callResult, 1)
 	go func() {
 		var resp struct {
-			Tasks []*Task `json:"tasks"`
+			Runs []*AgentRun `json:"runs"`
 		}
-		status, err := d.wsRPC.Call(context.Background(), "tasks.claim", 200*time.Millisecond, nil, &resp)
-		callDone <- callResult{status: status, err: err, tasks: resp.Tasks}
+		status, err := d.wsRPC.Call(context.Background(), "runs.claim", 200*time.Millisecond, nil, &resp)
+		callDone <- callResult{status: status, err: err, agentRuns: resp.Runs}
 	}()
 
 	select {
@@ -389,10 +389,10 @@ func TestReadTaskWakeupMessagesAcceptsLargeRPCResponse(t *testing.T) {
 		if result.err != nil || result.status != http.StatusOK {
 			t.Fatalf("claim RPC: status=%d err=%v", result.status, result.err)
 		}
-		if len(result.tasks) != 1 || result.tasks[0].ID != "task-large" {
-			t.Fatalf("claim tasks = %+v, want task-large", result.tasks)
+		if len(result.agentRuns) != 1 || result.agentRuns[0].ID != "task-large" {
+			t.Fatalf("claim tasks = %+v, want task-large", result.agentRuns)
 		}
-		if got := len(result.tasks[0].Agent.Instructions); got != len(largeInstructions) {
+		if got := len(result.agentRuns[0].Agent.Instructions); got != len(largeInstructions) {
 			t.Fatalf("decoded instructions length = %d, want %d", got, len(largeInstructions))
 		}
 	case err := <-readerErrors:
@@ -402,7 +402,7 @@ func TestReadTaskWakeupMessagesAcceptsLargeRPCResponse(t *testing.T) {
 	}
 
 	select {
-	case wakeup := <-taskWakeups:
+	case wakeup := <-runWakeups:
 		if wakeup.runtimeID != "runtime-1" {
 			t.Fatalf("wakeup runtimeID = %q, want runtime-1", wakeup.runtimeID)
 		}
@@ -414,15 +414,15 @@ func TestReadTaskWakeupMessagesAcceptsLargeRPCResponse(t *testing.T) {
 	}
 }
 
-func TestReadTaskWakeupMessagesExtendsDeadlineOnPong(t *testing.T) {
-	overrideTaskWakeupTimings(t, 120*time.Millisecond, 50*time.Millisecond, taskWakeupBackoffResetAfter)
+func TestReadRunWakeupMessagesExtendsDeadlineOnPong(t *testing.T) {
+	overrideRunWakeupTimings(t, 120*time.Millisecond, 50*time.Millisecond, runWakeupBackoffResetAfter)
 
 	clientReceived := make(chan struct{})
-	taskFrame := mustProtocolFrame(t, protocol.Message{
-		Type: protocol.EventDaemonTaskAvailable,
-		Payload: marshalRaw(protocol.TaskAvailablePayload{
+	runFrame := mustProtocolFrame(t, protocol.Message{
+		Type: protocol.EventDaemonRunAvailable,
+		Payload: marshalRaw(protocol.RunAvailablePayload{
 			RuntimeID: "runtime-1",
-			TaskID:    "task-1",
+			RunID:     "task-1",
 		}),
 	})
 
@@ -441,28 +441,28 @@ func TestReadTaskWakeupMessagesExtendsDeadlineOnPong(t *testing.T) {
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
-		if !writeWSMessage(t, conn, websocket.TextMessage, taskFrame) {
+		if !writeWSMessage(t, conn, websocket.TextMessage, runFrame) {
 			return
 		}
 		waitForClientWakeup(t, clientReceived)
 	}))
 	defer srv.Close()
 
-	conn, _, err := websocket.DefaultDialer.Dial(taskWakeupTestWSURL(srv.URL), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(runWakeupTestWSURL(srv.URL), nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
 	defer conn.Close()
 
 	d := New(Config{}, slog.Default())
-	taskWakeups := make(chan taskWakeup, 1)
+	runWakeups := make(chan runWakeup, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- d.readTaskWakeupMessages(conn, taskWakeups)
+		errCh <- d.readRunWakeupMessages(conn, runWakeups)
 	}()
 
 	select {
-	case wakeup := <-taskWakeups:
+	case wakeup := <-runWakeups:
 		if wakeup.runtimeID != "runtime-1" {
 			t.Fatalf("wakeup runtimeID = %q, want runtime-1", wakeup.runtimeID)
 		}
@@ -474,20 +474,20 @@ func TestReadTaskWakeupMessagesExtendsDeadlineOnPong(t *testing.T) {
 	}
 }
 
-func TestShouldResetTaskWakeupBackoffRequiresStableConnection(t *testing.T) {
-	old := taskWakeupBackoffResetAfter
-	taskWakeupBackoffResetAfter = 10 * time.Second
+func TestShouldResetRunWakeupBackoffRequiresStableConnection(t *testing.T) {
+	old := runWakeupBackoffResetAfter
+	runWakeupBackoffResetAfter = 10 * time.Second
 	t.Cleanup(func() {
-		taskWakeupBackoffResetAfter = old
+		runWakeupBackoffResetAfter = old
 	})
 
-	if shouldResetTaskWakeupBackoff(0) {
+	if shouldResetRunWakeupBackoff(0) {
 		t.Fatal("zero connection uptime reset backoff")
 	}
-	if shouldResetTaskWakeupBackoff(9 * time.Second) {
+	if shouldResetRunWakeupBackoff(9 * time.Second) {
 		t.Fatal("short connection uptime reset backoff")
 	}
-	if !shouldResetTaskWakeupBackoff(10 * time.Second) {
+	if !shouldResetRunWakeupBackoff(10 * time.Second) {
 		t.Fatal("stable connection uptime did not reset backoff")
 	}
 }
@@ -545,22 +545,22 @@ func (t *closeCountingTransport) CloseIdleConnections() {
 	t.closeCount.Add(1)
 }
 
-func overrideTaskWakeupTimings(t *testing.T, pongWait, writeWait, backoffResetAfter time.Duration) {
+func overrideRunWakeupTimings(t *testing.T, pongWait, writeWait, backoffResetAfter time.Duration) {
 	t.Helper()
-	oldPongWait := taskWakeupPongWait
-	oldWriteWait := taskWakeupWriteWait
-	oldBackoffResetAfter := taskWakeupBackoffResetAfter
-	taskWakeupPongWait = pongWait
-	taskWakeupWriteWait = writeWait
-	taskWakeupBackoffResetAfter = backoffResetAfter
+	oldPongWait := runWakeupPongWait
+	oldWriteWait := runWakeupWriteWait
+	oldBackoffResetAfter := runWakeupBackoffResetAfter
+	runWakeupPongWait = pongWait
+	runWakeupWriteWait = writeWait
+	runWakeupBackoffResetAfter = backoffResetAfter
 	t.Cleanup(func() {
-		taskWakeupPongWait = oldPongWait
-		taskWakeupWriteWait = oldWriteWait
-		taskWakeupBackoffResetAfter = oldBackoffResetAfter
+		runWakeupPongWait = oldPongWait
+		runWakeupWriteWait = oldWriteWait
+		runWakeupBackoffResetAfter = oldBackoffResetAfter
 	})
 }
 
-func taskWakeupTestWSURL(httpURL string) string {
+func runWakeupTestWSURL(httpURL string) string {
 	return strings.Replace(httpURL, "http", "ws", 1)
 }
 

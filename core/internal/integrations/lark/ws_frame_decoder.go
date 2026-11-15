@@ -108,7 +108,7 @@ func (d *LarkJSONFrameDecoder) Decode(payload []byte, inst Installation) (Inboun
 
 	// Snapshot the user's own text as the command source BEFORE any
 	// enrichment runs. The enricher rewrites Body (prepending quoted /
-	// forwarded context) but never touches CommandBody, so `/issue …`
+	// forwarded context) but never touches CommandBody, so `/task …`
 	// is still parsed against what the user actually typed.
 	msg.CommandBody = msg.Body
 

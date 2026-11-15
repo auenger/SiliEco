@@ -37,7 +37,7 @@ export function resetDiagnosticContext(): void {
 // The known route shapes, mirroring `packages/core/paths/paths.ts` (the single
 // path builder every navigation goes through) and the routers that consume it.
 // Bucketing matches against these STRUCTURALLY: a `:param` slot is whatever
-// occupies that position, whether it is a UUID, an issue key, `p1`, `skl_123`
+// occupies that position, whether it is a UUID, an task key, `p1`, `skl_123`
 // or a percent-encoded string.
 //
 // Guessing from the shape of a segment instead would leak every id that does
@@ -55,8 +55,8 @@ type RoutePattern = readonly string[];
 const WORKSPACE_ROUTES: readonly RoutePattern[] = [
   ["tasks"],
   ["tasks", ":id"],
-  ["issues"],
-  ["issues", ":id"],
+  ["tasks"],
+  ["tasks", ":id"],
   ["projects"],
   ["projects", ":id"],
   ["resources"],
@@ -73,7 +73,7 @@ const WORKSPACE_ROUTES: readonly RoutePattern[] = [
   ["inbox"],
   ["chat"],
   ["my-tasks"],
-  ["my-issues"],
+  ["my-tasks"],
   ["usage"],
   ["billing"],
   ["runtimes"],
@@ -100,8 +100,8 @@ const WORKSPACE_SECTIONS = new Set(WORKSPACE_ROUTES.map((route) => route[0]!));
 const GLOBAL_SECTIONS = new Set(GLOBAL_ROUTES.map((route) => route[0]!));
 
 /**
- * Collapse a concrete path to its route template: `/acme/issues/SILI-12` becomes
- * `/:slug/issues/:id`. Diagnostics only need to know which screen the user was
+ * Collapse a concrete path to its route template: `/acme/tasks/SILI-12` becomes
+ * `/:slug/tasks/:id`. Diagnostics only need to know which screen the user was
  * on, and a template keeps workspace slugs and resource ids out of telemetry
  * while making the field groupable in one query.
  *

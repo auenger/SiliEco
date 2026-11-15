@@ -22,7 +22,7 @@
       "ordered_list": "Ordered List",
       "task_list": "Task List"
     },
-    "sub_issue": {
+    "sub_task": {
       "tooltip": "Create sub-task from selection",
       "created": "Created {{identifier}}",
       "create_failed": "Failed to create sub-task"
@@ -63,7 +63,7 @@
   },
   "mention": {
     "group_users": "Users",
-    "group_issues": "Tasks",
+    "group_tasks": "Tasks",
     "group_resources": "Resource files",
     "all_members": "All members",
     "searching": "Searching...",

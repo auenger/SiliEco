@@ -11,46 +11,46 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const cancelAgentTasksByRuntimeOrAgent = `-- name: CancelAgentTasksByRuntimeOrAgent :many
-UPDATE agent_task_queue
+const cancelAgentRunsByRuntimeOrAgent = `-- name: CancelAgentRunsByRuntimeOrAgent :many
+UPDATE agent_run
 SET status = 'cancelled', completed_at = now()
 WHERE (runtime_id = ANY($1::uuid[]) OR agent_id = ANY($2::uuid[]))
   AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, trigger_chat_message_id, execution_manifest, worktree_branch, worktree_base_sha, worktree_final_sha, worktree_delivery_status, workflow_stage_execution_id, workflow_review_request_id
+RETURNING id, agent_id, task_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_run_id, failure_reason, trigger_summary, force_fresh_session, is_leader_run, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_run_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_run_id, chat_finalize_deferred_at, originator_source, delegated_from_run_id, retry_of_run_id, rerun_of_run_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, trigger_chat_message_id, execution_manifest, worktree_branch, worktree_base_sha, worktree_final_sha, worktree_delivery_status, workflow_stage_execution_id, workflow_review_request_id
 `
 
-type CancelAgentTasksByRuntimeOrAgentParams struct {
+type CancelAgentRunsByRuntimeOrAgentParams struct {
 	RuntimeIds []pgtype.UUID `json:"runtime_ids"`
 	AgentIds   []pgtype.UUID `json:"agent_ids"`
 }
 
-// Cancels every active task that either lives on one of the given runtimes
+// Cancels every active run that either lives on one of the given runtimes
 // OR belongs to one of the given agents. Used by the member-revocation flow:
-// the runtime-side covers tasks queued against the leaving member's runtimes;
-// the agent-side covers tasks pinned to a different runtime that those agents
+// the runtime-side covers runs queued against the leaving member's runtimes;
+// the agent-side covers runs pinned to a different runtime that those agents
 // left behind from a prior UpdateAgent (agent.runtime_id can change, but
-// agent_task_queue.runtime_id does not get rewritten when it does, so a task
+// agent_run.runtime_id does not get rewritten when it does, so a run
 // queued on runtime A by agent X — later moved to runtime B — survives the
-// runtime-only revoke and could still be claimed because ClaimAgentTask does
+// runtime-only revoke and could still be claimed because ClaimAgentRun does
 // not gate on agent.archived_at).
 //
-// We use 'cancelled' rather than 'failed' so the daemon's per-task status
-// poller (watchTaskCancellation) interrupts the running agent gracefully.
-// Returns the affected rows so the caller can broadcast task:cancelled and
+// We use 'cancelled' rather than 'failed' so the daemon's per-run status
+// poller (watchRunCancellation) interrupts the running agent gracefully.
+// Returns the affected rows so the caller can broadcast run:cancelled and
 // reconcile per-agent status.
-func (q *Queries) CancelAgentTasksByRuntimeOrAgent(ctx context.Context, arg CancelAgentTasksByRuntimeOrAgentParams) ([]AgentTaskQueue, error) {
-	rows, err := q.db.Query(ctx, cancelAgentTasksByRuntimeOrAgent, arg.RuntimeIds, arg.AgentIds)
+func (q *Queries) CancelAgentRunsByRuntimeOrAgent(ctx context.Context, arg CancelAgentRunsByRuntimeOrAgentParams) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, cancelAgentRunsByRuntimeOrAgent, arg.RuntimeIds, arg.AgentIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AgentTaskQueue{}
+	items := []AgentRun{}
 	for rows.Next() {
-		var i AgentTaskQueue
+		var i AgentRun
 		if err := rows.Scan(
 			&i.ID,
 			&i.AgentID,
-			&i.IssueID,
+			&i.TaskID,
 			&i.Status,
 			&i.Priority,
 			&i.DispatchedAt,
@@ -68,29 +68,29 @@ func (q *Queries) CancelAgentTasksByRuntimeOrAgent(ctx context.Context, arg Canc
 			&i.AutopilotRunID,
 			&i.Attempt,
 			&i.MaxAttempts,
-			&i.ParentTaskID,
+			&i.ParentRunID,
 			&i.FailureReason,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
-			&i.IsLeaderTask,
+			&i.IsLeaderRun,
 			&i.WaitReason,
 			&i.InitiatorUserID,
 			&i.HandoffNote,
 			&i.PrepareLeaseExpiresAt,
 			&i.SquadID,
 			&i.RuntimeMcpOverlay,
-			&i.EscalationForTaskID,
+			&i.EscalationForRunID,
 			&i.FireAt,
 			&i.OriginatorUserID,
 			&i.RuntimeConnectedApps,
 			&i.CoalescedCommentIds,
 			&i.DeliveredCommentIds,
-			&i.ChatInputTaskID,
+			&i.ChatInputRunID,
 			&i.ChatFinalizeDeferredAt,
 			&i.OriginatorSource,
-			&i.DelegatedFromTaskID,
-			&i.RetryOfTaskID,
-			&i.RerunOfTaskID,
+			&i.DelegatedFromRunID,
+			&i.RetryOfRunID,
+			&i.RerunOfRunID,
 			&i.RuleVersionID,
 			&i.TriggerEvidenceKind,
 			&i.TriggerEvidenceRefID,
@@ -117,7 +117,7 @@ func (q *Queries) CancelAgentTasksByRuntimeOrAgent(ctx context.Context, arg Canc
 }
 
 const countActiveAgentsByRuntime = `-- name: CountActiveAgentsByRuntime :one
-SELECT count(*) FROM agent WHERE runtime_id = $1 AND archived_at IS NULL
+SELECT count(*) FROM agent WHERE agent.runtime_id = $1 AND archived_at IS NULL
 `
 
 func (q *Queries) CountActiveAgentsByRuntime(ctx context.Context, runtimeID pgtype.UUID) (int64, error) {
@@ -132,7 +132,7 @@ SELECT count(*)
 FROM squad
 WHERE archived_at IS NULL
   AND leader_id IN (
-    SELECT id FROM agent WHERE runtime_id = $1 AND archived_at IS NOT NULL
+    SELECT id FROM agent WHERE agent.runtime_id = $1 AND archived_at IS NOT NULL
   )
 `
 
@@ -143,31 +143,74 @@ func (q *Queries) CountActiveSquadsWithArchivedLeadersByRuntime(ctx context.Cont
 	return count, err
 }
 
-const countTasksByRuntime = `-- name: CountTasksByRuntime :one
-SELECT count(*) FROM agent_task_queue WHERE runtime_id = $1
+const countRunsByRuntime = `-- name: CountRunsByRuntime :one
+SELECT count(*) FROM agent_run WHERE agent_run.runtime_id = $1
 `
 
-func (q *Queries) CountTasksByRuntime(ctx context.Context, runtimeID pgtype.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countTasksByRuntime, runtimeID)
+func (q *Queries) CountRunsByRuntime(ctx context.Context, runtimeID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countRunsByRuntime, runtimeID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
-const countUndrainedTasksByRuntime = `-- name: CountUndrainedTasksByRuntime :one
-SELECT count(*) FROM agent_task_queue
+const countUndrainedRunsByRuntime = `-- name: CountUndrainedRunsByRuntime :one
+SELECT count(*) FROM agent_run
 WHERE runtime_id = $1 AND completed_at IS NULL
 `
 
-func (q *Queries) CountUndrainedTasksByRuntime(ctx context.Context, runtimeID pgtype.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countUndrainedTasksByRuntime, runtimeID)
+func (q *Queries) CountUndrainedRunsByRuntime(ctx context.Context, runtimeID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUndrainedRunsByRuntime, runtimeID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const deleteAgentRuntime = `-- name: DeleteAgentRuntime :exec
-DELETE FROM agent_runtime WHERE id = $1
+WITH RECURSIVE cleanup_target_agent_run AS MATERIALIZED (
+    SELECT child.id, child.agent_id, child.task_id, child.status, child.priority, child.dispatched_at, child.started_at, child.completed_at, child.result, child.error, child.created_at, child.context, child.runtime_id, child.session_id, child.work_dir, child.trigger_comment_id, child.chat_session_id, child.autopilot_run_id, child.attempt, child.max_attempts, child.parent_run_id, child.failure_reason, child.trigger_summary, child.force_fresh_session, child.is_leader_run, child.wait_reason, child.initiator_user_id, child.handoff_note, child.prepare_lease_expires_at, child.squad_id, child.runtime_mcp_overlay, child.escalation_for_run_id, child.fire_at, child.originator_user_id, child.runtime_connected_apps, child.coalesced_comment_ids, child.delivered_comment_ids, child.chat_input_run_id, child.chat_finalize_deferred_at, child.originator_source, child.delegated_from_run_id, child.retry_of_run_id, child.rerun_of_run_id, child.rule_version_id, child.trigger_evidence_kind, child.trigger_evidence_ref_id, child.accountable_user_id, child.session_rollout_missing, child.retired_session_id, child.trigger_chat_message_id, child.execution_manifest, child.worktree_branch, child.worktree_base_sha, child.worktree_final_sha, child.worktree_delivery_status, child.workflow_stage_execution_id, child.workflow_review_request_id FROM "agent_run" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_runtime parent WHERE child."runtime_id" = parent."id")
+),
+cleanup_target_agent_run_message AS MATERIALIZED (
+    SELECT child.id, child.run_id, child.seq, child.type, child.tool, child.content, child.input, child.output, child.created_at FROM "agent_run_message" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_run_token AS MATERIALIZED (
+    SELECT child.id, child.token_hash, child.run_id, child.agent_id, child.workspace_id, child.user_id, child.expires_at, child.created_at FROM "agent_run_token" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_run_usage AS MATERIALIZED (
+    SELECT child.id, child.run_id, child.provider, child.model, child.input_tokens, child.output_tokens, child.cache_read_tokens, child.cache_write_tokens, child.created_at, child.updated_at, child.cost_usd_ticks FROM "agent_run_usage" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_runtime AS MATERIALIZED (
+    SELECT agent_runtime.id, agent_runtime.workspace_id, agent_runtime.daemon_id, agent_runtime.name, agent_runtime.runtime_mode, agent_runtime.provider, agent_runtime.status, agent_runtime.device_info, agent_runtime.metadata, agent_runtime.last_seen_at, agent_runtime.created_at, agent_runtime.updated_at, agent_runtime.owner_id, agent_runtime.legacy_daemon_id, agent_runtime.visibility, agent_runtime.profile_id, agent_runtime.custom_name FROM "agent_runtime" agent_runtime WHERE agent_runtime.id = $1
+),
+cleanup_delete_agent_run AS (
+    DELETE FROM "agent_run" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run)
+),
+cleanup_delete_agent_run_message AS (
+    DELETE FROM "agent_run_message" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_message)
+),
+cleanup_delete_agent_run_token AS (
+    DELETE FROM "agent_run_token" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_token)
+),
+cleanup_delete_agent_run_usage AS (
+    DELETE FROM "agent_run_usage" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_usage)
+),
+cleanup_detach_agent_run AS (
+    UPDATE "agent_run" child SET "parent_run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id") THEN NULL ELSE child."parent_run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id")) AND NOT ((child."id") IN (SELECT "id" FROM cleanup_target_agent_run))
+),
+cleanup_detach_autopilot_run AS (
+    UPDATE "autopilot_run" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id"))
+),
+cleanup_detach_chat_session AS (
+    UPDATE "chat_session" child SET "runtime_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_runtime parent WHERE child."runtime_id" = parent."id") THEN NULL ELSE child."runtime_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_runtime parent WHERE child."runtime_id" = parent."id"))
+),
+cleanup_detach_lark_outbound_card_message AS (
+    UPDATE "lark_outbound_card_message" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id"))
+)
+DELETE FROM "agent_runtime" agent_runtime WHERE (agent_runtime."id") IN (SELECT "id" FROM cleanup_target_agent_runtime)
 `
 
 func (q *Queries) DeleteAgentRuntime(ctx context.Context, id pgtype.UUID) error {
@@ -176,7 +219,117 @@ func (q *Queries) DeleteAgentRuntime(ctx context.Context, id pgtype.UUID) error 
 }
 
 const deleteArchivedAgentsByRuntime = `-- name: DeleteArchivedAgentsByRuntime :exec
-DELETE FROM agent WHERE runtime_id = $1 AND archived_at IS NOT NULL
+WITH RECURSIVE cleanup_target_agent AS MATERIALIZED (
+    SELECT agent.id, agent.workspace_id, agent.name, agent.avatar_url, agent.runtime_mode, agent.runtime_config, agent.visibility, agent.status, agent.max_concurrent_runs, agent.owner_id, agent.created_at, agent.updated_at, agent.description, agent.runtime_id, agent.instructions, agent.archived_at, agent.archived_by, agent.custom_env, agent.custom_args, agent.mcp_config, agent.model, agent.thinking_level, agent.composio_toolkit_allowlist, agent.permission_mode, agent.kind, agent.system_key, agent.disabled_runtime_skills, agent.service_tier FROM "agent" agent WHERE agent.runtime_id = $1 AND agent.archived_at IS NOT NULL
+),
+cleanup_target_agent_run AS MATERIALIZED (
+    SELECT child.id, child.agent_id, child.task_id, child.status, child.priority, child.dispatched_at, child.started_at, child.completed_at, child.result, child.error, child.created_at, child.context, child.runtime_id, child.session_id, child.work_dir, child.trigger_comment_id, child.chat_session_id, child.autopilot_run_id, child.attempt, child.max_attempts, child.parent_run_id, child.failure_reason, child.trigger_summary, child.force_fresh_session, child.is_leader_run, child.wait_reason, child.initiator_user_id, child.handoff_note, child.prepare_lease_expires_at, child.squad_id, child.runtime_mcp_overlay, child.escalation_for_run_id, child.fire_at, child.originator_user_id, child.runtime_connected_apps, child.coalesced_comment_ids, child.delivered_comment_ids, child.chat_input_run_id, child.chat_finalize_deferred_at, child.originator_source, child.delegated_from_run_id, child.retry_of_run_id, child.rerun_of_run_id, child.rule_version_id, child.trigger_evidence_kind, child.trigger_evidence_ref_id, child.accountable_user_id, child.session_rollout_missing, child.retired_session_id, child.trigger_chat_message_id, child.execution_manifest, child.worktree_branch, child.worktree_base_sha, child.worktree_final_sha, child.worktree_delivery_status, child.workflow_stage_execution_id, child.workflow_review_request_id FROM "agent_run" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_agent_run_message AS MATERIALIZED (
+    SELECT child.id, child.run_id, child.seq, child.type, child.tool, child.content, child.input, child.output, child.created_at FROM "agent_run_message" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_run_token AS MATERIALIZED (
+    SELECT child.id, child.token_hash, child.run_id, child.agent_id, child.workspace_id, child.user_id, child.expires_at, child.created_at FROM "agent_run_token" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") OR EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_agent_run_usage AS MATERIALIZED (
+    SELECT child.id, child.run_id, child.provider, child.model, child.input_tokens, child.output_tokens, child.cache_read_tokens, child.cache_write_tokens, child.created_at, child.updated_at, child.cost_usd_ticks FROM "agent_run_usage" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_skill AS MATERIALIZED (
+    SELECT child.agent_id, child.skill_id, child.created_at, child.enabled FROM "agent_skill" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_attachment AS MATERIALIZED (
+    SELECT child.id, child.workspace_id, child.task_id, child.comment_id, child.uploader_type, child.uploader_id, child.filename, child.url, child.content_type, child.size_bytes, child.created_at, child.chat_session_id, child.chat_message_id, child.run_id FROM "attachment" child WHERE EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id") OR EXISTS (SELECT 1 FROM cleanup_target_chat_message parent WHERE child."chat_message_id" = parent."id")
+),
+cleanup_target_chat_message AS MATERIALIZED (
+    SELECT child.id, child.chat_session_id, child.role, child.content, child.run_id, child.created_at, child.failure_reason, child.elapsed_ms, child.message_kind, child.channel_media_pending_until, child.channel_ingested, child.sender_user_id, child.sender_agent_id, child.mentioned_agent_ids FROM "chat_message" child WHERE EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id")
+),
+cleanup_target_chat_session AS MATERIALIZED (
+    SELECT child.id, child.workspace_id, child.agent_id, child.creator_id, child.title, child.session_id, child.work_dir, child.status, child.created_at, child.updated_at, child.unread_since, child.runtime_id, child.last_read_at, child.is_agent_intro, child.pinned_at, child.project_id, child.kind FROM "chat_session" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_daemon_connection AS MATERIALIZED (
+    SELECT child.id, child.agent_id, child.daemon_id, child.status, child.last_heartbeat_at, child.runtime_info, child.created_at, child.updated_at FROM "daemon_connection" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_lark_binding_token AS MATERIALIZED (
+    SELECT child.token_hash, child.workspace_id, child.installation_id, child.lark_open_id, child.expires_at, child.consumed_at, child.created_at FROM "lark_binding_token" child WHERE EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id")
+),
+cleanup_target_lark_chat_session_binding AS MATERIALIZED (
+    SELECT child.id, child.chat_session_id, child.installation_id, child.lark_chat_id, child.lark_chat_type, child.created_at, child.last_lark_message_id, child.last_lark_thread_id FROM "lark_chat_session_binding" child WHERE EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id") OR EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id")
+),
+cleanup_target_lark_inbound_message_dedup AS MATERIALIZED (
+    SELECT child.installation_id, child.message_id, child.received_at, child.processed_at, child.claim_token FROM "lark_inbound_message_dedup" child WHERE EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id")
+),
+cleanup_target_lark_installation AS MATERIALIZED (
+    SELECT child.id, child.workspace_id, child.agent_id, child.app_id, child.app_secret_encrypted, child.tenant_key, child.bot_open_id, child.installer_user_id, child.status, child.ws_lease_token, child.ws_lease_expires_at, child.installed_at, child.created_at, child.updated_at, child.bot_union_id, child.region FROM "lark_installation" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_lark_outbound_card_message AS MATERIALIZED (
+    SELECT child.id, child.chat_session_id, child.run_id, child.lark_chat_id, child.lark_card_message_id, child.status, child.last_patched_at, child.created_at FROM "lark_outbound_card_message" child WHERE EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id")
+),
+cleanup_target_lark_user_binding AS MATERIALIZED (
+    SELECT child.id, child.workspace_id, child.silieco_user_id, child.installation_id, child.lark_open_id, child.union_id, child.bound_at FROM "lark_user_binding" child WHERE EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id" AND child."workspace_id" = parent."workspace_id")
+),
+cleanup_delete_agent_run AS (
+    DELETE FROM "agent_run" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run)
+),
+cleanup_delete_agent_run_message AS (
+    DELETE FROM "agent_run_message" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_message)
+),
+cleanup_delete_agent_run_token AS (
+    DELETE FROM "agent_run_token" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_token)
+),
+cleanup_delete_agent_run_usage AS (
+    DELETE FROM "agent_run_usage" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_usage)
+),
+cleanup_delete_agent_skill AS (
+    DELETE FROM "agent_skill" child WHERE (child."agent_id", child."skill_id") IN (SELECT "agent_id", "skill_id" FROM cleanup_target_agent_skill)
+),
+cleanup_delete_attachment AS (
+    DELETE FROM "attachment" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_attachment)
+),
+cleanup_delete_chat_message AS (
+    DELETE FROM "chat_message" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_chat_message)
+),
+cleanup_delete_chat_session AS (
+    DELETE FROM "chat_session" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_chat_session)
+),
+cleanup_delete_daemon_connection AS (
+    DELETE FROM "daemon_connection" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_daemon_connection)
+),
+cleanup_delete_lark_binding_token AS (
+    DELETE FROM "lark_binding_token" child WHERE (child."token_hash") IN (SELECT "token_hash" FROM cleanup_target_lark_binding_token)
+),
+cleanup_delete_lark_chat_session_binding AS (
+    DELETE FROM "lark_chat_session_binding" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_lark_chat_session_binding)
+),
+cleanup_delete_lark_inbound_message_dedup AS (
+    DELETE FROM "lark_inbound_message_dedup" child WHERE (child."installation_id", child."message_id") IN (SELECT "installation_id", "message_id" FROM cleanup_target_lark_inbound_message_dedup)
+),
+cleanup_delete_lark_installation AS (
+    DELETE FROM "lark_installation" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_lark_installation)
+),
+cleanup_delete_lark_outbound_card_message AS (
+    DELETE FROM "lark_outbound_card_message" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_lark_outbound_card_message)
+),
+cleanup_delete_lark_user_binding AS (
+    DELETE FROM "lark_user_binding" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_lark_user_binding)
+),
+cleanup_detach_agent_run AS (
+    UPDATE "agent_run" child SET "chat_session_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id") THEN NULL ELSE child."chat_session_id" END,
+        "parent_run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id") THEN NULL ELSE child."parent_run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id") OR EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id")) AND NOT ((child."id") IN (SELECT "id" FROM cleanup_target_agent_run))
+),
+cleanup_detach_autopilot_run AS (
+    UPDATE "autopilot_run" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id"))
+),
+cleanup_detach_lark_inbound_audit AS (
+    UPDATE "lark_inbound_audit" child SET "installation_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id") THEN NULL ELSE child."installation_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id"))
+),
+cleanup_detach_lark_outbound_card_message AS (
+    UPDATE "lark_outbound_card_message" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")) AND NOT ((child."id") IN (SELECT "id" FROM cleanup_target_lark_outbound_card_message))
+)
+DELETE FROM "agent" agent WHERE (agent."id") IN (SELECT "id" FROM cleanup_target_agent)
 `
 
 func (q *Queries) DeleteArchivedAgentsByRuntime(ctx context.Context, runtimeID pgtype.UUID) error {
@@ -185,11 +338,23 @@ func (q *Queries) DeleteArchivedAgentsByRuntime(ctx context.Context, runtimeID p
 }
 
 const deleteSquadsByArchivedAgentsOnRuntime = `-- name: DeleteSquadsByArchivedAgentsOnRuntime :exec
-DELETE FROM squad
-WHERE leader_id IN (
-    SELECT id FROM agent WHERE runtime_id = $1 AND archived_at IS NOT NULL
+WITH RECURSIVE cleanup_target_squad AS MATERIALIZED (
+    SELECT squad.id, squad.workspace_id, squad.name, squad.description, squad.leader_id, squad.creator_id, squad.created_at, squad.updated_at, squad.archived_at, squad.archived_by, squad.avatar_url, squad.instructions FROM "squad" squad WHERE leader_id IN (
+    SELECT id FROM agent WHERE agent.runtime_id = $1 AND archived_at IS NOT NULL
 )
   AND archived_at IS NOT NULL
+),
+cleanup_target_squad_member AS MATERIALIZED (
+    SELECT child.id, child.squad_id, child.member_type, child.member_id, child.role, child.created_at FROM "squad_member" child WHERE EXISTS (SELECT 1 FROM cleanup_target_squad parent WHERE child."squad_id" = parent."id")
+),
+cleanup_delete_squad_member AS (
+    DELETE FROM "squad_member" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_squad_member)
+),
+cleanup_detach_autopilot_run AS (
+    UPDATE "autopilot_run" child SET "squad_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_squad parent WHERE child."squad_id" = parent."id") THEN NULL ELSE child."squad_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_squad parent WHERE child."squad_id" = parent."id"))
+)
+DELETE FROM "squad" squad WHERE (squad."id") IN (SELECT "id" FROM cleanup_target_squad)
 `
 
 // Removes archived squads whose leader_id references an archived agent on the
@@ -203,7 +368,117 @@ func (q *Queries) DeleteSquadsByArchivedAgentsOnRuntime(ctx context.Context, run
 }
 
 const deleteSystemAgentsByRuntime = `-- name: DeleteSystemAgentsByRuntime :exec
-DELETE FROM agent WHERE runtime_id = $1 AND kind = 'system'
+WITH RECURSIVE cleanup_target_agent AS MATERIALIZED (
+    SELECT agent.id, agent.workspace_id, agent.name, agent.avatar_url, agent.runtime_mode, agent.runtime_config, agent.visibility, agent.status, agent.max_concurrent_runs, agent.owner_id, agent.created_at, agent.updated_at, agent.description, agent.runtime_id, agent.instructions, agent.archived_at, agent.archived_by, agent.custom_env, agent.custom_args, agent.mcp_config, agent.model, agent.thinking_level, agent.composio_toolkit_allowlist, agent.permission_mode, agent.kind, agent.system_key, agent.disabled_runtime_skills, agent.service_tier FROM "agent" agent WHERE agent.runtime_id = $1 AND agent.kind = 'system'
+),
+cleanup_target_agent_run AS MATERIALIZED (
+    SELECT child.id, child.agent_id, child.task_id, child.status, child.priority, child.dispatched_at, child.started_at, child.completed_at, child.result, child.error, child.created_at, child.context, child.runtime_id, child.session_id, child.work_dir, child.trigger_comment_id, child.chat_session_id, child.autopilot_run_id, child.attempt, child.max_attempts, child.parent_run_id, child.failure_reason, child.trigger_summary, child.force_fresh_session, child.is_leader_run, child.wait_reason, child.initiator_user_id, child.handoff_note, child.prepare_lease_expires_at, child.squad_id, child.runtime_mcp_overlay, child.escalation_for_run_id, child.fire_at, child.originator_user_id, child.runtime_connected_apps, child.coalesced_comment_ids, child.delivered_comment_ids, child.chat_input_run_id, child.chat_finalize_deferred_at, child.originator_source, child.delegated_from_run_id, child.retry_of_run_id, child.rerun_of_run_id, child.rule_version_id, child.trigger_evidence_kind, child.trigger_evidence_ref_id, child.accountable_user_id, child.session_rollout_missing, child.retired_session_id, child.trigger_chat_message_id, child.execution_manifest, child.worktree_branch, child.worktree_base_sha, child.worktree_final_sha, child.worktree_delivery_status, child.workflow_stage_execution_id, child.workflow_review_request_id FROM "agent_run" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_agent_run_message AS MATERIALIZED (
+    SELECT child.id, child.run_id, child.seq, child.type, child.tool, child.content, child.input, child.output, child.created_at FROM "agent_run_message" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_run_token AS MATERIALIZED (
+    SELECT child.id, child.token_hash, child.run_id, child.agent_id, child.workspace_id, child.user_id, child.expires_at, child.created_at FROM "agent_run_token" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") OR EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_agent_run_usage AS MATERIALIZED (
+    SELECT child.id, child.run_id, child.provider, child.model, child.input_tokens, child.output_tokens, child.cache_read_tokens, child.cache_write_tokens, child.created_at, child.updated_at, child.cost_usd_ticks FROM "agent_run_usage" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_skill AS MATERIALIZED (
+    SELECT child.agent_id, child.skill_id, child.created_at, child.enabled FROM "agent_skill" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_attachment AS MATERIALIZED (
+    SELECT child.id, child.workspace_id, child.task_id, child.comment_id, child.uploader_type, child.uploader_id, child.filename, child.url, child.content_type, child.size_bytes, child.created_at, child.chat_session_id, child.chat_message_id, child.run_id FROM "attachment" child WHERE EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id") OR EXISTS (SELECT 1 FROM cleanup_target_chat_message parent WHERE child."chat_message_id" = parent."id")
+),
+cleanup_target_chat_message AS MATERIALIZED (
+    SELECT child.id, child.chat_session_id, child.role, child.content, child.run_id, child.created_at, child.failure_reason, child.elapsed_ms, child.message_kind, child.channel_media_pending_until, child.channel_ingested, child.sender_user_id, child.sender_agent_id, child.mentioned_agent_ids FROM "chat_message" child WHERE EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id")
+),
+cleanup_target_chat_session AS MATERIALIZED (
+    SELECT child.id, child.workspace_id, child.agent_id, child.creator_id, child.title, child.session_id, child.work_dir, child.status, child.created_at, child.updated_at, child.unread_since, child.runtime_id, child.last_read_at, child.is_agent_intro, child.pinned_at, child.project_id, child.kind FROM "chat_session" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_daemon_connection AS MATERIALIZED (
+    SELECT child.id, child.agent_id, child.daemon_id, child.status, child.last_heartbeat_at, child.runtime_info, child.created_at, child.updated_at FROM "daemon_connection" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_lark_binding_token AS MATERIALIZED (
+    SELECT child.token_hash, child.workspace_id, child.installation_id, child.lark_open_id, child.expires_at, child.consumed_at, child.created_at FROM "lark_binding_token" child WHERE EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id")
+),
+cleanup_target_lark_chat_session_binding AS MATERIALIZED (
+    SELECT child.id, child.chat_session_id, child.installation_id, child.lark_chat_id, child.lark_chat_type, child.created_at, child.last_lark_message_id, child.last_lark_thread_id FROM "lark_chat_session_binding" child WHERE EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id") OR EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id")
+),
+cleanup_target_lark_inbound_message_dedup AS MATERIALIZED (
+    SELECT child.installation_id, child.message_id, child.received_at, child.processed_at, child.claim_token FROM "lark_inbound_message_dedup" child WHERE EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id")
+),
+cleanup_target_lark_installation AS MATERIALIZED (
+    SELECT child.id, child.workspace_id, child.agent_id, child.app_id, child.app_secret_encrypted, child.tenant_key, child.bot_open_id, child.installer_user_id, child.status, child.ws_lease_token, child.ws_lease_expires_at, child.installed_at, child.created_at, child.updated_at, child.bot_union_id, child.region FROM "lark_installation" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent parent WHERE child."agent_id" = parent."id")
+),
+cleanup_target_lark_outbound_card_message AS MATERIALIZED (
+    SELECT child.id, child.chat_session_id, child.run_id, child.lark_chat_id, child.lark_card_message_id, child.status, child.last_patched_at, child.created_at FROM "lark_outbound_card_message" child WHERE EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id")
+),
+cleanup_target_lark_user_binding AS MATERIALIZED (
+    SELECT child.id, child.workspace_id, child.silieco_user_id, child.installation_id, child.lark_open_id, child.union_id, child.bound_at FROM "lark_user_binding" child WHERE EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id" AND child."workspace_id" = parent."workspace_id")
+),
+cleanup_delete_agent_run AS (
+    DELETE FROM "agent_run" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run)
+),
+cleanup_delete_agent_run_message AS (
+    DELETE FROM "agent_run_message" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_message)
+),
+cleanup_delete_agent_run_token AS (
+    DELETE FROM "agent_run_token" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_token)
+),
+cleanup_delete_agent_run_usage AS (
+    DELETE FROM "agent_run_usage" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_usage)
+),
+cleanup_delete_agent_skill AS (
+    DELETE FROM "agent_skill" child WHERE (child."agent_id", child."skill_id") IN (SELECT "agent_id", "skill_id" FROM cleanup_target_agent_skill)
+),
+cleanup_delete_attachment AS (
+    DELETE FROM "attachment" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_attachment)
+),
+cleanup_delete_chat_message AS (
+    DELETE FROM "chat_message" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_chat_message)
+),
+cleanup_delete_chat_session AS (
+    DELETE FROM "chat_session" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_chat_session)
+),
+cleanup_delete_daemon_connection AS (
+    DELETE FROM "daemon_connection" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_daemon_connection)
+),
+cleanup_delete_lark_binding_token AS (
+    DELETE FROM "lark_binding_token" child WHERE (child."token_hash") IN (SELECT "token_hash" FROM cleanup_target_lark_binding_token)
+),
+cleanup_delete_lark_chat_session_binding AS (
+    DELETE FROM "lark_chat_session_binding" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_lark_chat_session_binding)
+),
+cleanup_delete_lark_inbound_message_dedup AS (
+    DELETE FROM "lark_inbound_message_dedup" child WHERE (child."installation_id", child."message_id") IN (SELECT "installation_id", "message_id" FROM cleanup_target_lark_inbound_message_dedup)
+),
+cleanup_delete_lark_installation AS (
+    DELETE FROM "lark_installation" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_lark_installation)
+),
+cleanup_delete_lark_outbound_card_message AS (
+    DELETE FROM "lark_outbound_card_message" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_lark_outbound_card_message)
+),
+cleanup_delete_lark_user_binding AS (
+    DELETE FROM "lark_user_binding" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_lark_user_binding)
+),
+cleanup_detach_agent_run AS (
+    UPDATE "agent_run" child SET "chat_session_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id") THEN NULL ELSE child."chat_session_id" END,
+        "parent_run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id") THEN NULL ELSE child."parent_run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_chat_session parent WHERE child."chat_session_id" = parent."id") OR EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id")) AND NOT ((child."id") IN (SELECT "id" FROM cleanup_target_agent_run))
+),
+cleanup_detach_autopilot_run AS (
+    UPDATE "autopilot_run" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id"))
+),
+cleanup_detach_lark_inbound_audit AS (
+    UPDATE "lark_inbound_audit" child SET "installation_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id") THEN NULL ELSE child."installation_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_lark_installation parent WHERE child."installation_id" = parent."id"))
+),
+cleanup_detach_lark_outbound_card_message AS (
+    UPDATE "lark_outbound_card_message" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")) AND NOT ((child."id") IN (SELECT "id" FROM cleanup_target_lark_outbound_card_message))
+)
+DELETE FROM "agent" agent WHERE (agent."id") IN (SELECT "id" FROM cleanup_target_agent)
 `
 
 // System agents are invisible execution infrastructure (for example the Agent
@@ -214,50 +489,50 @@ func (q *Queries) DeleteSystemAgentsByRuntime(ctx context.Context, runtimeID pgt
 	return err
 }
 
-const failTasksForOfflineRuntimes = `-- name: FailTasksForOfflineRuntimes :many
+const failRunsForOfflineRuntimes = `-- name: FailRunsForOfflineRuntimes :many
 WITH victims AS (
-  SELECT task.id
-  FROM agent_task_queue task
-  JOIN agent_runtime runtime ON runtime.id = task.runtime_id
-  WHERE task.status IN ('dispatched', 'running', 'waiting_local_directory')
+  SELECT run.id
+  FROM agent_run run
+  JOIN agent_runtime runtime ON runtime.id = run.runtime_id
+  WHERE run.status IN ('dispatched', 'running', 'waiting_local_directory')
     AND runtime.status = 'offline'
     AND COALESCE(runtime.last_seen_at, runtime.updated_at) <
         now() - make_interval(secs => $1::double precision)
-  ORDER BY COALESCE(runtime.last_seen_at, runtime.updated_at), task.created_at
+  ORDER BY COALESCE(runtime.last_seen_at, runtime.updated_at), run.created_at
   LIMIT $2::int
-  FOR UPDATE OF task SKIP LOCKED
+  FOR UPDATE OF run SKIP LOCKED
 )
-UPDATE agent_task_queue AS task
+UPDATE agent_run AS run
 SET status = 'failed', completed_at = now(), error = 'runtime did not reconnect within the configured grace period',
     failure_reason = 'runtime_reconnect_timeout',
     wait_reason = NULL
 FROM victims
-WHERE task.id = victims.id
-  AND task.status IN ('dispatched', 'running', 'waiting_local_directory')
-RETURNING task.id, task.agent_id, task.issue_id, task.status, task.priority, task.dispatched_at, task.started_at, task.completed_at, task.result, task.error, task.created_at, task.context, task.runtime_id, task.session_id, task.work_dir, task.trigger_comment_id, task.chat_session_id, task.autopilot_run_id, task.attempt, task.max_attempts, task.parent_task_id, task.failure_reason, task.trigger_summary, task.force_fresh_session, task.is_leader_task, task.wait_reason, task.initiator_user_id, task.handoff_note, task.prepare_lease_expires_at, task.squad_id, task.runtime_mcp_overlay, task.escalation_for_task_id, task.fire_at, task.originator_user_id, task.runtime_connected_apps, task.coalesced_comment_ids, task.delivered_comment_ids, task.chat_input_task_id, task.chat_finalize_deferred_at, task.originator_source, task.delegated_from_task_id, task.retry_of_task_id, task.rerun_of_task_id, task.rule_version_id, task.trigger_evidence_kind, task.trigger_evidence_ref_id, task.accountable_user_id, task.session_rollout_missing, task.retired_session_id, task.trigger_chat_message_id, task.execution_manifest, task.worktree_branch, task.worktree_base_sha, task.worktree_final_sha, task.worktree_delivery_status, task.workflow_stage_execution_id, task.workflow_review_request_id
+WHERE run.id = victims.id
+  AND run.status IN ('dispatched', 'running', 'waiting_local_directory')
+RETURNING run.id, run.agent_id, run.task_id, run.status, run.priority, run.dispatched_at, run.started_at, run.completed_at, run.result, run.error, run.created_at, run.context, run.runtime_id, run.session_id, run.work_dir, run.trigger_comment_id, run.chat_session_id, run.autopilot_run_id, run.attempt, run.max_attempts, run.parent_run_id, run.failure_reason, run.trigger_summary, run.force_fresh_session, run.is_leader_run, run.wait_reason, run.initiator_user_id, run.handoff_note, run.prepare_lease_expires_at, run.squad_id, run.runtime_mcp_overlay, run.escalation_for_run_id, run.fire_at, run.originator_user_id, run.runtime_connected_apps, run.coalesced_comment_ids, run.delivered_comment_ids, run.chat_input_run_id, run.chat_finalize_deferred_at, run.originator_source, run.delegated_from_run_id, run.retry_of_run_id, run.rerun_of_run_id, run.rule_version_id, run.trigger_evidence_kind, run.trigger_evidence_ref_id, run.accountable_user_id, run.session_rollout_missing, run.retired_session_id, run.trigger_chat_message_id, run.execution_manifest, run.worktree_branch, run.worktree_base_sha, run.worktree_final_sha, run.worktree_delivery_status, run.workflow_stage_execution_id, run.workflow_review_request_id
 `
 
-type FailTasksForOfflineRuntimesParams struct {
+type FailRunsForOfflineRuntimesParams struct {
 	ReconnectGraceSecs float64 `json:"reconnect_grace_secs"`
 	MaxPerTick         int32   `json:"max_per_tick"`
 }
 
-// Marks in-flight tasks failed only after a runtime has remained disconnected
+// Marks in-flight runs failed only after a runtime has remained disconnected
 // for the configured reconnect grace. A short network partition leaves the
-// task owned by the same attempt and allows its daemon to finish normally.
-func (q *Queries) FailTasksForOfflineRuntimes(ctx context.Context, arg FailTasksForOfflineRuntimesParams) ([]AgentTaskQueue, error) {
-	rows, err := q.db.Query(ctx, failTasksForOfflineRuntimes, arg.ReconnectGraceSecs, arg.MaxPerTick)
+// run owned by the same attempt and allows its daemon to finish normally.
+func (q *Queries) FailRunsForOfflineRuntimes(ctx context.Context, arg FailRunsForOfflineRuntimesParams) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, failRunsForOfflineRuntimes, arg.ReconnectGraceSecs, arg.MaxPerTick)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AgentTaskQueue{}
+	items := []AgentRun{}
 	for rows.Next() {
-		var i AgentTaskQueue
+		var i AgentRun
 		if err := rows.Scan(
 			&i.ID,
 			&i.AgentID,
-			&i.IssueID,
+			&i.TaskID,
 			&i.Status,
 			&i.Priority,
 			&i.DispatchedAt,
@@ -275,29 +550,29 @@ func (q *Queries) FailTasksForOfflineRuntimes(ctx context.Context, arg FailTasks
 			&i.AutopilotRunID,
 			&i.Attempt,
 			&i.MaxAttempts,
-			&i.ParentTaskID,
+			&i.ParentRunID,
 			&i.FailureReason,
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
-			&i.IsLeaderTask,
+			&i.IsLeaderRun,
 			&i.WaitReason,
 			&i.InitiatorUserID,
 			&i.HandoffNote,
 			&i.PrepareLeaseExpiresAt,
 			&i.SquadID,
 			&i.RuntimeMcpOverlay,
-			&i.EscalationForTaskID,
+			&i.EscalationForRunID,
 			&i.FireAt,
 			&i.OriginatorUserID,
 			&i.RuntimeConnectedApps,
 			&i.CoalescedCommentIds,
 			&i.DeliveredCommentIds,
-			&i.ChatInputTaskID,
+			&i.ChatInputRunID,
 			&i.ChatFinalizeDeferredAt,
 			&i.OriginatorSource,
-			&i.DelegatedFromTaskID,
-			&i.RetryOfTaskID,
-			&i.RerunOfTaskID,
+			&i.DelegatedFromRunID,
+			&i.RetryOfRunID,
+			&i.RerunOfRunID,
 			&i.RuleVersionID,
 			&i.TriggerEvidenceKind,
 			&i.TriggerEvidenceRefID,
@@ -338,7 +613,7 @@ type FindLegacyRuntimesByDaemonIDParams struct {
 
 // Looks up runtime rows keyed on a prior (hostname-derived) daemon_id. Used
 // at register-time to find rows owned by the same machine under its old
-// identity so agents/tasks can be re-pointed at the new UUID-keyed row.
+// identity so agents/runs can be re-pointed at the new UUID-keyed row.
 //
 // Comparison is case-insensitive because os.Hostname() has been observed to
 // return different casings on the same machine (e.g. `Jiayuans-MacBook-Pro`
@@ -665,7 +940,7 @@ func (q *Queries) ListAgentRuntimesByOwner(ctx context.Context, arg ListAgentRun
 }
 
 const listArchivedAgentIDsByRuntime = `-- name: ListArchivedAgentIDsByRuntime :many
-SELECT id FROM agent WHERE runtime_id = $1 AND archived_at IS NOT NULL
+SELECT id FROM agent WHERE agent.runtime_id = $1 AND archived_at IS NOT NULL
 `
 
 // Companion to DeleteArchivedAgentsByRuntime: enumerates the archived agents
@@ -737,8 +1012,8 @@ WHERE status = 'offline'
   AND last_seen_at < now() - make_interval(secs => $1::double precision)
   AND id NOT IN (SELECT DISTINCT runtime_id FROM agent)
   AND NOT EXISTS (
-    SELECT 1 FROM agent_task_queue
-    WHERE agent_task_queue.runtime_id = agent_runtime.id
+    SELECT 1 FROM agent_run
+    WHERE agent_run.runtime_id = agent_runtime.id
       AND completed_at IS NULL
   )
 ORDER BY last_seen_at ASC, id ASC
@@ -777,20 +1052,9 @@ WHERE id = $1
 FOR UPDATE
 `
 
-// Acquires a row-level exclusive lock on the runtime row. Used at the
-// top of the cascade-delete transaction so that:
-//  1. PostgreSQL's FK validation on agent.runtime_id (FK ... ON DELETE
-//     RESTRICT) needs FOR KEY SHARE on the parent runtime row, which
-//     conflicts with FOR UPDATE — so any concurrent INSERT or UPDATE
-//     that would point a new/moved agent at this runtime blocks until
-//     our transaction finishes; and
-//  2. concurrent UPDATE/DELETE of the runtime row itself (e.g. another
-//     delete attempt) waits for us to commit.
-//
-// Combined with ListActiveAgentsByRuntimeForUpdate (which row-locks the
-// existing active set) this closes the plan-compare → archive race that
-// was possible at read-committed isolation between the snapshot and the
-// bulk archive.
+// Lock before reading runtime dependents. Runtime-binding writes explicitly
+// take KEY SHARE on this row, so they either finish before the cleanup snapshot
+// or wait and fail their existence guard after deletion commits.
 func (q *Queries) LockAgentRuntime(ctx context.Context, id pgtype.UUID) (AgentRuntime, error) {
 	row := q.db.QueryRow(ctx, lockAgentRuntime, id)
 	var i AgentRuntime
@@ -930,9 +1194,14 @@ func (q *Queries) PauseAutopilotsByAgentAssignees(ctx context.Context, assigneeI
 }
 
 const reassignAgentsToRuntime = `-- name: ReassignAgentsToRuntime :execrows
+WITH runtime_guard AS MATERIALIZED (
+    SELECT id, workspace_id FROM agent_runtime
+    WHERE id = $1 FOR KEY SHARE
+)
 UPDATE agent
 SET runtime_id = $1
 WHERE runtime_id = $2
+  AND EXISTS (SELECT 1 FROM runtime_guard WHERE runtime_guard.workspace_id = agent.workspace_id)
 `
 
 type ReassignAgentsToRuntimeParams struct {
@@ -949,22 +1218,30 @@ func (q *Queries) ReassignAgentsToRuntime(ctx context.Context, arg ReassignAgent
 	return result.RowsAffected(), nil
 }
 
-const reassignTasksToRuntime = `-- name: ReassignTasksToRuntime :execrows
-UPDATE agent_task_queue
+const reassignRunsToRuntime = `-- name: ReassignRunsToRuntime :execrows
+WITH runtime_guard AS MATERIALIZED (
+    SELECT id, workspace_id FROM agent_runtime
+    WHERE id = $1 FOR KEY SHARE
+)
+UPDATE agent_run
 SET runtime_id = $1
-WHERE runtime_id = $2
+WHERE agent_run.runtime_id = $2
+  AND EXISTS (
+    SELECT 1 FROM runtime_guard JOIN agent ON agent.workspace_id = runtime_guard.workspace_id
+    WHERE agent.id = agent_run.agent_id
+  )
 `
 
-type ReassignTasksToRuntimeParams struct {
+type ReassignRunsToRuntimeParams struct {
 	NewRuntimeID pgtype.UUID `json:"new_runtime_id"`
 	OldRuntimeID pgtype.UUID `json:"old_runtime_id"`
 }
 
-// Re-points every queued/running/completed task referencing old_runtime_id.
-// Required before deleting the old runtime row because agent_task_queue has
-// an ON DELETE CASCADE FK that would otherwise drop historical tasks.
-func (q *Queries) ReassignTasksToRuntime(ctx context.Context, arg ReassignTasksToRuntimeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, reassignTasksToRuntime, arg.NewRuntimeID, arg.OldRuntimeID)
+// Re-points every queued/running/completed run referencing old_runtime_id.
+// Required before deleting the old runtime row because agent_run has
+// explicit dependent cleanup that would otherwise drop historical runs.
+func (q *Queries) ReassignRunsToRuntime(ctx context.Context, arg ReassignRunsToRuntimeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, reassignRunsToRuntime, arg.NewRuntimeID, arg.OldRuntimeID)
 	if err != nil {
 		return 0, err
 	}
@@ -1108,16 +1385,16 @@ func (q *Queries) UnbindAgentsFromRuntime(ctx context.Context, runtimeID pgtype.
 	return result.RowsAffected(), nil
 }
 
-const unbindTasksFromRuntime = `-- name: UnbindTasksFromRuntime :execrows
-UPDATE agent_task_queue
+const unbindRunsFromRuntime = `-- name: UnbindRunsFromRuntime :execrows
+UPDATE agent_run
 SET runtime_id = NULL
 WHERE runtime_id = $1 AND completed_at IS NOT NULL
 `
 
-// Active tasks must be drained first; terminal history is detached explicitly
+// Active runs must be drained first; terminal history is detached explicitly
 // so the legacy runtime FK cascade cannot remove it.
-func (q *Queries) UnbindTasksFromRuntime(ctx context.Context, runtimeID pgtype.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, unbindTasksFromRuntime, runtimeID)
+func (q *Queries) UnbindRunsFromRuntime(ctx context.Context, runtimeID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, unbindRunsFromRuntime, runtimeID)
 	if err != nil {
 		return 0, err
 	}
@@ -1284,7 +1561,20 @@ INSERT INTO agent_runtime (
     metadata,
     owner_id,
     last_seen_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+) SELECT
+    $1 AS workspace_id,
+    $2 AS daemon_id,
+    $3 AS name,
+    $4 AS runtime_mode,
+    $5 AS provider,
+    $6 AS status,
+    $7 AS device_info,
+    $8 AS metadata,
+    $9 AS owner_id,
+    now() AS last_seen_at
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($9)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_owner_id WHERE ref_owner_id.id = ($9) FOR KEY SHARE))
+
 ON CONFLICT (workspace_id, daemon_id, provider) WHERE profile_id IS NULL
 DO UPDATE SET
     name = EXCLUDED.name,
@@ -1375,6 +1665,15 @@ func (q *Queries) UpsertAgentRuntime(ctx context.Context, arg UpsertAgentRuntime
 }
 
 const upsertAgentRuntimeWithProfile = `-- name: UpsertAgentRuntimeWithProfile :one
+WITH profile_guard AS MATERIALIZED (
+    SELECT id FROM runtime_profile
+    WHERE id = $10 AND workspace_id = $1
+    FOR KEY SHARE
+), workspace_guard AS MATERIALIZED (
+    SELECT id FROM workspace WHERE id = $1 FOR KEY SHARE
+), owner_guard AS MATERIALIZED (
+    SELECT id FROM "user" WHERE id = $9 FOR KEY SHARE
+)
 INSERT INTO agent_runtime (
     workspace_id,
     daemon_id,
@@ -1387,7 +1686,12 @@ INSERT INTO agent_runtime (
     owner_id,
     profile_id,
     last_seen_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+) SELECT $1 AS workspace_id, $2 AS daemon_id, $3 AS name, $4 AS runtime_mode,
+    $5 AS provider, $6 AS status, $7 AS device_info, $8 AS metadata,
+    $9 AS owner_id, $10 AS profile_id, now() AS last_seen_at
+WHERE EXISTS (SELECT 1 FROM profile_guard)
+  AND EXISTS (SELECT 1 FROM workspace_guard)
+  AND ($9::uuid IS NULL OR EXISTS (SELECT 1 FROM owner_guard))
 ON CONFLICT (workspace_id, daemon_id, profile_id) WHERE profile_id IS NOT NULL
 DO UPDATE SET
     name = EXCLUDED.name,
@@ -1441,7 +1745,7 @@ type UpsertAgentRuntimeWithProfileRow struct {
 // partial unique index from migration 120 (WHERE profile_id IS NOT NULL), so a
 // single daemon can host the built-in provider AND any number of custom
 // profiles of the same protocol family. provider stays the protocol family so
-// task routing (agent.New(provider)) is unchanged; profile_id is the stable
+// run routing (agent.New(provider)) is unchanged; profile_id is the stable
 // identity. (xmax = 0) AS inserted mirrors UpsertAgentRuntime.
 func (q *Queries) UpsertAgentRuntimeWithProfile(ctx context.Context, arg UpsertAgentRuntimeWithProfileParams) (UpsertAgentRuntimeWithProfileRow, error) {
 	row := q.db.QueryRow(ctx, upsertAgentRuntimeWithProfile,

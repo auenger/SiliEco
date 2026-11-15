@@ -22,9 +22,9 @@ import {
 } from "../runtimes/utils";
 import type {
   DailyTimeData,
-  DailyTasksData,
+  DailyRunsData,
   WeeklyTimeData,
-  WeeklyTasksData,
+  WeeklyRunsData,
   DailyErrorsData,
   WeeklyErrorsData,
   FailureBucketTotals,
@@ -150,7 +150,7 @@ export function computeDailyTotals(usage: DashboardUsageDaily[]): DashboardToken
       cacheRead: acc.cacheRead + u.cache_read_tokens,
       cacheWrite: acc.cacheWrite + u.cache_write_tokens,
       cost: acc.cost + estimateCost(u),
-      taskCount: acc.taskCount + u.task_count,
+      taskCount: acc.taskCount + u.run_count,
     }),
     { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, taskCount: 0 },
   );
@@ -178,7 +178,7 @@ export function aggregateAgentTokens(rows: DashboardUsageByAgent[]): AgentCostRo
     entry.tokens +=
       r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_write_tokens;
     entry.cost += estimateCost(r);
-    entry.taskCount += r.task_count;
+    entry.taskCount += r.run_count;
     map.set(r.agent_id, entry);
   }
   return Array.from(map.values()).toSorted((a, b) => b.cost - a.cost);
@@ -216,7 +216,7 @@ export function mergeAgentDashboardRows(
       tokens: r.tokens,
       cost: r.cost,
       seconds: rt?.total_seconds ?? 0,
-      taskCount: rt ? rt.task_count : r.taskCount,
+      taskCount: rt ? rt.run_count : r.taskCount,
     });
   }
   // Agents with run-time rows but zero tokens still belong on the list
@@ -229,7 +229,7 @@ export function mergeAgentDashboardRows(
       tokens: 0,
       cost: 0,
       seconds: r.total_seconds,
-      taskCount: r.task_count,
+      taskCount: r.run_count,
     });
   }
   return Array.from(merged.values()).toSorted((a, b) => {
@@ -384,11 +384,11 @@ export function aggregateWeeklyTime(
   return shells.map((s) => ({ ...s, totalSeconds: totals.get(s.weekStart) ?? 0 }));
 }
 
-export function aggregateWeeklyTasks(
+export function aggregateWeeklyRuns(
   rows: DashboardRunTimeDaily[],
   tz: string,
   weekCount: number,
-): WeeklyTasksData[] {
+): WeeklyRunsData[] {
   const shells = buildWeekShells(tz, weekCount);
   const buckets = new Map<string, { completed: number; failed: number }>();
   for (const shell of shells)
@@ -398,7 +398,7 @@ export function aggregateWeeklyTasks(
     const bucket = buckets.get(wkStart);
     if (!bucket) continue;
     const failed = r.failed_count;
-    const completed = Math.max(0, r.task_count - failed);
+    const completed = Math.max(0, r.run_count - failed);
     bucket.completed += completed;
     bucket.failed += failed;
   }
@@ -421,13 +421,13 @@ export function aggregateDailyTime(rows: DashboardRunTimeDaily[]): DailyTimeData
 }
 
 // Per-date run-time rows → one row per date with `completed` and `failed`
-// counts for the DailyTasksChart's stacked bar (failed_count is a subset
-// of task_count, so completed = task_count - failed_count).
-export function aggregateDailyTasks(rows: DashboardRunTimeDaily[]): DailyTasksData[] {
+// counts for the DailyRunsChart's stacked bar (failed_count is a subset
+// of run_count, so completed = run_count - failed_count).
+export function aggregateDailyRuns(rows: DashboardRunTimeDaily[]): DailyRunsData[] {
   return rows.toSorted((a, b) => a.date.localeCompare(b.date))
     .map((r) => {
       const failed = r.failed_count;
-      const completed = Math.max(0, r.task_count - failed);
+      const completed = Math.max(0, r.run_count - failed);
       return {
         date: r.date,
         label: formatDateLabel(r.date),
@@ -510,7 +510,7 @@ export function aggregateDailyErrors(
       entry = { ...emptyClassCounts(), failed: 0, total: 0 };
       map.set(r.date, entry);
     }
-    foldFailureRow(entry, r.failure_reason, r.task_count);
+    foldFailureRow(entry, r.failure_reason, r.run_count);
   }
   return Array.from(map.entries())
     .toSorted(([a], [b]) => a.localeCompare(b))
@@ -537,7 +537,7 @@ export function aggregateWeeklyErrors(
   for (const r of rows) {
     const bucket = buckets.get(weekStartIso(r.date));
     if (!bucket) continue;
-    foldFailureRow(bucket, r.failure_reason, r.task_count);
+    foldFailureRow(bucket, r.failure_reason, r.run_count);
   }
   return shells.map((s) => ({
     ...(buckets.get(s.weekStart) ?? { ...emptyClassCounts(), failed: 0, total: 0 }),
@@ -555,13 +555,13 @@ export interface FailureTotals {
 }
 
 export function computeFailureTotals(
-  rows: { failure_reason: string; task_count: number }[],
+  rows: { failure_reason: string; run_count: number }[],
 ): FailureTotals {
   let failed = 0;
   let total = 0;
   for (const r of rows) {
-    total += r.task_count;
-    if (r.failure_reason !== "") failed += r.task_count;
+    total += r.run_count;
+    if (r.failure_reason !== "") failed += r.run_count;
   }
   return { failed, total, rate: total > 0 ? failed / total : 0 };
 }
@@ -575,12 +575,12 @@ export interface FailureClassRow {
 // break on FAILURE_CLASSES order so the list doesn't reshuffle between
 // renders when two classes sit at the same count.
 export function aggregateFailureClasses(
-  rows: { failure_reason: string; task_count: number }[],
+  rows: { failure_reason: string; run_count: number }[],
 ): FailureClassRow[] {
   const counts = emptyClassCounts();
   for (const r of rows) {
     if (r.failure_reason === "") continue;
-    counts[failureClassOf(r.failure_reason)] += r.task_count;
+    counts[failureClassOf(r.failure_reason)] += r.run_count;
   }
   return FAILURE_CLASSES.map((failureClass) => ({
     failureClass,
@@ -599,12 +599,12 @@ export interface FailureReasonRow {
 // Per-raw-reason window totals, heaviest first. This is the row set that
 // answers "which specific error", under the coarser class summary.
 export function aggregateFailureReasons(
-  rows: { failure_reason: string; task_count: number }[],
+  rows: { failure_reason: string; run_count: number }[],
 ): FailureReasonRow[] {
   const counts = new Map<string, number>();
   for (const r of rows) {
     if (r.failure_reason === "") continue;
-    counts.set(r.failure_reason, (counts.get(r.failure_reason) ?? 0) + r.task_count);
+    counts.set(r.failure_reason, (counts.get(r.failure_reason) ?? 0) + r.run_count);
   }
   return Array.from(counts.entries())
     .map(([reason, count]) => ({
@@ -657,10 +657,10 @@ export function aggregateAgentFailures(
       entry = { failed: 0, total: 0, classes: emptyClassCounts() };
       map.set(r.agent_id, entry);
     }
-    entry.total += r.task_count;
+    entry.total += r.run_count;
     if (r.failure_reason === "") continue;
-    entry.failed += r.task_count;
-    entry.classes[failureClassOf(r.failure_reason)] += r.task_count;
+    entry.failed += r.run_count;
+    entry.classes[failureClassOf(r.failure_reason)] += r.run_count;
   }
   return sortAgentFailures(
     Array.from(map.entries())

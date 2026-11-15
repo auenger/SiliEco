@@ -33,7 +33,7 @@ vi.mock("../i18n", () => ({
         feedback: {
           title: "Feedback",
           github_hint_prefix: "Prefer GitHub? ",
-          github_hint_link: "Open an issue",
+          github_hint_link: "Open an task",
           placeholder: "Tell us what happened",
           toast_uploading: "Uploading",
           toast_too_long: "Too long",

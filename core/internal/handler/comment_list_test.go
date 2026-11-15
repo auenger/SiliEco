@@ -45,7 +45,7 @@ func nextThreadCursor(w *httptest.ResponseRecorder) (string, string) {
 	return w.Header().Get("X-Silieco-Next-Before"), w.Header().Get("X-Silieco-Next-Before-Id")
 }
 
-// commentListFixture seeds an issue with a known comment graph for the
+// commentListFixture seeds an task with a known comment graph for the
 // thread / recent / cursor tests. The shape:
 //
 //	root1 (oldest)
@@ -59,31 +59,31 @@ func nextThreadCursor(w *httptest.ResponseRecorder) (string, string) {
 // Each comment is inserted with an explicit created_at so ordering and
 // cursor behavior are deterministic.
 type commentListFixture struct {
-	IssueID string
-	Root1   string
-	R1a     string
-	R1b     string
-	R1b1    string
-	Root2   string
-	R2a     string
-	R2b     string
-	Base    time.Time
+	TaskID string
+	Root1  string
+	R1a    string
+	R1b    string
+	R1b1   string
+	Root2  string
+	R2a    string
+	R2b    string
+	Base   time.Time
 }
 
 func newCommentListFixture(t *testing.T) commentListFixture {
 	t.Helper()
 	ctx := context.Background()
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title)
 		VALUES ($1, 'member', $2, $3)
 		RETURNING id
-	`, testWorkspaceID, testUserID, "comment list fixture").Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, "comment list fixture").Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	base := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Second)
@@ -92,10 +92,10 @@ func newCommentListFixture(t *testing.T) commentListFixture {
 		t.Helper()
 		var id string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
 			VALUES ($1, $2, 'member', $3, $4, 'comment', $5, $6)
 			RETURNING id
-		`, issueID, testWorkspaceID, testUserID, body, parent, base.Add(offset)).Scan(&id); err != nil {
+		`, taskID, testWorkspaceID, testUserID, body, parent, base.Add(offset)).Scan(&id); err != nil {
 			t.Fatalf("insert comment %q: %v", body, err)
 		}
 		return id
@@ -110,8 +110,8 @@ func newCommentListFixture(t *testing.T) commentListFixture {
 	r2b := insert(&root2, 12*time.Minute, "r2b")
 
 	return commentListFixture{
-		IssueID: issueID,
-		Root1:   root1, R1a: r1a, R1b: r1b, R1b1: r1b1,
+		TaskID: taskID,
+		Root1:  root1, R1a: r1a, R1b: r1b, R1b1: r1b1,
 		Root2: root2, R2a: r2a, R2b: r2b,
 		Base: base,
 	}
@@ -126,15 +126,15 @@ func decodeComments(t *testing.T, body []byte) []CommentResponse {
 	return resp
 }
 
-func listComments(t *testing.T, issueID, query string) (*httptest.ResponseRecorder, []CommentResponse) {
+func listComments(t *testing.T, taskID, query string) (*httptest.ResponseRecorder, []CommentResponse) {
 	t.Helper()
 	w := httptest.NewRecorder()
-	url := "/api/issues/" + issueID + "/comments"
+	url := "/api/tasks/" + taskID + "/comments"
 	if query != "" {
 		url += "?" + query
 	}
 	r := newRequest("GET", url, nil)
-	r = withURLParam(r, "id", issueID)
+	r = withURLParam(r, "id", taskID)
 	testHandler.ListComments(w, r)
 	if w.Code != http.StatusOK {
 		return w, nil
@@ -171,13 +171,13 @@ func TestListComments_DefaultPreservesChronologicalOrder(t *testing.T) {
 	}
 	fx := newCommentListFixture(t)
 
-	_, rows := listComments(t, fx.IssueID, "")
+	_, rows := listComments(t, fx.TaskID, "")
 	want := []string{fx.Root1, fx.R1a, fx.R1b, fx.R1b1, fx.Root2, fx.R2a, fx.R2b}
 	eqIDs(t, ids(rows), want, "default order")
 }
 
 // TestListComments_RootsOnlyReturnsTopLevelComments pins the #3164 contract:
-// issue-level orientation should fetch only root comments, leaving replies for
+// task-level orientation should fetch only root comments, leaving replies for
 // a later thread-scoped read if the caller needs detail.
 func TestListComments_RootsOnlyReturnsTopLevelComments(t *testing.T) {
 	if testHandler == nil || testPool == nil {
@@ -193,7 +193,7 @@ func TestListComments_RootsOnlyReturnsTopLevelComments(t *testing.T) {
 		{name: "hyphenated alias", query: "roots-only=true"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			w, rows := listComments(t, fx.IssueID, tc.query)
+			w, rows := listComments(t, fx.TaskID, tc.query)
 			eqIDs(t, ids(rows), []string{fx.Root1, fx.Root2}, tc.name)
 			for _, row := range rows {
 				if row.ParentID != nil {
@@ -220,7 +220,7 @@ func TestListComments_RootsOnlyWithSinceReturnsNewTopLevelComments(t *testing.T)
 	v := url.Values{}
 	v.Set("roots_only", "true")
 	v.Set("since", fx.Base.Add(5*time.Minute).UTC().Format(time.RFC3339Nano))
-	_, rows := listComments(t, fx.IssueID, v.Encode())
+	_, rows := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(rows), []string{fx.Root2}, "roots_only + since")
 	for _, row := range rows {
 		if row.ParentID != nil {
@@ -241,7 +241,7 @@ func TestListComments_RootsOnlyReturnsThreadStats(t *testing.T) {
 	}
 	fx := newCommentListFixture(t)
 
-	_, rows := listComments(t, fx.IssueID, "roots_only=true")
+	_, rows := listComments(t, fx.TaskID, "roots_only=true")
 	eqIDs(t, ids(rows), []string{fx.Root1, fx.Root2}, "roots stats order")
 
 	byID := map[string]CommentResponse{}
@@ -254,7 +254,7 @@ func TestListComments_RootsOnlyReturnsThreadStats(t *testing.T) {
 	assertRootStat(t, byID[fx.Root2], "root2", 2, fx.Base.Add(12*time.Minute))
 
 	// The default (non-roots) list must NOT leak the roots-only stats.
-	_, all := listComments(t, fx.IssueID, "")
+	_, all := listComments(t, fx.TaskID, "")
 	for _, r := range all {
 		if r.ReplyCount != nil || r.LastActivityAt != nil {
 			t.Fatalf("default list leaked roots-only stats on %s (reply_count=%v last_activity=%v)", r.ID, r.ReplyCount, r.LastActivityAt)
@@ -293,16 +293,16 @@ func TestListComments_SummaryClipsContent(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title)
 		VALUES ($1, 'member', $2, $3)
 		RETURNING id
-	`, testWorkspaceID, testUserID, "summary fixture").Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, "summary fixture").Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
@@ -310,10 +310,10 @@ func TestListComments_SummaryClipsContent(t *testing.T) {
 		t.Helper()
 		var id string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, created_at)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, created_at)
 			VALUES ($1, $2, 'member', $3, $4, 'comment', $5)
 			RETURNING id
-		`, issueID, testWorkspaceID, testUserID, body, base.Add(offset)).Scan(&id); err != nil {
+		`, taskID, testWorkspaceID, testUserID, body, base.Add(offset)).Scan(&id); err != nil {
 			t.Fatalf("insert comment: %v", err)
 		}
 		return id
@@ -324,7 +324,7 @@ func TestListComments_SummaryClipsContent(t *testing.T) {
 	cjkID := insert(strings.Repeat("你", 300), 2*time.Minute)
 
 	// Baseline: no summary → full content, content_truncated omitted.
-	_, full := listComments(t, issueID, "")
+	_, full := listComments(t, taskID, "")
 	for _, c := range full {
 		if c.ContentTruncated != nil {
 			t.Fatalf("baseline: content_truncated should be nil, got %v on %s", *c.ContentTruncated, c.ID)
@@ -335,7 +335,7 @@ func TestListComments_SummaryClipsContent(t *testing.T) {
 	}
 
 	// summary=true → long clipped + truncated true; short verbatim + false.
-	_, sum := listComments(t, issueID, "summary=true")
+	_, sum := listComments(t, taskID, "summary=true")
 	byID := map[string]CommentResponse{}
 	for _, c := range sum {
 		byID[c.ID] = c
@@ -385,16 +385,16 @@ func TestListComments_RootsOnlySummaryComposes(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title)
 		VALUES ($1, 'member', $2, $3)
 		RETURNING id
-	`, testWorkspaceID, testUserID, "roots+summary fixture").Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, "roots+summary fixture").Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
@@ -402,10 +402,10 @@ func TestListComments_RootsOnlySummaryComposes(t *testing.T) {
 		t.Helper()
 		var id string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
 			VALUES ($1, $2, 'member', $3, $4, 'comment', $5, $6)
 			RETURNING id
-		`, issueID, testWorkspaceID, testUserID, body, parent, base.Add(offset)).Scan(&id); err != nil {
+		`, taskID, testWorkspaceID, testUserID, body, parent, base.Add(offset)).Scan(&id); err != nil {
 			t.Fatalf("insert comment: %v", err)
 		}
 		return id
@@ -413,7 +413,7 @@ func TestListComments_RootsOnlySummaryComposes(t *testing.T) {
 	rootID := insert(nil, strings.Repeat("x", 500), 0)
 	insert(&rootID, "a reply", 5*time.Minute) // pushes last_activity past the root's own time
 
-	_, rows := listComments(t, issueID, "roots_only=true&summary=true")
+	_, rows := listComments(t, taskID, "roots_only=true&summary=true")
 	eqIDs(t, ids(rows), []string{rootID}, "roots_only+summary returns only the root")
 
 	root := rows[0]
@@ -442,24 +442,24 @@ func TestListComments_ThreadResolvesFromAnyAnchor(t *testing.T) {
 	wantThread1 := []string{fx.Root1, fx.R1a, fx.R1b, fx.R1b1}
 
 	t.Run("anchor is root", func(t *testing.T) {
-		_, rows := listComments(t, fx.IssueID, "thread="+fx.Root1)
+		_, rows := listComments(t, fx.TaskID, "thread="+fx.Root1)
 		eqIDs(t, ids(rows), wantThread1, "anchor=root1")
 	})
 
 	t.Run("anchor is direct reply", func(t *testing.T) {
-		_, rows := listComments(t, fx.IssueID, "thread="+fx.R1a)
+		_, rows := listComments(t, fx.TaskID, "thread="+fx.R1a)
 		eqIDs(t, ids(rows), wantThread1, "anchor=r1a (direct reply)")
 	})
 
 	t.Run("anchor is nested reply", func(t *testing.T) {
 		// r1b1.parent_id = r1b, which itself is a reply. The recursive CTE
 		// must climb root1 → r1b → r1b1 to resolve the root.
-		_, rows := listComments(t, fx.IssueID, "thread="+fx.R1b1)
+		_, rows := listComments(t, fx.TaskID, "thread="+fx.R1b1)
 		eqIDs(t, ids(rows), wantThread1, "anchor=r1b1 (nested reply)")
 	})
 
 	t.Run("anchor in other thread returns only that thread", func(t *testing.T) {
-		_, rows := listComments(t, fx.IssueID, "thread="+fx.R2a)
+		_, rows := listComments(t, fx.TaskID, "thread="+fx.R2a)
 		eqIDs(t, ids(rows), []string{fx.Root2, fx.R2a, fx.R2b}, "anchor=r2a")
 	})
 }
@@ -476,14 +476,14 @@ func TestListComments_ThreadAnchorErrors(t *testing.T) {
 	fx := newCommentListFixture(t)
 
 	t.Run("non-uuid thread returns 400", func(t *testing.T) {
-		w, _ := listComments(t, fx.IssueID, "thread=not-a-uuid")
+		w, _ := listComments(t, fx.TaskID, "thread=not-a-uuid")
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
 	t.Run("unknown thread anchor returns 404", func(t *testing.T) {
-		w, _ := listComments(t, fx.IssueID, "thread=00000000-0000-0000-0000-000000000001")
+		w, _ := listComments(t, fx.TaskID, "thread=00000000-0000-0000-0000-000000000001")
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 		}
@@ -507,12 +507,12 @@ func TestListComments_RecentReturnsMostRecentlyActiveThreads(t *testing.T) {
 	fx := newCommentListFixture(t)
 
 	t.Run("recent=1 returns the freshest-active thread fully", func(t *testing.T) {
-		_, rows := listComments(t, fx.IssueID, "recent=1")
+		_, rows := listComments(t, fx.TaskID, "recent=1")
 		eqIDs(t, ids(rows), []string{fx.Root2, fx.R2a, fx.R2b}, "recent=1")
 	})
 
 	t.Run("recent=2 returns both threads, older-active first", func(t *testing.T) {
-		_, rows := listComments(t, fx.IssueID, "recent=2")
+		_, rows := listComments(t, fx.TaskID, "recent=2")
 		// Threads sorted by (last_activity_at ASC, root_id ASC):
 		//   root1 thread (last_activity = base + 3m via r1b1) FIRST
 		//   root2 thread (last_activity = base + 12m via r2b) SECOND
@@ -533,24 +533,24 @@ func TestListComments_RecentRanksStaleThreadAheadIfRecentlyReplied(t *testing.T)
 	}
 	ctx := context.Background()
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title)
 		VALUES ($1, 'member', $2, $3) RETURNING id
-	`, testWorkspaceID, testUserID, "stale-but-fresh fixture").Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, "stale-but-fresh fixture").Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	base := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Second)
 	insert := func(parent *string, offset time.Duration, body string) string {
 		var id string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
 			VALUES ($1, $2, 'member', $3, $4, 'comment', $5, $6) RETURNING id
-		`, issueID, testWorkspaceID, testUserID, body, parent, base.Add(offset)).Scan(&id); err != nil {
+		`, taskID, testWorkspaceID, testUserID, body, parent, base.Add(offset)).Scan(&id); err != nil {
 			t.Fatalf("insert: %v", err)
 		}
 		return id
@@ -562,7 +562,7 @@ func TestListComments_RecentRanksStaleThreadAheadIfRecentlyReplied(t *testing.T)
 	quietRoot := insert(nil, 15*time.Minute, "quietRoot")
 	freshReply := insert(&oldRoot, 30*time.Minute, "freshReply")
 
-	_, rows := listComments(t, issueID, "recent=1")
+	_, rows := listComments(t, taskID, "recent=1")
 	// Expected: only the oldRoot thread (oldRoot + freshReply). The
 	// quietRoot thread is suppressed because its last_activity_at is older
 	// than oldRoot's, even though its root was created later.
@@ -584,7 +584,7 @@ func TestListComments_RecentEmitsThreadCursorWhenPageFull(t *testing.T) {
 	t.Run("underfilled page emits no cursor", func(t *testing.T) {
 		// recent=5 with only 2 threads available — server has nothing older
 		// to offer. No cursor headers means the client stops paginating.
-		w, _ := listComments(t, fx.IssueID, "recent=5")
+		w, _ := listComments(t, fx.TaskID, "recent=5")
 		nb, nbid := nextThreadCursor(w)
 		if nb != "" || nbid != "" {
 			t.Fatalf("expected no cursor, got before=%q before_id=%q", nb, nbid)
@@ -595,7 +595,7 @@ func TestListComments_RecentEmitsThreadCursorWhenPageFull(t *testing.T) {
 		// recent=1: page is full (1 thread returned, 1 requested). Cursor
 		// must point at the (last_activity_at, root_id) of the only thread
 		// in the page so the next request can fetch older threads.
-		w, _ := listComments(t, fx.IssueID, "recent=1")
+		w, _ := listComments(t, fx.TaskID, "recent=1")
 		nb, nbid := nextThreadCursor(w)
 		if nbid != fx.Root2 {
 			t.Fatalf("cursor before_id = %q, want %q (root2 — newest thread)", nbid, fx.Root2)
@@ -609,7 +609,7 @@ func TestListComments_RecentEmitsThreadCursorWhenPageFull(t *testing.T) {
 	})
 }
 
-// TestListComments_RecentWithThreadCursorScrollsOlderThreads walks the issue
+// TestListComments_RecentWithThreadCursorScrollsOlderThreads walks the task
 // thread-by-thread using the cursor the server emits. Pinning this avoids
 // the row-based regression where a "newest N comments" cursor would interleave
 // rows from multiple threads and skip thread membership across pages.
@@ -620,7 +620,7 @@ func TestListComments_RecentWithThreadCursorScrollsOlderThreads(t *testing.T) {
 	fx := newCommentListFixture(t)
 
 	// Page 1: newest thread = root2.
-	w1, page1 := listComments(t, fx.IssueID, "recent=1")
+	w1, page1 := listComments(t, fx.TaskID, "recent=1")
 	eqIDs(t, ids(page1), []string{fx.Root2, fx.R2a, fx.R2b}, "page1 = root2 thread")
 	nb, nbid := nextThreadCursor(w1)
 	if nb == "" || nbid != fx.Root2 {
@@ -629,7 +629,7 @@ func TestListComments_RecentWithThreadCursorScrollsOlderThreads(t *testing.T) {
 
 	// Page 2: cursor points at root2 → server returns the next older thread
 	// (root1). All of root1's descendants come along.
-	w2, page2 := listComments(t, fx.IssueID, cursorQuery(1, nb, nbid))
+	w2, page2 := listComments(t, fx.TaskID, cursorQuery(1, nb, nbid))
 	eqIDs(t, ids(page2), []string{fx.Root1, fx.R1a, fx.R1b, fx.R1b1}, "page2 = root1 thread")
 
 	// Page 3: cursor points at root1 → no older threads exist, page is
@@ -638,7 +638,7 @@ func TestListComments_RecentWithThreadCursorScrollsOlderThreads(t *testing.T) {
 	if nb2 == "" || nbid2 != fx.Root1 {
 		t.Fatalf("page2 cursor = (%q, %q), want (non-empty, %q)", nb2, nbid2, fx.Root1)
 	}
-	w3, page3 := listComments(t, fx.IssueID, cursorQuery(1, nb2, nbid2))
+	w3, page3 := listComments(t, fx.TaskID, cursorQuery(1, nb2, nbid2))
 	if len(page3) != 0 {
 		t.Fatalf("page3: expected empty (no older threads), got %d rows: %v", len(page3), ids(page3))
 	}
@@ -660,24 +660,24 @@ func TestListComments_ThreadCursorStableUnderSameLastActivity(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title)
 		VALUES ($1, 'member', $2, $3) RETURNING id
-	`, testWorkspaceID, testUserID, "thread tie-break fixture").Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, "thread tie-break fixture").Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	ts := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Millisecond)
 	insertRoot := func(body string) string {
 		var id string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, created_at)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, created_at)
 			VALUES ($1, $2, 'member', $3, $4, 'comment', $5) RETURNING id
-		`, issueID, testWorkspaceID, testUserID, body, ts).Scan(&id); err != nil {
+		`, taskID, testWorkspaceID, testUserID, body, ts).Scan(&id); err != nil {
 			t.Fatalf("insert: %v", err)
 		}
 		return id
@@ -705,7 +705,7 @@ func TestListComments_ThreadCursorStableUnderSameLastActivity(t *testing.T) {
 	wantOrder := []string{sorted[2], sorted[1], sorted[0]}
 
 	var got []string
-	w, page := listComments(t, issueID, "recent=1")
+	w, page := listComments(t, taskID, "recent=1")
 	if len(page) != 1 {
 		t.Fatalf("page1: expected 1 thread (1 row), got %d", len(page))
 	}
@@ -716,7 +716,7 @@ func TestListComments_ThreadCursorStableUnderSameLastActivity(t *testing.T) {
 		if nb == "" || nbid == "" {
 			t.Fatalf("page %d: missing cursor headers", i+1)
 		}
-		w, page = listComments(t, issueID, cursorQuery(1, nb, nbid))
+		w, page = listComments(t, taskID, cursorQuery(1, nb, nbid))
 		if len(page) != 1 {
 			t.Fatalf("page %d: expected 1 thread (1 row), got %d", i+2, len(page))
 		}
@@ -844,7 +844,7 @@ func TestListComments_FlagCombinationRules(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			w, _ := listComments(t, fx.IssueID, tc.query)
+			w, _ := listComments(t, fx.TaskID, tc.query)
 			if w.Code != tc.status {
 				t.Fatalf("query=%q\n  got=%d want=%d body=%s", tc.query, w.Code, tc.status, w.Body.String())
 			}
@@ -876,7 +876,7 @@ func TestListComments_RecentWithSinceFilteredEmptySuppressesCursor(t *testing.T)
 	v := url.Values{}
 	v.Set("recent", "1")
 	v.Set("since", fx.Base.Add(1*time.Hour).UTC().Format(time.RFC3339Nano))
-	w, rows := listComments(t, fx.IssueID, v.Encode())
+	w, rows := listComments(t, fx.TaskID, v.Encode())
 	if len(rows) != 0 {
 		t.Fatalf("expected empty page after since-filter, got %d rows: %v", len(rows), ids(rows))
 	}
@@ -904,7 +904,7 @@ func TestListComments_RecentWithSinceKeepsCursorWhenPageHasRows(t *testing.T) {
 	v := url.Values{}
 	v.Set("recent", "1")
 	v.Set("since", fx.Base.Add(11*time.Minute+30*time.Second).UTC().Format(time.RFC3339Nano))
-	w, rows := listComments(t, fx.IssueID, v.Encode())
+	w, rows := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(rows), []string{fx.R2b}, "recent=1 + since keeps r2b")
 	nb, nbid := nextThreadCursor(w)
 	if nb == "" || nbid != fx.Root2 {
@@ -934,7 +934,7 @@ func TestListComments_RecentWithSinceSuppressesCursorWhenHeadPastSince(t *testin
 	v := url.Values{}
 	v.Set("recent", "2")
 	v.Set("since", fx.Base.Add(5*time.Minute).UTC().Format(time.RFC3339Nano))
-	w, rows := listComments(t, fx.IssueID, v.Encode())
+	w, rows := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(rows), []string{fx.Root2, fx.R2a, fx.R2b}, "recent=2 + since keeps root2 thread")
 	nb, nbid := nextThreadCursor(w)
 	if nb != "" || nbid != "" {
@@ -956,7 +956,7 @@ func TestListComments_ThreadWithSinceFiltersWithinThread(t *testing.T) {
 	v := url.Values{}
 	v.Set("thread", fx.Root1)
 	v.Set("since", fx.Base.Add(90*time.Second).UTC().Format(time.RFC3339Nano))
-	_, rows := listComments(t, fx.IssueID, v.Encode())
+	_, rows := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(rows), []string{fx.R1b, fx.R1b1}, "thread+since")
 }
 
@@ -984,7 +984,7 @@ func TestListComments_ThreadTailReturnsRootPlusNewestReplies(t *testing.T) {
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "2")
 		// root1 has r1a, r1b, r1b1 in order. Newest 2 = r1b, r1b1.
-		_, rows := listComments(t, fx.IssueID, v.Encode())
+		_, rows := listComments(t, fx.TaskID, v.Encode())
 		eqIDs(t, ids(rows), []string{fx.Root1, fx.R1b, fx.R1b1}, "tail=2")
 	})
 
@@ -992,18 +992,18 @@ func TestListComments_ThreadTailReturnsRootPlusNewestReplies(t *testing.T) {
 		v := url.Values{}
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "99")
-		_, rows := listComments(t, fx.IssueID, v.Encode())
+		_, rows := listComments(t, fx.TaskID, v.Encode())
 		eqIDs(t, ids(rows), []string{fx.Root1, fx.R1a, fx.R1b, fx.R1b1}, "tail=99 (oversized)")
 	})
 
 	t.Run("tail=0 returns root only", func(t *testing.T) {
-		// Per the issue: root must never be elided — even tail=0 keeps it,
+		// Per the task: root must never be elided — even tail=0 keeps it,
 		// so a reader landing on a long thread still gets the "what is this
 		// about" context without dragging any replies into prompt context.
 		v := url.Values{}
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "0")
-		_, rows := listComments(t, fx.IssueID, v.Encode())
+		_, rows := listComments(t, fx.TaskID, v.Encode())
 		eqIDs(t, ids(rows), []string{fx.Root1}, "tail=0 (root only)")
 	})
 
@@ -1015,7 +1015,7 @@ func TestListComments_ThreadTailReturnsRootPlusNewestReplies(t *testing.T) {
 		v := url.Values{}
 		v.Set("thread", fx.R1b1)
 		v.Set("tail", "1")
-		_, rows := listComments(t, fx.IssueID, v.Encode())
+		_, rows := listComments(t, fx.TaskID, v.Encode())
 		eqIDs(t, ids(rows), []string{fx.Root1, fx.R1b1}, "tail=1 anchored at nested reply")
 	})
 }
@@ -1036,7 +1036,7 @@ func TestListComments_ThreadTailEmitsReplyCursorWhenPageFull(t *testing.T) {
 		v := url.Values{}
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "5")
-		w, _ := listComments(t, fx.IssueID, v.Encode())
+		w, _ := listComments(t, fx.TaskID, v.Encode())
 		nb, nbid := nextReplyCursor(w)
 		if nb != "" || nbid != "" {
 			t.Fatalf("expected no cursor, got before=%q before_id=%q", nb, nbid)
@@ -1050,7 +1050,7 @@ func TestListComments_ThreadTailEmitsReplyCursorWhenPageFull(t *testing.T) {
 		v := url.Values{}
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "0")
-		w, _ := listComments(t, fx.IssueID, v.Encode())
+		w, _ := listComments(t, fx.TaskID, v.Encode())
 		nb, nbid := nextReplyCursor(w)
 		if nb != "" || nbid != "" {
 			t.Fatalf("tail=0 must not emit cursor, got before=%q before_id=%q", nb, nbid)
@@ -1062,7 +1062,7 @@ func TestListComments_ThreadTailEmitsReplyCursorWhenPageFull(t *testing.T) {
 		v := url.Values{}
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "2")
-		w, _ := listComments(t, fx.IssueID, v.Encode())
+		w, _ := listComments(t, fx.TaskID, v.Encode())
 		nb, nbid := nextReplyCursor(w)
 		if nbid != fx.R1b {
 			t.Fatalf("cursor before_id = %q, want %q (r1b — oldest reply on page)", nbid, fx.R1b)
@@ -1085,7 +1085,7 @@ func TestListComments_ThreadTailEmitsReplyCursorWhenPageFull(t *testing.T) {
 		v := url.Values{}
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "3")
-		w, rows := listComments(t, fx.IssueID, v.Encode())
+		w, rows := listComments(t, fx.TaskID, v.Encode())
 		eqIDs(t, ids(rows), []string{fx.Root1, fx.R1a, fx.R1b, fx.R1b1}, "tail==replyCount returns full thread")
 		nb, nbid := nextReplyCursor(w)
 		if nb != "" || nbid != "" {
@@ -1109,7 +1109,7 @@ func TestListComments_ThreadTailCursorScrollsOlderReplies(t *testing.T) {
 	v := url.Values{}
 	v.Set("thread", fx.Root1)
 	v.Set("tail", "1")
-	w1, page1 := listComments(t, fx.IssueID, v.Encode())
+	w1, page1 := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(page1), []string{fx.Root1, fx.R1b1}, "page1 = root + r1b1")
 	nb, nbid := nextReplyCursor(w1)
 	if nb == "" || nbid != fx.R1b1 {
@@ -1121,7 +1121,7 @@ func TestListComments_ThreadTailCursorScrollsOlderReplies(t *testing.T) {
 	// thread context.
 	v.Set("before", nb)
 	v.Set("before_id", nbid)
-	w2, page2 := listComments(t, fx.IssueID, v.Encode())
+	w2, page2 := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(page2), []string{fx.Root1, fx.R1b}, "page2 = root + r1b")
 	nb2, nbid2 := nextReplyCursor(w2)
 	if nb2 == "" || nbid2 != fx.R1b {
@@ -1135,7 +1135,7 @@ func TestListComments_ThreadTailCursorScrollsOlderReplies(t *testing.T) {
 	// has-more instead of trusting replyCount >= tail.)
 	v.Set("before", nb2)
 	v.Set("before_id", nbid2)
-	w3, page3 := listComments(t, fx.IssueID, v.Encode())
+	w3, page3 := listComments(t, fx.TaskID, v.Encode())
 	eqIDs(t, ids(page3), []string{fx.Root1, fx.R1a}, "page3 = root + r1a (last reply)")
 	nb3, nbid3 := nextReplyCursor(w3)
 	if nb3 != "" || nbid3 != "" {
@@ -1162,7 +1162,7 @@ func TestListComments_ThreadTailWithSinceFiltersAfterTail(t *testing.T) {
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "3")
 		v.Set("since", fx.Base.Add(90*time.Second).UTC().Format(time.RFC3339Nano))
-		_, rows := listComments(t, fx.IssueID, v.Encode())
+		_, rows := listComments(t, fx.TaskID, v.Encode())
 		eqIDs(t, ids(rows), []string{fx.Root1, fx.R1b, fx.R1b1}, "tail=3+since")
 	})
 
@@ -1173,7 +1173,7 @@ func TestListComments_ThreadTailWithSinceFiltersAfterTail(t *testing.T) {
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "3")
 		v.Set("since", fx.Base.Add(1*time.Hour).UTC().Format(time.RFC3339Nano))
-		_, rows := listComments(t, fx.IssueID, v.Encode())
+		_, rows := listComments(t, fx.TaskID, v.Encode())
 		eqIDs(t, ids(rows), []string{fx.Root1}, "since past everything keeps root")
 	})
 
@@ -1190,7 +1190,7 @@ func TestListComments_ThreadTailWithSinceFiltersAfterTail(t *testing.T) {
 		v.Set("thread", fx.Root1)
 		v.Set("tail", "2")
 		v.Set("since", fx.Base.Add(150*time.Second).UTC().Format(time.RFC3339Nano))
-		w, rows := listComments(t, fx.IssueID, v.Encode())
+		w, rows := listComments(t, fx.TaskID, v.Encode())
 		// Sanity-check the body precondition: we kept the fresher reply
 		// (r1b1, base+3m) but dropped r1b (base+2m) via since. If this
 		// assertion ever shifts, the cursor assertion below would be
@@ -1257,7 +1257,7 @@ func TestListComments_ThreadTailFlagCombinationRules(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			w, _ := listComments(t, fx.IssueID, tc.query)
+			w, _ := listComments(t, fx.TaskID, tc.query)
 			if w.Code != tc.status {
 				t.Fatalf("query=%q\n  got=%d want=%d body=%s", tc.query, w.Code, tc.status, w.Body.String())
 			}
@@ -1279,7 +1279,7 @@ func TestListComments_ThreadTailZeroReplyCountIsAllowed(t *testing.T) {
 	v := url.Values{}
 	v.Set("thread", fx.Root1)
 	v.Set("tail", "0")
-	w, rows := listComments(t, fx.IssueID, v.Encode())
+	w, rows := listComments(t, fx.TaskID, v.Encode())
 	if w.Code != http.StatusOK {
 		t.Fatalf("tail=0 should succeed, got %d: %s", w.Code, w.Body.String())
 	}
@@ -1300,7 +1300,7 @@ func TestListComments_ThreadTailNotFoundReturns404(t *testing.T) {
 	v := url.Values{}
 	v.Set("thread", "00000000-0000-0000-0000-000000000001")
 	v.Set("tail", "5")
-	w, _ := listComments(t, fx.IssueID, v.Encode())
+	w, _ := listComments(t, fx.TaskID, v.Encode())
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for unknown anchor, got %d: %s", w.Code, w.Body.String())
 	}
@@ -1320,13 +1320,13 @@ func resolveCommentRow(t *testing.T, commentID string) {
 	}
 }
 
-// TestCountNewCommentsSince_IssueWideExcludesAgentOwnAndTrigger pins the
+// TestCountNewCommentsSince_TaskWideExcludesAgentOwnAndTrigger pins the
 // claim-side count query: it counts comments created after the given anchor
 // ACROSS THE WHOLE ISSUE (every thread, not just the triggering one), excludes
 // the triggering comment because it is injected into the prompt, and excludes
 // the agent's own comments so a chatty agent does not inflate its own
 // new-comment count.
-func TestCountNewCommentsSince_IssueWideExcludesAgentOwnAndTrigger(t *testing.T) {
+func TestCountNewCommentsSince_TaskWideExcludesAgentOwnAndTrigger(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -1334,9 +1334,9 @@ func TestCountNewCommentsSince_IssueWideExcludesAgentOwnAndTrigger(t *testing.T)
 	agentID := createHandlerTestAgent(t, "count-agent", []byte("[]"))
 
 	if _, err := testPool.Exec(context.Background(), `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, parent_id, created_at)
 		VALUES ($1, $2, 'agent', $3, 'agent reply', 'comment', $4, $5)
-	`, fx.IssueID, testWorkspaceID, agentID, fx.Root1, fx.Base.Add(4*time.Minute)); err != nil {
+	`, fx.TaskID, testWorkspaceID, agentID, fx.Root1, fx.Base.Add(4*time.Minute)); err != nil {
 		t.Fatalf("insert agent comment: %v", err)
 	}
 
@@ -1345,10 +1345,10 @@ func TestCountNewCommentsSince_IssueWideExcludesAgentOwnAndTrigger(t *testing.T)
 	// Anchor after r1a: root1/r1a are stale. Newer than the anchor are r1b
 	// (trigger thread), r1b1 (the trigger itself — excluded), the agent reply
 	// (excluded), and root2's whole thread root2/r2a/r2b (unrelated thread, now
-	// counted because the count is issue-wide). So r1b + root2 + r2a + r2b = 4.
+	// counted because the count is task-wide). So r1b + root2 + r2a + r2b = 4.
 	got, err := testHandler.Queries.CountNewCommentsSince(ctx, db.CountNewCommentsSinceParams{
 		AnchorID:    parseUUID(fx.R1b1),
-		IssueID:     parseUUID(fx.IssueID),
+		TaskID:      parseUUID(fx.TaskID),
 		WorkspaceID: parseUUID(testWorkspaceID),
 		Since:       pgtype.Timestamptz{Time: fx.Base.Add(90 * time.Second), Valid: true},
 		AuthorID:    parseUUID(agentID),
@@ -1357,13 +1357,13 @@ func TestCountNewCommentsSince_IssueWideExcludesAgentOwnAndTrigger(t *testing.T)
 		t.Fatalf("count new since anchor: %v", err)
 	}
 	if got != 4 {
-		t.Fatalf("expected issue-wide count of 4 (r1b + root2 + r2a + r2b), got %d", got)
+		t.Fatalf("expected task-wide count of 4 (r1b + root2 + r2a + r2b), got %d", got)
 	}
 
 	// Anchor in the future: nothing is newer.
 	got, err = testHandler.Queries.CountNewCommentsSince(ctx, db.CountNewCommentsSinceParams{
 		AnchorID:    parseUUID(fx.R1b1),
-		IssueID:     parseUUID(fx.IssueID),
+		TaskID:      parseUUID(fx.TaskID),
 		WorkspaceID: parseUUID(testWorkspaceID),
 		Since:       pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 		AuthorID:    parseUUID(agentID),
@@ -1386,16 +1386,16 @@ func TestCreateCommentPreservesDirectParent(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title)
 		VALUES ($1, 'member', $2, $3)
 		RETURNING id
-	`, testWorkspaceID, testUserID, "direct parent fixture").Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, "direct parent fixture").Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	create := func(parentID, body string) CommentResponse {
@@ -1405,8 +1405,8 @@ func TestCreateCommentPreservesDirectParent(t *testing.T) {
 			payload["parent_id"] = parentID
 		}
 		w := httptest.NewRecorder()
-		req := newRequest("POST", "/api/issues/"+issueID+"/comments", payload)
-		req = withURLParam(req, "id", issueID)
+		req := newRequest("POST", "/api/tasks/"+taskID+"/comments", payload)
+		req = withURLParam(req, "id", taskID)
 		testHandler.CreateComment(w, req)
 		if w.Code != http.StatusCreated {
 			t.Fatalf("CreateComment(%q): expected 201, got %d: %s", body, w.Code, w.Body.String())

@@ -8,14 +8,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { setApiInstance } from "../api";
 import type { ApiClient } from "../api/client";
-import type { Issue, IssuePropertiesResponse } from "../types";
-import { issueKeys } from "../issues/queries";
-import { useSetIssueProperty } from "./mutations";
+import type { Task, TaskPropertiesResponse } from "../types";
+import { taskKeys } from "../tasks/queries";
+import { useSetTaskProperty } from "./mutations";
 
 vi.mock("../hooks", () => ({ useWorkspaceId: () => "ws-1" }));
 
-const issue: Issue = {
-  id: "issue-1",
+const task: Task = {
+  id: "task-1",
   workspace_id: "ws-1",
   number: 1,
   identifier: "SILI-1",
@@ -27,7 +27,7 @@ const issue: Issue = {
   assignee_id: null,
   creator_type: "member",
   creator_id: "member-1",
-  parent_issue_id: null,
+  parent_task_id: null,
   project_id: null,
   position: 1,
   stage: null,
@@ -54,7 +54,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-describe("useSetIssueProperty", () => {
+describe("useSetTaskProperty", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("keeps an optimistic children-cache patch when an older fetch resolves late", async () => {
@@ -62,15 +62,15 @@ describe("useSetIssueProperty", () => {
       defaultOptions: { queries: { retry: false } },
     });
     const parentId = "parent-1";
-    const childKey = issueKeys.children("ws-1", parentId);
+    const childKey = taskKeys.children("ws-1", parentId);
     const child = {
-      ...issue,
-      parent_issue_id: parentId,
+      ...task,
+      parent_task_id: parentId,
       properties: { estimate: 1, environment: "staging" },
     };
-    qc.setQueryData<Issue[]>(childKey, [child]);
+    qc.setQueryData<Task[]>(childKey, [child]);
 
-    const staleChildren = deferred<Issue[]>();
+    const staleChildren = deferred<Task[]>();
     const staleFetch = qc
       .fetchQuery({
         queryKey: childKey,
@@ -81,24 +81,24 @@ describe("useSetIssueProperty", () => {
       expect(qc.getQueryState(childKey)?.fetchStatus).toBe("fetching"),
     );
 
-    const write = deferred<IssuePropertiesResponse>();
+    const write = deferred<TaskPropertiesResponse>();
     setApiInstance({
-      setIssueProperty: vi.fn(() => write.promise),
+      setTaskProperty: vi.fn(() => write.promise),
     } as unknown as ApiClient);
 
-    const { result } = renderHook(() => useSetIssueProperty(), {
+    const { result } = renderHook(() => useSetTaskProperty(), {
       wrapper: wrapper(qc),
     });
     act(() => {
       result.current.mutate({
-        issueId: issue.id,
+        taskId: task.id,
         propertyId: "estimate",
         value: 2,
       });
     });
 
     await waitFor(() =>
-      expect(qc.getQueryData<Issue[]>(childKey)?.[0]?.properties).toEqual({
+      expect(qc.getQueryData<Task[]>(childKey)?.[0]?.properties).toEqual({
         estimate: 2,
         environment: "staging",
       }),
@@ -108,7 +108,7 @@ describe("useSetIssueProperty", () => {
     // keep it from restoring estimate=1 while the write is still pending.
     staleChildren.resolve([child]);
     await staleFetch;
-    expect(qc.getQueryData<Issue[]>(childKey)?.[0]?.properties).toEqual({
+    expect(qc.getQueryData<Task[]>(childKey)?.[0]?.properties).toEqual({
       estimate: 2,
       environment: "staging",
     });
@@ -126,32 +126,32 @@ describe("useSetIssueProperty", () => {
     const qc = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    const flatKey = issueKeys.flat(
+    const flatKey = taskKeys.flat(
       "ws-1",
       "workspace:all",
       {},
       { sort_by: "property:estimate", properties: { estimate: ["2"] } },
     );
     qc.setQueryData(flatKey, {
-      pages: [{ issues: [issue], total: 1 }],
+      pages: [{ tasks: [task], total: 1 }],
       pageParams: [0],
     });
 
-    let resolveWrite!: (value: IssuePropertiesResponse) => void;
-    const setIssueProperty = vi.fn(
+    let resolveWrite!: (value: TaskPropertiesResponse) => void;
+    const setTaskProperty = vi.fn(
       () =>
-        new Promise<IssuePropertiesResponse>((resolve) => {
+        new Promise<TaskPropertiesResponse>((resolve) => {
           resolveWrite = resolve;
         }),
     );
-    setApiInstance({ setIssueProperty } as unknown as ApiClient);
+    setApiInstance({ setTaskProperty } as unknown as ApiClient);
 
-    const { result } = renderHook(() => useSetIssueProperty(), {
+    const { result } = renderHook(() => useSetTaskProperty(), {
       wrapper: wrapper(qc),
     });
     act(() => {
       result.current.mutate({
-        issueId: issue.id,
+        taskId: task.id,
         propertyId: "estimate",
         value: 2,
       });
@@ -159,8 +159,8 @@ describe("useSetIssueProperty", () => {
 
     await waitFor(() =>
       expect(
-        qc.getQueryData<{ pages: { issues: Issue[] }[] }>(flatKey)?.pages[0]
-          ?.issues[0]?.properties.estimate,
+        qc.getQueryData<{ pages: { tasks: Task[] }[] }>(flatKey)?.pages[0]
+          ?.tasks[0]?.properties.estimate,
       ).toBe(2),
     );
     expect(qc.getQueryState(flatKey)?.isInvalidated).toBe(false);

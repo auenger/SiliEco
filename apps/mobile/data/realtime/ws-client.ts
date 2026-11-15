@@ -18,10 +18,11 @@
  *   - Token-mode auth only (no cookies on native).
  *
  * Server compatibility: same protocol as web/desktop. Sends
- *   {type:"auth", payload:{token}} as first frame; expects {type:"auth_ack"}
- *   before any business events. workspace_slug + client_platform passed as
+ *   {type:"auth", payload:{token, protocol_generation}} as first frame; expects {type:"auth_ack"}
+ *   before any business events. protocol_generation + workspace_slug + client_platform passed as
  *   query params on the upgrade URL (RN's WebSocket can't set headers).
  */
+import { PROTOCOL_GENERATION } from "../protocol";
 import type {
   WSEventPayload,
   WSEventType,
@@ -186,6 +187,7 @@ export class WSClient {
 
   private openSocket() {
     const url = new URL(this.opts.url);
+    url.searchParams.set("protocol_generation", PROTOCOL_GENERATION);
     url.searchParams.set("workspace_slug", this.opts.workspaceSlug);
     url.searchParams.set("client_platform", "mobile");
     url.searchParams.set("client_os", "ios");
@@ -200,7 +202,7 @@ export class WSClient {
     ws.onopen = () => {
       this.logger.info("[ws] socket open, sending auth frame");
       ws.send(
-        JSON.stringify({ type: "auth", payload: { token: this.opts.token } }),
+        JSON.stringify({ type: "auth", payload: { token: this.opts.token, protocol_generation: PROTOCOL_GENERATION } }),
       );
     };
 

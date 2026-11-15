@@ -25,7 +25,7 @@ import type { ReactNode } from "react";
  * aren't.
  *
  * Used by:
- *   - issue detail sidebar (Status / Priority / Assignee / …)
+ *   - task detail sidebar (Status / Priority / Assignee / …)
  *   - agent detail inspector (Runtime / Model / Visibility / …)
  */
 export function PropRow({

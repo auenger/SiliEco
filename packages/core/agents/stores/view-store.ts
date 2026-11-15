@@ -162,7 +162,7 @@ export const useAgentsViewStore = create<AgentsViewState>()(
       clearFilters: () => set({ filters: EMPTY_AGENT_FILTERS }),
     }),
     {
-      name: "silieco_agents_view",
+      name: "silieco_tr1_agents_view",
       storage: createJSONStorage(() =>
         createWorkspaceAwareStorage(defaultStorage),
       ),

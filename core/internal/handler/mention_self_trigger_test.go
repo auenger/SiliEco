@@ -11,34 +11,34 @@ import (
 // enqueueMentionedAgentTasksForTest mirrors the production comment path for
 // @mention triggers: compute the cascade trigger set, then enqueue it. Kept as a
 // test helper so these integration tests keep asserting enqueue side effects.
-func enqueueMentionedAgentTasksForTest(t *testing.T, ctx context.Context, issue db.Issue, comment db.Comment, parentComment *db.Comment, authorType, authorID string) {
+func enqueueMentionedAgentRunsForTest(t *testing.T, ctx context.Context, task db.Task, comment db.Comment, parentComment *db.Comment, authorType, authorID string) {
 	t.Helper()
-	triggers, _ := testHandler.computeCommentAgentTriggers(ctx, issue, comment.Content, parentComment, authorType, authorID, commentTriggerComputeOptions{})
-	testHandler.enqueueCommentAgentTriggers(ctx, issue, comment.ID, triggers)
+	triggers, _ := testHandler.computeCommentAgentTriggers(ctx, task, comment.Content, parentComment, authorType, authorID, commentTriggerComputeOptions{})
+	testHandler.enqueueCommentAgentTriggers(ctx, task, comment.ID, triggers)
 }
 
 // selfMentionFixture wires the seeded "Handler Test Agent" as J plus two
-// fresh issues so we can exercise the agent-self-mention path on the @mention
+// fresh tasks so we can exercise the agent-self-mention path on the @mention
 // branch of computeCommentAgentTriggers. The three tests below cover
 // the behavior we want post-SILI-2338:
 //
-//   - cross-issue self-mention enqueues (child→parent handoff between issues
+//   - cross-task self-mention enqueues (child→parent handoff between tasks
 //     assigned to the same agent must not be swallowed)
-//   - same-issue self-mention with an in-flight running task enqueues a
+//   - same-task self-mention with an in-flight running task enqueues a
 //     follow-up (queue coalescing already allows this — the comment handler
 //     must not pre-empt it with an extra in-thread guard)
-//   - same-issue self-mention with a queued/dispatched task is deduped
-//     (HasPendingTaskForIssueAndAgent still does its job)
+//   - same-task self-mention with a queued/dispatched task is deduped
+//     (HasPendingRunForTaskAndAgent still does its job)
 type selfMentionFixture struct {
 	JID        string
 	RuntimeID  string
-	IssueAID   string // primary issue (used for same-issue scenarios)
-	IssueA     db.Issue
-	IssueBID   string // a second issue (used for the cross-issue scenario)
-	IssueB     db.Issue
-	CommentAID string // a comment on IssueA authored by J — used as the trigger
+	TaskAID    string // primary task (used for same-task scenarios)
+	TaskA      db.Task
+	TaskBID    string // a second task (used for the cross-task scenario)
+	TaskB      db.Task
+	CommentAID string // a comment on TaskA authored by J — used as the trigger
 	CommentA   db.Comment
-	CommentBID string // a comment on IssueB authored by J — used as the trigger
+	CommentBID string // a comment on TaskB authored by J — used as the trigger
 	CommentB   db.Comment
 }
 
@@ -58,58 +58,58 @@ func newSelfMentionFixture(t *testing.T) selfMentionFixture {
 		t.Fatalf("load runtime: %v", err)
 	}
 
-	insertIssue := func(title string) string {
+	insertTask := func(title string) string {
 		t.Helper()
-		// Pick the next per-workspace issue number; without it both inserts
-		// land on the default number=0 and trip uq_issue_workspace_number.
+		// Pick the next per-workspace task number; without it both inserts
+		// land on the default number=0 and trip uq_task_workspace_number.
 		var number int
 		if err := testPool.QueryRow(ctx, `
 			UPDATE workspace
-			SET issue_counter = GREATEST(issue_counter, (SELECT COALESCE(MAX(number), 0) FROM issue WHERE workspace_id = $1)) + 1
-			WHERE id = $1 RETURNING issue_counter
+			SET task_counter = GREATEST(task_counter, (SELECT COALESCE(MAX(number), 0) FROM task WHERE workspace_id = $1)) + 1
+			WHERE id = $1 RETURNING task_counter
 		`, testWorkspaceID).Scan(&number); err != nil {
-			t.Fatalf("next issue number: %v", err)
+			t.Fatalf("next task number: %v", err)
 		}
 		var id string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO issue (workspace_id, creator_type, creator_id, title, assignee_type, assignee_id, number)
+			INSERT INTO task (workspace_id, creator_type, creator_id, title, assignee_type, assignee_id, number)
 			VALUES ($1, 'member', $2, $3, 'agent', $4, $5)
 			RETURNING id
 		`, testWorkspaceID, testUserID, title, jID, number).Scan(&id); err != nil {
-			t.Fatalf("create issue %q: %v", title, err)
+			t.Fatalf("create task %q: %v", title, err)
 		}
 		t.Cleanup(func() {
-			testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, id)
-			testPool.Exec(context.Background(), `DELETE FROM comment WHERE issue_id = $1`, id)
-			testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, id)
+			testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, id)
+			testPool.Exec(context.Background(), `DELETE FROM comment WHERE task_id = $1`, id)
+			testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, id)
 		})
 		return id
 	}
 
-	insertJComment := func(issueID, content string) string {
+	insertJComment := func(taskID, content string) string {
 		t.Helper()
 		var id string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (workspace_id, issue_id, author_type, author_id, content)
+			INSERT INTO comment (workspace_id, task_id, author_type, author_id, content)
 			VALUES ($1, $2, 'agent', $3, $4)
 			RETURNING id
-		`, testWorkspaceID, issueID, jID, content).Scan(&id); err != nil {
-			t.Fatalf("create comment on %s: %v", issueID, err)
+		`, testWorkspaceID, taskID, jID, content).Scan(&id); err != nil {
+			t.Fatalf("create comment on %s: %v", taskID, err)
 		}
 		return id
 	}
 
-	issueAID := insertIssue("self-mention test A (same-issue scenarios)")
-	issueBID := insertIssue("self-mention test B (parent issue, cross-issue handoff)")
+	taskAID := insertTask("self-mention test A (same-task scenarios)")
+	taskBID := insertTask("self-mention test B (parent task, cross-task handoff)")
 
-	commentAID := insertJComment(issueAID, "[@J](mention://agent/"+jID+") follow-up coming")
-	commentBID := insertJComment(issueBID, "Child issue done — [@J](mention://agent/"+jID+") please wrap up here")
+	commentAID := insertJComment(taskAID, "[@J](mention://agent/"+jID+") follow-up coming")
+	commentBID := insertJComment(taskBID, "Child task done — [@J](mention://agent/"+jID+") please wrap up here")
 
-	issueA, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueAID))
+	taskA, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskAID))
 	if err != nil {
 		t.Fatalf("load issueA: %v", err)
 	}
-	issueB, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueBID))
+	taskB, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskBID))
 	if err != nil {
 		t.Fatalf("load issueB: %v", err)
 	}
@@ -125,10 +125,10 @@ func newSelfMentionFixture(t *testing.T) selfMentionFixture {
 	return selfMentionFixture{
 		JID:        jID,
 		RuntimeID:  runtimeID,
-		IssueAID:   issueAID,
-		IssueA:     issueA,
-		IssueBID:   issueBID,
-		IssueB:     issueB,
+		TaskAID:    taskAID,
+		TaskA:      taskA,
+		TaskBID:    taskBID,
+		TaskB:      taskB,
 		CommentAID: commentAID,
 		CommentA:   commentA,
 		CommentBID: commentBID,
@@ -137,80 +137,80 @@ func newSelfMentionFixture(t *testing.T) selfMentionFixture {
 }
 
 // countQueuedOrDispatched returns the number of queued|dispatched tasks for
-// (agent, issue). Mirrors the predicate used by HasPendingTaskForIssueAndAgent.
-func countQueuedOrDispatched(t *testing.T, agentID, issueID string) int {
+// (agent, task). Mirrors the predicate used by HasPendingRunForTaskAndAgent.
+func countQueuedOrDispatched(t *testing.T, agentID, taskID string) int {
 	t.Helper()
 	var n int
 	if err := testPool.QueryRow(context.Background(), `
-		SELECT count(*) FROM agent_task_queue
-		WHERE issue_id = $1 AND agent_id = $2 AND status IN ('queued', 'dispatched')
-	`, issueID, agentID).Scan(&n); err != nil {
+		SELECT count(*) FROM agent_run
+		WHERE task_id = $1 AND agent_id = $2 AND status IN ('queued', 'dispatched')
+	`, taskID, agentID).Scan(&n); err != nil {
 		t.Fatalf("count queued/dispatched tasks: %v", err)
 	}
 	return n
 }
 
-// TestEnqueueMentionedAgentTasks_SelfMentionCrossIssueEnqueues is the
+// TestEnqueueMentionedAgentRuns_SelfMentionCrossTaskEnqueues is the
 // regression test for the SILI-2338 child→parent handoff. The same agent runs
-// in a child issue, then posts a top-level comment on the parent issue (whose
+// in a child task, then posts a top-level comment on the parent task (whose
 // assignee is the same agent) that @mentions itself. The comment handler MUST
-// enqueue a task on the parent issue — silently dropping the trigger was the
+// enqueue a task on the parent task — silently dropping the trigger was the
 // bug Bohan reported.
-func TestEnqueueMentionedAgentTasks_SelfMentionCrossIssueEnqueues(t *testing.T) {
+func TestEnqueueMentionedAgentRuns_SelfMentionCrossTaskEnqueues(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fx := newSelfMentionFixture(t)
 
-	if got := countQueuedOrDispatched(t, fx.JID, fx.IssueBID); got != 0 {
-		t.Fatalf("before: expected 0 pending tasks on parent issue, got %d", got)
+	if got := countQueuedOrDispatched(t, fx.JID, fx.TaskBID); got != 0 {
+		t.Fatalf("before: expected 0 pending tasks on parent task, got %d", got)
 	}
 
-	enqueueMentionedAgentTasksForTest(t, ctx, fx.IssueB, fx.CommentB, nil, "agent", fx.JID)
+	enqueueMentionedAgentRunsForTest(t, ctx, fx.TaskB, fx.CommentB, nil, "agent", fx.JID)
 
-	if got := countQueuedOrDispatched(t, fx.JID, fx.IssueBID); got != 1 {
-		t.Fatalf("after self-mention from another issue: expected 1 queued task on parent issue, got %d", got)
+	if got := countQueuedOrDispatched(t, fx.JID, fx.TaskBID); got != 1 {
+		t.Fatalf("after self-mention from another task: expected 1 queued task on parent task, got %d", got)
 	}
 }
 
 // TestEnqueueMentionedAgentTasks_SelfMentionWhileRunningQueuesFollowup proves
-// that a self-mention posted in the same issue an agent is currently running
+// that a self-mention posted in the same task an agent is currently running
 // in does NOT pre-empt the natural queue-coalescing behavior: a `running`
 // task is not "pending" for dedup purposes, so a new queued follow-up is
 // added and the agent picks it up on its next cycle.
-func TestEnqueueMentionedAgentTasks_SelfMentionWhileRunningQueuesFollowup(t *testing.T) {
+func TestEnqueueMentionedAgentRuns_SelfMentionWhileRunningQueuesFollowup(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fx := newSelfMentionFixture(t)
 
-	// Seed a running task for J on issue A — this is the agent's current run.
+	// Seed a running task for J on task A — this is the agent's current run.
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status)
 		VALUES ($1, $2, $3, 'running')
-	`, fx.JID, fx.RuntimeID, fx.IssueAID); err != nil {
-		t.Fatalf("seed running task: %v", err)
+	`, fx.JID, fx.RuntimeID, fx.TaskAID); err != nil {
+		t.Fatalf("seed running run: %v", err)
 	}
 
-	if got := countQueuedOrDispatched(t, fx.JID, fx.IssueAID); got != 0 {
+	if got := countQueuedOrDispatched(t, fx.JID, fx.TaskAID); got != 0 {
 		t.Fatalf("before: expected 0 queued/dispatched tasks (only the running task), got %d", got)
 	}
 
-	enqueueMentionedAgentTasksForTest(t, ctx, fx.IssueA, fx.CommentA, nil, "agent", fx.JID)
+	enqueueMentionedAgentRunsForTest(t, ctx, fx.TaskA, fx.CommentA, nil, "agent", fx.JID)
 
-	if got := countQueuedOrDispatched(t, fx.JID, fx.IssueAID); got != 1 {
+	if got := countQueuedOrDispatched(t, fx.JID, fx.TaskAID); got != 1 {
 		t.Fatalf("after self-mention while running: expected 1 new queued follow-up, got %d", got)
 	}
 }
 
 // TestEnqueueMentionedAgentTasks_SelfMentionDedupesAgainstPendingTask locks in
 // that removing the self-trigger `continue` did NOT remove the standard
-// HasPendingTaskForIssueAndAgent dedupe. If a queued or dispatched task
-// already exists for the same agent on the same issue, a fresh self-mention
+// HasPendingRunForTaskAndAgent dedupe. If a queued or dispatched task
+// already exists for the same agent on the same task, a fresh self-mention
 // must NOT pile on another duplicate.
-func TestEnqueueMentionedAgentTasks_SelfMentionDedupesAgainstPendingTask(t *testing.T) {
+func TestEnqueueMentionedAgentRuns_SelfMentionDedupesAgainstPendingRun(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -226,26 +226,26 @@ func TestEnqueueMentionedAgentTasks_SelfMentionDedupesAgainstPendingTask(t *test
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE issue_id = $1`, fx.IssueAID); err != nil {
+			if _, err := testPool.Exec(ctx, `DELETE FROM agent_run WHERE task_id = $1`, fx.TaskAID); err != nil {
 				t.Fatalf("reset tasks: %v", err)
 			}
 			if _, err := testPool.Exec(ctx, `
-				INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status)
+				INSERT INTO agent_run (agent_id, runtime_id, task_id, status)
 				VALUES ($1, $2, $3, $4)
-			`, fx.JID, fx.RuntimeID, fx.IssueAID, tc.status); err != nil {
-				t.Fatalf("seed %s task: %v", tc.status, err)
+			`, fx.JID, fx.RuntimeID, fx.TaskAID, tc.status); err != nil {
+				t.Fatalf("seed %s run: %v", tc.status, err)
 			}
 
-			before := countQueuedOrDispatched(t, fx.JID, fx.IssueAID)
+			before := countQueuedOrDispatched(t, fx.JID, fx.TaskAID)
 			if before != 1 {
 				t.Fatalf("before: expected 1 pre-existing %s task, got %d", tc.status, before)
 			}
 
-			enqueueMentionedAgentTasksForTest(t, ctx, fx.IssueA, fx.CommentA, nil, "agent", fx.JID)
+			enqueueMentionedAgentRunsForTest(t, ctx, fx.TaskA, fx.CommentA, nil, "agent", fx.JID)
 
-			after := countQueuedOrDispatched(t, fx.JID, fx.IssueAID)
+			after := countQueuedOrDispatched(t, fx.JID, fx.TaskAID)
 			if after != 1 {
-				t.Fatalf("after self-mention with pre-existing %s task: expected dedupe (still 1), got %d", tc.status, after)
+				t.Fatalf("after self-mention with pre-existing %s run: expected dedupe (still 1), got %d", tc.status, after)
 			}
 		})
 	}

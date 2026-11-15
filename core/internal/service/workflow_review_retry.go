@@ -11,8 +11,8 @@ import (
 
 // RetryAgentReview creates a fresh reviewer call for the same evidence. The
 // request pointer is advanced atomically; decisions remain tied to their calls.
-func (s *WorkflowExecutionService) RetryAgentReview(ctx context.Context, workspaceID, requestID, failedTaskID pgtype.UUID) error {
-	if s.TaskService == nil {
+func (s *WorkflowExecutionService) RetryAgentReview(ctx context.Context, workspaceID, requestID, failedRunID pgtype.UUID) error {
+	if s.AgentRunService == nil {
 		return ErrWorkflowExecutionConflict
 	}
 	observed, err := s.Queries.GetWorkflowReviewRequest(ctx, db.GetWorkflowReviewRequestParams{WorkspaceID: workspaceID, ID: requestID})
@@ -24,21 +24,21 @@ func (s *WorkflowExecutionService) RetryAgentReview(ctx context.Context, workspa
 		return err
 	}
 	// Network overlay preparation stays outside the Run transaction.
-	parent, err := s.Queries.GetAgentTask(ctx, failedTaskID)
+	parent, err := s.Queries.GetAgentRun(ctx, failedRunID)
 	if err != nil {
 		return err
 	}
-	if parent.WorkflowReviewRequestID != requestID || parent.Status != "failed" || observed.TaskID != failedTaskID {
+	if parent.WorkflowReviewRequestID != requestID || parent.Status != "failed" || observed.RunID != failedRunID {
 		return ErrWorkflowExecutionConflict
 	}
-	ceiling, delay, err := taskRetrySettings(ctx, s.Queries, parent, parent.FailureReason.String)
+	ceiling, delay, err := runRetrySettings(ctx, s.Queries, parent, parent.FailureReason.String)
 	if err != nil {
 		return err
 	}
 	if !reviewRetryDue(parent, ceiling, delay) {
 		return ErrWorkflowExecutionConflict
 	}
-	overlay := s.TaskService.buildRuntimeMCPOverlay(ctx, parent.OriginatorUserID, reviewer)
+	overlay := s.AgentRunService.buildRuntimeMCPOverlay(ctx, parent.OriginatorUserID, reviewer)
 	tx, err := s.TxStarter.Begin(ctx)
 	if err != nil {
 		return err
@@ -49,10 +49,10 @@ func (s *WorkflowExecutionService) RetryAgentReview(ctx context.Context, workspa
 	if err != nil {
 		return err
 	}
-	if request.ID != requestID || request.TaskID != failedTaskID || (request.Status != "queued" && request.Status != "decided") {
+	if request.ID != requestID || request.RunID != failedRunID || (request.Status != "queued" && request.Status != "decided") {
 		return ErrWorkflowExecutionConflict
 	}
-	parent, err = q.GetWorkflowResultTask(ctx, db.GetWorkflowResultTaskParams{WorkspaceID: workspaceID, ID: failedTaskID})
+	parent, err = q.GetWorkflowResultRun(ctx, db.GetWorkflowResultRunParams{WorkspaceID: workspaceID, ID: failedRunID})
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func (s *WorkflowExecutionService) RetryAgentReview(ctx context.Context, workspa
 		return err
 	}
 	reason := parent.FailureReason.String
-	ceiling, delay, err = taskRetrySettings(ctx, q, parent, reason)
+	ceiling, delay, err = runRetrySettings(ctx, q, parent, reason)
 	if err != nil {
 		return err
 	}
@@ -71,27 +71,27 @@ func (s *WorkflowExecutionService) RetryAgentReview(ctx context.Context, workspa
 	if delay > 0 && (!parent.CompletedAt.Valid || time.Now().Before(parent.CompletedAt.Time.Add(delay))) {
 		return ErrWorkflowExecutionConflict
 	}
-	child, err := q.RetryWorkflowReviewCall(ctx, db.RetryWorkflowReviewCallParams{WorkspaceID: workspaceID, RequestID: requestID, ParentTaskID: failedTaskID, MaxAttempts: ceiling, RuntimeID: currentReviewer.RuntimeID, RuntimeMcpOverlay: overlay.Overlay, RuntimeConnectedApps: overlay.ConnectedApps})
+	child, err := q.RetryWorkflowReviewCall(ctx, db.RetryWorkflowReviewCallParams{WorkspaceID: workspaceID, RequestID: requestID, ParentRunID: failedRunID, MaxAttempts: ceiling, RuntimeID: currentReviewer.RuntimeID, RuntimeMcpOverlay: overlay.Overlay, RuntimeConnectedApps: overlay.ConnectedApps})
 	if err != nil {
 		return err
 	}
-	task, err := q.GetAgentTask(ctx, child.ID)
+	agentRun, err := q.GetAgentRun(ctx, child.ID)
 	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	s.TaskService.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
-	s.TaskService.NotifyTaskEnqueued(ctx, task)
+	s.AgentRunService.broadcastRunEvent(ctx, protocol.EventRunQueued, agentRun)
+	s.AgentRunService.NotifyRunEnqueued(ctx, agentRun)
 	return nil
 }
 
 // reviewRetryDue keeps exhausted and deferred requests out of overlay preparation.
-func reviewRetryDue(task db.AgentTaskQueue, ceiling int32, delay time.Duration) bool {
-	reason := task.FailureReason.String
-	if !retryableReasons[reason] || task.Attempt >= ceiling {
+func reviewRetryDue(agentRun db.AgentRun, ceiling int32, delay time.Duration) bool {
+	reason := agentRun.FailureReason.String
+	if !retryableReasons[reason] || agentRun.Attempt >= ceiling {
 		return false
 	}
-	return delay == 0 || (task.CompletedAt.Valid && !time.Now().Before(task.CompletedAt.Time.Add(delay)))
+	return delay == 0 || (agentRun.CompletedAt.Valid && !time.Now().Before(agentRun.CompletedAt.Time.Add(delay)))
 }

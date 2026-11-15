@@ -19,7 +19,7 @@ interface TestWorkspace {
   slug: string;
 }
 
-export type TestIssueStatus =
+export type TestTaskStatus =
   | "backlog"
   | "todo"
   | "in_progress"
@@ -28,20 +28,20 @@ export type TestIssueStatus =
   | "blocked"
   | "cancelled";
 
-export type TestIssuePriority = "urgent" | "high" | "medium" | "low" | "none";
+export type TestTaskPriority = "urgent" | "high" | "medium" | "low" | "none";
 
-export interface TestTableIssueSeed {
+export interface TestTableTaskSeed {
   title: string;
-  status?: TestIssueStatus;
-  priority?: TestIssuePriority;
-  parentIssueId?: string | null;
+  status?: TestTaskStatus;
+  priority?: TestTaskPriority;
+  parentTaskId?: string | null;
   position?: number;
 }
 
-export interface TestTableIssue {
+export interface TestTableTask {
   id: string;
   title: string;
-  status: TestIssueStatus;
+  status: TestTaskStatus;
   number: number;
 }
 
@@ -50,10 +50,10 @@ export class TestApiClient {
   private workspaceSlug: string | null = null;
   private workspaceId: string | null = null;
   private email: string | null = null;
-  private createdIssueIds: string[] = [];
+  private createdTaskIds: string[] = [];
   private createdWorkflowIds: string[] = [];
   private createdProjectIds: string[] = [];
-  private seededIssueIds: string[] = [];
+  private seededTaskIds: string[] = [];
 
   async login(email: string, name: string) {
     const client = new pg.Client(DATABASE_URL);
@@ -186,18 +186,18 @@ export class TestApiClient {
     }
   }
 
-  async createIssue(title: string, opts?: Record<string, unknown>) {
-    const res = await this.authedFetch("/api/issues", {
+  async createTask(title: string, opts?: Record<string, unknown>) {
+    const res = await this.authedFetch("/api/tasks", {
       method: "POST",
       body: JSON.stringify({ title, ...opts }),
     });
-    const issue = await res.json();
-    this.createdIssueIds.push(issue.id);
-    return issue;
+    const task = await res.json();
+    this.createdTaskIds.push(task.id);
+    return task;
   }
 
   /**
-   * Insert a large, deterministic issue fixture in one transaction.
+   * Insert a large, deterministic task fixture in one transaction.
    *
    * Browser E2E coverage for cursor-backed Table views needs 1,000+ rows,
    * which would make setup itself dominate the test if every row went through
@@ -205,10 +205,10 @@ export class TestApiClient {
    * records; cleanup deletes exactly the returned IDs from the isolated E2E
    * workspace.
    */
-  async seedTableIssues(rows: TestTableIssueSeed[]): Promise<TestTableIssue[]> {
+  async seedTableTasks(rows: TestTableTaskSeed[]): Promise<TestTableTask[]> {
     if (rows.length === 0) return [];
     if (!this.workspaceId || !this.email) {
-      throw new Error("Cannot seed table issues before login and workspace setup");
+      throw new Error("Cannot seed table tasks before login and workspace setup");
     }
 
     const client = new pg.Client(DATABASE_URL);
@@ -224,31 +224,31 @@ export class TestApiClient {
         throw new Error(`Cannot resolve E2E creator for ${this.email}`);
       }
 
-      const counterResult = await client.query<{ issue_counter: number }>(
+      const counterResult = await client.query<{ task_counter: number }>(
         `
           UPDATE workspace
-          SET issue_counter = issue_counter + $2
+          SET task_counter = task_counter + $2
           WHERE id = $1
-          RETURNING issue_counter
+          RETURNING task_counter
         `,
         [this.workspaceId, rows.length],
       );
-      const finalCounter = Number(counterResult.rows[0]?.issue_counter);
+      const finalCounter = Number(counterResult.rows[0]?.task_counter);
       if (!Number.isFinite(finalCounter)) {
-        throw new Error(`Cannot reserve issue numbers for workspace ${this.workspaceId}`);
+        throw new Error(`Cannot reserve task numbers for workspace ${this.workspaceId}`);
       }
       const firstNumber = finalCounter - rows.length + 1;
 
-      const inserted = await client.query<TestTableIssue>(
+      const inserted = await client.query<TestTableTask>(
         `
-          INSERT INTO issue (
+          INSERT INTO task (
             workspace_id,
             title,
             status,
             priority,
             creator_type,
             creator_id,
-            parent_issue_id,
+            parent_task_id,
             position,
             number
           )
@@ -259,7 +259,7 @@ export class TestApiClient {
             fixture.priority,
             'member',
             $2::uuid,
-            fixture.parent_issue_id,
+            fixture.parent_task_id,
             fixture.position,
             fixture.number
           FROM unnest(
@@ -273,7 +273,7 @@ export class TestApiClient {
             title,
             status,
             priority,
-            parent_issue_id,
+            parent_task_id,
             position,
             number,
             ordinal
@@ -287,13 +287,13 @@ export class TestApiClient {
           rows.map((row) => row.title),
           rows.map((row) => row.status ?? "backlog"),
           rows.map((row) => row.priority ?? "none"),
-          rows.map((row) => row.parentIssueId ?? null),
+          rows.map((row) => row.parentTaskId ?? null),
           rows.map((row, index) => row.position ?? index + 1),
           rows.map((_row, index) => firstNumber + index),
         ],
       );
       await client.query("COMMIT");
-      this.seededIssueIds.push(...inserted.rows.map((row) => row.id));
+      this.seededTaskIds.push(...inserted.rows.map((row) => row.id));
       return inserted.rows;
     } catch (error) {
       await client.query("ROLLBACK");
@@ -303,17 +303,17 @@ export class TestApiClient {
     }
   }
 
-  async deleteIssue(id: string) {
-    await this.authedFetch(`/api/issues/${id}`, { method: "DELETE" });
+  async deleteTask(id: string) {
+    await this.authedFetch(`/api/tasks/${id}`, { method: "DELETE" });
   }
 
-  async updateIssue(id: string, updates: Record<string, unknown>) {
-    const res = await this.authedFetch(`/api/issues/${id}`, {
+  async updateTask(id: string, updates: Record<string, unknown>) {
+    const res = await this.authedFetch(`/api/tasks/${id}`, {
       method: "PUT",
       body: JSON.stringify(updates),
     });
     if (!res.ok) {
-      throw new Error(`update issue failed: ${res.status} ${await res.text()}`);
+      throw new Error(`update task failed: ${res.status} ${await res.text()}`);
     }
     return res.json();
   }
@@ -343,7 +343,7 @@ export class TestApiClient {
     return this.authedFetch(`/api/workflow-instances/${runId}/transition`, {method:"POST", body:JSON.stringify({expected_state_token:stateToken,outcome,note:"Browser state-precondition regression"})});
   }
 
-  /** Clean up all issues created during this test. */
+  /** Clean up all tasks created during this test. */
   trackCreatedWorkflow(id: string) {
     this.createdWorkflowIds.push(id);
   }
@@ -359,27 +359,27 @@ export class TestApiClient {
       if (!response.ok && response.status !== 404) throw new Error(`Delete test project: ${response.status}`);
     }
     this.createdProjectIds = [];
-    if (this.seededIssueIds.length > 0 && this.workspaceId) {
+    if (this.seededTaskIds.length > 0 && this.workspaceId) {
       const client = new pg.Client(DATABASE_URL);
       await client.connect();
       try {
         await client.query(
-          `DELETE FROM issue WHERE workspace_id = $1 AND id = ANY($2::uuid[])`,
-          [this.workspaceId, this.seededIssueIds],
+          `DELETE FROM task WHERE workspace_id = $1 AND id = ANY($2::uuid[])`,
+          [this.workspaceId, this.seededTaskIds],
         );
       } finally {
         await client.end();
       }
-      this.seededIssueIds = [];
+      this.seededTaskIds = [];
     }
-    for (const id of this.createdIssueIds) {
+    for (const id of this.createdTaskIds) {
       try {
-        await this.deleteIssue(id);
+        await this.deleteTask(id);
       } catch {
         /* ignore — may already be deleted */
       }
     }
-    this.createdIssueIds = [];
+    this.createdTaskIds = [];
   }
 
   async createSkillCandidateFixture(name: string) {
@@ -429,6 +429,7 @@ export class TestApiClient {
 
   private async authedFetch(path: string, init?: RequestInit) {
     const headers: Record<string, string> = {
+      "X-Silieco-Protocol": "task-run-v1",
       "Content-Type": "application/json",
       ...((init?.headers as Record<string, string>) ?? {}),
     };

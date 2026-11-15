@@ -2,7 +2,7 @@
  * Group timeline entries by reply thread for the mobile flat list.
  *
  * Mirrors the partition step of web's
- * `packages/views/issues/components/issue-detail.tsx:301-339`, but the output
+ * `packages/views/tasks/components/task-detail.tsx:301-339`, but the output
  * shape differs: instead of emitting each reply as its own row (web renders a
  * recursive tree with indentation), we **bundle a comment's entire descendant
  * chain into the parent row** so the renderer can draw one bubble that

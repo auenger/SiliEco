@@ -58,12 +58,12 @@ export default function Inbox() {
       // snapshot for the native stack push transition.
       markRead.mutate(item.id);
     }
-    if (item.issue_id && wsSlug) {
+    if (item.task_id && wsSlug) {
       router.push({
-        pathname: "/[workspace]/issue/[id]",
+        pathname: "/[workspace]/task/[id]",
         params: {
           workspace: wsSlug,
-          id: item.issue_id,
+          id: item.task_id,
           highlight: item.details?.comment_id,
           h: String(Date.now()),
         },
@@ -97,7 +97,7 @@ export default function Inbox() {
         else if (i === 4) {
           Alert.alert(
             "Archive all?",
-            "This archives every inbox item, read or unread. You can still find them via the issue pages.",
+            "This archives every inbox item, read or unread. You can still find them via the task pages.",
             [
               { text: "Cancel", style: "cancel" },
               {
@@ -191,7 +191,7 @@ function InboxEmpty({ iconColor }: { iconColor: string }) {
         Inbox zero
       </Text>
       <Text className="text-sm text-muted-foreground text-center">
-        When someone @mentions you, assigns an issue, or an agent finishes a
+        When someone @mentions you, assigns a task, or an agent finishes a
         task, it shows up here.
       </Text>
     </View>

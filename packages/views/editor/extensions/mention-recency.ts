@@ -1,5 +1,5 @@
 // Tracks the last time the current user mentioned a given target (member /
-// agent / issue / "all"), per workspace, in browser storage. Used to rank the
+// agent / task / "all"), per workspace, in browser storage. Used to rank the
 // mention suggestion dropdown so recently-mentioned targets surface first.
 //
 // Data is per-device by design — the goal is "make the next mention faster",

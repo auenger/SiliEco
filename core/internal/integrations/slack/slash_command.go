@@ -15,23 +15,23 @@ import (
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 )
 
-// This file implements the Slack `/issue` SLASH COMMAND. It is deliberately
-// separate from the message-based `/issue` (engine ParseIssueCommand): on Slack
+// This file implements the Slack `/task` SLASH COMMAND. It is deliberately
+// separate from the message-based `/task` (engine ParseTaskCommand): on Slack
 // a message whose first character is `/` is intercepted by the client as a
 // slash command and never delivered to the app, so the message-prefix form of
-// `/issue` cannot work here at all (SILI-3908). Registering `/issue` as a real
+// `/task` cannot work here at all (SILI-3908). Registering `/task` as a real
 // slash command in the app manifest is what makes it reach us — as an
 // `EventTypeSlashCommand` over the same Socket Mode connection.
 //
-// The command is a QUICK-CREATE entry point: it does NOT create the issue
+// The command is a QUICK-CREATE entry point: it does NOT create the task
 // itself. It takes the invoker's natural-language description as a prompt and
 // enqueues a quick-create task against the installation's agent — the very same
 // pipeline as the web "quick create" modal (TaskService.EnqueueQuickCreateTask).
-// The agent turns the prompt into a well-formed `silieco issue create` in the
-// background, so the issue gets a proper title + structured description instead
+// The agent turns the prompt into a well-formed `silieco task create` in the
+// background, so the task gets a proper title + structured description instead
 // of the raw one-liner the user typed. Because creation is asynchronous, the
 // command replies with a PRIVATE (ephemeral) acknowledgement via the command's
-// response_url — there is no issue number to hand back yet — and the agent's
+// response_url — there is no task number to hand back yet — and the agent's
 // completion surfaces to the invoker as a Silieco inbox notification through the
 // shared quick-create completion path. It starts no chat session / chat run.
 //
@@ -41,8 +41,8 @@ import (
 // are kept local so the proven inbound pipeline is untouched.
 
 const (
-	taskSlashCommand        = "/task"
-	legacyIssueSlashCommand = "/issue"
+	runSlashCommand        = "/task"
+	legacyTaskSlashCommand = "/task"
 )
 
 // User-facing ephemeral replies. Kept terse; only the invoker sees them.
@@ -69,13 +69,13 @@ type slashQueries interface {
 // command needs to hand the invoker's prompt to the agent. *service.TaskService
 // satisfies it; tests supply a fake.
 type quickCreateEnqueuer interface {
-	EnqueueQuickCreateTask(ctx context.Context, workspaceID, requesterID, agentID, squadID pgtype.UUID, prompt, priority, dueDate string, projectID, parentIssueID, workflowInstanceID, workflowStageID pgtype.UUID, attachmentIDs []pgtype.UUID) (db.AgentTaskQueue, error)
+	EnqueueQuickCreateRun(ctx context.Context, workspaceID, requesterID, agentID, squadID pgtype.UUID, prompt, priority, dueDate string, projectID, parentTaskID, workflowInstanceID, workflowStageID pgtype.UUID, attachmentIDs []pgtype.UUID) (db.AgentRun, error)
 }
 
-// SlashCommandProcessor handles the Slack `/issue` slash command end to end.
+// SlashCommandProcessor handles the Slack `/task` slash command end to end.
 type SlashCommandProcessor struct {
 	q           slashQueries
-	tasks       quickCreateEnqueuer
+	agentRuns       quickCreateEnqueuer
 	binding     bindingMinter
 	appURL      string
 	bindingPath string
@@ -91,7 +91,7 @@ type SlashCommandProcessor struct {
 // anything.
 type SlashCommandConfig struct {
 	Queries     *db.Queries
-	Tasks       quickCreateEnqueuer
+	Runs       quickCreateEnqueuer
 	Binding     bindingMinter
 	AppURL      string
 	BindingPath string // default "/slack/bind"
@@ -115,7 +115,7 @@ func NewSlashCommandProcessor(cfg SlashCommandConfig) *SlashCommandProcessor {
 	}
 	p := &SlashCommandProcessor{
 		q:           cfg.Queries,
-		tasks:       cfg.Tasks,
+		agentRuns:       cfg.Runs,
 		binding:     cfg.Binding,
 		appURL:      strings.TrimRight(cfg.AppURL, "/"),
 		bindingPath: bindingPath,
@@ -135,8 +135,8 @@ func NewSlashCommandProcessor(cfg SlashCommandConfig) *SlashCommandProcessor {
 // so it never returns an error — every outcome is a user-facing message.
 func (p *SlashCommandProcessor) Handle(ctx context.Context, cmd slack.SlashCommand) {
 	command := strings.TrimSpace(cmd.Command)
-	if !strings.EqualFold(command, taskSlashCommand) &&
-		!strings.EqualFold(command, legacyIssueSlashCommand) {
+	if !strings.EqualFold(command, runSlashCommand) &&
+		!strings.EqualFold(command, legacyTaskSlashCommand) {
 		return
 	}
 	text := p.process(ctx, cmd)
@@ -184,11 +184,11 @@ func (p *SlashCommandProcessor) process(ctx context.Context, cmd slack.SlashComm
 	}
 
 	// Hand the raw natural-language prompt to the installation's agent as a
-	// quick-create task; the agent authors the well-formed issue in the
+	// quick-create task; the agent authors the well-formed task in the
 	// background and attributes it to the bound member. No project / parent /
 	// attachments and no squad routing — the slash command targets the
 	// installation's own agent directly.
-	if _, err := p.tasks.EnqueueQuickCreateTask(
+	if _, err := p.agentRuns.EnqueueQuickCreateRun(
 		ctx,
 		inst.WorkspaceID,
 		userID,
@@ -198,7 +198,7 @@ func (p *SlashCommandProcessor) process(ctx context.Context, cmd slack.SlashComm
 		"",            // no explicit priority
 		"",            // no explicit due date
 		pgtype.UUID{}, // no project
-		pgtype.UUID{}, // no parent issue
+		pgtype.UUID{}, // no parent task
 		pgtype.UUID{}, // no workflow run
 		pgtype.UUID{}, // no workflow stage
 		nil,           // no attachments
@@ -278,6 +278,6 @@ func (p *SlashCommandProcessor) bindingText(ctx context.Context, inst engine.Res
 	bindURL := p.appURL + p.bindingPath + "?token=" + url.QueryEscape(token.Raw)
 	// Wrap the URL as an explicit Slack link so the base64url token's `_`/`-`
 	// are not mangled by mrkdwn (same reasoning as the replier).
-	return "👋 To file issues, link your Slack account to Silieco: <" +
+	return "👋 To file tasks, link your Slack account to Silieco: <" +
 		bindURL + "|link your account>\n(This link expires in 15 minutes.)"
 }

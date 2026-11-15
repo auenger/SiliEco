@@ -9,7 +9,7 @@ import {
   aggregateFailureClasses,
   aggregateFailureReasons,
   aggregateWeeklyErrors,
-  aggregateWeeklyTasks,
+  aggregateWeeklyRuns,
   aggregateWeeklyTime,
   bucketUnknownAgentRows,
   computeDailyTotals,
@@ -34,7 +34,7 @@ describe("aggregateDailyCost", () => {
         output_tokens: 500_000,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
-        task_count: 3,
+        run_count: 3,
       },
       {
         date: "2026-05-09",
@@ -44,7 +44,7 @@ describe("aggregateDailyCost", () => {
         output_tokens: 0,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
-        task_count: 1,
+        run_count: 1,
       },
     ]);
 
@@ -67,7 +67,7 @@ describe("aggregateDailyCost", () => {
         output_tokens: 0,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
-        task_count: 0,
+        run_count: 0,
       },
     ]);
     expect(result[0]?.total).toBe(0);
@@ -85,7 +85,7 @@ describe("aggregateAgentTokens", () => {
         output_tokens: 0,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
-        task_count: 1,
+        run_count: 1,
       },
       {
         agent_id: "big-spender",
@@ -95,7 +95,7 @@ describe("aggregateAgentTokens", () => {
         output_tokens: 0,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
-        task_count: 3,
+        run_count: 3,
       },
       {
         agent_id: "big-spender",
@@ -105,7 +105,7 @@ describe("aggregateAgentTokens", () => {
         output_tokens: 0,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
-        task_count: 2,
+        run_count: 2,
       },
     ]);
 
@@ -127,7 +127,7 @@ describe("computeDailyTotals", () => {
         output_tokens: 0,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
-        task_count: 2,
+        run_count: 2,
       },
       {
         date: "2026-05-09",
@@ -137,7 +137,7 @@ describe("computeDailyTotals", () => {
         output_tokens: 0,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
-        task_count: 3,
+        run_count: 3,
       },
     ]);
     expect(totals.input).toBe(3_000_000);
@@ -150,7 +150,7 @@ describe("mergeAgentDashboardRows", () => {
   it("uses run-time rollup's per-agent task count, not the token sum", () => {
     // Token rollup returns two (agent, model) rows for the same task
     // (the agent ran one task that touched two models). The token-side
-    // aggregator sums per-row task_count and lands at 2; the run-time
+    // aggregator sums per-row run_count and lands at 2; the run-time
     // rollup correctly reports the underlying distinct count of 1.
     const tokenRows = [
       {
@@ -164,7 +164,7 @@ describe("mergeAgentDashboardRows", () => {
       {
         agent_id: "agent-a",
         total_seconds: 600,
-        task_count: 1, // truth: one task touched both models
+        run_count: 1, // truth: one task touched both models
         failed_count: 0,
       },
     ];
@@ -192,7 +192,7 @@ describe("mergeAgentDashboardRows", () => {
     // list with zeroed-out token columns.
     const merged = mergeAgentDashboardRows(
       [],
-      [{ agent_id: "agent-c", total_seconds: 30, task_count: 1, failed_count: 1 }],
+      [{ agent_id: "agent-c", total_seconds: 30, run_count: 1, failed_count: 1 }],
     );
     expect(merged).toHaveLength(1);
     expect(merged[0]!.tokens).toBe(0);
@@ -208,7 +208,7 @@ describe("mergeAgentDashboardRows", () => {
         { agentId: "zero-cost-long", tokens: 0, cost: 0, taskCount: 0 },
       ],
       [
-        { agent_id: "zero-cost-long", total_seconds: 1000, task_count: 5, failed_count: 0 },
+        { agent_id: "zero-cost-long", total_seconds: 1000, run_count: 5, failed_count: 0 },
       ],
     );
     expect(merged.map((r) => r.agentId)).toEqual(["high", "low", "zero-cost-long"]);
@@ -294,7 +294,7 @@ describe("bucketUnknownAgentRows", () => {
 
   // SILI-5409: the server folds agents the viewer may not see onto its own
   // sentinel. That row is not in `knownAgentIds` either, and sweeping it into
-  // the "Deleted agents" bucket is exactly the lie the issue was filed for —
+  // the "Deleted agents" bucket is exactly the lie the task was filed for —
   // those agents are alive.
   it("keeps the server's restricted bucket out of the deleted bucket", () => {
     const restricted = {
@@ -368,9 +368,9 @@ describe("aggregateWeeklyTime", () => {
     // 2026-05-19 is a Tuesday → current week is Mon=05-18..Sun=05-24.
     vi.setSystemTime(new Date("2026-05-19T12:00:00Z"));
     const rows = [
-      { date: "2026-05-11", total_seconds: 100, task_count: 0, failed_count: 0 },
-      { date: "2026-05-17", total_seconds: 50, task_count: 0, failed_count: 0 },
-      { date: "2026-05-18", total_seconds: 25, task_count: 0, failed_count: 0 },
+      { date: "2026-05-11", total_seconds: 100, run_count: 0, failed_count: 0 },
+      { date: "2026-05-17", total_seconds: 50, run_count: 0, failed_count: 0 },
+      { date: "2026-05-18", total_seconds: 25, run_count: 0, failed_count: 0 },
     ];
     const result = aggregateWeeklyTime(rows, "UTC", 2);
     expect(result).toHaveLength(2);
@@ -397,7 +397,7 @@ describe("aggregateWeeklyTime", () => {
     const rows = [
       // 2026-04-13 is a Monday — exactly one week earlier than the oldest
       // in-range week (Mon=04-20) for a 5-week trailing window.
-      { date: "2026-04-13", total_seconds: 999, task_count: 0, failed_count: 0 },
+      { date: "2026-04-13", total_seconds: 999, run_count: 0, failed_count: 0 },
     ];
     const result = aggregateWeeklyTime(rows, "UTC", 5);
     expect(result.map((w) => w.weekStart)).toEqual([
@@ -411,7 +411,7 @@ describe("aggregateWeeklyTime", () => {
   });
 });
 
-describe("aggregateWeeklyTasks", () => {
+describe("aggregateWeeklyRuns", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -422,10 +422,10 @@ describe("aggregateWeeklyTasks", () => {
   it("splits completed and failed counts per calendar week", () => {
     vi.setSystemTime(new Date("2026-05-19T12:00:00Z"));
     const rows = [
-      { date: "2026-05-12", total_seconds: 0, task_count: 5, failed_count: 1 },
-      { date: "2026-05-18", total_seconds: 0, task_count: 3, failed_count: 0 },
+      { date: "2026-05-12", total_seconds: 0, run_count: 5, failed_count: 1 },
+      { date: "2026-05-18", total_seconds: 0, run_count: 3, failed_count: 0 },
     ];
-    const result = aggregateWeeklyTasks(rows, "UTC", 2);
+    const result = aggregateWeeklyRuns(rows, "UTC", 2);
     expect(result[0]).toMatchObject({
       weekStart: "2026-05-11",
       completed: 4,
@@ -452,14 +452,14 @@ describe("aggregateWeeklyTasks", () => {
 describe("aggregateDailyErrors", () => {
   it("stacks failures by class and keeps the succeeded rows as the denominator", () => {
     const result = aggregateDailyErrors([
-      { date: "2026-05-10", failure_reason: "", task_count: 8 },
+      { date: "2026-05-10", failure_reason: "", run_count: 8 },
       {
         date: "2026-05-10",
         failure_reason: "agent_error.provider_auth_or_access",
-        task_count: 2,
+        run_count: 2,
       },
-      { date: "2026-05-10", failure_reason: "timeout", task_count: 1 },
-      { date: "2026-05-09", failure_reason: "", task_count: 4 },
+      { date: "2026-05-10", failure_reason: "timeout", run_count: 1 },
+      { date: "2026-05-09", failure_reason: "", run_count: 4 },
     ]);
 
     expect(result.map((r) => r.date)).toEqual(["2026-05-09", "2026-05-10"]);
@@ -476,7 +476,7 @@ describe("aggregateDailyErrors", () => {
 
   it("folds a reason this build has never seen into 'other' rather than dropping it", () => {
     const [row] = aggregateDailyErrors([
-      { date: "2026-05-10", failure_reason: "agent_error.from_the_future", task_count: 5 },
+      { date: "2026-05-10", failure_reason: "agent_error.from_the_future", run_count: 5 },
     ]);
     expect(row).toMatchObject({ other: 5, failed: 5, total: 5 });
   });
@@ -494,8 +494,8 @@ describe("aggregateWeeklyErrors", () => {
     vi.setSystemTime(new Date("2026-05-19T12:00:00Z"));
     const result = aggregateWeeklyErrors(
       [
-        { date: "2026-05-12", failure_reason: "runtime_offline", task_count: 2 },
-        { date: "2026-05-12", failure_reason: "", task_count: 6 },
+        { date: "2026-05-12", failure_reason: "runtime_offline", run_count: 2 },
+        { date: "2026-05-12", failure_reason: "", run_count: 6 },
       ],
       "UTC",
       2,
@@ -520,8 +520,8 @@ describe("computeFailureTotals", () => {
   it("excludes the succeeded bucket from the numerator but not the denominator", () => {
     expect(
       computeFailureTotals([
-        { failure_reason: "", task_count: 9 },
-        { failure_reason: "timeout", task_count: 1 },
+        { failure_reason: "", run_count: 9 },
+        { failure_reason: "timeout", run_count: 1 },
       ]),
     ).toEqual({ failed: 1, total: 10, rate: 0.1 });
   });
@@ -533,10 +533,10 @@ describe("computeFailureTotals", () => {
 
 describe("aggregateFailureClasses / aggregateFailureReasons", () => {
   const rows = [
-    { failure_reason: "", task_count: 20 },
-    { failure_reason: "agent_error.provider_quota_limit", task_count: 3 },
-    { failure_reason: "agent_error.provider_capacity_or_rate_limit", task_count: 4 },
-    { failure_reason: "timeout", task_count: 5 },
+    { failure_reason: "", run_count: 20 },
+    { failure_reason: "agent_error.provider_quota_limit", run_count: 3 },
+    { failure_reason: "agent_error.provider_capacity_or_rate_limit", run_count: 4 },
+    { failure_reason: "timeout", run_count: 5 },
   ];
 
   it("merges reasons that share a class and ranks by count desc", () => {
@@ -566,11 +566,11 @@ describe("aggregateFailureClasses / aggregateFailureReasons", () => {
 describe("aggregateAgentFailures", () => {
   it("ranks by failure count, carries the rate, and splits failures by class", () => {
     const result = aggregateAgentFailures([
-      { agent_id: "a", failure_reason: "", task_count: 90 },
-      { agent_id: "a", failure_reason: "timeout", task_count: 10 },
-      { agent_id: "b", failure_reason: "", task_count: 1 },
-      { agent_id: "b", failure_reason: "runtime_offline", task_count: 3 },
-      { agent_id: "b", failure_reason: "timeout", task_count: 1 },
+      { agent_id: "a", failure_reason: "", run_count: 90 },
+      { agent_id: "a", failure_reason: "timeout", run_count: 10 },
+      { agent_id: "b", failure_reason: "", run_count: 1 },
+      { agent_id: "b", failure_reason: "runtime_offline", run_count: 3 },
+      { agent_id: "b", failure_reason: "timeout", run_count: 1 },
     ]);
 
     // `a` fails 10% of the time, `b` fails 80% — but `a` is the bigger
@@ -587,7 +587,7 @@ describe("aggregateAgentFailures", () => {
 
   it("drops agents with no failures — the list is triage, not a census", () => {
     expect(
-      aggregateAgentFailures([{ agent_id: "clean", failure_reason: "", task_count: 42 }]),
+      aggregateAgentFailures([{ agent_id: "clean", failure_reason: "", run_count: 42 }]),
     ).toEqual([]);
   });
 });
@@ -597,11 +597,11 @@ describe("sortAgentFailures", () => {
   // healthy per run; `once` is the small-sample trap — a single failed run is
   // a 100% rate and would win the Rate ranking outright.
   const rows = aggregateAgentFailures([
-    { agent_id: "busy", failure_reason: "", task_count: 900 },
-    { agent_id: "busy", failure_reason: "timeout", task_count: 100 },
-    { agent_id: "flaky", failure_reason: "", task_count: 80 },
-    { agent_id: "flaky", failure_reason: "runtime_offline", task_count: 20 },
-    { agent_id: "once", failure_reason: "timeout", task_count: 1 },
+    { agent_id: "busy", failure_reason: "", run_count: 900 },
+    { agent_id: "busy", failure_reason: "timeout", run_count: 100 },
+    { agent_id: "flaky", failure_reason: "", run_count: 80 },
+    { agent_id: "flaky", failure_reason: "runtime_offline", run_count: 20 },
+    { agent_id: "once", failure_reason: "timeout", run_count: 1 },
   ]);
 
   it("ranks by absolute failures by default", () => {
@@ -639,15 +639,15 @@ describe("anonymizeUnresolvedAgentRows", () => {
   // agents the viewer cannot resolve, with deliberately conflicting dominant
   // classes — see the counterexample test below.
   const rows = [
-    { agent_id: "visible", failure_reason: "", task_count: 5 },
-    { agent_id: "visible", failure_reason: "timeout", task_count: 5 },
+    { agent_id: "visible", failure_reason: "", run_count: 5 },
+    { agent_id: "visible", failure_reason: "timeout", run_count: 5 },
     {
       agent_id: "private-a",
       failure_reason: "agent_error.provider_auth_or_access",
-      task_count: 6,
+      run_count: 6,
     },
-    { agent_id: "private-a", failure_reason: "timeout", task_count: 5 },
-    { agent_id: "private-b", failure_reason: "timeout", task_count: 10 },
+    { agent_id: "private-a", failure_reason: "timeout", run_count: 5 },
+    { agent_id: "private-b", failure_reason: "timeout", run_count: 10 },
   ];
 
   it("rewrites unresolvable ids to the sentinel and leaves resolvable ones alone", () => {
@@ -661,7 +661,7 @@ describe("anonymizeUnresolvedAgentRows", () => {
       UNRESOLVED_AGENTS_ROW_ID,
     ]);
     // Counts are untouched — only identity is erased.
-    expect(result.map((r) => r.task_count)).toEqual([5, 5, 6, 5, 10]);
+    expect(result.map((r) => r.run_count)).toEqual([5, 5, 6, 5, 10]);
   });
 
   it("keeps the bucket's class split honest across merged agents", () => {

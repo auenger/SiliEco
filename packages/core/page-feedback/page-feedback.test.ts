@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { browserCommandSchema, normalizeBrowserUrl, browserSessionFromPath, type PageCapture } from "./protocol";
 import { emptyFeedbackDraft, feedbackDraftKey, usePageFeedbackStore, type FeedbackDraft } from "./draft-store";
 import { submitFeedbackTask } from "./submit";
-import type { Attachment, Issue, CreateIssueRequest } from "../types";
+import type { Attachment, Task, CreateTaskRequest } from "../types";
 
 const capture: PageCapture = { id: "capture-1", url: "https://example.com/settings", title: "Settings", capturedAt: "2026-10-24T00:00:00Z", target: { kind: "element", selector: "#save", text: "Save", name: "Save", rect: { x: 10, y: 10, width: 40, height: 20 }, viewport: { width: 800, height: 600, scrollX: 0, scrollY: 20, devicePixelRatio: 2 } } };
 const makeDraft = (): FeedbackDraft => ({ ...emptyFeedbackDraft, title: "Fix save", request: "Make the button visible", items: [{ capture, note: "Increase contrast", marks: [] }] });
@@ -12,8 +12,8 @@ function fixture() {
   const uploaded: Attachment[] = [];
   const api = {
     uploadFile: vi.fn(async (file: File) => { const a = { id: `attachment-${uploaded.length}`, markdown_url: `https://example.com/files/${uploaded.length}`, filename: file.name } as Attachment; uploaded.push(a); return a; }),
-    createIssue: vi.fn(async (_data: CreateIssueRequest) => ({ id: "task-1" }) as Issue),
-    updateIssue: vi.fn(async () => ({ id: "task-1" }) as Issue),
+    createTask: vi.fn(async (_data: CreateTaskRequest) => ({ id: "task-1" }) as Task),
+    updateTask: vi.fn(async () => ({ id: "task-1" }) as Task),
     listAttachments: vi.fn(async () => uploaded),
   };
   const deps = { api, guard: vi.fn(), image: vi.fn(async () => new File(["image"], "shot.png")), checkpoint: (patch: Partial<FeedbackDraft>) => { draft = { ...draft, ...patch }; } };
@@ -40,8 +40,8 @@ describe("page feedback isolation and submission", () => {
   it("creates a backlog task with image and machine-readable evidence", async () => {
     const f = fixture();
     await expect(submitFeedbackTask(f.draft(), f.deps)).resolves.toBe("task-1");
-    expect(f.api.createIssue).toHaveBeenCalledWith(expect.objectContaining({ status: "backlog", attachment_ids: ["attachment-0", "attachment-1"], description: expect.stringContaining("> Selector: #save") }));
-    expect(f.api.createIssue.mock.calls[0]?.[0]).not.toHaveProperty("assignee_id");
+    expect(f.api.createTask).toHaveBeenCalledWith(expect.objectContaining({ status: "backlog", attachment_ids: ["attachment-0", "attachment-1"], description: expect.stringContaining("> Selector: #save") }));
+    expect(f.api.createTask.mock.calls[0]?.[0]).not.toHaveProperty("assignee_id");
   });
   it("retries missing attachments on the existing task without duplicate uploads or create", async () => {
     const f = fixture();
@@ -50,7 +50,7 @@ describe("page feedback isolation and submission", () => {
     expect(f.draft().taskId).toBe("task-1");
     f.api.listAttachments.mockResolvedValue(f.uploaded);
     await submitFeedbackTask(f.draft(), f.deps);
-    expect(f.api.createIssue).toHaveBeenCalledTimes(1);
+    expect(f.api.createTask).toHaveBeenCalledTimes(1);
     expect(f.api.uploadFile).toHaveBeenCalledTimes(2);
   });
   it("stops before another request after workspace changes during an upload", async () => {
@@ -58,13 +58,13 @@ describe("page feedback isolation and submission", () => {
     f.deps.guard.mockImplementation(() => { if (switched) throw new Error("workspace changed"); });
     f.api.uploadFile.mockImplementation(async () => { switched = true; return { id: "uploaded" } as Attachment; });
     await expect(submitFeedbackTask(f.draft(), f.deps)).rejects.toThrow("workspace changed");
-    expect(f.api.createIssue).not.toHaveBeenCalled();
+    expect(f.api.createTask).not.toHaveBeenCalled();
     expect(f.api.uploadFile).toHaveBeenCalledTimes(1);
   });
   it("records a successful create even if the user switched workspaces while waiting", async () => {
     const f = fixture(); let switched = false;
     f.deps.guard.mockImplementation(() => { if (switched) throw new Error("workspace changed"); });
-    f.api.createIssue.mockImplementation(async () => { switched = true; return { id: "created-in-original-workspace" } as Issue; });
+    f.api.createTask.mockImplementation(async () => { switched = true; return { id: "created-in-original-workspace" } as Task; });
     await expect(submitFeedbackTask(f.draft(), f.deps)).rejects.toThrow("workspace changed");
     expect(f.draft().taskId).toBe("created-in-original-workspace");
     expect(f.api.listAttachments).not.toHaveBeenCalled();

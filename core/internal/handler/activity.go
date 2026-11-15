@@ -10,7 +10,7 @@ import (
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 )
 
-// TimelineEntry represents a single entry in the issue timeline, which can be
+// TimelineEntry represents a single entry in the task timeline, which can be
 // either an activity log record or a comment.
 type TimelineEntry struct {
 	Type string `json:"type"` // "activity" or "comment"
@@ -34,10 +34,10 @@ type TimelineEntry struct {
 	ResolvedAt     *string              `json:"resolved_at,omitempty"`
 	ResolvedByType *string              `json:"resolved_by_type,omitempty"`
 	ResolvedByID   *string              `json:"resolved_by_id,omitempty"`
-	SourceTaskID   *string              `json:"source_task_id,omitempty"`
+	SourceRunID    *string              `json:"source_run_id,omitempty"`
 }
 
-// timelineHardCap bounds the per-issue timeline payload. Sized as a defensive
+// timelineHardCap bounds the per-task timeline payload. Sized as a defensive
 // safety net, not a UX page window: see commentHardCap in comment.go for the
 // data-shape rationale (#1929).
 const timelineHardCap = 2000
@@ -58,7 +58,7 @@ type timelinePaginatedResponse struct {
 	TargetIndex   *int            `json:"target_index,omitempty"`
 }
 
-// ListTimeline returns the full issue timeline (comments + activities merged).
+// ListTimeline returns the full task timeline (comments + activities merged).
 // Two response shapes coexist for boundary compatibility (#1929):
 //
 //   - No pagination params → flat ASC `TimelineEntry[]`. Matches the legacy
@@ -71,28 +71,28 @@ type timelinePaginatedResponse struct {
 //
 // Both shapes carry the same set of entries — paging and ordering differ.
 // Time-based pagination was removed because it split reply threads at page
-// boundaries, and at observed data sizes (p99 ~30 comments per issue) the
+// boundaries, and at observed data sizes (p99 ~30 comments per task) the
 // cursor machinery was pure overhead.
 func (h *Handler) ListTimeline(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	issue, ok := h.loadIssueForUser(w, r, id)
+	task, ok := h.loadTaskForUser(w, r, id)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
 
-	comments, err := h.Queries.ListCommentsForIssue(ctx, db.ListCommentsForIssueParams{
-		IssueID:     issue.ID,
-		WorkspaceID: issue.WorkspaceID,
+	comments, err := h.Queries.ListCommentsForTask(ctx, db.ListCommentsForTaskParams{
+		TaskID:      task.ID,
+		WorkspaceID: task.WorkspaceID,
 		Limit:       timelineHardCap,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list comments")
 		return
 	}
-	activities, err := h.Queries.ListActivitiesForIssue(ctx, db.ListActivitiesForIssueParams{
-		IssueID: issue.ID,
-		Limit:   timelineHardCap,
+	activities, err := h.Queries.ListActivitiesForTask(ctx, db.ListActivitiesForTaskParams{
+		TaskID: task.ID,
+		Limit:  timelineHardCap,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list activities")
@@ -189,7 +189,7 @@ func (h *Handler) commentsToEntries(r *http.Request, comments []db.Comment) []Ti
 			ResolvedAt:     timestampToPtr(c.ResolvedAt),
 			ResolvedByType: textToPtr(c.ResolvedByType),
 			ResolvedByID:   uuidToPtr(c.ResolvedByID),
-			SourceTaskID:   uuidToPtr(c.SourceTaskID),
+			SourceRunID:    uuidToPtr(c.SourceRunID),
 		}
 	}
 	return out
@@ -220,7 +220,7 @@ type AssigneeFrequencyEntry struct {
 }
 
 // GetAssigneeFrequency returns assignee usage frequency for the current user,
-// combining data from assignee change activities and initial issue assignments.
+// combining data from assignee change activities and initial task assignments.
 func (h *Handler) GetAssigneeFrequency(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -248,8 +248,8 @@ func (h *Handler) GetAssigneeFrequency(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Source 2: issues created by this user with an assignee.
-	issueCounts, err := h.Queries.CountCreatedIssueAssignees(r.Context(), db.CountCreatedIssueAssigneesParams{
+	// Source 2: tasks created by this user with an assignee.
+	taskCounts, err := h.Queries.CountCreatedTaskAssignees(r.Context(), db.CountCreatedTaskAssigneesParams{
 		WorkspaceID: parseUUID(workspaceID),
 		CreatorID:   parseUUID(userID),
 	})
@@ -257,7 +257,7 @@ func (h *Handler) GetAssigneeFrequency(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get assignee frequency")
 		return
 	}
-	for _, row := range issueCounts {
+	for _, row := range taskCounts {
 		if !row.AssigneeType.Valid || !row.AssigneeID.Valid {
 			continue
 		}

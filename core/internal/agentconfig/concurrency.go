@@ -3,21 +3,21 @@ package agentconfig
 import "fmt"
 
 const (
-	DefaultMaxConcurrentTasks int32 = 6
-	MinMaxConcurrentTasks     int32 = 1
-	MaxMaxConcurrentTasks     int32 = 50
+	DefaultMaxConcurrentRuns int32 = 6
+	MinMaxConcurrentRuns     int32 = 1
+	MaxMaxConcurrentRuns     int32 = 50
 )
 
-func IsValidMaxConcurrentTasks(value int32) bool {
-	return value >= MinMaxConcurrentTasks && value <= MaxMaxConcurrentTasks
+func IsValidMaxConcurrentRuns(value int32) bool {
+	return value >= MinMaxConcurrentRuns && value <= MaxMaxConcurrentRuns
 }
 
-func ValidateMaxConcurrentTasks(value int32) error {
-	if !IsValidMaxConcurrentTasks(value) {
+func ValidateMaxConcurrentRuns(value int32) error {
+	if !IsValidMaxConcurrentRuns(value) {
 		return fmt.Errorf(
 			"must be between %d and %d",
-			MinMaxConcurrentTasks,
-			MaxMaxConcurrentTasks,
+			MinMaxConcurrentRuns,
+			MaxMaxConcurrentRuns,
 		)
 	}
 	return nil

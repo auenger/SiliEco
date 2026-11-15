@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { ApiError } from "../api";
 
 export interface RevisionConflictPayload {
-  kind: "issue" | "comment";
+  kind: "task" | "comment";
   current: Record<string, unknown>;
   attempted: Record<string, unknown>;
   retry: () => Promise<unknown>;

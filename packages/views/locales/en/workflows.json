@@ -355,7 +355,7 @@
   "rework": {
     "invalidated": "Invalidated by rework",
     "invalidated_tasks": "Previous work invalidated by rework",
-    "invalidated_tasks_hint": "Retained for history. These issues no longer count toward current stage completion.",
+    "invalidated_tasks_hint": "Retained for history. These tasks no longer count toward current stage completion.",
     "open": "Rework",
     "title": "Rework stage",
     "description": "Choose where to restart. Existing delivery from that stage onward will no longer count as accepted.",

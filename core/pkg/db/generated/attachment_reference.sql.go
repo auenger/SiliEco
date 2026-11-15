@@ -37,10 +37,10 @@ WHERE a.workspace_id = $1
   AND a.chat_message_id IS NULL
   AND (
       EXISTS (
-          SELECT 1 FROM issue source_issue
-          WHERE source_issue.id = a.issue_id
-            AND source_issue.workspace_id = a.workspace_id
-            AND source_issue.project_id = $2
+          SELECT 1 FROM task source_task
+          WHERE source_task.id = a.task_id
+            AND source_task.workspace_id = a.workspace_id
+            AND source_task.project_id = $2
       )
       OR EXISTS (
           SELECT 1 FROM attachment_reference ar
@@ -48,11 +48,11 @@ WHERE a.workspace_id = $1
             AND ar.attachment_id = a.id
             AND (
                 (ar.target_type = 'project' AND ar.target_id = $2)
-                OR (ar.target_type = 'issue' AND EXISTS (
-                    SELECT 1 FROM issue target_issue
-                    WHERE target_issue.id = ar.target_id
-                      AND target_issue.workspace_id = ar.workspace_id
-                      AND target_issue.project_id = $2
+                OR (ar.target_type = 'task' AND EXISTS (
+                    SELECT 1 FROM task target_task
+                    WHERE target_task.id = ar.target_id
+                      AND target_task.workspace_id = ar.workspace_id
+                      AND target_task.project_id = $2
                 ))
             )
       )
@@ -78,7 +78,7 @@ WHERE a.workspace_id = $1
   AND a.chat_session_id IS NULL
   AND a.chat_message_id IS NULL
   AND (
-      a.issue_id IS NOT NULL
+      a.task_id IS NOT NULL
       OR EXISTS (
           SELECT 1 FROM attachment_reference ar
           WHERE ar.workspace_id = a.workspace_id AND ar.attachment_id = a.id
@@ -193,7 +193,7 @@ func (q *Queries) DeleteAttachmentReferencesByWorkspace(ctx context.Context, wor
 const detachReferencedAttachmentsFromComment = `-- name: DetachReferencedAttachmentsFromComment :many
 UPDATE attachment AS a
 SET comment_id = NULL,
-    issue_id = NULL
+    task_id = NULL
 WHERE a.workspace_id = $1
   AND a.comment_id = $2
   AND EXISTS (
@@ -229,19 +229,19 @@ func (q *Queries) DetachReferencedAttachmentsFromComment(ctx context.Context, ar
 	return items, nil
 }
 
-const detachReferencedAttachmentsFromIssue = `-- name: DetachReferencedAttachmentsFromIssue :many
+const detachReferencedAttachmentsFromTask = `-- name: DetachReferencedAttachmentsFromTask :many
 UPDATE attachment AS a
-SET issue_id = NULL,
+SET task_id = NULL,
     comment_id = NULL
 WHERE a.workspace_id = $1
   AND (
-      a.issue_id = $2
+      a.task_id = $2
       OR a.comment_id IN (
           SELECT c.id
           FROM comment c
-          JOIN issue ci ON ci.id = c.issue_id
+          JOIN task ci ON ci.id = c.task_id
           WHERE ci.workspace_id = a.workspace_id
-            AND c.issue_id = $2
+            AND c.task_id = $2
       )
   )
   AND EXISTS (
@@ -252,13 +252,13 @@ WHERE a.workspace_id = $1
 RETURNING id
 `
 
-type DetachReferencedAttachmentsFromIssueParams struct {
+type DetachReferencedAttachmentsFromTaskParams struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	IssueID     pgtype.UUID `json:"issue_id"`
+	TaskID      pgtype.UUID `json:"task_id"`
 }
 
-func (q *Queries) DetachReferencedAttachmentsFromIssue(ctx context.Context, arg DetachReferencedAttachmentsFromIssueParams) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, detachReferencedAttachmentsFromIssue, arg.WorkspaceID, arg.IssueID)
+func (q *Queries) DetachReferencedAttachmentsFromTask(ctx context.Context, arg DetachReferencedAttachmentsFromTaskParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, detachReferencedAttachmentsFromTask, arg.WorkspaceID, arg.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +363,7 @@ const listProjectFileResources = `-- name: ListProjectFileResources :many
 WITH candidates AS (
     SELECT a.id
     FROM attachment a
-    JOIN issue i ON i.id = a.issue_id AND i.workspace_id = a.workspace_id
+    JOIN task i ON i.id = a.task_id AND i.workspace_id = a.workspace_id
     WHERE a.workspace_id = $1
       AND i.project_id = $4
       AND a.chat_session_id IS NULL
@@ -374,25 +374,25 @@ WITH candidates AS (
     WHERE ar.workspace_id = $1
       AND (
           (ar.target_type = 'project' AND ar.target_id = $4)
-          OR (ar.target_type = 'issue' AND EXISTS (
-              SELECT 1 FROM issue target_issue
-              WHERE target_issue.id = ar.target_id
-                AND target_issue.workspace_id = ar.workspace_id
-                AND target_issue.project_id = $4
+          OR (ar.target_type = 'task' AND EXISTS (
+              SELECT 1 FROM task target_task
+              WHERE target_task.id = ar.target_id
+                AND target_task.workspace_id = ar.workspace_id
+                AND target_task.project_id = $4
           ))
       )
 )
 SELECT
-    a.id, a.workspace_id, a.issue_id, a.comment_id, a.uploader_type, a.uploader_id, a.filename, a.url, a.content_type, a.size_bytes, a.created_at, a.chat_session_id, a.chat_message_id, a.task_id,
-    i.title AS source_issue_title,
-    i.number AS source_issue_number,
+    a.id, a.workspace_id, a.task_id, a.comment_id, a.uploader_type, a.uploader_id, a.filename, a.url, a.content_type, a.size_bytes, a.created_at, a.chat_session_id, a.chat_message_id, a.run_id,
+    i.title AS source_task_title,
+    i.number AS source_task_number,
     i.project_id AS source_project_id,
     p.title AS source_project_title,
     (SELECT count(*) FROM attachment_reference ar
      WHERE ar.workspace_id = a.workspace_id AND ar.attachment_id = a.id) AS reference_count
 FROM candidates c
 JOIN attachment a ON a.id = c.id AND a.workspace_id = $1
-LEFT JOIN issue i ON i.id = a.issue_id AND i.workspace_id = a.workspace_id
+LEFT JOIN task i ON i.id = a.task_id AND i.workspace_id = a.workspace_id
 LEFT JOIN project p ON p.id = i.project_id AND p.workspace_id = a.workspace_id
 WHERE a.chat_session_id IS NULL
   AND a.chat_message_id IS NULL
@@ -410,7 +410,7 @@ type ListProjectFileResourcesParams struct {
 type ListProjectFileResourcesRow struct {
 	ID                 pgtype.UUID        `json:"id"`
 	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
-	IssueID            pgtype.UUID        `json:"issue_id"`
+	TaskID             pgtype.UUID        `json:"task_id"`
 	CommentID          pgtype.UUID        `json:"comment_id"`
 	UploaderType       string             `json:"uploader_type"`
 	UploaderID         pgtype.UUID        `json:"uploader_id"`
@@ -421,9 +421,9 @@ type ListProjectFileResourcesRow struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	ChatSessionID      pgtype.UUID        `json:"chat_session_id"`
 	ChatMessageID      pgtype.UUID        `json:"chat_message_id"`
-	TaskID             pgtype.UUID        `json:"task_id"`
-	SourceIssueTitle   pgtype.Text        `json:"source_issue_title"`
-	SourceIssueNumber  pgtype.Int4        `json:"source_issue_number"`
+	RunID              pgtype.UUID        `json:"run_id"`
+	SourceTaskTitle    pgtype.Text        `json:"source_task_title"`
+	SourceTaskNumber   pgtype.Int4        `json:"source_task_number"`
 	SourceProjectID    pgtype.UUID        `json:"source_project_id"`
 	SourceProjectTitle pgtype.Text        `json:"source_project_title"`
 	ReferenceCount     int64              `json:"reference_count"`
@@ -446,7 +446,7 @@ func (q *Queries) ListProjectFileResources(ctx context.Context, arg ListProjectF
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
-			&i.IssueID,
+			&i.TaskID,
 			&i.CommentID,
 			&i.UploaderType,
 			&i.UploaderID,
@@ -457,9 +457,9 @@ func (q *Queries) ListProjectFileResources(ctx context.Context, arg ListProjectF
 			&i.CreatedAt,
 			&i.ChatSessionID,
 			&i.ChatMessageID,
-			&i.TaskID,
-			&i.SourceIssueTitle,
-			&i.SourceIssueNumber,
+			&i.RunID,
+			&i.SourceTaskTitle,
+			&i.SourceTaskNumber,
 			&i.SourceProjectID,
 			&i.SourceProjectTitle,
 			&i.ReferenceCount,
@@ -477,22 +477,22 @@ func (q *Queries) ListProjectFileResources(ctx context.Context, arg ListProjectF
 const listWorkspaceAttachmentReferences = `-- name: ListWorkspaceAttachmentReferences :many
 SELECT
     ar.id, ar.workspace_id, ar.attachment_id, ar.target_type, ar.target_id, ar.created_by, ar.created_at,
-    COALESCE(target_issue.title, target_project.title, '') AS target_title,
-    target_issue.number AS target_issue_number,
-    COALESCE(target_issue.project_id, target_project.id) AS target_project_id,
-    COALESCE(issue_project.title, target_project.title, '') AS target_project_title
+    COALESCE(target_task.title, target_project.title, '') AS target_title,
+    target_task.number AS target_task_number,
+    COALESCE(target_task.project_id, target_project.id) AS target_project_id,
+    COALESCE(task_project.title, target_project.title, '') AS target_project_title
 FROM attachment_reference ar
-LEFT JOIN issue target_issue
-    ON ar.target_type = 'issue'
-   AND target_issue.id = ar.target_id
-   AND target_issue.workspace_id = ar.workspace_id
+LEFT JOIN task target_task
+    ON ar.target_type = 'task'
+   AND target_task.id = ar.target_id
+   AND target_task.workspace_id = ar.workspace_id
 LEFT JOIN project target_project
     ON ar.target_type = 'project'
    AND target_project.id = ar.target_id
    AND target_project.workspace_id = ar.workspace_id
-LEFT JOIN project issue_project
-    ON issue_project.id = target_issue.project_id
-   AND issue_project.workspace_id = ar.workspace_id
+LEFT JOIN project task_project
+    ON task_project.id = target_task.project_id
+   AND task_project.workspace_id = ar.workspace_id
 WHERE ar.workspace_id = $1
 ORDER BY ar.created_at ASC
 `
@@ -506,7 +506,7 @@ type ListWorkspaceAttachmentReferencesRow struct {
 	CreatedBy          pgtype.UUID        `json:"created_by"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	TargetTitle        string             `json:"target_title"`
-	TargetIssueNumber  pgtype.Int4        `json:"target_issue_number"`
+	TargetTaskNumber   pgtype.Int4        `json:"target_task_number"`
 	TargetProjectID    pgtype.UUID        `json:"target_project_id"`
 	TargetProjectTitle string             `json:"target_project_title"`
 }
@@ -529,7 +529,7 @@ func (q *Queries) ListWorkspaceAttachmentReferences(ctx context.Context, workspa
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.TargetTitle,
-			&i.TargetIssueNumber,
+			&i.TargetTaskNumber,
 			&i.TargetProjectID,
 			&i.TargetProjectTitle,
 		); err != nil {
@@ -548,7 +548,7 @@ WITH candidates AS (
     SELECT a.id
     FROM attachment a
     WHERE a.workspace_id = $1
-      AND a.issue_id IS NOT NULL
+      AND a.task_id IS NOT NULL
       AND a.chat_session_id IS NULL
       AND a.chat_message_id IS NULL
     UNION
@@ -557,16 +557,16 @@ WITH candidates AS (
     WHERE ar.workspace_id = $1
 )
 SELECT
-    a.id, a.workspace_id, a.issue_id, a.comment_id, a.uploader_type, a.uploader_id, a.filename, a.url, a.content_type, a.size_bytes, a.created_at, a.chat_session_id, a.chat_message_id, a.task_id,
-    i.title AS source_issue_title,
-    i.number AS source_issue_number,
+    a.id, a.workspace_id, a.task_id, a.comment_id, a.uploader_type, a.uploader_id, a.filename, a.url, a.content_type, a.size_bytes, a.created_at, a.chat_session_id, a.chat_message_id, a.run_id,
+    i.title AS source_task_title,
+    i.number AS source_task_number,
     i.project_id AS source_project_id,
     p.title AS source_project_title,
     (SELECT count(*) FROM attachment_reference ar
      WHERE ar.workspace_id = a.workspace_id AND ar.attachment_id = a.id) AS reference_count
 FROM candidates c
 JOIN attachment a ON a.id = c.id AND a.workspace_id = $1
-LEFT JOIN issue i ON i.id = a.issue_id AND i.workspace_id = a.workspace_id
+LEFT JOIN task i ON i.id = a.task_id AND i.workspace_id = a.workspace_id
 LEFT JOIN project p ON p.id = i.project_id AND p.workspace_id = a.workspace_id
 WHERE a.chat_session_id IS NULL
   AND a.chat_message_id IS NULL
@@ -583,7 +583,7 @@ type ListWorkspaceFileResourcesParams struct {
 type ListWorkspaceFileResourcesRow struct {
 	ID                 pgtype.UUID        `json:"id"`
 	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
-	IssueID            pgtype.UUID        `json:"issue_id"`
+	TaskID             pgtype.UUID        `json:"task_id"`
 	CommentID          pgtype.UUID        `json:"comment_id"`
 	UploaderType       string             `json:"uploader_type"`
 	UploaderID         pgtype.UUID        `json:"uploader_id"`
@@ -594,9 +594,9 @@ type ListWorkspaceFileResourcesRow struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	ChatSessionID      pgtype.UUID        `json:"chat_session_id"`
 	ChatMessageID      pgtype.UUID        `json:"chat_message_id"`
-	TaskID             pgtype.UUID        `json:"task_id"`
-	SourceIssueTitle   pgtype.Text        `json:"source_issue_title"`
-	SourceIssueNumber  pgtype.Int4        `json:"source_issue_number"`
+	RunID              pgtype.UUID        `json:"run_id"`
+	SourceTaskTitle    pgtype.Text        `json:"source_task_title"`
+	SourceTaskNumber   pgtype.Int4        `json:"source_task_number"`
 	SourceProjectID    pgtype.UUID        `json:"source_project_id"`
 	SourceProjectTitle pgtype.Text        `json:"source_project_title"`
 	ReferenceCount     int64              `json:"reference_count"`
@@ -614,7 +614,7 @@ func (q *Queries) ListWorkspaceFileResources(ctx context.Context, arg ListWorksp
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
-			&i.IssueID,
+			&i.TaskID,
 			&i.CommentID,
 			&i.UploaderType,
 			&i.UploaderID,
@@ -625,9 +625,9 @@ func (q *Queries) ListWorkspaceFileResources(ctx context.Context, arg ListWorksp
 			&i.CreatedAt,
 			&i.ChatSessionID,
 			&i.ChatMessageID,
-			&i.TaskID,
-			&i.SourceIssueTitle,
-			&i.SourceIssueNumber,
+			&i.RunID,
+			&i.SourceTaskTitle,
+			&i.SourceTaskNumber,
 			&i.SourceProjectID,
 			&i.SourceProjectTitle,
 			&i.ReferenceCount,

@@ -3,12 +3,12 @@
  *
  * The acceptance naiyuan set: ONE completed Markdown fixture must produce the
  * SAME semantic blocks in Chat (user message, live assistant, persisted
- * assistant), an Issue description and a Comment. Density/CSS may differ;
+ * assistant), an Task description and a Comment. Density/CSS may differ;
  * capability may not. A Mermaid fence must be a diagram in all five, not a code
  * block in some of them.
  *
  * The surfaces are exercised through their real entry points — ReadonlyContent
- * for Issue/Comment and ChatMessageList for the three Chat rows — so a
+ * for Task/Comment and ChatMessageList for the three Chat rows — so a
  * regression that reintroduces a Chat-only renderer fails here.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -16,14 +16,14 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
-const { resolveIssueIdentifierMock, mermaidRenderMock } = vi.hoisted(() => ({
-  resolveIssueIdentifierMock: vi.fn(),
+const { resolveTaskIdentifierMock, mermaidRenderMock } = vi.hoisted(() => ({
+  resolveTaskIdentifierMock: vi.fn(),
   mermaidRenderMock: vi.fn(),
 }));
 
-vi.mock("../issues/hooks", () => ({
-  useResolveIssueIdentifier: (identifier: string) =>
-    resolveIssueIdentifierMock(identifier),
+vi.mock("../tasks/hooks", () => ({
+  useResolveTaskIdentifier: (identifier: string) =>
+    resolveTaskIdentifierMock(identifier),
 }));
 
 vi.mock("../i18n", async () => {
@@ -46,7 +46,7 @@ vi.mock("@silieco/core/api", () => ({
 
 vi.mock("@silieco/core/paths", () => ({
   useWorkspacePaths: () => ({
-    issueDetail: (id: string) => `/test/issues/${id}`,
+    taskDetail: (id: string) => `/test/tasks/${id}`,
     projectDetail: (id: string) => `/test/projects/${id}`,
   }),
   useWorkspaceSlug: () => "test",
@@ -60,9 +60,9 @@ vi.mock("../navigation", () => ({
   ),
 }));
 
-vi.mock("../issues/components/issue-mention-card", () => ({
-  IssueMentionCard: ({ issueId, fallbackLabel }: { issueId: string; fallbackLabel?: string }) => (
-    <span data-testid="issue-mention">{fallbackLabel ?? issueId}</span>
+vi.mock("../tasks/components/task-mention-card", () => ({
+  TaskMentionCard: ({ taskId, fallbackLabel }: { taskId: string; fallbackLabel?: string }) => (
+    <span data-testid="task-mention">{fallbackLabel ?? taskId}</span>
   ),
 }));
 
@@ -125,7 +125,7 @@ Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
 
 import { ReadonlyContent } from "../editor/readonly-content";
 import { ChatMessageList } from "../chat/components/chat-message-list";
-import { taskMessagesOptions } from "@silieco/core/chat/queries";
+import { agentRunMessagesOptions } from "@silieco/core/chat/queries";
 
 // naiyuan's fixture, corrected to a single closed fence.
 const MERMAID_FIXTURE = [
@@ -154,7 +154,7 @@ function assistantMessage(content: string) {
     id: "msg-assistant-1",
     role: "assistant" as const,
     content,
-    task_id: TASK_ID,
+    run_id: TASK_ID,
     attachments: [],
     elapsed_ms: 1200,
   };
@@ -165,17 +165,17 @@ function userMessage(content: string) {
     id: "msg-user-1",
     role: "user" as const,
     content,
-    task_id: null,
+    run_id: null,
     attachments: [],
   };
 }
 
-/** Seed the task-messages cache the way useRealtimeSync does during a run. */
+/** Seed the run-messages cache the way useRealtimeSync does during a run. */
 function seedTimeline(client: QueryClient, text: string) {
-  client.setQueryData(taskMessagesOptions(TASK_ID).queryKey, [
+  client.setQueryData(agentRunMessagesOptions(TASK_ID).queryKey, [
     {
-      task_id: TASK_ID,
-      issue_id: null,
+      run_id: TASK_ID,
+      task_id: null,
       seq: 1,
       type: "text",
       content: text,
@@ -188,7 +188,7 @@ beforeEach(() => {
   mermaidRenderMock.mockResolvedValue({
     svg: '<svg viewBox="0 0 123 45"><g><text>diagram</text></g></svg>',
   });
-  resolveIssueIdentifierMock.mockReturnValue(null);
+  resolveTaskIdentifierMock.mockReturnValue(null);
 });
 
 /**
@@ -211,13 +211,13 @@ async function expectMermaidRendered(container: HTMLElement) {
 }
 
 describe("Mermaid parity across the five surfaces", () => {
-  it("renders a diagram in an Issue description", async () => {
+  it("renders a diagram in an Task description", async () => {
     const { container } = render(<ReadonlyContent content={MERMAID_FIXTURE} />);
     await expectMermaidRendered(container);
   });
 
   it("renders a diagram in a Comment", async () => {
-    // Comment and Issue description share ReadonlyContent; asserting both keeps
+    // Comment and Task description share ReadonlyContent; asserting both keeps
     // the acceptance list honest about what was actually exercised.
     const { container } = render(
       <ReadonlyContent content={MERMAID_FIXTURE} attachments={[]} />,
@@ -231,7 +231,7 @@ describe("Mermaid parity across the five surfaces", () => {
       withClient(
         <ChatMessageList
           messages={[userMessage(MERMAID_FIXTURE)] as never}
-          pendingTask={null}
+          pendingRun={null}
           availability={undefined}
         />,
         client,
@@ -247,7 +247,7 @@ describe("Mermaid parity across the five surfaces", () => {
       withClient(
         <ChatMessageList
           messages={[assistantMessage(MERMAID_FIXTURE)] as never}
-          pendingTask={null}
+          pendingRun={null}
           availability={undefined}
         />,
         client,
@@ -263,7 +263,7 @@ describe("Mermaid parity across the five surfaces", () => {
       withClient(
         <ChatMessageList
           messages={[]}
-          pendingTask={{ task_id: TASK_ID, status: "running" } as never}
+          pendingRun={{ run_id: TASK_ID, status: "running" } as never}
           availability={undefined}
         />,
         client,
@@ -282,7 +282,7 @@ describe("streaming fence gate in Chat", () => {
       withClient(
         <ChatMessageList
           messages={[]}
-          pendingTask={{ task_id: TASK_ID, status: "running" } as never}
+          pendingRun={{ run_id: TASK_ID, status: "running" } as never}
           availability={undefined}
         />,
         client,
@@ -304,7 +304,7 @@ describe("streaming fence gate in Chat", () => {
       withClient(
         <ChatMessageList
           messages={[]}
-          pendingTask={{ task_id: TASK_ID, status: "running" } as never}
+          pendingRun={{ run_id: TASK_ID, status: "running" } as never}
           availability={undefined}
         />,
         client,
@@ -318,7 +318,7 @@ describe("streaming fence gate in Chat", () => {
       withClient(
         <ChatMessageList
           messages={[]}
-          pendingTask={{ task_id: TASK_ID, status: "running" } as never}
+          pendingRun={{ run_id: TASK_ID, status: "running" } as never}
           availability={undefined}
         />,
         client,
@@ -337,7 +337,7 @@ describe("streaming fence gate in Chat", () => {
       withClient(
         <ChatMessageList
           messages={[assistantMessage("```mermaid\nflowchart LR\n  A --> B\n")] as never}
-          pendingTask={null}
+          pendingRun={null}
           availability={undefined}
         />,
         client,
@@ -361,7 +361,7 @@ describe("live → persisted row identity", () => {
     const live = (
       <ChatMessageList
         messages={[]}
-        pendingTask={{ task_id: TASK_ID, status: "running" } as never}
+        pendingRun={{ run_id: TASK_ID, status: "running" } as never}
         availability={undefined}
       />
     );
@@ -370,14 +370,14 @@ describe("live → persisted row identity", () => {
     await waitFor(() => expect(mermaidLeaf(container)).not.toBeNull());
     const liveKey = container.querySelector("[data-row-key]")?.getAttribute("data-row-key");
     const rendersWhileLive = mermaidRenderMock.mock.calls.length;
-    expect(liveKey).toBe(`task:${TASK_ID}`);
+    expect(liveKey).toBe(`run:${TASK_ID}`);
 
     // The assistant message persists; the pending task clears.
     rerender(
       withClient(
         <ChatMessageList
           messages={[assistantMessage(MERMAID_FIXTURE)] as never}
-          pendingTask={null}
+          pendingRun={null}
           availability={undefined}
         />,
         client,
@@ -405,21 +405,21 @@ describe("live → persisted row identity", () => {
       withClient(
         <ChatMessageList
           messages={[assistantMessage("hi")] as never}
-          pendingTask={null}
+          pendingRun={null}
           availability={undefined}
         />,
         client,
       ),
     );
     expect(container.querySelector("[data-row-key]")?.getAttribute("data-row-key")).toBe(
-      `task:${TASK_ID}`,
+      `run:${TASK_ID}`,
     );
   });
 });
 
 describe("semantic parity beyond Mermaid", () => {
   const FIXTURE = [
-    "A [link](https://example.com) and a mention [SILI-7](mention://issue/SILI-7).",
+    "A [link](https://example.com) and a mention [SILI-7](mention://task/SILI-7).",
     "",
     "```html",
     "<b>preview</b>",
@@ -442,7 +442,7 @@ describe("semantic parity beyond Mermaid", () => {
       withClient(
         <ChatMessageList
           messages={[userMessage(FIXTURE)] as never}
-          pendingTask={null}
+          pendingRun={null}
           availability={undefined}
         />,
         client,
@@ -450,9 +450,9 @@ describe("semantic parity beyond Mermaid", () => {
     ).container;
   }
 
-  it("produces the same block set in Issue/Comment and Chat", async () => {
-    resolveIssueIdentifierMock.mockImplementation((id: string) =>
-      id === "SILI-7" ? { id: "issue-7", identifier: "SILI-7" } : null,
+  it("produces the same block set in Task/Comment and Chat", async () => {
+    resolveTaskIdentifierMock.mockImplementation((id: string) =>
+      id === "SILI-7" ? { id: "task-7", identifier: "SILI-7" } : null,
     );
 
     const readonly = renderReadonly();
@@ -469,7 +469,7 @@ describe("semantic parity beyond Mermaid", () => {
       // Ordinary language -> lowlight static code
       expect(container.querySelector("code.hljs")).not.toBeNull();
       // Mention chip
-      expect(within(container).getByTestId("issue-mention")).toBeInTheDocument();
+      expect(within(container).getByTestId("task-mention")).toBeInTheDocument();
       // Highlight
       expect(container.querySelector("mark")?.textContent).toBe("highlighted");
       // Plain link
@@ -485,7 +485,7 @@ describe("semantic parity beyond Mermaid", () => {
       withClient(
         <ChatMessageList
           messages={[userMessage(near)] as never}
-          pendingTask={null}
+          pendingRun={null}
           availability={undefined}
         />,
         client,

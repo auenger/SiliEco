@@ -44,7 +44,7 @@ describe("sanitizeTabPath", () => {
   });
 
   it("passes through user slugs that happen to look path-like but aren't reserved", () => {
-    expect(sanitizeTabPath("/acme-issues/tasks")).toBe("/acme-issues/tasks");
+    expect(sanitizeTabPath("/acme-tasks/tasks")).toBe("/acme-tasks/tasks");
     expect(sanitizeTabPath("/project-x/inbox")).toBe("/project-x/inbox");
   });
 
@@ -67,9 +67,9 @@ describe("migrateV1ToV2", () => {
   it("groups v1 flat tabs by workspace slug", () => {
     const v1 = {
       tabs: [
-        { id: "t1", path: "/acme/tasks", title: "Issues", icon: "ListTodo" },
+        { id: "t1", path: "/acme/tasks", title: "Tasks", icon: "ListTodo" },
         { id: "t2", path: "/acme/projects", title: "Projects", icon: "FolderKanban" },
-        { id: "t3", path: "/butter/tasks", title: "Issues", icon: "ListTodo" },
+        { id: "t3", path: "/butter/tasks", title: "Tasks", icon: "ListTodo" },
       ],
       activeTabId: "t2",
     };
@@ -85,10 +85,10 @@ describe("migrateV1ToV2", () => {
   it("drops tabs at root / transition / reserved-slug paths", () => {
     const v1 = {
       tabs: [
-        { id: "t1", path: "/", title: "Issues", icon: "ListTodo" },
+        { id: "t1", path: "/", title: "Tasks", icon: "ListTodo" },
         { id: "t2", path: "/workspaces/new", title: "New", icon: "Plus" },
         { id: "t3", path: "/invite/abc", title: "Invite", icon: "Mail" },
-        { id: "t4", path: "/acme/tasks", title: "Issues", icon: "ListTodo" },
+        { id: "t4", path: "/acme/tasks", title: "Tasks", icon: "ListTodo" },
       ],
       activeTabId: "t1",
     };
@@ -184,7 +184,7 @@ describe("useTabStore actions", () => {
     store.switchWorkspace("acme"); // default tab at /acme/tasks
     const defaultTabId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
 
-    const id = store.openTab("/acme/tasks?filter=urgent", "Issues");
+    const id = store.openTab("/acme/tasks?filter=urgent", "Tasks");
 
     const s = useTabStore.getState();
     expect(id).toBe(defaultTabId); // focused, not duplicated
@@ -486,35 +486,35 @@ describe("bulk tab closing", () => {
   it("closes other unpinned tabs, preserves pinned tabs, and activates the target", () => {
     const store = useTabStore.getState();
     store.switchWorkspace("acme");
-    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const tasksId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
     const projectsId = store.addTab("/acme/projects", "Projects");
     store.addTab("/acme/agents", "Agents");
     store.addTab("/acme/settings", "Settings");
-    store.togglePin(issuesId);
+    store.togglePin(tasksId);
     store.setActiveTab(useTabStore.getState().byWorkspace.acme.tabs[2].id);
 
     store.closeOtherTabs(projectsId);
 
     const group = useTabStore.getState().byWorkspace.acme;
-    expect(group.tabs.map((tab) => tab.id)).toEqual([issuesId, projectsId]);
+    expect(group.tabs.map((tab) => tab.id)).toEqual([tasksId, projectsId]);
     expect(group.activeTabId).toBe(projectsId);
   });
 
   it("keeps a surviving active tab when closing other tabs", () => {
     const store = useTabStore.getState();
     store.switchWorkspace("acme");
-    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const tasksId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
     const projectsId = store.addTab("/acme/projects", "Projects");
     store.addTab("/acme/agents", "Agents");
     store.addTab("/acme/settings", "Settings");
-    store.togglePin(issuesId);
-    store.setActiveTab(issuesId);
+    store.togglePin(tasksId);
+    store.setActiveTab(tasksId);
 
     store.closeOtherTabs(projectsId);
 
     const group = useTabStore.getState().byWorkspace.acme;
-    expect(group.tabs.map((tab) => tab.id)).toEqual([issuesId, projectsId]);
-    expect(group.activeTabId).toBe(issuesId);
+    expect(group.tabs.map((tab) => tab.id)).toEqual([tasksId, projectsId]);
+    expect(group.activeTabId).toBe(tasksId);
   });
 });
 
@@ -573,16 +573,16 @@ describe("togglePin", () => {
     const store = useTabStore.getState();
     store.switchWorkspace("acme");
     store.addTab("/acme/projects", "Projects");
-    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const tasksId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
     const projectsId = useTabStore.getState().byWorkspace.acme.tabs[1].id;
 
     // Pin both, then unpin one.
-    store.togglePin(issuesId);
+    store.togglePin(tasksId);
     store.togglePin(projectsId);
-    store.togglePin(issuesId);
+    store.togglePin(tasksId);
 
     const tabs = useTabStore.getState().byWorkspace.acme.tabs;
-    expect(tabs.map((t) => t.id)).toEqual([projectsId, issuesId]);
+    expect(tabs.map((t) => t.id)).toEqual([projectsId, tasksId]);
     expect(tabs.map((t) => t.pinned)).toEqual([true, false]);
   });
 });
@@ -593,15 +593,15 @@ describe("moveTab boundary clamp", () => {
     store.switchWorkspace("acme");
     store.addTab("/acme/projects", "Projects");
     store.addTab("/acme/agents", "Agents");
-    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const tasksId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
 
-    store.togglePin(issuesId); // [issues(pinned), projects, agents]
+    store.togglePin(tasksId); // [tasks(pinned), projects, agents]
 
     // User tries to drag the pinned tab to index 2 (unpinned zone end).
     store.moveTab(0, 2);
     const tabs = useTabStore.getState().byWorkspace.acme.tabs;
     // It should be clamped to index 0 — the only pinned slot — i.e. unchanged.
-    expect(tabs[0].id).toBe(issuesId);
+    expect(tabs[0].id).toBe(tasksId);
     expect(tabs.map((t) => t.pinned)).toEqual([true, false, false]);
   });
 
@@ -610,16 +610,16 @@ describe("moveTab boundary clamp", () => {
     store.switchWorkspace("acme");
     store.addTab("/acme/projects", "Projects");
     store.addTab("/acme/agents", "Agents");
-    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const tasksId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
     const agentsId = useTabStore.getState().byWorkspace.acme.tabs[2].id;
 
-    store.togglePin(issuesId); // [issues(pinned), projects, agents]
+    store.togglePin(tasksId); // [tasks(pinned), projects, agents]
 
     // User tries to drag agents (index 2) to index 0 (pinned zone).
     store.moveTab(2, 0);
     const tabs = useTabStore.getState().byWorkspace.acme.tabs;
     // Clamped to index 1 — start of the unpinned zone.
-    expect(tabs[0].id).toBe(issuesId);
+    expect(tabs[0].id).toBe(tasksId);
     expect(tabs[1].id).toBe(agentsId);
     expect(tabs.map((t) => t.pinned)).toEqual([true, false, false]);
   });
@@ -649,7 +649,7 @@ describe("migrateV2ToV3", () => {
         acme: {
           activeTabId: "t1",
           tabs: [
-            { id: "t1", path: "/acme/tasks", title: "Issues", icon: "ListTodo" },
+            { id: "t1", path: "/acme/tasks", title: "Tasks", icon: "ListTodo" },
             { id: "t2", path: "/acme/projects", title: "Projects", icon: "FolderKanban" },
           ],
         },
@@ -658,7 +658,7 @@ describe("migrateV2ToV3", () => {
     const v3 = migrateV2ToV3(v2);
     expect(v3.activeWorkspaceSlug).toBe("acme");
     expect(v3.byWorkspace.acme.tabs).toEqual([
-      { id: "t1", path: "/acme/tasks", title: "Issues", icon: "ListTodo", pinned: false },
+      { id: "t1", path: "/acme/tasks", title: "Tasks", icon: "ListTodo", pinned: false },
       { id: "t2", path: "/acme/projects", title: "Projects", icon: "FolderKanban", pinned: false },
     ]);
   });
@@ -681,7 +681,7 @@ describe("migrateV3ToV4 (legacy view-state import, SILI-4741)", () => {
             {
               id: "t1",
               path: "/acme/tasks",
-              title: "Issues",
+              title: "Tasks",
               icon: "ListTodo",
               pinned: true,
             },
@@ -697,7 +697,7 @@ describe("migrateV3ToV4 (legacy view-state import, SILI-4741)", () => {
       {
         id: "t1",
         url: "/acme/tasks",
-        title: "Issues",
+        title: "Tasks",
         pinned: true,
         history: { stack: ["/acme/tasks"], index: 0 },
         memento: { scroll: {} },

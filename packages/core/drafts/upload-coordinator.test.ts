@@ -13,7 +13,7 @@ function makeAttachment(id: string): Attachment {
   return {
     id,
     workspace_id: "ws-1",
-    issue_id: "issue-1",
+    task_id: "task-1",
     comment_id: null,
     chat_session_id: null,
     chat_message_id: null,
@@ -79,7 +79,7 @@ describe("upload coordinator", () => {
       clientUploadId: "c1",
       file: file(),
       api,
-      ctx: { issueId: "issue-1" },
+      ctx: { taskId: "task-1" },
       onSettled: (o) => settled.push(o),
     });
     expect(__trackedUploadCountForTest()).toBe(1);
@@ -104,7 +104,7 @@ describe("upload coordinator", () => {
     });
     expect(api.uploadFile).toHaveBeenCalledWith(
       expect.any(File),
-      { issueId: undefined, commentId: "cmt-9", chatSessionId: "sess-3" },
+      { taskId: undefined, commentId: "cmt-9", chatSessionId: "sess-3" },
       expect.any(AbortSignal),
     );
   });

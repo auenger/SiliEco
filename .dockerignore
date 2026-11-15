@@ -1,9 +1,12 @@
 # Dependencies
 node_modules
+**/node_modules
 .pnpm-store
 
 # Build outputs
 .next
+**/.next
+**/out
 dist
 core/bin
 core/tmp
@@ -36,3 +39,8 @@ docs/
 
 # Desktop app (not needed for web self-hosting)
 apps/desktop
+
+# Other applications and separately mounted release downloads
+apps/mobile
+apps/docs
+apps/web/public/downloads

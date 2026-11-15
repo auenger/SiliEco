@@ -140,14 +140,14 @@ WHERE workspace_id = $1
 ORDER BY updated_at DESC, created_at DESC;
 
 -- name: ListWorkflowStageRuns :many
-SELECT t.id, t.issue_id, i.title AS task_title, t.agent_id, a.name AS agent_name,
+SELECT t.id, t.task_id, i.title AS task_title, t.agent_id, a.name AS agent_name,
        t.status, t.trigger_summary, t.started_at, t.completed_at, t.result,
        t.error, t.failure_reason, t.execution_manifest, t.originator_source,
        t.originator_user_id, t.accountable_user_id, t.created_at,
        t.worktree_branch, t.worktree_base_sha, t.worktree_final_sha,
        t.worktree_delivery_status
-FROM agent_task_queue t
-JOIN issue i ON i.id = t.issue_id
+FROM agent_run t
+JOIN task i ON i.id = t.task_id
 LEFT JOIN agent a ON a.id = t.agent_id
 LEFT JOIN workflow_stage_execution e ON e.id = t.workflow_stage_execution_id AND e.workspace_id = i.workspace_id
 WHERE i.workspace_id = $1
@@ -158,16 +158,16 @@ LIMIT $4 OFFSET $5;
 
 -- name: CountWorkflowStageRuns :one
 SELECT COUNT(*)
-FROM agent_task_queue t
-JOIN issue i ON i.id = t.issue_id
+FROM agent_run t
+JOIN task i ON i.id = t.task_id
 LEFT JOIN workflow_stage_execution e ON e.id = t.workflow_stage_execution_id AND e.workspace_id = i.workspace_id
 WHERE i.workspace_id = $1
   AND ((t.workflow_stage_execution_id IS NOT NULL AND e.workflow_instance_id = $2 AND e.workflow_stage_id = $3)
     OR (t.workflow_stage_execution_id IS NULL AND i.workflow_instance_id = $2 AND i.workflow_stage_id = $3));
 
--- name: CountIssuesInWorkflowInstance :one
+-- name: CountTasksInWorkflowInstance :one
 SELECT count(*)::bigint
-FROM issue
+FROM task
 WHERE workspace_id = $1
   AND workflow_instance_id = $2;
 
@@ -176,9 +176,11 @@ UPDATE workflow_instance SET
     archived_at = now(),
     archived_by = $3,
     updated_at = now()
-WHERE id = $1
-  AND workspace_id = $2
+WHERE workflow_instance.id = $1
+  AND workflow_instance.workspace_id = $2
   AND archived_at IS NULL
+
+  AND (($3)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_archived_by WHERE ref_archived_by.id = ($3) FOR KEY SHARE))
 RETURNING *;
 
 -- name: GetWorkflowInstanceInWorkspace :one
@@ -336,24 +338,26 @@ SELECT * FROM workflow_gate_decision
 WHERE workflow_instance_id = $1 AND workspace_id = $2
 ORDER BY created_at DESC;
 
--- name: ListIssuesForWorkflowInstance :many
-SELECT * FROM issue
+-- name: ListTasksForWorkflowInstance :many
+SELECT * FROM task
 WHERE workspace_id = $1
   AND workflow_instance_id = $2
 ORDER BY workflow_stage_id, position ASC, created_at ASC;
 
--- name: AttachIssueToWorkflowStage :one
-UPDATE issue SET
+-- name: AttachTaskToWorkflowStage :one
+UPDATE task SET
     workflow_instance_id = $3,
     workflow_stage_id = $4,
-    workflow_stage_execution_id = CASE WHEN issue.workflow_instance_id=$3 AND issue.workflow_stage_id=$4 THEN issue.workflow_stage_execution_id ELSE (SELECT e.id FROM workflow_stage_execution e WHERE e.workspace_id=$2 AND e.workflow_instance_id=$3 AND e.workflow_stage_id=$4 ORDER BY e.attempt DESC LIMIT 1) END,
+    workflow_stage_execution_id = CASE WHEN task.workflow_instance_id=$3 AND task.workflow_stage_id=$4 THEN task.workflow_stage_execution_id ELSE (SELECT e.id FROM workflow_stage_execution e WHERE e.workspace_id=$2 AND e.workflow_instance_id=$3 AND e.workflow_stage_id=$4 ORDER BY e.attempt DESC LIMIT 1) END,
     project_id = $5,
     updated_at = now()
-WHERE issue.id = $1 AND issue.workspace_id = $2
-RETURNING issue.*;
+WHERE task.id = $1 AND task.workspace_id = $2
 
--- name: DetachIssueFromWorkflow :one
-UPDATE issue SET
+  AND (($5)::uuid IS NULL OR EXISTS (SELECT 1 FROM project AS ref_project_id WHERE ref_project_id.id = ($5) FOR KEY SHARE))
+RETURNING task.*;
+
+-- name: DetachTaskFromWorkflow :one
+UPDATE task SET
     workflow_instance_id = NULL,
     workflow_stage_id = NULL,
     workflow_stage_execution_id = NULL,
@@ -361,18 +365,18 @@ UPDATE issue SET
 WHERE id = $1
   AND workspace_id = $2
   AND workflow_instance_id = $3
-RETURNING issue.*;
+RETURNING task.*;
 
--- name: LockWorkflowStageIssues :many
+-- name: LockWorkflowStageTasks :many
 -- The transition transaction rechecks delivery after acquiring the Run lock.
-SELECT id, status FROM issue
+SELECT id, status FROM task
 WHERE workspace_id=$1 AND workflow_instance_id=$2 AND workflow_stage_id=$3
 AND workflow_invalidated_by_rework_id IS NULL
 ORDER BY id FOR UPDATE;
 
--- name: CountIssuesByWorkflowStage :many
+-- name: CountTasksByWorkflowStage :many
 SELECT workflow_stage_id, count(*)::bigint AS task_count
-FROM issue
+FROM task
 WHERE workspace_id = $1
   AND workflow_instance_id = $2
 GROUP BY workflow_stage_id;

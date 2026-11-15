@@ -24,6 +24,12 @@ WHERE id = $1;
 SELECT * FROM runtime_profile
 WHERE id = $1 AND workspace_id = $2;
 
+-- name: LockRuntimeProfileForDelete :one
+-- Lock before enumerating registered runtimes; registration takes KEY SHARE.
+SELECT * FROM runtime_profile
+WHERE id = $1 AND workspace_id = $2
+FOR UPDATE;
+
 -- name: ListRuntimeProfiles :many
 SELECT * FROM runtime_profile
 WHERE workspace_id = $1
@@ -61,9 +67,51 @@ WHERE id = $1 AND workspace_id = $2;
 -- the profile-delete path must remove the profile's registered runtime
 -- instances itself. Returns the deleted rows so the caller can broadcast /
 -- audit. Runs inside the same transaction as DeleteRuntimeProfile.
-DELETE FROM agent_runtime
-WHERE profile_id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, owner_id, daemon_id, provider;
+WITH RECURSIVE cleanup_target_agent_run AS MATERIALIZED (
+    SELECT child.* FROM "agent_run" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_runtime parent WHERE child."runtime_id" = parent."id")
+),
+cleanup_target_agent_run_message AS MATERIALIZED (
+    SELECT child.* FROM "agent_run_message" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_run_token AS MATERIALIZED (
+    SELECT child.* FROM "agent_run_token" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_run_usage AS MATERIALIZED (
+    SELECT child.* FROM "agent_run_usage" child WHERE EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id")
+),
+cleanup_target_agent_runtime AS MATERIALIZED (
+    SELECT agent_runtime.* FROM "agent_runtime" agent_runtime WHERE agent_runtime.profile_id = $1 AND agent_runtime.workspace_id = $2
+),
+cleanup_delete_agent_run AS (
+    DELETE FROM "agent_run" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run)
+),
+cleanup_delete_agent_run_message AS (
+    DELETE FROM "agent_run_message" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_message)
+),
+cleanup_delete_agent_run_token AS (
+    DELETE FROM "agent_run_token" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_token)
+),
+cleanup_delete_agent_run_usage AS (
+    DELETE FROM "agent_run_usage" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_agent_run_usage)
+),
+cleanup_detach_agent_run AS (
+    UPDATE "agent_run" child SET "parent_run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id") THEN NULL ELSE child."parent_run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."parent_run_id" = parent."id")) AND NOT ((child."id") IN (SELECT "id" FROM cleanup_target_agent_run))
+),
+cleanup_detach_autopilot_run AS (
+    UPDATE "autopilot_run" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id"))
+),
+cleanup_detach_chat_session AS (
+    UPDATE "chat_session" child SET "runtime_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_runtime parent WHERE child."runtime_id" = parent."id") THEN NULL ELSE child."runtime_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_runtime parent WHERE child."runtime_id" = parent."id"))
+),
+cleanup_detach_lark_outbound_card_message AS (
+    UPDATE "lark_outbound_card_message" child SET "run_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id") THEN NULL ELSE child."run_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_agent_run parent WHERE child."run_id" = parent."id"))
+)
+DELETE FROM "agent_runtime" agent_runtime WHERE (agent_runtime."id") IN (SELECT "id" FROM cleanup_target_agent_runtime) RETURNING id, workspace_id, owner_id, daemon_id, provider;
+
 
 -- name: CountAgentsByProfile :one
 -- Counts active (non-archived) agents bound to any runtime instance of this

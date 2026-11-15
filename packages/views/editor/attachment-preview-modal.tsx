@@ -323,7 +323,7 @@ export function AttachmentPreviewModal({
             },
           }}
         >
-          {/* Larger than the create-issue dialog (max-w-4xl, manualDialogContentClass)
+          {/* Larger than the create-task dialog (max-w-4xl, manualDialogContentClass)
               because PDF / video previews want more room. Capped to viewport
               minus the surrounding p-4 (1rem each side) so it never overflows
               the screen on small displays / split panes. */}

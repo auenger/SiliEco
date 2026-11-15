@@ -20,9 +20,9 @@ import (
 var errRuntimeSetChanged = errors.New("runtime set changed")
 
 const (
-	taskWakeupMaxBackoff = 30 * time.Second
+	runWakeupMaxBackoff = 30 * time.Second
 
-	// The authenticated control connection carries tasks.claim RPC responses,
+	// The authenticated control connection carries runs.claim RPC responses,
 	// not only small wakeup hints. One response can contain up to 32 complete
 	// Task payloads, including agent instructions, project/workspace context,
 	// comments, resources, and skill references. The old 64 KiB ceiling was
@@ -30,27 +30,27 @@ const (
 	// claim, then the daemon would reject its response and correctly refuse an
 	// unsafe HTTP re-claim, leaving the task dispatched but never started.
 	// Keep reads bounded while leaving headroom for the current batch contract.
-	taskWakeupReadLimit int64 = 64 << 20
+	runWakeupReadLimit int64 = 64 << 20
 )
 
 var (
-	taskWakeupPongWait          = 60 * time.Second
-	taskWakeupWriteWait         = 10 * time.Second
-	taskWakeupBackoffResetAfter = 10 * time.Second
+	runWakeupPongWait          = 60 * time.Second
+	runWakeupWriteWait         = 10 * time.Second
+	runWakeupBackoffResetAfter = 10 * time.Second
 )
 
-type taskWakeup struct {
+type runWakeup struct {
 	runtimeID string
 }
 
-func (d *Daemon) taskWakeupLoop(ctx context.Context, taskWakeups chan<- taskWakeup) {
+func (d *Daemon) runWakeupLoop(ctx context.Context, runWakeups chan<- runWakeup) {
 	backoff := time.Second
 	runtimeSetCh, unsub := d.runtimeSet.Subscribe()
 	defer unsub()
 
 	for {
 		runtimeIDs := d.allRuntimeIDs()
-		connectedFor, err := d.runTaskWakeupConnection(ctx, runtimeIDs, taskWakeups, runtimeSetCh)
+		connectedFor, err := d.runRunWakeupConnection(ctx, runtimeIDs, runWakeups, runtimeSetCh)
 		if ctx.Err() != nil {
 			return
 		}
@@ -58,7 +58,7 @@ func (d *Daemon) taskWakeupLoop(ctx context.Context, taskWakeups chan<- taskWake
 			backoff = time.Second
 			continue
 		}
-		if shouldResetTaskWakeupBackoff(connectedFor) {
+		if shouldResetRunWakeupBackoff(connectedFor) {
 			backoff = time.Second
 		}
 		if err != nil {
@@ -68,20 +68,20 @@ func (d *Daemon) taskWakeupLoop(ctx context.Context, taskWakeups chan<- taskWake
 		if err := sleepWithContextOrRuntimeChange(ctx, jitterDuration(backoff), runtimeSetCh); err != nil {
 			return
 		}
-		if backoff < taskWakeupMaxBackoff {
+		if backoff < runWakeupMaxBackoff {
 			backoff *= 2
-			if backoff > taskWakeupMaxBackoff {
-				backoff = taskWakeupMaxBackoff
+			if backoff > runWakeupMaxBackoff {
+				backoff = runWakeupMaxBackoff
 			}
 		}
 	}
 }
 
-func shouldResetTaskWakeupBackoff(connectedFor time.Duration) bool {
+func shouldResetRunWakeupBackoff(connectedFor time.Duration) bool {
 	if connectedFor <= 0 {
 		return false
 	}
-	return taskWakeupBackoffResetAfter <= 0 || connectedFor >= taskWakeupBackoffResetAfter
+	return runWakeupBackoffResetAfter <= 0 || connectedFor >= runWakeupBackoffResetAfter
 }
 
 func jitterDuration(d time.Duration) time.Duration {
@@ -96,13 +96,14 @@ func jitterDuration(d time.Duration) time.Duration {
 	return d + delta
 }
 
-func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []string, taskWakeups chan<- taskWakeup, runtimeSetCh <-chan struct{}) (time.Duration, error) {
-	wsURL, err := taskWakeupURL(d.cfg.ServerBaseURL, runtimeIDs)
+func (d *Daemon) runRunWakeupConnection(ctx context.Context, runtimeIDs []string, runWakeups chan<- runWakeup, runtimeSetCh <-chan struct{}) (time.Duration, error) {
+	wsURL, err := runWakeupURL(d.cfg.ServerBaseURL, runtimeIDs)
 	if err != nil {
 		return 0, err
 	}
 
 	headers := http.Header{}
+	headers.Set(protocol.GenerationHeader, protocol.Generation)
 	if token := d.client.Token(); token != "" {
 		headers.Set("Authorization", "Bearer "+token)
 	}
@@ -132,7 +133,7 @@ func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []strin
 	defer d.clearWSHeartbeatAcks()
 
 	d.logger.Info("task wakeup websocket connected", "runtimes", len(runtimeIDs))
-	signalTaskWakeup(taskWakeups, "")
+	signalRunWakeup(runWakeups, "")
 	// signalTaskWakeup only wakes idle ClaimTask pollers. In-flight tasks and
 	// the workspace sync loop park on coarse tickers (5s and 30s) that do not
 	// observe the wakeup channel, so anything the server changed during the
@@ -193,7 +194,7 @@ func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []strin
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- d.readTaskWakeupMessagesForConnection(conn, taskWakeups, wsRPCGeneration)
+		errCh <- d.readRunWakeupMessagesForConnection(conn, runWakeups, wsRPCGeneration)
 	}()
 
 	// Defer cleanup must shut goroutines down in this order:
@@ -208,7 +209,7 @@ func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []strin
 	// teardown is folded into a single deferred function instead.
 	defer func() {
 		// Close the socket FIRST, before failing pending RPCs. Otherwise a
-		// queued tasks.claim frame would still be flushed to the (on a normal
+		// queued runs.claim frame would still be flushed to the (on a normal
 		// runtimeSetCh reconnect) still-alive socket AFTER attach(nil) has made
 		// the RPC fall over to HTTP — the server would then commit that WS
 		// claim on top of the HTTP fallback, double-claiming the same free
@@ -355,18 +356,18 @@ func (d *Daemon) handleWSHeartbeatAckForConnection(ctx context.Context, ack *Hea
 	d.handleHeartbeatActions(ctx, ack.RuntimeID, ack)
 }
 
-func (d *Daemon) readTaskWakeupMessages(conn *websocket.Conn, taskWakeups chan<- taskWakeup) error {
-	return d.readTaskWakeupMessagesForConnection(conn, taskWakeups, d.wsRPC.currentGeneration())
+func (d *Daemon) readRunWakeupMessages(conn *websocket.Conn, runWakeups chan<- runWakeup) error {
+	return d.readRunWakeupMessagesForConnection(conn, runWakeups, d.wsRPC.currentGeneration())
 }
 
-func (d *Daemon) readTaskWakeupMessagesForConnection(conn *websocket.Conn, taskWakeups chan<- taskWakeup, wsRPCGeneration uint64) error {
-	d.configureTaskWakeupReadLiveness(conn)
+func (d *Daemon) readRunWakeupMessagesForConnection(conn *websocket.Conn, runWakeups chan<- runWakeup, wsRPCGeneration uint64) error {
+	d.configureRunWakeupReadLiveness(conn)
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			return err
 		}
-		if err := d.extendTaskWakeupReadDeadline(conn); err != nil {
+		if err := d.extendRunWakeupReadDeadline(conn); err != nil {
 			return err
 		}
 		var msg protocol.Message
@@ -375,8 +376,8 @@ func (d *Daemon) readTaskWakeupMessagesForConnection(conn *websocket.Conn, taskW
 			continue
 		}
 		switch msg.Type {
-		case protocol.EventDaemonTaskAvailable:
-			var payload protocol.TaskAvailablePayload
+		case protocol.EventDaemonRunAvailable:
+			var payload protocol.RunAvailablePayload
 			if len(msg.Payload) > 0 {
 				if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 					d.logger.Debug("task wakeup websocket invalid payload", "error", err)
@@ -384,9 +385,9 @@ func (d *Daemon) readTaskWakeupMessagesForConnection(conn *websocket.Conn, taskW
 				}
 			}
 			if payload.RuntimeID != "" {
-				d.logger.Debug("task wakeup received", "runtime_id", payload.RuntimeID, "task_id", payload.TaskID)
+				d.logger.Debug("task wakeup received", "runtime_id", payload.RuntimeID, "run_id", payload.RunID)
 			}
-			signalTaskWakeup(taskWakeups, payload.RuntimeID)
+			signalRunWakeup(runWakeups, payload.RuntimeID)
 		case protocol.EventDaemonRuntimeProfilesChanged:
 			var payload protocol.RuntimeProfilesChangedPayload
 			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -422,6 +423,8 @@ func (d *Daemon) readTaskWakeupMessagesForConnection(conn *websocket.Conn, taskW
 				continue
 			}
 			d.handleWSHeartbeatAckForConnection(context.Background(), &ack, wsRPCGeneration)
+		case protocol.EventProjectFilesRequest:
+			go d.handleProjectFiles(msg.Payload, wsRPCGeneration)
 		case protocol.EventDaemonRPCResponse:
 			var resp protocol.RPCResponsePayload
 			if err := json.Unmarshal(msg.Payload, &resp); err != nil {
@@ -433,24 +436,24 @@ func (d *Daemon) readTaskWakeupMessagesForConnection(conn *websocket.Conn, taskW
 	}
 }
 
-func (d *Daemon) configureTaskWakeupReadLiveness(conn *websocket.Conn) {
-	conn.SetReadLimit(taskWakeupReadLimit)
-	if err := d.extendTaskWakeupReadDeadline(conn); err != nil {
+func (d *Daemon) configureRunWakeupReadLiveness(conn *websocket.Conn) {
+	conn.SetReadLimit(runWakeupReadLimit)
+	if err := d.extendRunWakeupReadDeadline(conn); err != nil {
 		d.logger.Debug("task wakeup websocket read deadline failed", "error", err)
 	}
 	conn.SetPongHandler(func(string) error {
-		return d.extendTaskWakeupReadDeadline(conn)
+		return d.extendRunWakeupReadDeadline(conn)
 	})
 	conn.SetPingHandler(func(appData string) error {
-		if err := d.extendTaskWakeupReadDeadline(conn); err != nil {
+		if err := d.extendRunWakeupReadDeadline(conn); err != nil {
 			return err
 		}
-		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(taskWakeupWriteWait))
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(runWakeupWriteWait))
 	})
 }
 
-func (d *Daemon) extendTaskWakeupReadDeadline(conn *websocket.Conn) error {
-	return conn.SetReadDeadline(time.Now().Add(taskWakeupPongWait))
+func (d *Daemon) extendRunWakeupReadDeadline(conn *websocket.Conn) error {
+	return conn.SetReadDeadline(time.Now().Add(runWakeupPongWait))
 }
 
 func (d *Daemon) handleRuntimeProfilesChanged(payload protocol.RuntimeProfilesChangedPayload) {
@@ -465,14 +468,14 @@ func (d *Daemon) handleRuntimeProfilesChanged(payload protocol.RuntimeProfilesCh
 	}
 }
 
-func signalTaskWakeup(taskWakeups chan<- taskWakeup, runtimeID string) {
+func signalRunWakeup(runWakeups chan<- runWakeup, runtimeID string) {
 	select {
-	case taskWakeups <- taskWakeup{runtimeID: runtimeID}:
+	case runWakeups <- runWakeup{runtimeID: runtimeID}:
 	default:
 	}
 }
 
-func taskWakeupURL(baseURL string, runtimeIDs []string) (string, error) {
+func runWakeupURL(baseURL string, runtimeIDs []string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil {
 		return "", fmt.Errorf("invalid daemon server URL: %w", err)

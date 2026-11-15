@@ -7,7 +7,7 @@ package metrics_test
 // metrics.RecordEvent (no naked Capture allowed). The agent task lifecycle is
 // no longer an analytics.Event — it is recorded straight to Prometheus via the
 // typed BusinessMetrics.RecordTask* methods — so there is no longer an
-// AgentTask* allow-list here.
+// AgentRun* allow-list here.
 
 import (
 	"go/ast"
@@ -36,9 +36,9 @@ var frontendOnlyEvents = map[string]bool{
 // metrics.IncForEvent (verified by sending a synthetic event through
 // RecordEvent and observing a counter delta).
 //
-// Note: agent_task_* lifecycle telemetry is Prometheus-only via the typed
+// Note: agent_run_* lifecycle telemetry is Prometheus-only via the typed
 // BusinessMetrics.RecordTask* methods and is no longer declared as an
-// analytics.Event, so there are no agent_task constants to exempt here.
+// analytics.Event, so there are no agent_run constants to exempt here.
 func TestEveryAnalyticsEventHasPrometheusCounter(t *testing.T) {
 	t.Parallel()
 
@@ -354,7 +354,7 @@ func defaultPropsForEvent(name string) map[string]any {
 		return map[string]any{"platform": "web"}
 	case analytics.EventOnboardingCompleted:
 		return map[string]any{"completion_path": "full"}
-	case analytics.EventIssueCreated:
+	case analytics.EventTaskCreated:
 		return map[string]any{"source": "manual", "platform": "web"}
 	case analytics.EventChatMessageSent:
 		return map[string]any{"platform": "web"}
@@ -362,7 +362,7 @@ func defaultPropsForEvent(name string) map[string]any {
 		return map[string]any{"runtime_mode": "local", "source": "manual"}
 	case analytics.EventAutopilotCreated:
 		return map[string]any{"cadence": "manual"}
-	case analytics.EventIssueExecuted:
+	case analytics.EventTaskExecuted:
 		return map[string]any{"source": "manual"}
 	case analytics.EventRuntimeRegistered, analytics.EventRuntimeReady, analytics.EventRuntimeOffline:
 		return map[string]any{"runtime_mode": "local", "provider": "claude"}

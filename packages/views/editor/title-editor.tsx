@@ -30,7 +30,7 @@ interface TitleEditorProps {
   /**
    * Fires on the configured `send` chord, independent of `onSubmit`'s plain
    * Enter path. Hosts that submit on plain Enter pass `onSubmit`; hosts that
-   * want an explicit chord (create-issue, SILI-4931) pass this instead.
+   * want an explicit chord (create-task, SILI-4931) pass this instead.
    *
    * Plain Enter is deliberately never a trigger here even when `send` is
    * configured as plain Enter: the keymap below already owns that key for
@@ -225,7 +225,7 @@ const TitleEditor = forwardRef<TitleEditorRef, TitleEditorProps>(
     // Tiptap `useEditor` consumes `content` only at mount, so a WS-driven
     // title update would otherwise leave the editor showing stale text — and
     // the next blur would silently roll the external change back via onBlur's
-    // value-vs-issue.title compare.
+    // value-vs-task.title compare.
     useEffect(() => {
       if (!editor || editor.isDestroyed) return;
       const prevDefaultValue = lastDefaultValueRef.current;

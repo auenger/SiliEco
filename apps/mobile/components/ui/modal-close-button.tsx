@@ -9,7 +9,7 @@
  * className override locks the 28pt circular shape Linear / Things use
  * for this slot (RNR's default `size="icon"` is a 40pt square box).
  *
- * Used by `[workspace]/_layout.tsx` for the new-issue, search, and
+ * Used by `[workspace]/_layout.tsx` for the new-task, search, and
  * new-comment modals.
  */
 import { router } from "expo-router";

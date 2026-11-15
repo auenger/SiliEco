@@ -131,7 +131,7 @@ export const useShortcutStore = create<ShortcutState>()(
       resetAll: () => set({ overrides: {} }),
     }),
     {
-      name: "silieco_keyboard_shortcuts",
+      name: "silieco_tr1_keyboard_shortcuts",
       storage: createJSONStorage(() => defaultStorage),
       partialize: (state) => ({ overrides: state.overrides }),
       version: 2,

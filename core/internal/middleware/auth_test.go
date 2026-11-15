@@ -236,7 +236,7 @@ func TestAuth_InvalidPAT(t *testing.T) {
 // X-Actor-Source is a server-only header: any value the client sends
 // must be discarded before downstream code sees it. Without this
 // guarantee a client carrying a normal sili_ PAT could supply a forged
-// `X-Actor-Source: task_token` (or any other value) to fool a handler
+// `X-Actor-Source: agent_run_token` (or any other value) to fool a handler
 // into treating the request differently — exactly the kind of trust
 // boundary SILI-2600 introduces.
 func TestAuth_StripsClientSuppliedActorSource(t *testing.T) {
@@ -253,7 +253,7 @@ func TestAuth_StripsClientSuppliedActorSource(t *testing.T) {
 	// Client tries to forge the actor-source header. The middleware must
 	// discard it before the JWT branch runs (which doesn't set it again
 	// for human sessions).
-	req.Header.Set("X-Actor-Source", "task_token")
+	req.Header.Set("X-Actor-Source", "agent_run_token")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 

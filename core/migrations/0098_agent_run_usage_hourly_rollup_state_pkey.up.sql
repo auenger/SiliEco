@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY agent_run_usage_hourly_rollup_state_pkey ON public.agent_run_usage_hourly_rollup_state (id);

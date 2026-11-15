@@ -1,6 +1,6 @@
 import type { StorageAdapter } from "../types/storage";
 
-const INSTALL_ID_KEY = "silieco_install_id";
+const INSTALL_ID_KEY = "silieco_tr1_install_id";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

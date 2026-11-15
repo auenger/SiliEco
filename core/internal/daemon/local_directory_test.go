@@ -171,7 +171,7 @@ func TestCanonicalGitRemote(t *testing.T) {
 	}
 }
 
-func TestAcquireLocalDirectoryLockSkipsSquadLeaderTasks(t *testing.T) {
+func TestAcquireLocalDirectoryLockSkipsSquadLeaderRuns(t *testing.T) {
 	t.Parallel()
 
 	const daemonID = "d-mine"
@@ -184,11 +184,11 @@ func TestAcquireLocalDirectoryLockSkipsSquadLeaderTasks(t *testing.T) {
 		{ID: "r1", ResourceType: localDirectoryResourceType, ResourceRef: raw},
 	}
 
-	worker := Task{
+	worker := AgentRun{
 		ID:               "worker-task",
 		ProjectResources: resources,
 	}
-	assignment, err := localDirectoryAssignmentForTask(worker, daemonID)
+	assignment, err := localDirectoryAssignmentForRun(worker, daemonID)
 	if err != nil {
 		t.Fatalf("worker assignment: %v", err)
 	}
@@ -201,12 +201,12 @@ func TestAcquireLocalDirectoryLockSkipsSquadLeaderTasks(t *testing.T) {
 		localPathLocks: NewLocalPathLocker(),
 		logger:         slog.Default(),
 	}
-	leader := Task{
+	leader := AgentRun{
 		ID:               "leader-task",
-		IsLeaderTask:     true,
+		IsLeaderRun:      true,
 		ProjectResources: resources,
 	}
-	leaderAssignment, err := localDirectoryAssignmentForTask(leader, daemonID)
+	leaderAssignment, err := localDirectoryAssignmentForRun(leader, daemonID)
 	if err != nil {
 		t.Fatalf("leader assignment: %v", err)
 	}
@@ -559,7 +559,7 @@ func (e *waiterError) Error() string { return e.msg }
 
 // TestAcquireLocalDirectoryLock_CancelDuringWait covers the gap between
 // dispatch and StartTask: while the path mutex is contended, the main
-// per-task cancellation watcher hasn't started yet. If the issue is
+// per-task cancellation watcher hasn't started yet. If the task is
 // cancelled (or the task row is reassigned / deleted) during the wait,
 // the daemon must notice promptly and bail — otherwise the slot stays
 // pinned by a phantom waiter for the full lifetime of the holder.
@@ -607,13 +607,13 @@ func TestAcquireLocalDirectoryLock_CancelDuringWait(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	const daemonID = "d-test"
-	const heldByTaskID = "task-holder"
-	const newTaskID = "task-waiter"
+	const heldByRunID = "task-holder"
+	const newRunID = "task-waiter"
 
 	locker := NewLocalPathLocker()
 	// Pre-claim the lock so the new task has to wait. Use the resolved
 	// realpath as the key to match findLocalDirectoryAssignment.
-	release, err := locker.Acquire(context.Background(), realDir, heldByTaskID, nil)
+	release, err := locker.Acquire(context.Background(), realDir, heldByRunID, nil)
 	if err != nil {
 		t.Fatalf("preclaim acquire: %v", err)
 	}
@@ -631,8 +631,8 @@ func TestAcquireLocalDirectoryLock_CancelDuringWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal ref: %v", err)
 	}
-	task := Task{
-		ID: newTaskID,
+	agentRun := AgentRun{
+		ID: newRunID,
 		ProjectResources: []ProjectResourceData{
 			{ID: "r1", ResourceType: localDirectoryResourceType, ResourceRef: ref},
 		},
@@ -644,7 +644,7 @@ func TestAcquireLocalDirectoryLock_CancelDuringWait(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		rel, abort := d.acquireLocalDirectoryLockIfNeeded(context.Background(), task, slog.Default())
+		rel, abort := d.acquireLocalDirectoryLockIfNeeded(context.Background(), agentRun, slog.Default())
 		done <- result{release: rel, abort: abort}
 	}()
 
@@ -716,7 +716,7 @@ func TestAcquireLocalDirectoryLock_ParentCancellationReportsWaitFailure(t *testi
 	if err != nil {
 		t.Fatalf("marshal ref: %v", err)
 	}
-	task := Task{
+	agentRun := AgentRun{
 		ID: "task-waiter",
 		ProjectResources: []ProjectResourceData{
 			{ID: "r1", ResourceType: localDirectoryResourceType, ResourceRef: ref},
@@ -731,7 +731,7 @@ func TestAcquireLocalDirectoryLock_ParentCancellationReportsWaitFailure(t *testi
 	}
 	done := make(chan result, 1)
 	go func() {
-		rel, abort := d.acquireLocalDirectoryLockIfNeeded(ctx, task, slog.Default())
+		rel, abort := d.acquireLocalDirectoryLockIfNeeded(ctx, agentRun, slog.Default())
 		done <- result{release: rel, abort: abort}
 	}()
 
@@ -796,7 +796,7 @@ func TestAcquireLocalDirectoryLock_EarlyFailureReportsWithCancelledParent(t *tes
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			task := Task{
+			agentRun := AgentRun{
 				ID: "task-invalid-local-directory",
 				ProjectResources: []ProjectResourceData{
 					{ID: "r1", ResourceType: localDirectoryResourceType, ResourceRef: tc.ref},
@@ -805,7 +805,7 @@ func TestAcquireLocalDirectoryLock_EarlyFailureReportsWithCancelledParent(t *tes
 
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			release, abort := d.acquireLocalDirectoryLockIfNeeded(ctx, task, slog.Default())
+			release, abort := d.acquireLocalDirectoryLockIfNeeded(ctx, agentRun, slog.Default())
 			if !abort {
 				t.Fatal("expected local_directory failure to abort task")
 			}

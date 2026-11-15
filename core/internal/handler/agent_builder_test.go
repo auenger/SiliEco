@@ -299,13 +299,13 @@ func TestSwitchAgentBuilderRuntimeRejectsWhileReplyPending(t *testing.T) {
 	target := newTestRuntime(t, "Builder Switch Pending Target", "online")
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO agent_task_queue (agent_id, chat_session_id, status, priority, context, runtime_id)
+		INSERT INTO agent_run (agent_id, chat_session_id, status, priority, context, runtime_id)
 		VALUES ($1, $2, 'running', 2, '{}'::jsonb, $3)
 	`, session.BuilderAgentID, session.SessionID, testRuntimeID); err != nil {
-		t.Fatalf("insert pending task: %v", err)
+		t.Fatalf("insert pending run: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE chat_session_id = $1`, session.SessionID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE chat_session_id = $1`, session.SessionID)
 	})
 
 	if w := switchBuilderRuntime(t, session.SessionID, target); w.Code != http.StatusConflict {
@@ -326,7 +326,7 @@ func TestSwitchAgentBuilderRuntimeRejectsNonBuilderSession(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, permission_mode, max_concurrent_tasks, owner_id
+			runtime_id, visibility, permission_mode, max_concurrent_runs, owner_id
 		)
 		VALUES ($1, 'Builder Switch User Agent', '', 'cloud', '{}'::jsonb, $2, 'workspace', 'public_to', 1, $3)
 		RETURNING id
@@ -387,16 +387,16 @@ func TestSendDirectChatMessageUsesCurrentlyBoundRuntime(t *testing.T) {
 		t.Fatalf("SwitchAgentBuilderRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE chat_session_id = $1`, created.SessionID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE chat_session_id = $1`, created.SessionID)
 	})
 
-	sent, err := testHandler.TaskService.SendDirectChatMessage(
+	sent, err := testHandler.AgentRunService.SendDirectChatMessage(
 		ctx, session, staleAgent, parseUUID(testUserID), "hello after the switch", nil, "member", parseUUID(testUserID),
 	)
 	if err != nil {
 		t.Fatalf("SendDirectChatMessage: %v", err)
 	}
-	if got := uuidToString(sent.Task.RuntimeID); got != target {
+	if got := uuidToString(sent.AgentRun.RuntimeID); got != target {
 		t.Fatalf("task runtime = %q, want the rebound runtime %q — a stale in-flight send must not resurrect the old runtime", got, target)
 	}
 }
@@ -464,7 +464,7 @@ func TestSendDirectChatMessageWaitsForUncommittedRebind(t *testing.T) {
 	created := newBuilderSession(t)
 	target := newTestRuntime(t, "Builder Interleave Send Target", "online")
 	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE chat_session_id = $1`, created.SessionID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE chat_session_id = $1`, created.SessionID)
 	})
 
 	session, err := testHandler.Queries.GetChatSession(ctx, parseUUID(created.SessionID))
@@ -504,12 +504,12 @@ func TestSendDirectChatMessageWaitsForUncommittedRebind(t *testing.T) {
 	}
 
 	type sendResult struct {
-		task db.AgentTaskQueue
-		err  error
+		agentRun db.AgentRun
+		err      error
 	}
 	results := make(chan sendResult, 1)
 	go func() {
-		sent, err := testHandler.TaskService.SendDirectChatMessage(
+		sent, err := testHandler.AgentRunService.SendDirectChatMessage(
 			context.Background(), session, staleAgent, parseUUID(testUserID),
 			"sent while the rebind was still open", nil, "member", parseUUID(testUserID),
 		)
@@ -517,14 +517,14 @@ func TestSendDirectChatMessageWaitsForUncommittedRebind(t *testing.T) {
 			results <- sendResult{err: err}
 			return
 		}
-		results <- sendResult{task: sent.Task}
+		results <- sendResult{agentRun: sent.AgentRun}
 	}()
 
 	if !waitForWaiterBlockedBy(t, holderPID, 10*time.Second) {
 		select {
 		case got := <-results:
 			t.Fatalf("send completed (err=%v, runtime=%q) while an uncommitted rebind held the chat_session lock; the send path is not taking the lock",
-				got.err, uuidToString(got.task.RuntimeID))
+				got.err, uuidToString(got.agentRun.RuntimeID))
 		default:
 			t.Fatalf("send never blocked on the chat_session lock held by pid %d; the send path is not taking the lock", holderPID)
 		}
@@ -544,7 +544,7 @@ func TestSendDirectChatMessageWaitsForUncommittedRebind(t *testing.T) {
 		if got.err != nil {
 			t.Fatalf("SendDirectChatMessage after commit: %v", got.err)
 		}
-		if runtimeID := uuidToString(got.task.RuntimeID); runtimeID != target {
+		if runtimeID := uuidToString(got.agentRun.RuntimeID); runtimeID != target {
 			t.Fatalf("task runtime = %q, want the rebound runtime %q", runtimeID, target)
 		}
 	case <-time.After(10 * time.Second):
@@ -565,7 +565,7 @@ func TestSwitchAgentBuilderRuntimeWaitsForUncommittedSend(t *testing.T) {
 	created := newBuilderSession(t)
 	target := newTestRuntime(t, "Builder Interleave Switch Target", "online")
 	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE chat_session_id = $1`, created.SessionID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE chat_session_id = $1`, created.SessionID)
 	})
 
 	// Hold an uncommitted send: the chat_session lock plus its task row, in the
@@ -581,10 +581,10 @@ func TestSwitchAgentBuilderRuntimeWaitsForUncommittedSend(t *testing.T) {
 		t.Fatalf("lock chat session: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO agent_task_queue (agent_id, chat_session_id, status, priority, context, runtime_id)
+		INSERT INTO agent_run (agent_id, chat_session_id, status, priority, context, runtime_id)
 		VALUES ($1, $2, 'queued', 2, '{}'::jsonb, $3)
 	`, created.BuilderAgentID, created.SessionID, testRuntimeID); err != nil {
-		t.Fatalf("insert in-flight task: %v", err)
+		t.Fatalf("insert in-flight run: %v", err)
 	}
 
 	codes := make(chan int, 1)

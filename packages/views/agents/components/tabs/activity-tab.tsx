@@ -1,5 +1,6 @@
 "use client";
 
+import { agentRunsOptions } from "@silieco/core/agent-runs/queries";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
@@ -19,30 +20,24 @@ import {
 import { NumberFlow } from "@silieco/ui/components/ui/number-flow";
 import { Skeleton } from "@silieco/ui/components/ui/skeleton";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import type { Agent, AgentTask, Issue } from "@silieco/core/types";
-import {
-  type AgentActivity,
-  agentTaskSnapshotOptions,
-  agentTasksOptions,
-  summarizeActivityWindow,
-  useWorkspaceActivityMap,
-} from "@silieco/core/agents";
+import type { Agent, AgentRun, Task } from "@silieco/core/types";
+import { type AgentActivity, agentRunSnapshotOptions, summarizeActivityWindow, useWorkspaceActivityMap } from "@silieco/core/agents";
 import { api } from "@silieco/core/api";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { useWorkspacePaths } from "@silieco/core/paths";
-import { issueDetailOptions } from "@silieco/core/issues/queries";
+import { taskDetailOptions } from "@silieco/core/tasks/queries";
 import { AppLink } from "../../../navigation";
-import { TranscriptButton } from "../../../common/task-transcript";
-import { AttributionBadge } from "../../../issues/components/attribution-badge";
-import { taskStatusConfig } from "../../config";
-import { failureReasonLabel } from "./task-failure";
+import { TranscriptButton } from "../../../common/agent-run-transcript";
+import { AttributionBadge } from "../../../tasks/components/attribution-badge";
+import { runStatusConfig } from "../../config";
+import { failureReasonLabel } from "./run-failure";
 import { Sparkline } from "../sparkline";
 import { useT, useTimeAgo } from "../../../i18n";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 // Recent work pagination: small initial cohort to keep the section
 // scannable, then "Show more" reveals 20 at a time. Tasks are already
-// fully cached client-side (one listAgentTasks for the whole agent), so
+// fully cached client-side (one listAgentRuns for the whole agent), so
 // "more" is a pure state flip — zero extra fetches.
 const RECENT_INITIAL = 10;
 const RECENT_PAGE = 20;
@@ -72,12 +67,12 @@ interface ActivityTabProps {
 export function ActivityTab({ agent, showPerformance = true }: ActivityTabProps) {
   const wsId = useWorkspaceId();
 
-  const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
+  const { data: snapshot = [] } = useQuery(agentRunSnapshotOptions(wsId));
   // `isLoading` (pending + fetching, no cached data) is true only on the
   // very first fetch. Once the page has hydrated this cache elsewhere the
   // tab opens straight into data with no skeleton flash.
-  const { data: agentTasks = [], isLoading: isLoadingRecent } = useQuery(
-    agentTasksOptions(wsId, agent.id),
+  const { data: agentRuns = [], isLoading: isLoadingRecent } = useQuery(
+    agentRunsOptions(wsId, agent.id),
   );
   const { byAgent: activityMap } = useWorkspaceActivityMap(wsId);
   const activity = activityMap.get(agent.id);
@@ -88,10 +83,10 @@ export function ActivityTab({ agent, showPerformance = true }: ActivityTabProps)
   // (list / detail / activity). They have their own UI in the chat
   // experience; mixing them in here muddies "what is this agent doing
   // for the team" with "what is this agent doing in private chat".
-  const isWorkflowTask = (t: AgentTask) => !t.chat_session_id;
+  const isWorkflowTask = (t: AgentRun) => !t.chat_session_id;
 
-  const activeTasks = useMemo(() => {
-    const statusRank: Partial<Record<AgentTask["status"], number>> = {
+  const activeRuns = useMemo(() => {
+    const statusRank: Partial<Record<AgentRun["status"], number>> = {
       running: 0,
       dispatched: 1,
       waiting_local_directory: 2,
@@ -117,8 +112,8 @@ export function ActivityTab({ agent, showPerformance = true }: ActivityTabProps)
   // Most recent terminal tasks. Includes cancelled — users searching
   // "what just happened" want to see cancellations alongside completions
   // and failures. Chat sessions filtered out for the same reason as above.
-  const recentTasksAll = useMemo(() => {
-    return [...agentTasks]
+  const recentRunsAll = useMemo(() => {
+    return [...agentRuns]
       .filter(
         (t) =>
           isWorkflowTask(t) &&
@@ -132,60 +127,60 @@ export function ActivityTab({ agent, showPerformance = true }: ActivityTabProps)
           new Date(b.completed_at!).getTime() -
           new Date(a.completed_at!).getTime(),
       );
-  }, [agentTasks]);
+  }, [agentRuns]);
 
-  const recentTasks = useMemo(
-    () => recentTasksAll.slice(0, recentDisplayLimit),
-    [recentTasksAll, recentDisplayLimit],
+  const recentRuns = useMemo(
+    () => recentRunsAll.slice(0, recentDisplayLimit),
+    [recentRunsAll, recentDisplayLimit],
   );
-  const hasMoreRecent = recentTasksAll.length > recentTasks.length;
+  const hasMoreRecent = recentRunsAll.length > recentRuns.length;
 
   const avgDurationMs = useMemo(
-    () => deriveAvgDurationLast30d(agentTasks, Date.now()),
-    [agentTasks],
+    () => deriveAvgDurationLast30d(agentRuns, Date.now()),
+    [agentRuns],
   );
 
-  // Resolve issue identifiers + titles for any task we'll render. Going
-  // through `issueDetailOptions` is the same lookup the rest of the app
+  // Resolve task identifiers + titles for any task we'll render. Going
+  // through `taskDetailOptions` is the same lookup the rest of the app
   // uses, so the cache is shared and we don't pay for a duplicate request.
   const displayedTasks = useMemo(
-    () => [...activeTasks, ...recentTasks],
-    [activeTasks, recentTasks],
+    () => [...activeRuns, ...recentRuns],
+    [activeRuns, recentRuns],
   );
-  const issueIds = useMemo(
+  const taskIds = useMemo(
     () =>
       Array.from(
-        new Set(displayedTasks.map((t) => t.issue_id).filter((id) => id !== "")),
+        new Set(displayedTasks.map((t) => t.task_id).filter((id) => id !== "")),
       ),
     [displayedTasks],
   );
-  const issueQueries = useQueries({
-    queries: issueIds.map((id) => issueDetailOptions(wsId, id)),
+  const taskQueries = useQueries({
+    queries: taskIds.map((id) => taskDetailOptions(wsId, id)),
   });
-  const issueMap = useMemo(() => {
-    const m = new Map<string, Issue>();
-    issueQueries.forEach((q, i) => {
-      const id = issueIds[i]!;
+  const taskMap = useMemo(() => {
+    const m = new Map<string, Task>();
+    taskQueries.forEach((q, i) => {
+      const id = taskIds[i]!;
       if (q.data) m.set(id, q.data);
     });
     return m;
-  }, [issueQueries, issueIds]);
+  }, [taskQueries, taskIds]);
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <NowSection tasks={activeTasks} issueMap={issueMap} agent={agent} />
+      <NowSection runs={activeRuns} taskMap={taskMap} agent={agent} />
       {showPerformance && (
         <Last30dSection activity={activity} avgDurationMs={avgDurationMs} />
       )}
       <RecentWorkSection
-        tasks={recentTasks}
-        totalCount={recentTasksAll.length}
+        runs={recentRuns}
+        totalCount={recentRunsAll.length}
         hasMore={hasMoreRecent}
         loading={isLoadingRecent}
         onShowMore={() =>
           setRecentDisplayLimit((n) => n + RECENT_PAGE)
         }
-        issueMap={issueMap}
+        taskMap={taskMap}
         agent={agent}
       />
     </div>
@@ -197,15 +192,15 @@ export function ActivityTab({ agent, showPerformance = true }: ActivityTabProps)
 export function AgentPerformanceSummary({ agent }: { agent: Agent }) {
   const { t } = useT("agents");
   const wsId = useWorkspaceId();
-  const { data: agentTasks = [] } = useQuery(
-    agentTasksOptions(wsId, agent.id),
+  const { data: agentRuns = [] } = useQuery(
+    agentRunsOptions(wsId, agent.id),
   );
   const { byAgent: activityMap } = useWorkspaceActivityMap(wsId);
   const activity = activityMap.get(agent.id);
   const summary = summarizeActivityWindow(activity, 30);
   const avgDurationMs = useMemo(
-    () => deriveAvgDurationLast30d(agentTasks, Date.now()),
-    [agentTasks],
+    () => deriveAvgDurationLast30d(agentRuns, Date.now()),
+    [agentRuns],
   );
   const successPct =
     summary.totalRuns > 0
@@ -283,12 +278,12 @@ function Metric({
 }
 
 function NowSection({
-  tasks,
-  issueMap,
+  runs,
+  taskMap,
   agent,
 }: {
-  tasks: AgentTask[];
-  issueMap: Map<string, Issue>;
+  runs: AgentRun[];
+  taskMap: Map<string, Task>;
   agent: Agent;
 }) {
   const { t } = useT("agents");
@@ -296,17 +291,17 @@ function NowSection({
     <Section
       title={t(($) => $.tab_body.activity.section_now)}
       subtitle={
-        tasks.length === 0
+        runs.length === 0
           ? t(($) => $.tab_body.activity.subtitle_no_active)
-          : t(($) => $.tab_body.activity.subtitle_active, { count: tasks.length })
+          : t(($) => $.tab_body.activity.subtitle_active, { count: runs.length })
       }
     >
-      {tasks.length === 0 ? (
+      {runs.length === 0 ? (
         <EmptyText>{t(($) => $.tab_body.activity.empty_now)}</EmptyText>
       ) : (
-        <TaskList
-          tasks={tasks}
-          issueMap={issueMap}
+        <RunList
+          runs={runs}
+          taskMap={taskMap}
           timeMode="active"
           agent={agent}
         />
@@ -385,20 +380,20 @@ function Last30dSection({
 }
 
 function RecentWorkSection({
-  tasks,
+  runs,
   totalCount,
   hasMore,
   loading,
   onShowMore,
-  issueMap,
+  taskMap,
   agent,
 }: {
-  tasks: AgentTask[];
+  runs: AgentRun[];
   totalCount: number;
   hasMore: boolean;
   loading: boolean;
   onShowMore: () => void;
-  issueMap: Map<string, Issue>;
+  taskMap: Map<string, Task>;
   agent: Agent;
 }) {
   const { t } = useT("agents");
@@ -406,22 +401,22 @@ function RecentWorkSection({
   // the subtitle stays blank rather than claiming "nothing finished yet".
   const subtitle = loading
     ? ""
-    : tasks.length === 0
+    : runs.length === 0
       ? t(($) => $.tab_body.activity.subtitle_no_recent)
-      : totalCount > tasks.length
-        ? t(($) => $.tab_body.activity.subtitle_recent_progress, { shown: tasks.length, total: totalCount })
-        : t(($) => $.tab_body.activity.subtitle_recent_latest, { count: tasks.length });
+      : totalCount > runs.length
+        ? t(($) => $.tab_body.activity.subtitle_recent_progress, { shown: runs.length, total: totalCount })
+        : t(($) => $.tab_body.activity.subtitle_recent_latest, { count: runs.length });
   return (
     <Section title={t(($) => $.tab_body.activity.section_recent)} subtitle={subtitle}>
       {loading ? (
         <RecentWorkSkeleton />
-      ) : tasks.length === 0 ? (
+      ) : runs.length === 0 ? (
         <EmptyText>{t(($) => $.tab_body.activity.empty_recent)}</EmptyText>
       ) : (
         <>
-          <TaskList
-            tasks={tasks}
-            issueMap={issueMap}
+          <RunList
+            runs={runs}
+            taskMap={taskMap}
             timeMode="completed"
             agent={agent}
           />
@@ -468,14 +463,14 @@ function RecentWorkSkeleton() {
   );
 }
 
-function TaskList({
-  tasks,
-  issueMap,
+function RunList({
+  runs,
+  taskMap,
   timeMode,
   agent,
 }: {
-  tasks: AgentTask[];
-  issueMap: Map<string, Issue>;
+  runs: AgentRun[];
+  taskMap: Map<string, Task>;
   timeMode: "active" | "completed";
   agent: Agent;
 }) {
@@ -487,11 +482,11 @@ function TaskList({
           : "space-y-2"
       }
     >
-      {tasks.map((task) => (
-        <TaskRow
-          key={task.id}
-          task={task}
-          issueMap={issueMap}
+      {runs.map((run) => (
+        <RunRow
+          key={run.id}
+          run={run}
+          taskMap={taskMap}
           timeMode={timeMode}
           agent={agent}
         />
@@ -500,14 +495,14 @@ function TaskList({
   );
 }
 
-function TaskRow({
-  task,
-  issueMap,
+function RunRow({
+  run,
+  taskMap,
   timeMode,
   agent,
 }: {
-  task: AgentTask;
-  issueMap: Map<string, Issue>;
+  run: AgentRun;
+  taskMap: Map<string, Task>;
   timeMode: "active" | "completed";
   agent: Agent;
 }) {
@@ -515,30 +510,30 @@ function TaskRow({
   const timeAgo = useTimeAgo();
   const paths = useWorkspacePaths();
   const [cancelling, setCancelling] = useState(false);
-  const cfg = taskStatusConfig[task.status] ?? taskStatusConfig.queued!;
+  const cfg = runStatusConfig[run.status] ?? runStatusConfig.queued!;
   const Icon = cfg.icon;
-  const hasIssue = task.issue_id !== "";
-  const issue = hasIssue ? issueMap.get(task.issue_id) : undefined;
-  const isRunning = task.status === "running";
+  const hasTask = run.task_id !== "";
+  const task = hasTask ? taskMap.get(run.task_id) : undefined;
+  const isRunning = run.status === "running";
   // Queued tasks have no messages yet — hiding the transcript button avoids
   // a guaranteed "No execution data recorded." dialog open.
-  const showTranscript = task.status !== "queued";
+  const showTranscript = run.status !== "queued";
   // Cancel only makes sense for the three active states. Terminal rows
   // (completed / failed / cancelled) hide the button entirely.
   const showCancel =
     timeMode === "active" &&
-    (task.status === "queued" ||
-      task.status === "dispatched" ||
-      task.status === "running");
+    (run.status === "queued" ||
+      run.status === "dispatched" ||
+      run.status === "running");
 
   const handleCancel = async () => {
     if (cancelling) return;
     setCancelling(true);
     try {
-      await api.cancelTaskById(task.id);
-      // No manual invalidate needed — the task:cancelled WS event flows
-      // through useRealtimeSync's `task:` prefix path which already
-      // invalidates snapshot + per-agent + per-issue task lists.
+      await api.cancelRunById(run.id);
+      // No manual invalidate needed — the run:cancelled WS event flows
+      // through useRealtimeSync's `run:` prefix path which already
+      // invalidates snapshot + per-agent + per-task task lists.
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t(($) => $.tab_body.activity.cancel_failed_toast));
       setCancelling(false);
@@ -546,41 +541,41 @@ function TaskRow({
   };
 
   const isTerminalStatus =
-    task.status === "completed" ||
-    task.status === "failed" ||
-    task.status === "cancelled";
-  const sourceFallback = !hasIssue
-    ? task.kind === "quick_create"
+    run.status === "completed" ||
+    run.status === "failed" ||
+    run.status === "cancelled";
+  const sourceFallback = !hasTask
+    ? run.kind === "quick_create"
       ? isTerminalStatus
         ? t(($) => $.tab_body.activity.source_quick_create)
-        : t(($) => $.tab_body.activity.source_creating_issue)
-      : task.chat_session_id
+        : t(($) => $.tab_body.activity.source_creating_task)
+      : run.chat_session_id
         ? t(($) => $.tab_body.activity.source_chat_session)
-        : task.autopilot_run_id
+        : run.autopilot_run_id
           ? t(($) => $.tab_body.activity.source_autopilot_run)
           : t(($) => $.tab_body.activity.source_untracked)
     : null;
 
-  const SourceIcon = hasIssue
+  const SourceIcon = hasTask
     ? Hash
-    : task.chat_session_id
+    : run.chat_session_id
       ? MessageSquare
-      : task.autopilot_run_id
+      : run.autopilot_run_id
         ? Workflow
         : CircleHelp;
-  const sourceLabel = hasIssue
-    ? t(($) => $.tab_body.activity.source_issue)
-    : task.chat_session_id
+  const sourceLabel = hasTask
+    ? t(($) => $.tab_body.activity.source_task)
+    : run.chat_session_id
       ? t(($) => $.tab_body.activity.source_chat)
-      : task.autopilot_run_id
+      : run.autopilot_run_id
         ? t(($) => $.tab_body.activity.source_autopilot)
         : t(($) => $.tab_body.activity.source_untracked);
 
   const timeText =
     timeMode === "active"
-      ? activeTaskTimeText(task, t, timeAgo)
-      : task.completed_at
-        ? timeAgo(task.completed_at)
+      ? activeTaskTimeText(run, t, timeAgo)
+      : run.completed_at
+        ? timeAgo(run.completed_at)
         : "—";
 
   // Failure reason. The back-end emits "" on non-failed tasks (omitempty
@@ -588,16 +583,16 @@ function TaskRow({
   // failureReasonLabel takes the raw open string — the taxonomy has 21
   // values and grows, so there is no enum to cast to.
   const failureLabel =
-    task.status === "failed" ? failureReasonLabel(task.failure_reason) : null;
+    run.status === "failed" ? failureReasonLabel(run.failure_reason) : null;
 
   // Only show duration for terminal rows. An active row's duration is
   // inferred from the timeText already ("Started 2m ago") and adding a
   // second time bubble next to it just clutters the line.
   let durationText: string | null = null;
-  if (timeMode === "completed" && task.started_at && task.completed_at) {
+  if (timeMode === "completed" && run.started_at && run.completed_at) {
     const dur =
-      new Date(task.completed_at).getTime() -
-      new Date(task.started_at).getTime();
+      new Date(run.completed_at).getTime() -
+      new Date(run.started_at).getTime();
     if (dur > 0) durationText = formatDurationMs(dur);
   }
 
@@ -622,14 +617,14 @@ function TaskRow({
             className="h-3 w-3 shrink-0 text-muted-foreground/70"
             aria-label={sourceLabel}
           />
-          {issue && (
+          {task && (
             <span className="shrink-0 font-mono text-caption text-muted-foreground">
-              {issue.identifier}
+              {task.identifier}
             </span>
           )}
-          {task.trigger_summary ? (
+          {run.trigger_summary ? (
             // Hover surfaces "why this task ran" — the snapshot lets the
-            // agent-side row stay anchored on issue.title (the
+            // agent-side row stay anchored on task.title (the
             // identification axis here) while still letting the user
             // dwell to see the trigger context. Same pattern as
             // GitHub Actions surfacing the commit message on hover.
@@ -637,9 +632,9 @@ function TaskRow({
               <TooltipTrigger
                 render={
                   <span className="truncate text-body">
-                    {issue?.title ??
-                      (hasIssue
-                        ? t(($) => $.tab_body.activity.issue_short_fallback, { prefix: task.issue_id.slice(0, 8) })
+                    {task?.title ??
+                      (hasTask
+                        ? t(($) => $.tab_body.activity.task_short_fallback, { prefix: run.task_id.slice(0, 8) })
                         : (sourceFallback ?? t(($) => $.tab_body.activity.source_untracked)))}
                   </span>
                 }
@@ -649,22 +644,22 @@ function TaskRow({
                   {t(($) => $.tab_body.activity.triggered_by)}
                 </div>
                 <div className="mt-0.5 whitespace-pre-wrap text-caption">
-                  {task.trigger_summary}
+                  {run.trigger_summary}
                 </div>
               </TooltipContent>
             </Tooltip>
           ) : (
             <span className="truncate text-body">
-              {issue?.title ??
-                (hasIssue
-                  ? t(($) => $.tab_body.activity.issue_short_fallback, { prefix: task.issue_id.slice(0, 8) })
+              {task?.title ??
+                (hasTask
+                  ? t(($) => $.tab_body.activity.task_short_fallback, { prefix: run.task_id.slice(0, 8) })
                   : (sourceFallback ?? t(($) => $.tab_body.activity.source_untracked)))}
             </span>
           )}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-muted-foreground">
           <span className={cfg.color}>
-            {taskStatusLabel(task.status, t)}
+            {taskStatusLabel(run.status, t)}
           </span>
           <Sep />
           <span>{timeText}</span>
@@ -686,11 +681,11 @@ function TaskRow({
               guard mirrors the badge's own render condition (avatar-only needs
               an initiator) so no dangling separator is left for an
               unattributed run. */}
-          {task.attribution?.initiator && (
+          {run.attribution?.initiator && (
             <>
               <Sep />
               <AttributionBadge
-                attribution={task.attribution}
+                attribution={run.attribution}
                 variant="avatar"
               />
             </>
@@ -699,25 +694,25 @@ function TaskRow({
       </div>
 
       {/* Hover-only actions. The row is intentionally non-clickable so
-          neither destination is privileged — issue detail and transcript
+          neither destination is privileged — task detail and transcript
           are equally valid follow-ups. focus-within keeps the slot
           reachable for keyboard users. */}
       <div className="ml-2 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100">
-        {hasIssue && (
+        {hasTask && (
           <Tooltip>
             <TooltipTrigger
-              render={<AppLink href={paths.issueDetail(task.issue_id)} />}
-              aria-label={t(($) => $.tab_body.activity.open_issue_aria)}
+              render={<AppLink href={paths.taskDetail(run.task_id)} />}
+              aria-label={t(($) => $.tab_body.activity.open_task_aria)}
               className="flex items-center justify-center rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
             >
               <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
             </TooltipTrigger>
-            <TooltipContent>{t(($) => $.tab_body.activity.open_issue_tooltip)}</TooltipContent>
+            <TooltipContent>{t(($) => $.tab_body.activity.open_task_tooltip)}</TooltipContent>
           </Tooltip>
         )}
         {showTranscript && (
           <TranscriptButton
-            task={task}
+            run={run}
             agentName={agent.name}
             isLive={isRunning}
             title={t(($) => $.tab_body.activity.transcript_tooltip)}
@@ -784,7 +779,7 @@ function Sep() {
 type AgentsT = ReturnType<typeof useT<"agents">>["t"];
 type TimeAgoFn = (dateStr: string) => string;
 
-function taskStatusLabel(status: AgentTask["status"], t: AgentsT): string {
+function taskStatusLabel(status: AgentRun["status"], t: AgentsT): string {
   switch (status) {
     case "queued":
       return t(($) => $.tab_body.activity.status.queued);
@@ -803,14 +798,14 @@ function taskStatusLabel(status: AgentTask["status"], t: AgentsT): string {
   }
 }
 
-function activeTaskTimeText(task: AgentTask, t: AgentsT, timeAgo: TimeAgoFn): string {
-  if (task.status === "running" && task.started_at) {
-    return t(($) => $.tab_body.activity.started_prefix, { when: timeAgo(task.started_at) });
+function activeTaskTimeText(run: AgentRun, t: AgentsT, timeAgo: TimeAgoFn): string {
+  if (run.status === "running" && run.started_at) {
+    return t(($) => $.tab_body.activity.started_prefix, { when: timeAgo(run.started_at) });
   }
-  if (task.status === "dispatched" && task.dispatched_at) {
-    return t(($) => $.tab_body.activity.dispatched_prefix, { when: timeAgo(task.dispatched_at) });
+  if (run.status === "dispatched" && run.dispatched_at) {
+    return t(($) => $.tab_body.activity.dispatched_prefix, { when: timeAgo(run.dispatched_at) });
   }
-  return t(($) => $.tab_body.activity.queued_prefix, { when: timeAgo(task.created_at) });
+  return t(($) => $.tab_body.activity.queued_prefix, { when: timeAgo(run.created_at) });
 }
 
 /**
@@ -819,12 +814,12 @@ function activeTaskTimeText(task: AgentTask, t: AgentsT, timeAgo: TimeAgoFn): st
  * deterministic `now` in tests.
  */
 export function deriveAvgDurationLast30d(
-  tasks: readonly AgentTask[],
+  runs: readonly AgentRun[],
   now: number,
 ): number {
   let sum = 0;
   let count = 0;
-  for (const t of tasks) {
+  for (const t of runs) {
     if (!t.completed_at || !t.started_at) continue;
     const completedAt = new Date(t.completed_at).getTime();
     if (Number.isNaN(completedAt)) continue;

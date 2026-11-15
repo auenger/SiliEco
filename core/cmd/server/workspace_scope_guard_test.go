@@ -33,20 +33,20 @@ func TestWorkspaceScopeGuard(t *testing.T) {
 	wsA := parseUUID(testWorkspaceID)
 	wsB := randomUUID(t) // never-existed workspace; the guard predicate must reject it
 
-	t.Run("DeleteIssue", func(t *testing.T) {
-		id := seedIssue(t, ctx)
-		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, util.UUIDToString(id)) })
+	t.Run("DeleteTask", func(t *testing.T) {
+		id := seedTask(t, ctx)
+		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, util.UUIDToString(id)) })
 
-		if err := queries.DeleteIssue(ctx, db.DeleteIssueParams{ID: id, WorkspaceID: wsB}); err != nil {
-			t.Fatalf("cross-workspace DeleteIssue: expected nil error (no-op), got %v", err)
+		if err := queries.DeleteTask(ctx, db.DeleteTaskParams{ID: id, WorkspaceID: wsB}); err != nil {
+			t.Fatalf("cross-workspace DeleteTask: expected nil error (no-op), got %v", err)
 		}
-		assertRowExists(t, ctx, "issue", id)
+		assertRowExists(t, ctx, "task", id)
 	})
 
 	t.Run("DeleteComment", func(t *testing.T) {
-		issueID := seedIssue(t, ctx)
-		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, util.UUIDToString(issueID)) })
-		id := seedComment(t, ctx, issueID)
+		taskID := seedTask(t, ctx)
+		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, util.UUIDToString(taskID)) })
+		id := seedComment(t, ctx, taskID)
 		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM comment WHERE id = $1`, util.UUIDToString(id)) })
 
 		if err := queries.DeleteComment(ctx, db.DeleteCommentParams{ID: id, WorkspaceID: wsB}); err != nil {
@@ -85,26 +85,26 @@ func TestWorkspaceScopeGuard(t *testing.T) {
 		assertRowExists(t, ctx, "chat_session", id)
 	})
 
-	t.Run("UpdateIssueStatus", func(t *testing.T) {
-		id := seedIssue(t, ctx)
-		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, util.UUIDToString(id)) })
+	t.Run("UpdateTaskStatus", func(t *testing.T) {
+		id := seedTask(t, ctx)
+		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, util.UUIDToString(id)) })
 
-		_, err := queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+		_, err := queries.UpdateTaskStatus(ctx, db.UpdateTaskStatusParams{
 			ID:          id,
 			Status:      "in_progress",
 			WorkspaceID: wsB,
 		})
 		if !errors.Is(err, pgx.ErrNoRows) {
-			t.Fatalf("cross-workspace UpdateIssueStatus: expected pgx.ErrNoRows, got %v", err)
+			t.Fatalf("cross-workspace UpdateTaskStatus: expected pgx.ErrNoRows, got %v", err)
 		}
 
 		// Status must still be the original 'todo'.
 		var status string
-		if err := testPool.QueryRow(ctx, `SELECT status FROM issue WHERE id = $1`, util.UUIDToString(id)).Scan(&status); err != nil {
-			t.Fatalf("re-read issue: %v", err)
+		if err := testPool.QueryRow(ctx, `SELECT status FROM task WHERE id = $1`, util.UUIDToString(id)).Scan(&status); err != nil {
+			t.Fatalf("re-read task: %v", err)
 		}
 		if status != "todo" {
-			t.Fatalf("issue status changed across workspace boundary: got %q, want 'todo'", status)
+			t.Fatalf("task status changed across workspace boundary: got %q, want 'todo'", status)
 		}
 	})
 
@@ -112,48 +112,48 @@ func TestWorkspaceScopeGuard(t *testing.T) {
 	// also satisfy the cross-workspace assertions above. This sub-test
 	// proves the in-workspace path still mutates.
 	t.Run("InWorkspaceCallsStillWork", func(t *testing.T) {
-		id := seedIssue(t, ctx)
-		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, util.UUIDToString(id)) })
+		id := seedTask(t, ctx)
+		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, util.UUIDToString(id)) })
 
-		if err := queries.DeleteIssue(ctx, db.DeleteIssueParams{ID: id, WorkspaceID: wsA}); err != nil {
-			t.Fatalf("in-workspace DeleteIssue: %v", err)
+		if err := queries.DeleteTask(ctx, db.DeleteTaskParams{ID: id, WorkspaceID: wsA}); err != nil {
+			t.Fatalf("in-workspace DeleteTask: %v", err)
 		}
 		var count int
-		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM issue WHERE id = $1`, util.UUIDToString(id)).Scan(&count); err != nil {
-			t.Fatalf("count issue: %v", err)
+		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM task WHERE id = $1`, util.UUIDToString(id)).Scan(&count); err != nil {
+			t.Fatalf("count task: %v", err)
 		}
 		if count != 0 {
-			t.Fatalf("in-workspace DeleteIssue did not remove the row")
+			t.Fatalf("in-workspace DeleteTask did not remove the row")
 		}
 	})
 }
 
 // ---- seed helpers (resource lives in testWorkspaceID) ----
 
-func seedIssue(t *testing.T, ctx context.Context) pgtype.UUID {
+func seedTask(t *testing.T, ctx context.Context) pgtype.UUID {
 	t.Helper()
 	var s string
 	// number is unique per workspace; pick a high-range random value to
 	// avoid colliding with concurrent integration tests in the same DB.
 	n := 1_000_000 + rand.IntN(1_000_000)
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, position, number)
-		VALUES ($1, 'scope-guard test issue', 'todo', 'none', 'member', $2, 0, $3)
+		INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, position, number)
+		VALUES ($1, 'scope-guard test task', 'todo', 'none', 'member', $2, 0, $3)
 		RETURNING id
 	`, testWorkspaceID, testUserID, n).Scan(&s); err != nil {
-		t.Fatalf("seed issue: %v", err)
+		t.Fatalf("seed task: %v", err)
 	}
 	return parseUUID(s)
 }
 
-func seedComment(t *testing.T, ctx context.Context, issueID pgtype.UUID) pgtype.UUID {
+func seedComment(t *testing.T, ctx context.Context, taskID pgtype.UUID) pgtype.UUID {
 	t.Helper()
 	var s string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type)
 		VALUES ($1, $2, 'member', $3, 'scope-guard test comment', 'comment')
 		RETURNING id
-	`, util.UUIDToString(issueID), testWorkspaceID, testUserID).Scan(&s); err != nil {
+	`, util.UUIDToString(taskID), testWorkspaceID, testUserID).Scan(&s); err != nil {
 		t.Fatalf("seed comment: %v", err)
 	}
 	return parseUUID(s)

@@ -3,9 +3,10 @@ import { render, screen } from "@testing-library/react";
 import { I18nProvider } from "@silieco/core/i18n/react";
 import type { Agent, ProjectResource } from "@silieco/core/types";
 import enCommon from "../../locales/en/common.json";
+import enResources from "../../locales/en/resources.json";
 import enProjects from "../../locales/en/projects.json";
 
-const TEST_RESOURCES = { en: { common: enCommon, projects: enProjects } };
+const TEST_RESOURCES = { en: { common: enCommon, projects: enProjects, resources: enResources } };
 
 const mocks = vi.hoisted(() => ({
   resources: [] as ProjectResource[],
@@ -44,6 +45,7 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("@silieco/core/projects", () => ({
   projectResourcesOptions: () => ({ queryKey: ["projects"] }),
+  useCheckProjectDirectory: () => ({ isPending: false, mutateAsync: vi.fn() }),
   useCreateProjectResource: () => ({ isPending: false, mutateAsync: vi.fn() }),
   useUpdateProjectResource: () => ({ mutateAsync: vi.fn() }),
   useDeleteProjectResource: () => ({ mutateAsync: vi.fn() }),
@@ -138,7 +140,7 @@ function agent(overrides: Partial<Agent> & Pick<Agent, "id" | "name" | "runtime_
     permission_mode: "public_to",
     invocation_targets: [],
     status: "idle",
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     model: "",
     archived_at: null,
     archived_by: null,

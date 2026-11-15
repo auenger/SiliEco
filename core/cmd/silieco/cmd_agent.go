@@ -63,11 +63,11 @@ var agentRestoreCmd = &cobra.Command{
 	RunE:  runAgentRestore,
 }
 
-var agentTasksCmd = &cobra.Command{
-	Use:   "tasks <id>",
-	Short: "List tasks for an agent",
+var agentRunsCmd = &cobra.Command{
+	Use:   "runs <id>",
+	Short: "List runs for an agent",
 	Args:  exactArgs(1),
-	RunE:  runAgentTasks,
+	RunE:  runAgentRuns,
 }
 
 var agentAvatarCmd = &cobra.Command{
@@ -137,7 +137,7 @@ func init() {
 	agentCmd.AddCommand(agentUpdateCmd)
 	agentCmd.AddCommand(agentArchiveCmd)
 	agentCmd.AddCommand(agentRestoreCmd)
-	agentCmd.AddCommand(agentTasksCmd)
+	agentCmd.AddCommand(agentRunsCmd)
 	agentCmd.AddCommand(agentAvatarCmd)
 	agentCmd.AddCommand(agentSkillsCmd)
 	agentCmd.AddCommand(agentEnvCmd)
@@ -176,7 +176,7 @@ func init() {
 	agentCreateCmd.Flags().String("permission-mode", "", "Invocation permission mode: private (owner only) or public_to (allow-list via --public-to-*). Authoritative over --visibility when set.")
 	agentCreateCmd.Flags().Bool("public-to-workspace", false, "public_to: allow every workspace member to invoke this agent.")
 	agentCreateCmd.Flags().StringSlice("public-to-member", nil, "public_to: allow the given member user id(s) to invoke this agent. Repeatable.")
-	agentCreateCmd.Flags().Int32("max-concurrent-tasks", 6, "Maximum concurrent tasks (1-50)")
+	agentCreateCmd.Flags().Int32("max-concurrent-runs", 6, "Maximum concurrent runs (1-50)")
 	agentCreateCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// agent update
@@ -206,7 +206,7 @@ func init() {
 	agentUpdateCmd.Flags().Bool("public-to-workspace", false, "public_to: allow every workspace member to invoke this agent.")
 	agentUpdateCmd.Flags().StringSlice("public-to-member", nil, "public_to: allow the given member user id(s) to invoke this agent. Repeatable.")
 	agentUpdateCmd.Flags().String("status", "", "New status")
-	agentUpdateCmd.Flags().Int32("max-concurrent-tasks", 0, "New max concurrent tasks (1-50)")
+	agentUpdateCmd.Flags().Int32("max-concurrent-runs", 0, "New max concurrent runs (1-50)")
 	agentUpdateCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// agent archive
@@ -216,7 +216,7 @@ func init() {
 	agentRestoreCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// agent tasks
-	agentTasksCmd.Flags().String("output", "table", "Output format: table or json")
+	agentRunsCmd.Flags().String("output", "table", "Output format: table or json")
 
 	// agent avatar
 	agentAvatarCmd.Flags().String("file", "", "Path to the avatar image file (required)")
@@ -261,12 +261,12 @@ func newAPIClient(cmd *cobra.Command) (*cli.APIClient, error) {
 	}
 	if inDaemonManagedExecutionContext() && !strings.HasPrefix(token, "mat_") {
 		// When the ONLY daemon signal is a workdir marker (no SILIECO_AGENT_ID /
-		// SILIECO_TASK_ID / SILIECO_DAEMON_PORT), the likeliest cause outside a
+		// SILIECO_RUN_ID / SILIECO_DAEMON_PORT), the likeliest cause outside a
 		// real task is a leftover marker from a crashed daemon task in a
 		// local_directory. Name the exact file so a normal user can recover
 		// instead of hitting an opaque "requires mat_ token" error.
 		if !inAgentExecutionContext() && os.Getenv("SILIECO_DAEMON_PORT") == "" {
-			if markerPath := daemonTaskContextMarkerPath(); markerPath != "" {
+			if markerPath := daemonRunContextMarkerPath(); markerPath != "" {
 				return nil, fmt.Errorf("agent execution context requires SILIECO_TOKEN to be a task-scoped mat_ token; detected a daemon task marker at %s — if you are not running inside an agent task this is likely a leftover, remove it and retry", markerPath)
 			}
 		}
@@ -278,8 +278,8 @@ func newAPIClient(cmd *cobra.Command) (*cli.APIClient, error) {
 	if agentID := os.Getenv("SILIECO_AGENT_ID"); agentID != "" {
 		client.AgentID = agentID
 	}
-	if taskID := os.Getenv("SILIECO_TASK_ID"); taskID != "" {
-		client.TaskID = taskID
+	if runID := os.Getenv("SILIECO_RUN_ID"); runID != "" {
+		client.RunID = runID
 	}
 	return client, nil
 }
@@ -329,33 +329,33 @@ func normalizeAPIBaseURL(raw string) string {
 // inAgentExecutionContext reports whether the CLI has explicit task identity
 // markers from a daemon-managed agent task.
 func inAgentExecutionContext() bool {
-	return os.Getenv("SILIECO_AGENT_ID") != "" || os.Getenv("SILIECO_TASK_ID") != ""
+	return os.Getenv("SILIECO_AGENT_ID") != "" || os.Getenv("SILIECO_RUN_ID") != ""
 }
 
 // inDaemonManagedExecutionContext reports whether the CLI is being invoked
 // from inside a daemon-managed agent task. SILIECO_DAEMON_PORT is included as
 // a defense-in-depth marker for subprocesses that lose SILIECO_AGENT_ID or
-// SILIECO_TASK_ID but still run under the daemon environment. In this context
+// SILIECO_RUN_ID but still run under the daemon environment. In this context
 // workspace and token must come from daemon-provided env; falling back to
 // user-global ~/.silieco/config.json can make agent writes land as a member.
 func inDaemonManagedExecutionContext() bool {
-	return inAgentExecutionContext() || os.Getenv("SILIECO_DAEMON_PORT") != "" || hasDaemonTaskContextMarker()
+	return inAgentExecutionContext() || os.Getenv("SILIECO_DAEMON_PORT") != "" || hasDaemonRunContextMarker()
 }
 
-func hasDaemonTaskContextMarker() bool {
-	return daemonTaskContextMarkerPath() != ""
+func hasDaemonRunContextMarker() bool {
+	return daemonRunContextMarkerPath() != ""
 }
 
 // daemonTaskContextMarkerPath walks up from the current working directory and
 // returns the path of the first readable daemon-task marker whose managed_by
 // matches, or "" when none is found.
-func daemonTaskContextMarkerPath() string {
+func daemonRunContextMarkerPath() string {
 	dir, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
 	for {
-		markerPath := filepath.Join(dir, execenv.TaskContextMarkerRelPath)
+		markerPath := filepath.Join(dir, execenv.RunContextMarkerRelPath)
 		// Only a marker we can read AND whose managed_by matches counts as a
 		// daemon-task signal. Any other outcome — missing file, unreadable
 		// path, or a foreign file at this name — is treated as "no signal
@@ -368,7 +368,7 @@ func daemonTaskContextMarkerPath() string {
 			var marker struct {
 				ManagedBy string `json:"managed_by"`
 			}
-			if json.Unmarshal(data, &marker) == nil && marker.ManagedBy == execenv.TaskContextMarkerManagedBy {
+			if json.Unmarshal(data, &marker) == nil && marker.ManagedBy == execenv.RunContextMarkerManagedBy {
 				return markerPath
 			}
 		}
@@ -603,12 +603,12 @@ func runAgentCreate(cmd *cobra.Command, _ []string) error {
 		body["visibility"] = v
 	}
 	applyAgentPermissionFlags(cmd, body)
-	if cmd.Flags().Changed("max-concurrent-tasks") {
-		v, _ := cmd.Flags().GetInt32("max-concurrent-tasks")
-		if err := validateAgentMaxConcurrentTasksFlag(v); err != nil {
+	if cmd.Flags().Changed("max-concurrent-runs") {
+		v, _ := cmd.Flags().GetInt32("max-concurrent-runs")
+		if err := validateAgentMaxConcurrentRunsFlag(v); err != nil {
 			return err
 		}
-		body["max_concurrent_tasks"] = v
+		body["max_concurrent_runs"] = v
 	}
 
 	ctx, cancel := cli.APIContext(context.Background())
@@ -691,12 +691,12 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 		v, _ := cmd.Flags().GetString("status")
 		body["status"] = v
 	}
-	if cmd.Flags().Changed("max-concurrent-tasks") {
-		v, _ := cmd.Flags().GetInt32("max-concurrent-tasks")
-		if err := validateAgentMaxConcurrentTasksFlag(v); err != nil {
+	if cmd.Flags().Changed("max-concurrent-runs") {
+		v, _ := cmd.Flags().GetInt32("max-concurrent-runs")
+		if err := validateAgentMaxConcurrentRunsFlag(v); err != nil {
 			return err
 		}
-		body["max_concurrent_tasks"] = v
+		body["max_concurrent_runs"] = v
 	}
 	if mc, ok, err := resolveMcpConfig(cmd); err != nil {
 		return err
@@ -705,7 +705,7 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(body) == 0 {
-		return fmt.Errorf("no fields to update; use --name, --description, --instructions, --runtime-id, --runtime-config, --model, --thinking-level, --service-tier, --custom-args, --mcp-config, --visibility, --status, or --max-concurrent-tasks (env vars now live behind `silieco agent env set <id>`)")
+		return fmt.Errorf("no fields to update; use --name, --description, --instructions, --runtime-id, --runtime-config, --model, --thinking-level, --service-tier, --custom-args, --mcp-config, --visibility, --status, or --max-concurrent-runs (env vars now live behind `silieco agent env set <id>`)")
 	}
 
 	ctx, cancel := cli.APIContext(context.Background())
@@ -771,7 +771,7 @@ func runAgentRestore(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runAgentTasks(cmd *cobra.Command, args []string) error {
+func runAgentRuns(cmd *cobra.Command, args []string) error {
 	client, err := newAPIClient(cmd)
 	if err != nil {
 		return err
@@ -780,22 +780,22 @@ func runAgentTasks(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	var tasks []map[string]any
-	if err := client.GetJSON(ctx, "/api/agents/"+args[0]+"/tasks", &tasks); err != nil {
+	var agentRuns []map[string]any
+	if err := client.GetJSON(ctx, "/api/agents/"+args[0]+"/runs", &agentRuns); err != nil {
 		return fmt.Errorf("list agent tasks: %w", err)
 	}
 
 	output, _ := cmd.Flags().GetString("output")
 	if output == "json" {
-		return cli.PrintJSON(os.Stdout, tasks)
+		return cli.PrintJSON(os.Stdout, agentRuns)
 	}
 
-	headers := []string{"ID", "ISSUE_ID", "STATUS", "CREATED_AT"}
-	rows := make([][]string, 0, len(tasks))
-	for _, t := range tasks {
+	headers := []string{"ID", "TASK_ID", "STATUS", "CREATED_AT"}
+	rows := make([][]string, 0, len(agentRuns))
+	for _, t := range agentRuns {
 		rows = append(rows, []string{
 			strVal(t, "id"),
-			strVal(t, "issue_id"),
+			strVal(t, "task_id"),
 			strVal(t, "status"),
 			strVal(t, "created_at"),
 		})

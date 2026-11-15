@@ -89,7 +89,7 @@ func TestRuntimeProfileCommandsRegistered(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileList(t *testing.T) {
+func TestExecuteRuntimeProfileList(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-123")
@@ -121,7 +121,7 @@ func TestRunRuntimeProfileList(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileCreate(t *testing.T) {
+func TestExecuteRuntimeProfileCreate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-123")
@@ -167,7 +167,7 @@ func TestRunRuntimeProfileCreate(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileCreateRejectsBadFamily(t *testing.T) {
+func TestExecuteRuntimeProfileCreateRejectsBadFamily(t *testing.T) {
 	cmd := newProfileCreateTestCmd()
 	_ = cmd.Flags().Set("protocol-family", "not-a-real-backend")
 	_ = cmd.Flags().Set("command-name", "x")
@@ -178,14 +178,14 @@ func TestRunRuntimeProfileCreateRejectsBadFamily(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileCreateRequiresFlags(t *testing.T) {
+func TestExecuteRuntimeProfileCreateRequiresFlags(t *testing.T) {
 	cmd := newProfileCreateTestCmd()
 	if err := runRuntimeProfileCreate(cmd, nil); err == nil {
 		t.Fatal("expected missing --protocol-family error")
 	}
 }
 
-func TestRunRuntimeProfileUpdateOnlySendsChangedFlags(t *testing.T) {
+func TestExecuteRuntimeProfileUpdateOnlySendsChangedFlags(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-123")
@@ -230,7 +230,7 @@ func TestRunRuntimeProfileUpdateOnlySendsChangedFlags(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileUpdateNoFieldsErrors(t *testing.T) {
+func TestExecuteRuntimeProfileUpdateNoFieldsErrors(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-123")
@@ -242,7 +242,7 @@ func TestRunRuntimeProfileUpdateNoFieldsErrors(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileDeleteSuccess(t *testing.T) {
+func TestExecuteRuntimeProfileDeleteSuccess(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-123")
@@ -268,7 +268,7 @@ func TestRunRuntimeProfileDeleteSuccess(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileDeleteConflictSurfacesServerMessage(t *testing.T) {
+func TestExecuteRuntimeProfileDeleteConflictSurfacesServerMessage(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-123")
@@ -290,7 +290,7 @@ func TestRunRuntimeProfileDeleteConflictSurfacesServerMessage(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileSetAndUnsetPath(t *testing.T) {
+func TestExecuteRuntimeProfileSetAndUnsetPath(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	// set-path
@@ -322,7 +322,7 @@ func TestRunRuntimeProfileSetAndUnsetPath(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileSetPathRejectsRelative(t *testing.T) {
+func TestExecuteRuntimeProfileSetPathRejectsRelative(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cmd := newProfileSetPathTestCmd()
 	_ = cmd.Flags().Set("path", "relative/path")
@@ -331,7 +331,7 @@ func TestRunRuntimeProfileSetPathRejectsRelative(t *testing.T) {
 	}
 }
 
-func TestRunRuntimeProfileSetPathPreservesExistingConfig(t *testing.T) {
+func TestExecuteRuntimeProfileSetPathPreservesExistingConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 

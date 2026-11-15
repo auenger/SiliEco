@@ -1,13 +1,13 @@
 /**
  * Draft state for the New Project modal (`app/(app)/[workspace]/project/new.tsx`).
  *
- * Mirrors `new-issue-draft-store.ts` — same rationale: the formSheet picker
+ * Mirrors `new-task-draft-store.ts` — same rationale: the formSheet picker
  * routes (`new-project-picker/status.tsx`, `new-project-picker/priority.tsx`)
  * live in a separate Stack screen and have no React parent-child relationship
  * with the new-project modal. They need a way to read the current draft value
  * and write the new selection back without prop-drilling through the router.
  * A small Zustand store is the minimum-viable cross-screen channel — and the
- * same pattern as new-issue.
+ * same pattern as new-task.
  *
  * Lifecycle: `reset()` runs from `project/new.tsx` when the user dismisses
  * the modal (either submit succeeds or they cancel) so the next open starts

@@ -1,7 +1,7 @@
 "use client";
 
-import { MyIssuesPage } from "@silieco/views/my-issues";
+import { MyTasksPage } from "@silieco/views/my-tasks";
 
-export default function MyTasksPage() {
-  return <MyIssuesPage />;
+export default function MyTasksRoute() {
+  return <MyTasksPage />;
 }

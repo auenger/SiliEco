@@ -1,0 +1,692 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import type { QueryKey } from "@tanstack/react-query";
+import { api } from "@silieco/core/api";
+import type {
+  Task,
+  TaskAssigneeGroup,
+  TaskStatus,
+  TaskTableFacetSpec,
+  TaskTableFacetsResponse,
+  TaskTableGroupsRequest,
+  TaskTableQuerySpec,
+  Project,
+} from "@silieco/core/types";
+import { workspaceWorkingAgentsOptions } from "@silieco/core/agents";
+import { useWorkspaceId } from "@silieco/core/hooks";
+import { ALL_STATUSES } from "@silieco/core/tasks/config";
+import { dateOnlyToLocalDate } from "@silieco/core/tasks/date";
+import type {
+  AssigneeGroupedTasksFilter,
+  TaskSortParam,
+  MyTasksFilter,
+} from "@silieco/core/tasks/queries";
+import { taskTableFacetsOptions } from "@silieco/core/tasks/queries";
+import {
+  buildTaskSurfaceQueryPlan,
+  type TaskSurfaceQueryPlan,
+} from "@silieco/core/tasks/surface/query-plan";
+import type { TaskScope } from "@silieco/core/tasks/surface/scope";
+import type { TaskDateFilter, SortField } from "@silieco/core/tasks/stores/view-store";
+import { propertyListOptions } from "@silieco/core/properties";
+import { propertyIdFromViewKey } from "@silieco/core/tasks/stores/view-store";
+import { useViewStore } from "@silieco/core/tasks/stores/view-store-context";
+import type { TaskFilters } from "../utils/filter";
+import type { ChildProgress } from "../components/list-row";
+import { TaskTableExportIntegrityError } from "../components/table-view-model";
+import type { TaskSurfaceMode } from "./types";
+import type { TaskSurfaceActions } from "./actions-context";
+import {
+  type TaskSurfaceSelection,
+  useCreateTaskSurfaceSelection,
+} from "./selection-context";
+import type { TaskCreateDefaults } from "./types";
+import {
+  useTaskSurfaceActions,
+  type MoveTaskUpdates,
+} from "./use-task-surface-actions";
+import { useTaskSurfaceData } from "./use-task-surface-data";
+import {
+  useTaskStatusBranches,
+  type TaskStatusPagination,
+} from "./use-task-status-branches";
+import {
+  useTaskGroupBranches,
+  type TaskGroupBranches,
+} from "./use-task-group-branches";
+
+interface UseTaskSurfaceControllerInput {
+  scope: TaskScope;
+  modes: TaskSurfaceMode[];
+  createDefaults?: TaskCreateDefaults;
+  search?: string;
+}
+
+export interface TaskSurfaceController {
+  scopeKey: string;
+  projectId?: string;
+  createDefaults: TaskCreateDefaults;
+  viewMode: TaskSurfaceMode;
+  allowGantt: boolean;
+  surfaceTasks: Task[];
+  projectTasks: Task[];
+  tasks: Task[];
+  swimlaneTasks: Task[];
+  /** The rows the agents-working filter would leave on screen. Feeds the
+   *  header chip so its count IS the post-click row count (SILI-4884). */
+  /** See TaskSurfaceData.workingScopeTasks — undefined means UNKNOWN. */
+  workingScopeTasks: Task[] | undefined;
+  filteredGanttTasks: Task[];
+  assigneeGroups?: TaskAssigneeGroup[];
+  assigneeGroupQueryKey?: QueryKey;
+  assigneeGroupFilter?: AssigneeGroupedTasksFilter;
+  filter: MyTasksFilter;
+  loadMoreScope?: string;
+  loadMoreFilter?: MyTasksFilter;
+  sort: TaskSortParam;
+  ganttTasks: Task[];
+  visibleStatuses: TaskStatus[];
+  hiddenStatuses: TaskStatus[];
+  /** Exact server counts plus cursor controls for List/status Board. */
+  statusPagination?: TaskStatusPagination;
+  /** Exact group catalog plus independent row cursors for Assignee/Property
+   * Board and compound Swimlane cells. */
+  groupBranches?: TaskGroupBranches;
+  activeFilters: Omit<TaskFilters, "statusFilters">;
+  actions: TaskSurfaceActions;
+  selection: TaskSurfaceSelection;
+  childProgressMap: Map<string, ChildProgress>;
+  projectMap: Map<string, Project>;
+  resolveTableExportLookups: (needs: {
+    projects: boolean;
+    childProgress: boolean;
+  }) => Promise<{
+    projectMap: Map<string, Project>;
+    childProgressMap: Map<string, ChildProgress>;
+  }>;
+  tableSearch: string;
+  /** Canonical server-owned Table membership. */
+  tableQuerySpec: TaskTableQuerySpec;
+  /** Exact disjunctive counts for the active server-backed filter submenu. */
+  tableFacetCounts?: TaskTableFacetsResponse;
+  /** Whether scopedTasks is a complete client window for local count use. */
+  facetCountsExact: boolean;
+  /** Load one server facet when its filter submenu is opened. */
+  setActiveTableFacet: (facet: TaskTableFacetSpec | null) => void;
+  setTableSearch: (query: string) => void;
+  exportTableTasks: () => Promise<Task[]>;
+  isLoading: boolean;
+  /** See TaskSurfaceData.isRefreshing — placeholder-backed revalidation. */
+  isRefreshing: boolean;
+  isEmpty: boolean;
+  openCreateTask: (defaults?: TaskCreateDefaults) => void;
+  moveTask: (
+    taskId: string,
+    updates: MoveTaskUpdates,
+    onSettled?: () => void,
+  ) => void;
+}
+
+function taskDateFilterToApiParams(filter: TaskDateFilter | null) {
+  if (!filter) return {};
+
+  const from = dateOnlyToLocalDate(filter.from);
+  const to = dateOnlyToLocalDate(filter.to);
+  if (!from || !to) return {};
+
+  const start = from <= to ? from : to;
+  const endSource = from <= to ? to : from;
+  const end = new Date(endSource);
+  end.setDate(end.getDate() + 1);
+
+  return {
+    date_field: filter.field,
+    date_start: start.toISOString(),
+    date_end: end.toISOString(),
+  };
+}
+
+function useDebouncedTableSearch(value: string, delayMs = 250) {
+  const [debouncedValue, setDebouncedValue] = useState(value.trim());
+
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setDebouncedValue(value.trim()),
+      delayMs,
+    );
+    return () => window.clearTimeout(timer);
+  }, [delayMs, value]);
+
+  return debouncedValue;
+}
+
+export function useTaskSurfaceController({
+  scope,
+  modes,
+  createDefaults,
+  search = "",
+}: UseTaskSurfaceControllerInput): TaskSurfaceController {
+  const wsId = useWorkspaceId();
+  const queryPlan = useMemo<TaskSurfaceQueryPlan>(
+    () => buildTaskSurfaceQueryPlan(scope),
+    [scope],
+  );
+  const scopeKey = queryPlan.scopeKey;
+  const projectId = scope.type === "project" ? scope.projectId : undefined;
+
+  const viewMode = useViewStore((s) => s.viewMode);
+  const setViewMode = useViewStore((s) => s.setViewMode);
+  const grouping = useViewStore((s) => s.grouping);
+  const sortBy = useViewStore((s) => s.sortBy);
+  const sortDirection = useViewStore((s) => s.sortDirection);
+  const dateFilter = useViewStore((s) => s.dateFilter);
+  const statusFilters = useViewStore((s) => s.statusFilters);
+  const priorityFilters = useViewStore((s) => s.priorityFilters);
+  const assigneeFilters = useViewStore((s) => s.assigneeFilters);
+  const includeNoAssignee = useViewStore((s) => s.includeNoAssignee);
+  const creatorFilters = useViewStore((s) => s.creatorFilters);
+  const projectFilters = useViewStore((s) => s.projectFilters);
+  const includeNoProject = useViewStore((s) => s.includeNoProject);
+  const labelFilters = useViewStore((s) => s.labelFilters);
+  const propertyFilters = useViewStore((s) => s.propertyFilters);
+  const agentRunningFilter = useViewStore((s) => s.agentRunningFilter);
+  const showSubTasks = useViewStore((s) => s.showSubTasks);
+  const ganttShowCompleted = useViewStore((s) => s.ganttShowCompleted);
+  const cardProperties = useViewStore((s) => s.cardProperties);
+  const swimlaneGrouping = useViewStore((s) => s.swimlaneGrouping);
+  const tableColumns = useViewStore((s) => s.tableColumns);
+  const listCollapsedStatuses = useViewStore((s) => s.listCollapsedStatuses);
+  const [tableSearch, setTableSearch] = useState("");
+
+  const allowedModes = useMemo(() => new Set<TaskSurfaceMode>(modes), [modes]);
+  const fallbackMode = modes[0] ?? "list";
+  const effectiveViewMode = allowedModes.has(viewMode as TaskSurfaceMode)
+    ? (viewMode as TaskSurfaceMode)
+    : fallbackMode;
+
+  useEffect(() => {
+    if (!allowedModes.has(viewMode as TaskSurfaceMode)) {
+      setViewMode(fallbackMode);
+    }
+  }, [allowedModes, fallbackMode, setViewMode, viewMode]);
+
+  const resolvedCreateDefaults = useMemo(
+    () => ({ ...queryPlan.createDefaults, ...createDefaults }),
+    [createDefaults, queryPlan.createDefaults],
+  );
+
+  const dateParams = useMemo(
+    () => taskDateFilterToApiParams(dateFilter),
+    [dateFilter],
+  );
+  // Active property catalog. Persisted view state can outlive definitions
+  // (archive/delete): filters keyed by a non-active definition are stripped
+  // before they reach the predicates, and a sort on a non-active definition
+  // degrades to manual order — matching what the header already shows.
+  const { data: workspaceProperties = [], isSuccess: catalogSettled } = useQuery(propertyListOptions(wsId));
+  const activePropertyIds = useMemo(
+    () => new Set(workspaceProperties.map((p) => p.id)),
+    [workspaceProperties],
+  );
+  const effectivePropertyFilters = useMemo(() => {
+    // While the catalog is still loading (or errored), persisted filters are
+    // passed through UNCHANGED: treating a cold catalog as confirmed-empty
+    // would silently drop the user's filters on first paint (clean-room
+    // review F6). Old servers 404 into a SETTLED empty catalog, so the
+    // stripping below still protects that path.
+    if (!catalogSettled) return propertyFilters;
+    const entries = Object.entries(propertyFilters).filter(
+      ([propertyId, selected]) => selected.length > 0 && activePropertyIds.has(propertyId),
+    );
+    if (entries.length === Object.keys(propertyFilters).length) return propertyFilters;
+    return Object.fromEntries(entries);
+  }, [activePropertyIds, catalogSettled, propertyFilters]);
+
+  // Custom-property sorts and filters are served by the backend: the sort
+  // param carries `property:<id>` (typed ORDER BY expression server-side)
+  // and the window bag carries the property filter, so results are correct
+  // across pagination — not just the loaded window. A sort pinned to a
+  // non-active definition degrades to position order.
+  const rawPropertySortId = propertyIdFromViewKey(sortBy);
+  const propertySortId =
+    rawPropertySortId && (!catalogSettled || activePropertyIds.has(rawPropertySortId))
+      ? rawPropertySortId
+      : null;
+  const sort = useMemo<TaskSortParam>(() => {
+    const sortBy_: TaskSortParam["sort_by"] = propertySortId
+      ? `property:${propertySortId}`
+      : rawPropertySortId
+        ? "position"
+        : (sortBy as Exclude<SortField, `property:${string}`>);
+    return {
+      sort_by: sortBy_,
+      sort_direction: sortBy_ !== "position" ? sortDirection : undefined,
+      ...dateParams,
+      ...(Object.keys(effectivePropertyFilters).length > 0
+        ? { properties: effectivePropertyFilters }
+        : {}),
+    };
+  }, [dateParams, effectivePropertyFilters, propertySortId, rawPropertySortId, sortBy, sortDirection]);
+
+  const groupingPropertyId = propertyIdFromViewKey(grouping);
+  const activeGroupingProperty = groupingPropertyId
+    ? workspaceProperties.find(
+        (property) =>
+          property.id === groupingPropertyId && property.type === "select",
+      ) ?? null
+    : null;
+  const effectiveGrouping =
+    groupingPropertyId && catalogSettled && !activeGroupingProperty
+      ? "status"
+      : grouping;
+  const usesAssigneeBoard =
+    effectiveViewMode === "board" && effectiveGrouping === "assignee";
+  const usesGantt = effectiveViewMode === "gantt" && !!projectId;
+  const usesTable = effectiveViewMode === "table";
+  const activeSearch = usesTable ? tableSearch : search;
+  const debouncedActiveSearch = useDebouncedTableSearch(activeSearch);
+  const usesServerStatusSurface =
+    effectiveViewMode === "list" ||
+    (effectiveViewMode === "board" && effectiveGrouping === "status");
+  const usesServerGroupSurface =
+    (effectiveViewMode === "board" && effectiveGrouping !== "status") ||
+    effectiveViewMode === "swimlane";
+  const usesServerFacets =
+    usesTable || usesServerStatusSurface || usesServerGroupSurface;
+  const serverStatuses = useMemo<TaskStatus[]>(
+    () => {
+      const visible =
+        statusFilters.length > 0
+          ? ALL_STATUSES.filter((status) => statusFilters.includes(status))
+          : [...ALL_STATUSES];
+      return effectiveViewMode === "list"
+        ? visible.filter((status) => !listCollapsedStatuses.includes(status))
+        : visible;
+    },
+    [effectiveViewMode, listCollapsedStatuses, statusFilters],
+  );
+
+  const projectFilterState = useMemo(
+    () => ({
+      projectFilters: scope.type === "project" ? [] : projectFilters,
+      includeNoProject: scope.type === "project" ? false : includeNoProject,
+    }),
+    [includeNoProject, projectFilters, scope.type],
+  );
+  const { projectFilters: viewProjectFilters, includeNoProject: viewIncludeNoProject } =
+    projectFilterState;
+
+  const workingAgentMineRelation =
+    scope.type === "my"
+      ? scope.relation === "all"
+        ? "any"
+        : scope.relation
+      : undefined;
+  const { data: workspaceWorkingAgents = [] } = useQuery(
+    workspaceWorkingAgentsOptions(wsId, "task", workingAgentMineRelation),
+  );
+  const workingTaskIDs = useMemo(() => {
+    const taskIDs = new Set<string>();
+    for (const agent of workspaceWorkingAgents) {
+      for (const taskID of agent.task_ids) taskIDs.add(taskID);
+    }
+    return taskIDs;
+  }, [workspaceWorkingAgents]);
+
+  const tableQuerySpec = useMemo<TaskTableQuerySpec>(() => {
+    let queryScope: TaskTableQuerySpec["scope"];
+    switch (scope.type) {
+      case "workspace":
+        queryScope = {
+          kind: "workspace",
+          ...(scope.actorKind === "members"
+            ? { assignee_types: ["member" as const] }
+            : scope.actorKind === "agents"
+              ? { assignee_types: ["agent" as const, "squad" as const] }
+              : {}),
+        };
+        break;
+      case "project":
+        queryScope = { kind: "project", project_id: scope.projectId };
+        break;
+      case "my":
+        queryScope = {
+          kind: "my",
+          relation: scope.relation === "all" ? "any" : scope.relation,
+        };
+        break;
+      case "actor":
+        queryScope = {
+          kind: scope.relation === "assigned" ? "assignee" : "creator",
+          actor: { type: scope.actorType, id: scope.actorId },
+        };
+        break;
+      case "team":
+        throw new Error("Team task scope is not supported by the Table query");
+    }
+
+    const date =
+      dateParams.date_field && dateParams.date_start && dateParams.date_end
+        ? {
+            field: dateParams.date_field,
+            start: dateParams.date_start,
+            end: dateParams.date_end,
+          }
+        : undefined;
+    return {
+      scope: queryScope,
+      filters: {
+        ...(statusFilters.length > 0 ? { statuses: statusFilters } : {}),
+        ...(priorityFilters.length > 0 ? { priorities: priorityFilters } : {}),
+        ...(assigneeFilters.length > 0 ? { assignees: assigneeFilters } : {}),
+        ...(includeNoAssignee ? { include_no_assignee: true } : {}),
+        ...(creatorFilters.length > 0 ? { creators: creatorFilters } : {}),
+        ...(viewProjectFilters.length > 0
+          ? { project_ids: viewProjectFilters }
+          : {}),
+        ...(viewIncludeNoProject ? { include_no_project: true } : {}),
+        ...(labelFilters.length > 0 ? { label_ids: labelFilters } : {}),
+        ...(Object.keys(effectivePropertyFilters).length > 0
+          ? { properties: effectivePropertyFilters }
+          : {}),
+        ...(date ? { date } : {}),
+        ...(agentRunningFilter
+          ? { working_task_ids: [...workingTaskIDs] }
+          : {}),
+        include_sub_tasks: showSubTasks,
+      },
+      ...(debouncedActiveSearch ? { search: debouncedActiveSearch } : {}),
+      sort: {
+        field: sort.sort_by ?? "position",
+        direction: sort.sort_direction ?? "asc",
+      },
+    };
+  }, [
+    agentRunningFilter,
+    assigneeFilters,
+    creatorFilters,
+    dateParams,
+    debouncedActiveSearch,
+    effectivePropertyFilters,
+    includeNoAssignee,
+    labelFilters,
+    priorityFilters,
+    scope,
+    showSubTasks,
+    sort.sort_by,
+    sort.sort_direction,
+    statusFilters,
+    viewIncludeNoProject,
+    viewProjectFilters,
+    workingTaskIDs,
+  ]);
+
+  const [activeTableFacet, setActiveTableFacet] =
+    useState<TaskTableFacetSpec | null>(null);
+  const requestedFacets = useMemo<TaskTableFacetSpec[]>(() => {
+    const facets: TaskTableFacetSpec[] = [];
+    if (usesServerStatusSurface) facets.push({ kind: "status" });
+    if (
+      activeTableFacet &&
+      !facets.some(
+        (facet) =>
+          facet.kind === activeTableFacet.kind &&
+          (facet.kind !== "property" ||
+            activeTableFacet.kind !== "property" ||
+            facet.property_id === activeTableFacet.property_id),
+      )
+    ) {
+      facets.push(activeTableFacet);
+    }
+    // The request shape remains total while disabled.
+    return facets.length > 0 ? facets : [{ kind: "status" }];
+  }, [activeTableFacet, usesServerStatusSurface]);
+  const tableFacetRequest = useMemo(
+    () => ({
+      query: tableQuerySpec,
+      facets: requestedFacets,
+      // Status surfaces consume the facet total as their authoritative empty
+      // state. Table rows/groups already own the displayed total.
+      include_total: usesServerStatusSurface,
+    }),
+    [requestedFacets, tableQuerySpec, usesServerStatusSurface],
+  );
+  const tableFacetsQuery = useQuery({
+    ...taskTableFacetsOptions(wsId, tableFacetRequest),
+    placeholderData: keepPreviousData,
+    // Counts are only visible inside one open filter submenu. Eagerly loading
+    // every custom-property facet made a Table mount task up to 47 SQL
+    // statements and repeatedly scan the task table after invalidation.
+    enabled:
+      usesServerStatusSurface ||
+      ((usesTable || usesServerGroupSurface) && activeTableFacet !== null),
+  });
+  useEffect(() => {
+    if (!usesServerFacets) setActiveTableFacet(null);
+  }, [usesServerFacets]);
+  const requestActiveTableFacet = useCallback(
+    (facet: TaskTableFacetSpec | null) => {
+      setActiveTableFacet(usesServerFacets ? facet : null);
+    },
+    [usesServerFacets],
+  );
+  const serverStatusBranches = useTaskStatusBranches({
+    wsId,
+    query: tableQuerySpec,
+    statuses: serverStatuses,
+    facets: tableFacetsQuery.data,
+    facetsPending: tableFacetsQuery.isPending,
+    facetsFetching: tableFacetsQuery.isFetching,
+    enabled: usesServerStatusSurface,
+  });
+  const serverGroupSpec = useMemo<TaskTableGroupsRequest["group"]>(() => {
+    if (effectiveViewMode === "swimlane") {
+      return {
+        kind: "compound",
+        primary: swimlaneGrouping,
+        secondary: "status",
+        secondary_values: serverStatuses,
+      };
+    }
+    const propertyId = propertyIdFromViewKey(effectiveGrouping);
+    if (propertyId) {
+      return {
+        kind: "property",
+        property_id: propertyId,
+        include_empty: true,
+      };
+    }
+    return { kind: "assignee" };
+  }, [
+    effectiveGrouping,
+    effectiveViewMode,
+    serverStatuses,
+    swimlaneGrouping,
+  ]);
+  const serverGroupQuery = useMemo<TaskTableQuerySpec>(() => {
+    if (effectiveViewMode !== "swimlane") return tableQuerySpec;
+    const { statuses: _statuses, ...filters } = tableQuerySpec.filters;
+    return { ...tableQuerySpec, filters };
+  }, [effectiveViewMode, tableQuerySpec]);
+  const serverGroupBranches = useTaskGroupBranches({
+    wsId,
+    query: serverGroupQuery,
+    group: serverGroupSpec,
+    secondaryValues:
+      effectiveViewMode === "swimlane" ? serverStatuses : undefined,
+    observeEmptyBranches:
+      effectiveViewMode === "swimlane" ||
+      (effectiveViewMode === "board" && activeGroupingProperty !== null),
+    enabled: usesServerGroupSurface,
+  });
+
+  // Selection is only meaningful within the current membership window: batch
+  // actions act on selected ids while export/common-field consumers intersect
+  // with visible rows, so a selection that survives a membership change lets
+  // "1 selected" mean different sets to different consumers (round-2 review
+  // P1#2). Reset whenever any membership-affecting input changes. Sort is
+  // excluded on purpose — reordering does not change membership. The live
+  // running set is also excluded: while the agents-working filter is on, a
+  // task finishing should not wipe the user's selection mid-action.
+  const membershipKey = useMemo(
+    () =>
+      JSON.stringify([
+        statusFilters,
+        priorityFilters,
+        assigneeFilters,
+        includeNoAssignee,
+        creatorFilters,
+        viewProjectFilters,
+        viewIncludeNoProject,
+        labelFilters,
+        effectivePropertyFilters,
+        agentRunningFilter,
+        showSubTasks,
+        dateParams,
+        debouncedActiveSearch,
+      ]),
+    [
+      agentRunningFilter,
+      assigneeFilters,
+      creatorFilters,
+      dateParams,
+      debouncedActiveSearch,
+      effectivePropertyFilters,
+      includeNoAssignee,
+      labelFilters,
+      priorityFilters,
+      showSubTasks,
+      statusFilters,
+      viewIncludeNoProject,
+      viewProjectFilters,
+    ],
+  );
+  const selection = useCreateTaskSurfaceSelection(
+    scopeKey,
+    `${scopeKey}:${effectiveViewMode}:${membershipKey}`,
+  );
+
+  const data = useTaskSurfaceData({
+    wsId,
+    queryPlan,
+    projectId,
+    usesAssigneeBoard,
+    usesGantt,
+    usesTable,
+    serverStatusBranches,
+    serverGroupBranches,
+    ganttShowCompleted,
+    sort,
+    statusFilters,
+    priorityFilters,
+    assigneeFilters,
+    includeNoAssignee,
+    agentRunningFilter,
+    creatorFilters,
+    projectFilters: viewProjectFilters,
+    includeNoProject: viewIncludeNoProject,
+    labelFilters,
+    propertyFilters: effectivePropertyFilters,
+    workingTaskIDs,
+    showSubTasks,
+    loadProjects:
+      cardProperties.project ||
+      (usesTable && tableColumns.some((column) => column.key === "project")) ||
+      (effectiveViewMode === "swimlane" && swimlaneGrouping === "project"),
+  });
+
+  const exportTableTasks = useCallback(async () => {
+    const tasks: Task[] = [];
+    const seenTaskIds = new Set<string>();
+    const seenCursors = new Set<string>();
+    let fingerprint: string | null = null;
+    let expectedTotal: number | null = null;
+    let cursor: string | null = null;
+    do {
+      if (cursor !== null) {
+        if (seenCursors.has(cursor)) throw new TaskTableExportIntegrityError();
+        seenCursors.add(cursor);
+      }
+      const page = await api.listTaskTableRows({
+        query: tableQuerySpec,
+        group: { kind: "none" },
+        group_key: null,
+        hierarchy: { enabled: false },
+        parent_id: null,
+        page: { limit: 100, cursor },
+      });
+      // parseWithFallback deliberately protects interactive views from schema
+      // drift with an empty response. Export must fail closed instead: an empty
+      // fingerprint is the fallback sentinel and must never create a truncated
+      // CSV that looks successful.
+      if (!page.query_fingerprint) throw new TaskTableExportIntegrityError();
+      fingerprint ??= page.query_fingerprint;
+      if (cursor === null) expectedTotal = page.total;
+      if (
+        page.query_fingerprint !== fingerprint ||
+        page.group_key !== null ||
+        page.parent_id !== null
+      ) {
+        throw new TaskTableExportIntegrityError();
+      }
+      for (const row of page.rows) {
+        if (seenTaskIds.has(row.task.id)) {
+          throw new TaskTableExportIntegrityError();
+        }
+        seenTaskIds.add(row.task.id);
+        tasks.push(row.task);
+      }
+      cursor = page.next_cursor;
+    } while (cursor);
+    if (tasks.length !== (expectedTotal ?? 0)) {
+      throw new TaskTableExportIntegrityError();
+    }
+    return tasks;
+  }, [tableQuerySpec]);
+
+  const { actions, openCreateTask, moveTask } = useTaskSurfaceActions({
+    createDefaults: resolvedCreateDefaults,
+  });
+
+  return {
+    scopeKey,
+    projectId,
+    createDefaults: resolvedCreateDefaults,
+    viewMode: effectiveViewMode,
+    allowGantt: allowedModes.has("gantt") && !!projectId,
+    ...data,
+    statusPagination: usesServerStatusSurface
+      ? data.statusPagination
+      : undefined,
+    groupBranches: usesServerGroupSurface
+      ? serverGroupBranches
+      : undefined,
+    // Keep TableView mounted for an empty search result so its local search
+    // control remains available to refine or clear the query. Include the
+    // debounced value as well to avoid a brief empty-screen flash while a
+    // cleared query is waiting to re-fetch the unsearched window.
+    isEmpty:
+      data.isEmpty &&
+      !data.isRefreshing &&
+      !(usesTable && (tableSearch.trim() || debouncedActiveSearch)),
+    sort,
+    actions,
+    selection,
+    tableSearch,
+    tableQuerySpec,
+    tableFacetCounts:
+      usesServerStatusSurface ||
+      ((usesTable || usesServerGroupSurface) && activeTableFacet !== null)
+        ? tableFacetsQuery.data
+        : undefined,
+    facetCountsExact:
+      !usesTable && !usesServerStatusSurface && !usesServerGroupSurface,
+    setActiveTableFacet: requestActiveTableFacet,
+    setTableSearch,
+    openCreateTask,
+    moveTask,
+    exportTableTasks,
+  };
+}

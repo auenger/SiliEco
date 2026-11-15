@@ -432,7 +432,7 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 		body["lead_id"] = aID
 	}
 	// Changed() (not "") so an explicit --start-date "" reaches the server as a
-	// clear, mirroring the issue update CLI.
+	// clear, mirroring the task update CLI.
 	if cmd.Flags().Changed("start-date") {
 		v, _ := cmd.Flags().GetString("start-date")
 		body["start_date"] = v

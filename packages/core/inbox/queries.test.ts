@@ -18,10 +18,10 @@ function item(overrides: Partial<InboxItem>): InboxItem {
     actor_id: "agent-1",
     type: "new_comment",
     severity: "info",
-    issue_id: "issue-1",
-    title: "Issue title",
+    task_id: "task-1",
+    title: "Task title",
     body: null,
-    issue_status: null,
+    task_status: null,
     read: false,
     archived: false,
     created_at: "2026-06-15T08:00:00Z",
@@ -31,7 +31,7 @@ function item(overrides: Partial<InboxItem>): InboxItem {
 }
 
 describe("deduplicateInboxItems", () => {
-  it("keeps the newest issue row while preserving an older comment anchor", () => {
+  it("keeps the newest task row while preserving an older comment anchor", () => {
     const merged = deduplicateInboxItems([
       item({
         id: "comment-notification",
@@ -80,8 +80,8 @@ describe("deduplicateInboxItems", () => {
 
   it("drops archived rows so an optimistic archive leaves the list at once", () => {
     const merged = deduplicateInboxItems([
-      item({ id: "active", issue_id: "issue-1" }),
-      item({ id: "filed-away", issue_id: "issue-2", archived: true }),
+      item({ id: "active", task_id: "task-1" }),
+      item({ id: "filed-away", task_id: "task-2", archived: true }),
     ]);
 
     expect(merged.map((i) => i.id)).toEqual(["active"]);
@@ -89,32 +89,32 @@ describe("deduplicateInboxItems", () => {
 });
 
 describe("deduplicateArchivedInboxItems", () => {
-  it("keeps only archived rows, one per issue, newest first", () => {
+  it("keeps only archived rows, one per task, newest first", () => {
     const merged = deduplicateArchivedInboxItems([
       item({
         id: "archived-older",
-        issue_id: "issue-1",
+        task_id: "task-1",
         archived: true,
         created_at: "2026-06-15T08:00:00Z",
       }),
       item({
         id: "archived-newer",
-        issue_id: "issue-1",
+        task_id: "task-1",
         archived: true,
         created_at: "2026-06-15T09:00:00Z",
       }),
       item({
-        id: "archived-other-issue",
-        issue_id: "issue-2",
+        id: "archived-other-task",
+        task_id: "task-2",
         archived: true,
         created_at: "2026-06-15T07:00:00Z",
       }),
-      item({ id: "still-active", issue_id: "issue-3" }),
+      item({ id: "still-active", task_id: "task-3" }),
     ]);
 
     expect(merged.map((i) => i.id)).toEqual([
       "archived-newer",
-      "archived-other-issue",
+      "archived-other-task",
     ]);
   });
 
@@ -126,10 +126,10 @@ describe("deduplicateArchivedInboxItems", () => {
     expect(deduplicateArchivedInboxItems([restored])).toEqual([]);
   });
 
-  it("groups issue-less notifications on their own id rather than merging them", () => {
+  it("groups task-less notifications on their own id rather than merging them", () => {
     const merged = deduplicateArchivedInboxItems([
-      item({ id: "standalone-1", issue_id: null, archived: true }),
-      item({ id: "standalone-2", issue_id: null, archived: true }),
+      item({ id: "standalone-1", task_id: null, archived: true }),
+      item({ id: "standalone-2", task_id: null, archived: true }),
     ]);
 
     expect(merged).toHaveLength(2);

@@ -1,7 +1,7 @@
 // Behavioural tests for the Popover-backed ProjectPicker. These use the REAL
 // PropertyPicker / Base UI Popover — do not mock them here.
 //
-// Open-state regression: selecting a project in the create-issue dialog left
+// Open-state regression: selecting a project in the create-task dialog left
 // the dropdown stuck open. The dialog wires the picker with
 // `open={cond ? true : undefined}`; Base UI latches a controlled `open={true}`
 // and does NOT treat a later `undefined` as "close", so the picker normalizes
@@ -12,7 +12,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nProvider } from "@silieco/core/i18n/react";
 import enProjects from "../../locales/en/projects.json";
-import enIssues from "../../locales/en/issues.json";
+import enTasks from "../../locales/en/tasks.json";
 import { ProjectPicker } from "./project-picker";
 import { PillButton } from "../../common/pill-button";
 
@@ -40,13 +40,13 @@ vi.mock("./project-icon", () => ({
 
 function withI18n(children: React.ReactNode) {
   return (
-    <I18nProvider locale="en" resources={{ en: { projects: enProjects, issues: enIssues } }}>
+    <I18nProvider locale="en" resources={{ en: { projects: enProjects, tasks: enTasks } }}>
       {children}
     </I18nProvider>
   );
 }
 
-/** Mirrors the create-issue dialog wiring from packages/views/modals/create-issue.tsx. */
+/** Mirrors the create-task dialog wiring from packages/views/modals/create-task.tsx. */
 function CreateDialogHarness({ onUpdate }: { onUpdate: (u: object) => void }) {
   const [fieldPickerOpen, setFieldPickerOpen] = useState<"project" | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);

@@ -77,7 +77,7 @@ func resolveToken(cmd *cobra.Command) string {
 	// Inside a daemon-managed task, never fall back to the user-global config
 	// token: that silent fallback is how agent writes land as the wrong actor.
 	// inDaemonManagedExecutionContext already covers the SILIECO_DAEMON_PORT
-	// signal for subprocesses that lost SILIECO_AGENT_ID / SILIECO_TASK_ID.
+	// signal for subprocesses that lost SILIECO_AGENT_ID / SILIECO_RUN_ID.
 	if inDaemonManagedExecutionContext() {
 		return ""
 	}
@@ -328,7 +328,7 @@ func runAuthLoginBrowser(cmd *cobra.Command) error {
 		"expires_in_days": expiresInDays,
 	}, &patResp)
 	if err != nil {
-		return cli.WithUserMessage("Sign-in did not complete: the server could not issue an access token for the CLI. Run `silieco login` again.", err)
+		return cli.WithUserMessage("Sign-in did not complete: the server could not mint an access token for the CLI. Run `silieco login` again.", err)
 	}
 
 	// Verify the PAT works.

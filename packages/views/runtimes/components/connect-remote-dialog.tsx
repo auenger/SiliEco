@@ -25,13 +25,13 @@ import {
   UI_MOTION_DURATION,
 } from "@silieco/ui/lib/motion";
 import { cn } from "@silieco/ui/lib/utils";
+import { cliCommands } from "../../common/cli-commands";
 import { useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
 
 type Step = "instructions" | "success";
 
-const INSTALL_CMD =
-  "curl -fsSL http://yilia.me:6688/cli/install.sh | bash";
+
 const CLOUD_SERVER_URL = "https://api.silieco.ai";
 const CLOUD_APP_URL = "https://silieco.ai";
 
@@ -234,7 +234,8 @@ function InstructionsStep({ onClose }: { onClose: () => void }) {
   const { t } = useT("runtimes");
   const daemonServerUrl = useConfigStore((s) => s.daemonServerUrl);
   const daemonAppUrl = useConfigStore((s) => s.daemonAppUrl);
-  const { setupCmd, tokenCmd } = daemonCommands(daemonServerUrl, daemonAppUrl);
+  const { tokenCmd } = daemonCommands(daemonServerUrl, daemonAppUrl);
+  const { setupCmd, installCmd } = cliCommands(daemonServerUrl, daemonAppUrl);
   return (
     <>
       <DialogHeader className="px-6 pt-6 pb-2">
@@ -251,7 +252,7 @@ function InstructionsStep({ onClose }: { onClose: () => void }) {
           <CommandStep
             n={1}
             label={t(($) => $.connect.step1_label)}
-            cmd={INSTALL_CMD}
+            cmd={installCmd}
             copyAria={t(($) => $.connect.copy_aria)}
           />
 

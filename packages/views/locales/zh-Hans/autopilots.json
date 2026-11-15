@@ -30,7 +30,7 @@
     "archived": "已归档"
   },
   "execution_mode": {
-    "create_issue": "创建 task",
+    "create_task": "创建 task",
     "run_only": "仅运行"
   },
   "relative_date": {
@@ -122,7 +122,7 @@
     "owner_note": "创建者和工作区管理员始终拥有访问权限。"
   },
   "run_status": {
-    "issue_created": "已创建 task",
+    "task_created": "已创建 task",
     "running": "运行中",
     "skipped": "已跳过",
     "completed": "已完成",
@@ -135,7 +135,7 @@
     "api": "API"
   },
   "run": {
-    "issue_linked": "已关联 task",
+    "task_linked": "已关联 task",
     "view_log": "查看执行日志",
     "skipped_group": {
       "label": "已跳过",
@@ -307,7 +307,7 @@
     "event_filter_hint": "只处理匹配这些事件的 webhook。留空则接受所有事件。",
     "schedule_disabled_reason": "该自动化有多个时间表——请到详情页编辑。",
     "output_modes": {
-      "create_issue": {
+      "create_task": {
         "label": "创建 task",
         "description": "每次运行都创建一个可追踪的 task"
       },

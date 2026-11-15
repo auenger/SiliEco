@@ -30,7 +30,7 @@ const makeWorkspace = (id: string, slug: string): Workspace => ({
   context: null,
   settings: {},
   repos: [],
-  issue_prefix: "MUL",
+  task_prefix: "MUL",
   avatar_url: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
@@ -179,8 +179,8 @@ describe("useDeleteWorkspace", () => {
     // The realtime `workspace:deleted` handler skips self-initiated deletes,
     // so the mutation owns this cleanup; the slug is captured from the list
     // cache before the mutation fires.
-    defaultStorage.setItem("silieco_issue_draft:delete-me", "draft");
-    defaultStorage.setItem("silieco_issue_draft:keep-me", "draft");
+    defaultStorage.setItem("silieco_tr1_task_draft:delete-me", "draft");
+    defaultStorage.setItem("silieco_tr1_task_draft:keep-me", "draft");
 
     const { result } = renderHook(() => useDeleteWorkspace(), {
       wrapper: createWrapper(qc),
@@ -190,14 +190,14 @@ describe("useDeleteWorkspace", () => {
       await result.current.mutateAsync("ws-2");
     });
 
-    expect(defaultStorage.getItem("silieco_issue_draft:delete-me")).toBeNull();
-    expect(defaultStorage.getItem("silieco_issue_draft:keep-me")).toBe("draft");
+    expect(defaultStorage.getItem("silieco_tr1_task_draft:delete-me")).toBeNull();
+    expect(defaultStorage.getItem("silieco_tr1_task_draft:keep-me")).toBe("draft");
   });
 
   it("leaves storage and cache untouched when the DELETE fails", async () => {
     seedList();
     deleteWorkspace.mockRejectedValue(new Error("boom"));
-    defaultStorage.setItem("silieco_issue_draft:delete-me", "draft");
+    defaultStorage.setItem("silieco_tr1_task_draft:delete-me", "draft");
 
     const { result } = renderHook(() => useDeleteWorkspace(), {
       wrapper: createWrapper(qc),
@@ -208,7 +208,7 @@ describe("useDeleteWorkspace", () => {
     });
 
     // No optimistic write happened, so there is nothing to roll back.
-    expect(defaultStorage.getItem("silieco_issue_draft:delete-me")).toBe("draft");
+    expect(defaultStorage.getItem("silieco_tr1_task_draft:delete-me")).toBe("draft");
     expect(cachedList().map((w) => w.id)).toEqual(["ws-1", "ws-2"]);
   });
 

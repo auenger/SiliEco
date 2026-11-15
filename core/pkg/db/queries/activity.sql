@@ -1,8 +1,8 @@
--- name: ListActivitiesForIssue :many
--- All activities for an issue in chronological order, capped at $2 (DB safety
+-- name: ListActivitiesForTask :many
+-- All activities for an task in chronological order, capped at $2 (DB safety
 -- net to bound the response).
 SELECT * FROM activity_log
-WHERE issue_id = $1
+WHERE task_id = $1
 ORDER BY created_at ASC, id ASC
 LIMIT $2;
 
@@ -12,20 +12,29 @@ WHERE id = $1;
 
 -- name: CreateActivity :one
 INSERT INTO activity_log (
-    workspace_id, issue_id, actor_type, actor_id, action, details
-) VALUES ($1, $2, $3, $4, $5, $6)
+    workspace_id, task_id, actor_type, actor_id, action, details
+) SELECT
+    $1 AS workspace_id,
+    $2 AS task_id,
+    $3 AS actor_type,
+    $4 AS actor_id,
+    $5 AS action,
+    $6 AS details
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM task AS ref_task_id WHERE ref_task_id.id = ($2) FOR KEY SHARE))
+
 RETURNING *;
 
--- name: HasSquadLeaderNoActionEvaluationForTask :one
+-- name: HasSquadLeaderNoActionEvaluationForRun :one
 SELECT EXISTS (
   SELECT 1
   FROM activity_log
-  WHERE issue_id = @issue_id
+  WHERE task_id = @task_id
     AND actor_type = 'agent'
     AND actor_id = @agent_id
     AND action = 'squad_leader_evaluated'
     AND details->>'outcome' = 'no_action'
-    AND details->>'task_id' = @task_id::text
+    AND details->>'run_id' = @run_id::text
 ) AS exists;
 
 -- name: CountAssigneeChangesByActor :many

@@ -7,7 +7,7 @@ import (
 )
 
 // TestTruncateFallbackCommentBody pins the completion-fallback comment cap that
-// keeps a runaway raw-stream Output off the issue thread (GH #5455).
+// keeps a runaway raw-stream Output off the task thread (GH #5455).
 func TestTruncateFallbackCommentBody(t *testing.T) {
 	t.Parallel()
 
@@ -35,7 +35,7 @@ func TestTruncateFallbackCommentBody(t *testing.T) {
 		// hundreds of repeated `tool call` lines and a tail answer — the shape a
 		// 200KB+ dump takes. None of that untrusted output may reach the comment.
 		var b strings.Builder
-		b.WriteString("I'll start by reading the issue context and the relevant files.\n")
+		b.WriteString("I'll start by reading the task context and the relevant files.\n")
 		for i := 0; i < 40000; i++ {
 			b.WriteString("tool call\n")
 		}

@@ -29,11 +29,11 @@ func TestPrepareIsolated_PermanentFIFOBlockThenImmediateRetry(t *testing.T) {
 	params := PrepareParams{
 		WorkspacesRoot: t.TempDir(),
 		WorkspaceID:    "ws-isolated-prepare",
-		TaskID:         "11111111-2222-3333-4444-555555555555",
+		RunID:          "11111111-2222-3333-4444-555555555555",
 		AgentName:      "isolation-test",
 		Provider:       "codex",
-		Task: TaskContextForEnv{
-			IssueID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+		AgentRun: RunContextForEnv{
+			TaskID:  "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
 			AgentID: "ffffffff-1111-2222-3333-444444444444",
 		},
 	}
@@ -49,7 +49,7 @@ func TestPrepareIsolated_PermanentFIFOBlockThenImmediateRetry(t *testing.T) {
 	if elapsed := time.Since(startedAt); elapsed > 3*time.Second {
 		t.Fatalf("PrepareIsolated took %s, want a bounded process termination", elapsed)
 	}
-	if _, err := os.Stat(PredictRootDir(params.WorkspacesRoot, params.WorkspaceID, params.TaskID)); err != nil {
+	if _, err := os.Stat(PredictRootDir(params.WorkspacesRoot, params.WorkspaceID, params.RunID)); err != nil {
 		t.Fatalf("first helper did not reach environment preparation before timeout: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestPrepareIsolated_PermanentFIFOBlockThenImmediateRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("immediate retry PrepareIsolated: %v", err)
 	}
-	if env == nil || env.RootDir != PredictRootDir(params.WorkspacesRoot, params.WorkspaceID, params.TaskID) {
+	if env == nil || env.RootDir != PredictRootDir(params.WorkspacesRoot, params.WorkspaceID, params.RunID) {
 		t.Fatalf("retry environment = %#v, want the predicted root", env)
 	}
 }

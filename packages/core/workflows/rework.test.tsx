@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { api } from "../api";
 import { useReworkWorkflowExecution } from "./mutations";
-import { issueKeys } from "../issues/queries";
+import { taskKeys } from "../tasks/queries";
 import { workflowKeys } from "./queries";
 
 vi.mock("../hooks", () => ({ useWorkspaceId: () => "unused" }));
@@ -18,10 +18,10 @@ describe("workflow rework mutation", () => {
     const client = new QueryClient({defaultOptions:{mutations:{retry:3,retryDelay:0}}});
     const key = workflowKeys.instance("ws", "run");
     const other = workflowKeys.instance("other", "run");
-    const issue = issueKeys.detail("ws", "issue");
-    const otherIssue = issueKeys.detail("other", "issue");
-    client.setQueryData(issue, {title:"before rework"});
-    client.setQueryData(otherIssue, {title:"other workspace"});
+    const task = taskKeys.detail("ws", "task");
+    const otherTask = taskKeys.detail("other", "task");
+    client.setQueryData(task, {title:"before rework"});
+    client.setQueryData(otherTask, {title:"other workspace"});
     client.setQueryData(key,{current_stage_id:"current"});
     client.setQueryData(other,{current_stage_id:"other"});
     if (outcome === "conflict") vi.mocked(api.reworkWorkflowExecution).mockRejectedValue(new Error("409 changed"));
@@ -39,8 +39,8 @@ describe("workflow rework mutation", () => {
     expect(client.getQueryData(key)).toEqual({current_stage_id:"current"});
     expect(client.getQueryState(key)?.isInvalidated).toBe(true);
     expect(client.getQueryState(other)?.isInvalidated).toBe(false);
-    expect(client.getQueryState(issue)?.isInvalidated).toBe(true);
-    expect(client.getQueryState(otherIssue)?.isInvalidated).toBe(false);
+    expect(client.getQueryState(task)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(otherTask)?.isInvalidated).toBe(false);
     client.clear();
   });
 });

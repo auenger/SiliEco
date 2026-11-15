@@ -75,11 +75,11 @@ func (h *Handler) SubmitWorkflowResult(w http.ResponseWriter, r *http.Request) {
 	}
 	params := service.SubmitWorkflowResultParams{WorkspaceID: wsID, InstanceID: instanceID, ExecutionID: executionID, ActorType: actorType, ActorID: actorUUID, ExpectedRevision: *request.ExpectedRevision, Submission: request.Submission}
 	if actorType == "agent" {
-		taskID, ok := parseUUIDOrBadRequest(w, r.Header.Get("X-Task-ID"), "source task id")
+		runID, ok := parseUUIDOrBadRequest(w, r.Header.Get("X-Run-ID"), "source task id")
 		if !ok {
 			return
 		}
-		params.SourceTaskID = taskID
+		params.SourceRunID = runID
 	}
 	svc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter, Storage: h.Storage}
 	result, err := svc.SubmitResult(r.Context(), params)
@@ -153,7 +153,7 @@ func (h *Handler) ListWorkflowExecutions(w http.ResponseWriter, r *http.Request)
 	}
 	items := make([]map[string]any, 0, len(executions))
 	for _, execution := range executions {
-		items = append(items, map[string]any{"id": uuidToString(execution.ID), "stage_id": uuidToString(execution.WorkflowStageID), "attempt": execution.Attempt, "plan_revision": execution.PlanRevision, "executor_id": uuidToString(execution.ExecutorID), "main_issue_id": uuidToPtr(execution.MainIssueID), "main_task_id": uuidToPtr(execution.MainTaskID), "status": execution.Status, "failure_code": textToPtr(execution.FailureCode), "failure_detail": textToPtr(execution.FailureDetail), "result_revision": execution.ResultRevision, "config_snapshot": json.RawMessage(execution.ConfigSnapshot), "input_snapshot": json.RawMessage(execution.InputSnapshot)})
+		items = append(items, map[string]any{"id": uuidToString(execution.ID), "stage_id": uuidToString(execution.WorkflowStageID), "attempt": execution.Attempt, "plan_revision": execution.PlanRevision, "executor_id": uuidToString(execution.ExecutorID), "main_task_id": uuidToPtr(execution.MainTaskID), "main_run_id": uuidToPtr(execution.MainRunID), "status": execution.Status, "failure_code": textToPtr(execution.FailureCode), "failure_detail": textToPtr(execution.FailureDetail), "result_revision": execution.ResultRevision, "config_snapshot": json.RawMessage(execution.ConfigSnapshot), "input_snapshot": json.RawMessage(execution.InputSnapshot)})
 	}
 	writeJSON(w, http.StatusOK, items)
 }

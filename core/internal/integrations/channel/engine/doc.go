@@ -20,7 +20,7 @@
 //     every Channel: it routes by ChannelType to that platform's registered
 //     ResolverSet and runs the same ordered pipeline for every platform
 //     (installation route → two-phase dedup → group @bot filter → identity +
-//     membership → ensure session → append+mark → /issue → debounced run),
+//     membership → ensure session → append+mark → /task → debounced run),
 //     then drives the detached OutboundReplier + typing indicator.
 //
 // Everything platform-specific lives behind the resolver interfaces in

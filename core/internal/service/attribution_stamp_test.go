@@ -16,9 +16,9 @@ import (
 )
 
 // seedAttributionFixture creates the minimal user/workspace/member/runtime/agent
-// graph plus a member-created issue assigned to the agent, and returns the ids
+// graph plus a member-created task assigned to the agent, and returns the ids
 // needed to enqueue a run. Everything is cleaned up via t.Cleanup.
-func seedAttributionFixture(t *testing.T, pool *pgxpool.Pool) (workspaceID, userID, agentID, issueID string) {
+func seedAttributionFixture(t *testing.T, pool *pgxpool.Pool) (workspaceID, userID, agentID, taskID string) {
 	t.Helper()
 	ctx := context.Background()
 	suffix := time.Now().UnixNano()
@@ -49,33 +49,33 @@ func seedAttributionFixture(t *testing.T, pool *pgxpool.Pool) (workspaceID, user
 	}
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO agent (workspace_id, name, runtime_mode, runtime_config, runtime_id, visibility,
-			max_concurrent_tasks, owner_id, instructions, custom_env, custom_args)
+			max_concurrent_runs, owner_id, instructions, custom_env, custom_args)
 		VALUES ($1, 'attr-agent', 'cloud', '{}'::jsonb, $2, 'workspace', 1, $3, '', '{}'::jsonb, '[]'::jsonb)
 		RETURNING id`, workspaceID, runtimeID, userID).Scan(&agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority)
-		VALUES ($1, 'attr issue', 'member', $2, 'agent', $3, 'medium')
-		RETURNING id`, workspaceID, userID, agentID).Scan(&issueID); err != nil {
-		t.Fatalf("seed issue: %v", err)
+		INSERT INTO task (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority)
+		VALUES ($1, 'attr task', 'member', $2, 'agent', $3, 'medium')
+		RETURNING id`, workspaceID, userID, agentID).Scan(&taskID); err != nil {
+		t.Fatalf("seed task: %v", err)
 	}
-	return workspaceID, userID, agentID, issueID
+	return workspaceID, userID, agentID, taskID
 }
 
-// TestEnqueueTaskForIssueStampsDirectHumanAttribution is the acceptance test for
+// TestEnqueueRunForTaskStampsDirectHumanAttribution is the acceptance test for
 // the Phase 1 foundation (SILI-4302 §11): a member-assigned run must land with a
 // non-empty, correct attribution — source=direct_human, the accountable human
-// equal to the issue creator, and evidence pointing back at the issue.
-func TestEnqueueTaskForIssueStampsDirectHumanAttribution(t *testing.T) {
+// equal to the task creator, and evidence pointing back at the task.
+func TestEnqueueRunForTaskStampsDirectHumanAttribution(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
-	workspaceID, userID, agentID, issueID := seedAttributionFixture(t, pool)
+	workspaceID, userID, agentID, taskID := seedAttributionFixture(t, pool)
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	task, err := svc.EnqueueTaskForIssue(ctx, db.Issue{
-		ID:           util.MustParseUUID(issueID),
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	agentRun, err := svc.EnqueueRunForTask(ctx, db.Task{
+		ID:           util.MustParseUUID(taskID),
 		AssigneeID:   util.MustParseUUID(agentID),
 		Priority:     "medium",
 		CreatorType:  "member",
@@ -84,7 +84,7 @@ func TestEnqueueTaskForIssueStampsDirectHumanAttribution(t *testing.T) {
 		AssigneeType: pgtype.Text{String: "agent", Valid: true},
 	})
 	if err != nil {
-		t.Fatalf("EnqueueTaskForIssue: %v", err)
+		t.Fatalf("EnqueueTaskForTask: %v", err)
 	}
 
 	// Read the stored row so we assert what actually persisted, not just the
@@ -94,7 +94,7 @@ func TestEnqueueTaskForIssueStampsDirectHumanAttribution(t *testing.T) {
 	var evidenceKind pgtype.Text
 	if err := pool.QueryRow(ctx, `
 		SELECT originator_source, originator_user_id, accountable_user_id, trigger_evidence_kind, trigger_evidence_ref_id
-		FROM agent_task_queue WHERE id = $1`, task.ID).Scan(&source, &originator, &accountable, &evidenceKind, &evidenceRef); err != nil {
+		FROM agent_run WHERE id = $1`, agentRun.ID).Scan(&source, &originator, &accountable, &evidenceKind, &evidenceRef); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 
@@ -109,24 +109,24 @@ func TestEnqueueTaskForIssueStampsDirectHumanAttribution(t *testing.T) {
 	if !accountable.Valid || accountable.Bytes != originator.Bytes {
 		t.Errorf("accountable_user_id = %s, want == originator %s", util.UUIDToString(accountable), util.UUIDToString(originator))
 	}
-	if evidenceKind.String != string(attribution.EvidenceIssueAssignment) {
-		t.Errorf("trigger_evidence_kind = %q, want issue_assignment", evidenceKind.String)
+	if evidenceKind.String != string(attribution.EvidenceTaskAssignment) {
+		t.Errorf("trigger_evidence_kind = %q, want task_assignment", evidenceKind.String)
 	}
-	if !evidenceRef.Valid || evidenceRef.Bytes != util.MustParseUUID(issueID).Bytes {
-		t.Errorf("trigger_evidence_ref_id = %s, want issue %s", util.UUIDToString(evidenceRef), issueID)
+	if !evidenceRef.Valid || evidenceRef.Bytes != util.MustParseUUID(taskID).Bytes {
+		t.Errorf("trigger_evidence_ref_id = %s, want task %s", util.UUIDToString(evidenceRef), taskID)
 	}
 }
 
-// TestEnqueueTaskForIssueWithHandoffAttributesToActor is the acceptance test for
-// the assign/promote actor fix (SILI-4302 §4): when a member assigns an issue that
+// TestEnqueueRunForTaskWithHandoffAttributesToActor is the acceptance test for
+// the assign/promote actor fix (SILI-4302 §4): when a member assigns an task that
 // a DIFFERENT member created, the run's accountable human — and, honoring the
-// invariant, its originator — is the assigning member (the actor), not the issue
-// creator. The evidence still points at the issue.
-func TestEnqueueTaskForIssueWithHandoffAttributesToActor(t *testing.T) {
+// invariant, its originator — is the assigning member (the actor), not the task
+// creator. The evidence still points at the task.
+func TestEnqueueRunForTaskWithHandoffAttributesToActor(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
-	workspaceID, creatorID, agentID, issueID := seedAttributionFixture(t, pool)
+	workspaceID, creatorID, agentID, taskID := seedAttributionFixture(t, pool)
 
 	// A second member in the same workspace performs the assign.
 	var actorID string
@@ -141,9 +141,9 @@ func TestEnqueueTaskForIssueWithHandoffAttributesToActor(t *testing.T) {
 		t.Fatalf("seed actor member: %v", err)
 	}
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	task, err := svc.EnqueueTaskForIssueWithHandoff(ctx, db.Issue{
-		ID:           util.MustParseUUID(issueID),
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	agentRun, err := svc.EnqueueRunForTaskWithHandoff(ctx, db.Task{
+		ID:           util.MustParseUUID(taskID),
 		AssigneeID:   util.MustParseUUID(agentID),
 		Priority:     "medium",
 		CreatorType:  "member",
@@ -152,14 +152,14 @@ func TestEnqueueTaskForIssueWithHandoffAttributesToActor(t *testing.T) {
 		AssigneeType: pgtype.Text{String: "agent", Valid: true},
 	}, "", util.MustParseUUID(actorID))
 	if err != nil {
-		t.Fatalf("EnqueueTaskForIssueWithHandoff: %v", err)
+		t.Fatalf("EnqueueTaskForTaskWithHandoff: %v", err)
 	}
 
 	var source pgtype.Text
 	var originator, accountable pgtype.UUID
 	if err := pool.QueryRow(ctx, `
 		SELECT originator_source, originator_user_id, accountable_user_id
-		FROM agent_task_queue WHERE id = $1`, task.ID).Scan(&source, &originator, &accountable); err != nil {
+		FROM agent_run WHERE id = $1`, agentRun.ID).Scan(&source, &originator, &accountable); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestEnqueueTaskForIssueWithHandoffAttributesToActor(t *testing.T) {
 		t.Errorf("accountable_user_id = %s, want actor %s (not creator %s)", util.UUIDToString(accountable), actorID, creatorID)
 	}
 	// Invariant: originator mirrors accountable, so it is the actor too — the
-	// assigning member lends the authority, not the issue creator.
+	// assigning member lends the authority, not the task creator.
 	if !originator.Valid || originator.Bytes != accountable.Bytes {
 		t.Errorf("originator_user_id = %s, want == accountable (actor) %s", util.UUIDToString(originator), util.UUIDToString(accountable))
 	}
@@ -181,11 +181,11 @@ func TestEnqueueTaskForIssueWithHandoffAttributesToActor(t *testing.T) {
 // attribution): when a coalescing run re-stamps originator_user_id to the newly
 // arrived comment's human, accountable_user_id must mirror it. Otherwise folding
 // member B's comment into member A's queued task leaves originator=B / accountable=A.
-func TestMergeCommentIntoPendingTask_KeepsAccountableEqualsOriginator(t *testing.T) {
+func TestMergeCommentIntoPendingRun_KeepsAccountableEqualsOriginator(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
-	workspaceID, userA, agentID, issueID := seedAttributionFixture(t, pool)
+	workspaceID, userA, agentID, taskID := seedAttributionFixture(t, pool)
 
 	// A second member B whose comment will be coalesced in.
 	var userB string
@@ -200,27 +200,27 @@ func TestMergeCommentIntoPendingTask_KeepsAccountableEqualsOriginator(t *testing
 
 	// A queued task attributed to A with a STALE source label + no evidence, so the
 	// merge has something to prove it re-stamped the whole snapshot, not just people.
-	var taskID string
+	var runID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, originator_user_id, accountable_user_id, originator_source)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, originator_user_id, accountable_user_id, originator_source)
 		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), $2, 'queued', 0, $3, $3, 'delegation')
-		RETURNING id`, agentID, issueID, userA).Scan(&taskID); err != nil {
-		t.Fatalf("seed queued task: %v", err)
+		RETURNING id`, agentID, taskID, userA).Scan(&runID); err != nil {
+		t.Fatalf("seed queued run: %v", err)
 	}
-	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID) })
 
-	// B's newly-arrived comment on the same issue.
+	// B's newly-arrived comment on the same task.
 	var commentID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content)
-		VALUES ($1, $2, 'member', $3, 'B comment') RETURNING id`, issueID, workspaceID, userB).Scan(&commentID); err != nil {
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content)
+		VALUES ($1, $2, 'member', $3, 'B comment') RETURNING id`, taskID, workspaceID, userB).Scan(&commentID); err != nil {
 		t.Fatalf("seed comment: %v", err)
 	}
 
 	// Re-stamp the FULL snapshot for B's member comment (direct_human + comment
 	// evidence), as the caller does.
-	if _, err := q.MergeCommentIntoPendingTask(ctx, db.MergeCommentIntoPendingTaskParams{
-		IssueID:                 util.MustParseUUID(issueID),
+	if _, err := q.MergeCommentIntoPendingRun(ctx, db.MergeCommentIntoPendingRunParams{
+		TaskID:                  util.MustParseUUID(taskID),
 		AgentID:                 util.MustParseUUID(agentID),
 		NewTriggerCommentID:     util.MustParseUUID(commentID),
 		NewOriginatorUserID:     util.MustParseUUID(userB),
@@ -235,9 +235,9 @@ func TestMergeCommentIntoPendingTask_KeepsAccountableEqualsOriginator(t *testing
 	var originator, accountable pgtype.UUID
 	var source, evidenceKind pgtype.Text
 	if err := pool.QueryRow(ctx,
-		`SELECT originator_user_id, accountable_user_id, originator_source, trigger_evidence_kind FROM agent_task_queue WHERE id = $1`, taskID,
+		`SELECT originator_user_id, accountable_user_id, originator_source, trigger_evidence_kind FROM agent_run WHERE id = $1`, runID,
 	).Scan(&originator, &accountable, &source, &evidenceKind); err != nil {
-		t.Fatalf("read task: %v", err)
+		t.Fatalf("read run: %v", err)
 	}
 	if !originator.Valid || originator.Bytes != util.MustParseUUID(userB).Bytes {
 		t.Errorf("originator = %s, want re-stamped to B %s", util.UUIDToString(originator), userB)
@@ -266,8 +266,8 @@ func TestAttributionForMergedComment_HonorsFailClosedPolicy(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
-	workspaceID, ownerID, agentID, issueID := seedAttributionFixture(t, pool)
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
+	workspaceID, ownerID, agentID, taskID := seedAttributionFixture(t, pool)
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
 	agent, err := q.GetAgent(ctx, util.MustParseUUID(agentID))
 	if err != nil {
 		t.Fatalf("get agent: %v", err)
@@ -276,9 +276,9 @@ func TestAttributionForMergedComment_HonorsFailClosedPolicy(t *testing.T) {
 	// An agent-authored comment with no source-task lineage → no precise human.
 	var commentID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content)
 		VALUES ($1, $2, 'agent', $3, 'autonomous ping') RETURNING id`,
-		issueID, workspaceID, agentID).Scan(&commentID); err != nil {
+		taskID, workspaceID, agentID).Scan(&commentID); err != nil {
 		t.Fatalf("seed comment: %v", err)
 	}
 
@@ -320,13 +320,13 @@ func TestAttributionForMergedComment_HonorsFailClosedPolicy(t *testing.T) {
 func TestAttributionInvariantCheck_RejectsBypass(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
-	_, userA, agentID, issueID := seedAttributionFixture(t, pool)
+	_, userA, agentID, taskID := seedAttributionFixture(t, pool)
 
 	// originator set, accountable NULL, source set (enforced) → must violate the check.
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, originator_user_id, originator_source)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, originator_user_id, originator_source)
 		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), $2, 'queued', 0, $3, 'comment_source')`,
-		agentID, issueID, userA); err == nil {
+		agentID, taskID, userA); err == nil {
 		t.Fatal("expected the CHECK to reject originator set with NULL accountable, but insert succeeded")
 	}
 
@@ -338,21 +338,21 @@ func TestAttributionInvariantCheck_RejectsBypass(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM "user" WHERE id = $1`, userB) })
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, originator_user_id, accountable_user_id, originator_source)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, originator_user_id, accountable_user_id, originator_source)
 		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), $2, 'queued', 0, $3, $4, 'comment_source')`,
-		agentID, issueID, userA, userB); err == nil {
+		agentID, taskID, userA, userB); err == nil {
 		t.Fatal("expected the CHECK to reject originator != accountable, but insert succeeded")
 	}
 
 	// The legitimate shape (equal) is accepted.
-	var okTaskID string
+	var okRunID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, originator_user_id, accountable_user_id, originator_source)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, originator_user_id, accountable_user_id, originator_source)
 		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), $2, 'queued', 0, $3, $3, 'direct_human') RETURNING id`,
-		agentID, issueID, userA).Scan(&okTaskID); err != nil {
+		agentID, taskID, userA).Scan(&okRunID); err != nil {
 		t.Fatalf("equal originator/accountable must be accepted, got %v", err)
 	}
-	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, okTaskID) })
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, okRunID) })
 }
 
 // TestAttributionInvariantCheck_RejectsUnbackfilledLegacyRows verifies the second
@@ -363,12 +363,12 @@ func TestAttributionInvariantCheck_RejectsBypass(t *testing.T) {
 func TestAttributionInvariantCheck_RejectsUnbackfilledLegacyRows(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
-	_, userA, agentID, issueID := seedAttributionFixture(t, pool)
+	_, userA, agentID, taskID := seedAttributionFixture(t, pool)
 
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, originator_user_id)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, originator_user_id)
 		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), $2, 'queued', 0, $3)`,
-		agentID, issueID, userA); err == nil {
+		agentID, taskID, userA); err == nil {
 		t.Fatal("expected the strict CHECK to reject an unbackfilled legacy row, but insert succeeded")
 	}
 }
@@ -573,19 +573,19 @@ func TestTriggerOwnerAttribution_TransfersToSubstantiveEditor(t *testing.T) {
 	}
 }
 
-// TestEnqueueTaskForIssueAutopilotOriginStampsRuleOwner is the acceptance test for
-// rule_owner (SILI-4302 §3.4): an autopilot-origin issue's run has NO authorizing
+// TestEnqueueRunForTaskAutopilotOriginStampsRuleOwner is the acceptance test for
+// rule_owner (SILI-4302 §3.4): an autopilot-origin task's run has NO authorizing
 // human (originator_user_id stays NULL) but IS accountable to the publisher of the
 // autopilot's active rule version, with rule_version_id recording the snapshot.
 // This is the accountable-diverges-from-originator case.
-func TestEnqueueTaskForIssueAutopilotOriginStampsRuleOwner(t *testing.T) {
+func TestEnqueueRunForTaskAutopilotOriginStampsRuleOwner(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
 	workspaceID, publisherID, agentID, _ := seedAttributionFixture(t, pool)
 
 	// A synthetic autopilot id (no FK) with an active rule version published by the
-	// member. gen_random_uuid() gives the autopilot id back so the issue can point
+	// member. gen_random_uuid() gives the autopilot id back so the task can point
 	// its origin at it.
 	var ruleVersionID, autopilotID string
 	if err := pool.QueryRow(ctx, `
@@ -595,18 +595,18 @@ func TestEnqueueTaskForIssueAutopilotOriginStampsRuleOwner(t *testing.T) {
 		t.Fatalf("seed rule version: %v", err)
 	}
 
-	var issueID string
+	var taskID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority, number, origin_type, origin_id)
-		VALUES ($1, 'autopilot issue', 'agent', $2, 'agent', $2, 'medium', 9001, 'autopilot', $3) RETURNING id`,
-		workspaceID, agentID, autopilotID).Scan(&issueID); err != nil {
-		t.Fatalf("seed autopilot-origin issue: %v", err)
+		INSERT INTO task (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority, number, origin_type, origin_id)
+		VALUES ($1, 'autopilot task', 'agent', $2, 'agent', $2, 'medium', 9001, 'autopilot', $3) RETURNING id`,
+		workspaceID, agentID, autopilotID).Scan(&taskID); err != nil {
+		t.Fatalf("seed autopilot-origin task: %v", err)
 	}
-	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID) })
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	task, err := svc.EnqueueTaskForIssue(ctx, db.Issue{
-		ID:           util.MustParseUUID(issueID),
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	agentRun, err := svc.EnqueueRunForTask(ctx, db.Task{
+		ID:           util.MustParseUUID(taskID),
 		AssigneeID:   util.MustParseUUID(agentID),
 		Priority:     "medium",
 		CreatorType:  "agent",
@@ -617,14 +617,14 @@ func TestEnqueueTaskForIssueAutopilotOriginStampsRuleOwner(t *testing.T) {
 		OriginID:     util.MustParseUUID(autopilotID),
 	})
 	if err != nil {
-		t.Fatalf("EnqueueTaskForIssue: %v", err)
+		t.Fatalf("EnqueueTaskForTask: %v", err)
 	}
 
 	var source pgtype.Text
 	var originator, accountable, ruleVersion pgtype.UUID
 	if err := pool.QueryRow(ctx, `
 		SELECT originator_source, originator_user_id, accountable_user_id, rule_version_id
-		FROM agent_task_queue WHERE id = $1`, task.ID).Scan(&source, &originator, &accountable, &ruleVersion); err != nil {
+		FROM agent_run WHERE id = $1`, agentRun.ID).Scan(&source, &originator, &accountable, &ruleVersion); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 
@@ -642,32 +642,32 @@ func TestEnqueueTaskForIssueAutopilotOriginStampsRuleOwner(t *testing.T) {
 	}
 }
 
-// TestEnqueueTaskForIssueAutopilotOriginWithoutVersionDegrades verifies that an
-// autopilot-origin issue whose autopilot has NO published rule version degrades to
+// TestEnqueueRunForTaskAutopilotOriginWithoutVersionDegrades verifies that an
+// autopilot-origin task whose autopilot has NO published rule version degrades to
 // unattributed (never fabricating a human) rather than crashing or bypassing.
-// TestEnqueueTaskForIssueAutopilotOriginWithoutVersionOwnerFallback: an
-// autopilot-origin issue whose autopilot has no published rule version resolves to
+// TestEnqueueRunForTaskAutopilotOriginWithoutVersionOwnerFallback: an
+// autopilot-origin task whose autopilot has no published rule version resolves to
 // unattributed, then the default (non-fail-closed) workspace policy degrades it to
 // owner_fallback — accountable = agent owner, originator still NULL — so no run is
 // left without an accountable human (SILI-4302 §3.5).
-func TestEnqueueTaskForIssueAutopilotOriginWithoutVersionOwnerFallback(t *testing.T) {
+func TestEnqueueRunForTaskAutopilotOriginWithoutVersionOwnerFallback(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
 	workspaceID, ownerID, agentID, _ := seedAttributionFixture(t, pool)
 
-	var issueID, autopilotID string
+	var taskID, autopilotID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority, number, origin_type, origin_id)
-		VALUES ($1, 'autopilot issue', 'agent', $2, 'agent', $2, 'medium', 9002, 'autopilot', gen_random_uuid()) RETURNING id, origin_id`,
-		workspaceID, agentID).Scan(&issueID, &autopilotID); err != nil {
-		t.Fatalf("seed autopilot-origin issue: %v", err)
+		INSERT INTO task (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority, number, origin_type, origin_id)
+		VALUES ($1, 'autopilot task', 'agent', $2, 'agent', $2, 'medium', 9002, 'autopilot', gen_random_uuid()) RETURNING id, origin_id`,
+		workspaceID, agentID).Scan(&taskID, &autopilotID); err != nil {
+		t.Fatalf("seed autopilot-origin task: %v", err)
 	}
-	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID) })
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	task, err := svc.EnqueueTaskForIssue(ctx, db.Issue{
-		ID:           util.MustParseUUID(issueID),
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	agentRun, err := svc.EnqueueRunForTask(ctx, db.Task{
+		ID:           util.MustParseUUID(taskID),
 		AssigneeID:   util.MustParseUUID(agentID),
 		Priority:     "medium",
 		CreatorType:  "agent",
@@ -678,14 +678,14 @@ func TestEnqueueTaskForIssueAutopilotOriginWithoutVersionOwnerFallback(t *testin
 		OriginID:     util.MustParseUUID(autopilotID),
 	})
 	if err != nil {
-		t.Fatalf("EnqueueTaskForIssue: %v", err)
+		t.Fatalf("EnqueueTaskForTask: %v", err)
 	}
 
 	var source pgtype.Text
 	var originator, accountable pgtype.UUID
 	if err := pool.QueryRow(ctx, `
-		SELECT originator_source, originator_user_id, accountable_user_id FROM agent_task_queue WHERE id = $1`,
-		task.ID).Scan(&source, &originator, &accountable); err != nil {
+		SELECT originator_source, originator_user_id, accountable_user_id FROM agent_run WHERE id = $1`,
+		agentRun.ID).Scan(&source, &originator, &accountable); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 	if source.String != string(attribution.SourceOwnerFallback) {
@@ -700,10 +700,10 @@ func TestEnqueueTaskForIssueAutopilotOriginWithoutVersionOwnerFallback(t *testin
 }
 
 // TestEnqueueTaskFailClosedRefusesUnattributed: with the workspace opted into
-// fail-closed, an unattributable run (autopilot-origin issue, no rule version) is
+// fail-closed, an unattributable run (autopilot-origin task, no rule version) is
 // REFUSED at enqueue (ErrAttributionFailClosed) rather than degraded to
 // owner_fallback (SILI-4302 §3.5).
-func TestEnqueueTaskFailClosedRefusesUnattributed(t *testing.T) {
+func TestEnqueueRunFailClosedRefusesUnattributed(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -712,18 +712,18 @@ func TestEnqueueTaskFailClosedRefusesUnattributed(t *testing.T) {
 		t.Fatalf("set fail-closed: %v", err)
 	}
 
-	var issueID, autopilotID string
+	var taskID, autopilotID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority, number, origin_type, origin_id)
-		VALUES ($1, 'autopilot issue', 'agent', $2, 'agent', $2, 'medium', 9003, 'autopilot', gen_random_uuid()) RETURNING id, origin_id`,
-		workspaceID, agentID).Scan(&issueID, &autopilotID); err != nil {
-		t.Fatalf("seed autopilot-origin issue: %v", err)
+		INSERT INTO task (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority, number, origin_type, origin_id)
+		VALUES ($1, 'autopilot task', 'agent', $2, 'agent', $2, 'medium', 9003, 'autopilot', gen_random_uuid()) RETURNING id, origin_id`,
+		workspaceID, agentID).Scan(&taskID, &autopilotID); err != nil {
+		t.Fatalf("seed autopilot-origin task: %v", err)
 	}
-	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID) })
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	_, err := svc.EnqueueTaskForIssue(ctx, db.Issue{
-		ID:           util.MustParseUUID(issueID),
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	_, err := svc.EnqueueRunForTask(ctx, db.Task{
+		ID:           util.MustParseUUID(taskID),
 		AssigneeID:   util.MustParseUUID(agentID),
 		Priority:     "medium",
 		CreatorType:  "agent",
@@ -734,11 +734,11 @@ func TestEnqueueTaskFailClosedRefusesUnattributed(t *testing.T) {
 		OriginID:     util.MustParseUUID(autopilotID),
 	})
 	if !errors.Is(err, ErrAttributionFailClosed) {
-		t.Fatalf("EnqueueTaskForIssue error = %v, want ErrAttributionFailClosed", err)
+		t.Fatalf("EnqueueTaskForTask error = %v, want ErrAttributionFailClosed", err)
 	}
-	// No task row should have been created for the issue.
+	// No task row should have been created for the task.
 	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE issue_id = $1`, issueID).Scan(&count); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE task_id = $1`, taskID).Scan(&count); err != nil {
 		t.Fatalf("count tasks: %v", err)
 	}
 	if count != 0 {
@@ -785,7 +785,7 @@ func TestDispatchRunOnlyScheduleStampsRuleOwnerRow(t *testing.T) {
 		t.Fatalf("seed rule version: %v", err)
 	}
 
-	svc := &AutopilotService{Queries: q, TxStarter: pool, Bus: events.New(), TaskSvc: &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}}
+	svc := &AutopilotService{Queries: q, TxStarter: pool, Bus: events.New(), RunSvc: &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}}
 	ap, err := q.GetAutopilot(ctx, util.MustParseUUID(autopilotID))
 	if err != nil {
 		t.Fatalf("get autopilot: %v", err)
@@ -803,7 +803,7 @@ func TestDispatchRunOnlyScheduleStampsRuleOwnerRow(t *testing.T) {
 	var originator, accountable, ruleVersion pgtype.UUID
 	if err := pool.QueryRow(ctx, `
 		SELECT originator_source, originator_user_id, accountable_user_id, rule_version_id
-		FROM agent_task_queue WHERE autopilot_run_id = $1`, run.ID).Scan(&source, &originator, &accountable, &ruleVersion); err != nil {
+		FROM agent_run WHERE autopilot_run_id = $1`, run.ID).Scan(&source, &originator, &accountable, &ruleVersion); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 	if source.String != string(attribution.SourceRuleOwner) {
@@ -849,7 +849,7 @@ func TestDispatchRunOnlyManualStampsDirectHuman(t *testing.T) {
 		t.Fatalf("seed actor member: %v", err)
 	}
 
-	svc := &AutopilotService{Queries: q, TxStarter: pool, Bus: events.New(), TaskSvc: &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}}
+	svc := &AutopilotService{Queries: q, TxStarter: pool, Bus: events.New(), RunSvc: &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}}
 	ap, err := q.GetAutopilot(ctx, util.MustParseUUID(autopilotID))
 	if err != nil {
 		t.Fatalf("get autopilot: %v", err)
@@ -866,7 +866,7 @@ func TestDispatchRunOnlyManualStampsDirectHuman(t *testing.T) {
 	var originator, accountable, ruleVersion pgtype.UUID
 	if err := pool.QueryRow(ctx, `
 		SELECT originator_source, originator_user_id, accountable_user_id, rule_version_id
-		FROM agent_task_queue WHERE autopilot_run_id = $1`, run.ID).Scan(&source, &originator, &accountable, &ruleVersion); err != nil {
+		FROM agent_run WHERE autopilot_run_id = $1`, run.ID).Scan(&source, &originator, &accountable, &ruleVersion); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 	if source.String != string(attribution.SourceDirectHuman) {
@@ -885,7 +885,7 @@ func TestDispatchRunOnlyManualStampsDirectHuman(t *testing.T) {
 
 // TestDispatchRunOnlyScheduleTransfersToEditor is Elon's must-fix REAL dispatch test:
 // it drives dispatchRunOnly end to end (schedule-style, no member actor) and asserts
-// the PERSISTED agent_task_queue row's accountable_user_id follows the trigger's
+// the PERSISTED agent_run row's accountable_user_id follows the trigger's
 // current responsible publisher after a substantive edit — the creator seeds it, then
 // a later editor's re-stamp (the same SetAutopilotTriggerPublisher the UpdateTrigger
 // handler runs) makes future runs attribute to the editor, with originator still NULL
@@ -932,7 +932,7 @@ func TestDispatchRunOnlyScheduleTransfersToEditor(t *testing.T) {
 		t.Fatalf("seed run: %v", err)
 	}
 
-	svc := &AutopilotService{Queries: q, TxStarter: pool, Bus: events.New(), TaskSvc: &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}}
+	svc := &AutopilotService{Queries: q, TxStarter: pool, Bus: events.New(), RunSvc: &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}}
 	ap, err := q.GetAutopilot(ctx, util.MustParseUUID(autopilotID))
 	if err != nil {
 		t.Fatalf("get autopilot: %v", err)
@@ -950,7 +950,7 @@ func TestDispatchRunOnlyScheduleTransfersToEditor(t *testing.T) {
 	var originator, accountable pgtype.UUID
 	if err := pool.QueryRow(ctx, `
 		SELECT originator_source, originator_user_id, accountable_user_id
-		FROM agent_task_queue WHERE autopilot_run_id = $1`, run.ID).Scan(&source, &originator, &accountable); err != nil {
+		FROM agent_run WHERE autopilot_run_id = $1`, run.ID).Scan(&source, &originator, &accountable); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 	if source.String != string(attribution.SourceTriggerOwner) {
@@ -965,11 +965,11 @@ func TestDispatchRunOnlyScheduleTransfersToEditor(t *testing.T) {
 	}
 }
 
-// TestEnqueueTaskForIssueAutopilotManualStampsDirectHuman verifies the manual fix on
-// the create_issue path: enqueuing an autopilot-origin issue WITH a triggering actor
-// (as dispatchCreateIssue does for a manual trigger) attributes direct_human to that
+// TestEnqueueRunForTaskAutopilotManualStampsDirectHuman verifies the manual fix on
+// the create_task path: enqueuing an autopilot-origin task WITH a triggering actor
+// (as dispatchCreateTask does for a manual trigger) attributes direct_human to that
 // actor, not rule_owner — the actor override wins over the autopilot-origin branch.
-func TestEnqueueTaskForIssueAutopilotManualStampsDirectHuman(t *testing.T) {
+func TestEnqueueRunForTaskAutopilotManualStampsDirectHuman(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -982,14 +982,14 @@ func TestEnqueueTaskForIssueAutopilotManualStampsDirectHuman(t *testing.T) {
 		workspaceID, publisherID).Scan(&autopilotID); err != nil {
 		t.Fatalf("seed rule version: %v", err)
 	}
-	var issueID string
+	var taskID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority, number, origin_type, origin_id)
-		VALUES ($1, 'autopilot issue', 'agent', $2, 'agent', $2, 'medium', 9101, 'autopilot', $3) RETURNING id`,
-		workspaceID, agentID, autopilotID).Scan(&issueID); err != nil {
-		t.Fatalf("seed autopilot-origin issue: %v", err)
+		INSERT INTO task (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority, number, origin_type, origin_id)
+		VALUES ($1, 'autopilot task', 'agent', $2, 'agent', $2, 'medium', 9101, 'autopilot', $3) RETURNING id`,
+		workspaceID, agentID, autopilotID).Scan(&taskID); err != nil {
+		t.Fatalf("seed autopilot-origin task: %v", err)
 	}
-	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID) })
 
 	// A distinct triggering member (not the rule publisher) manually triggers.
 	var actorID string
@@ -999,10 +999,10 @@ func TestEnqueueTaskForIssueAutopilotManualStampsDirectHuman(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM "user" WHERE id = $1`, actorID) })
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	// dispatchCreateIssue routes a manual trigger through the actor-carrying enqueue.
-	task, err := svc.EnqueueTaskForIssueWithHandoff(ctx, db.Issue{
-		ID:           util.MustParseUUID(issueID),
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	// dispatchCreateTask routes a manual trigger through the actor-carrying enqueue.
+	agentRun, err := svc.EnqueueRunForTaskWithHandoff(ctx, db.Task{
+		ID:           util.MustParseUUID(taskID),
 		AssigneeID:   util.MustParseUUID(agentID),
 		Priority:     "medium",
 		CreatorType:  "agent",
@@ -1013,14 +1013,14 @@ func TestEnqueueTaskForIssueAutopilotManualStampsDirectHuman(t *testing.T) {
 		OriginID:     util.MustParseUUID(autopilotID),
 	}, "", util.MustParseUUID(actorID))
 	if err != nil {
-		t.Fatalf("EnqueueTaskForIssueWithHandoff: %v", err)
+		t.Fatalf("EnqueueTaskForTaskWithHandoff: %v", err)
 	}
 
 	var source pgtype.Text
 	var originator, accountable, ruleVersion pgtype.UUID
 	if err := pool.QueryRow(ctx, `
 		SELECT originator_source, originator_user_id, accountable_user_id, rule_version_id
-		FROM agent_task_queue WHERE id = $1`, task.ID).Scan(&source, &originator, &accountable, &ruleVersion); err != nil {
+		FROM agent_run WHERE id = $1`, agentRun.ID).Scan(&source, &originator, &accountable, &ruleVersion); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 	if source.String != string(attribution.SourceDirectHuman) {
@@ -1110,8 +1110,8 @@ func TestApplyAttributionFallbackRefusesOnMissingOwner(t *testing.T) {
 	q := db.New(pool)
 	workspaceID, _, _, _ := seedAttributionFixture(t, pool) // default policy = open
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	unattr := attribution.Unattributed(attribution.EvidenceIssueAssignment, util.MustParseUUID(workspaceID))
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	unattr := attribution.Unattributed(attribution.EvidenceTaskAssignment, util.MustParseUUID(workspaceID))
 	_, err := svc.applyAttributionFallback(ctx, unattr, db.Agent{WorkspaceID: util.MustParseUUID(workspaceID)}) // OwnerID zero
 	if !errors.Is(err, ErrAttributionFailClosed) {
 		t.Fatalf("missing owner: err = %v, want ErrAttributionFailClosed", err)
@@ -1127,8 +1127,8 @@ func TestApplyAttributionFallbackRefusesOnPolicyReadFailure(t *testing.T) {
 	q := db.New(pool)
 	_, ownerID, _, _ := seedAttributionFixture(t, pool)
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	unattr := attribution.Unattributed(attribution.EvidenceIssueAssignment, pgtype.UUID{})
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	unattr := attribution.Unattributed(attribution.EvidenceTaskAssignment, pgtype.UUID{})
 	missingWs := pgtype.UUID{Bytes: [16]byte{0xDE, 0xAD, 0xBE, 0xEF}, Valid: true} // no such workspace
 	_, err := svc.applyAttributionFallback(ctx, unattr, db.Agent{WorkspaceID: missingWs, OwnerID: util.MustParseUUID(ownerID)})
 	if !errors.Is(err, ErrAttributionFailClosed) {
@@ -1139,7 +1139,7 @@ func TestApplyAttributionFallbackRefusesOnPolicyReadFailure(t *testing.T) {
 // TestApplyAttributionFallbackPreciseUntouched: a precise attribution never reads
 // the policy and passes through unchanged (proven with a nil-Queries service).
 func TestApplyAttributionFallbackPreciseUntouched(t *testing.T) {
-	svc := &TaskService{} // no Queries: a policy read would panic/error if attempted
+	svc := &AgentRunService{} // no Queries: a policy read would panic/error if attempted
 	precise := attribution.DirectHumanRun(pgtype.UUID{Bytes: [16]byte{0x11}, Valid: true}, attribution.EvidenceComment, pgtype.UUID{})
 	got, err := svc.applyAttributionFallback(context.Background(), precise, db.Agent{})
 	if err != nil {
@@ -1150,14 +1150,14 @@ func TestApplyAttributionFallbackPreciseUntouched(t *testing.T) {
 	}
 }
 
-// TestRerunIssueAttributesToRerunningMember is the §5 acceptance test: a manual
+// TestRerunTaskAttributesToRerunningMember is the §5 acceptance test: a manual
 // rerun is a NEW direct_human trigger attributed to the member who re-ran — not the
-// original run's human — and records rerun_of_task_id lineage back to the source.
-func TestRerunIssueAttributesToRerunningMember(t *testing.T) {
+// original run's human — and records rerun_of_run_id lineage back to the source.
+func TestRerunTaskAttributesToRerunningMember(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
-	workspaceID, creatorID, agentID, issueID := seedAttributionFixture(t, pool)
+	workspaceID, creatorID, agentID, taskID := seedAttributionFixture(t, pool)
 
 	// A distinct member performs the rerun.
 	var rerunnerID string
@@ -1171,8 +1171,8 @@ func TestRerunIssueAttributesToRerunningMember(t *testing.T) {
 		t.Fatalf("seed rerunner member: %v", err)
 	}
 
-	issueStruct := db.Issue{
-		ID:           util.MustParseUUID(issueID),
+	taskStruct := db.Task{
+		ID:           util.MustParseUUID(taskID),
 		AssigneeID:   util.MustParseUUID(agentID),
 		Priority:     "medium",
 		CreatorType:  "member",
@@ -1180,24 +1180,24 @@ func TestRerunIssueAttributesToRerunningMember(t *testing.T) {
 		WorkspaceID:  util.MustParseUUID(workspaceID),
 		AssigneeType: pgtype.Text{String: "agent", Valid: true},
 	}
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	// The original run, attributed to the issue creator.
-	orig, err := svc.EnqueueTaskForIssue(ctx, issueStruct)
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	// The original run, attributed to the task creator.
+	orig, err := svc.EnqueueRunForTask(ctx, taskStruct)
 	if err != nil {
-		t.Fatalf("EnqueueTaskForIssue (original): %v", err)
+		t.Fatalf("EnqueueTaskForTask (original): %v", err)
 	}
 
 	// The rerun, performed by a different member.
-	task, err := svc.RerunIssue(ctx, util.MustParseUUID(issueID), orig.ID, pgtype.UUID{}, util.MustParseUUID(rerunnerID), nil)
+	agentRun, err := svc.RerunTask(ctx, util.MustParseUUID(taskID), orig.ID, pgtype.UUID{}, util.MustParseUUID(rerunnerID), nil)
 	if err != nil {
-		t.Fatalf("RerunIssue: %v", err)
+		t.Fatalf("RerunTask: %v", err)
 	}
 
 	var source pgtype.Text
 	var originator, accountable, rerunOf pgtype.UUID
 	if err := pool.QueryRow(ctx, `
-		SELECT originator_source, originator_user_id, accountable_user_id, rerun_of_task_id
-		FROM agent_task_queue WHERE id = $1`, task.ID).Scan(&source, &originator, &accountable, &rerunOf); err != nil {
+		SELECT originator_source, originator_user_id, accountable_user_id, rerun_of_run_id
+		FROM agent_run WHERE id = $1`, agentRun.ID).Scan(&source, &originator, &accountable, &rerunOf); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 	if source.String != string(attribution.SourceDirectHuman) {
@@ -1210,7 +1210,7 @@ func TestRerunIssueAttributesToRerunningMember(t *testing.T) {
 		t.Errorf("accountable_user_id = %s, want == originator (rerunner)", util.UUIDToString(accountable))
 	}
 	if !rerunOf.Valid || rerunOf.Bytes != orig.ID.Bytes {
-		t.Errorf("rerun_of_task_id = %s, want original task %s", util.UUIDToString(rerunOf), util.UUIDToString(orig.ID))
+		t.Errorf("rerun_of_run_id = %s, want original task %s", util.UUIDToString(rerunOf), util.UUIDToString(orig.ID))
 	}
 }
 
@@ -1218,8 +1218,8 @@ func TestRerunIssueAttributesToRerunningMember(t *testing.T) {
 // longer a NULL-source bypass and uses the UNIFORM evidence pair: the sender is a
 // direct_human originator+accountable, and evidence is (kind=chat,
 // ref=chat_session_id) so the attribution UI links to the conversation the same
-// way it does for autopilot_run / issue_assignment (SILI-4302 §2, Elon 2nd-round).
-func TestEnqueueChatTaskStampsChatEvidence(t *testing.T) {
+// way it does for autopilot_run / task_assignment (SILI-4302 §2, Elon 2nd-round).
+func TestEnqueueChatRunStampsChatEvidence(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -1233,8 +1233,8 @@ func TestEnqueueChatTaskStampsChatEvidence(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM chat_session WHERE id = $1`, chatSessionID) })
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	task, err := svc.EnqueueChatTask(ctx, db.ChatSession{
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	agentRun, err := svc.EnqueueChatRun(ctx, db.ChatSession{
 		ID:      util.MustParseUUID(chatSessionID),
 		AgentID: util.MustParseUUID(agentID),
 	}, util.MustParseUUID(userID), false)
@@ -1246,7 +1246,7 @@ func TestEnqueueChatTaskStampsChatEvidence(t *testing.T) {
 	var originator, accountable, evidenceRef pgtype.UUID
 	if err := pool.QueryRow(ctx, `
 		SELECT originator_source, originator_user_id, accountable_user_id, trigger_evidence_kind, trigger_evidence_ref_id
-		FROM agent_task_queue WHERE id = $1`, task.ID).Scan(&source, &originator, &accountable, &evidenceKind, &evidenceRef); err != nil {
+		FROM agent_run WHERE id = $1`, agentRun.ID).Scan(&source, &originator, &accountable, &evidenceKind, &evidenceRef); err != nil {
 		t.Fatalf("read stored attribution: %v", err)
 	}
 
@@ -1267,7 +1267,7 @@ func TestEnqueueChatTaskStampsChatEvidence(t *testing.T) {
 	}
 }
 
-func TestEnqueueChatTaskDefersForChannelMediaAndPromotesWhenReady(t *testing.T) {
+func TestEnqueueChatRunDefersForChannelMediaAndPromotesWhenReady(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -1288,13 +1288,13 @@ func TestEnqueueChatTaskDefersForChannelMediaAndPromotesWhenReady(t *testing.T) 
 		t.Fatalf("seed prior message: %v", err)
 	}
 
-	svc := &TaskService{Queries: q, TxStarter: pool, Bus: events.New()}
-	priorTask, err := svc.EnqueueChatTask(ctx, db.ChatSession{
+	svc := &AgentRunService{Queries: q, TxStarter: pool, Bus: events.New()}
+	priorRun, err := svc.EnqueueChatRun(ctx, db.ChatSession{
 		ID:      util.MustParseUUID(chatSessionID),
 		AgentID: util.MustParseUUID(agentID),
 	}, util.MustParseUUID(userID), false)
 	if err != nil {
-		t.Fatalf("enqueue prior chat task: %v", err)
+		t.Fatalf("enqueue prior chat run: %v", err)
 	}
 	deadline := time.Now().Add(time.Minute)
 	if err := pool.QueryRow(ctx, `
@@ -1303,34 +1303,34 @@ func TestEnqueueChatTaskDefersForChannelMediaAndPromotesWhenReady(t *testing.T) 
 		t.Fatalf("seed pending media message: %v", err)
 	}
 
-	task, err := svc.EnqueueChatTask(ctx, db.ChatSession{
+	agentRun, err := svc.EnqueueChatRun(ctx, db.ChatSession{
 		ID:      util.MustParseUUID(chatSessionID),
 		AgentID: util.MustParseUUID(agentID),
 	}, util.MustParseUUID(userID), false)
 	if err != nil {
 		t.Fatalf("EnqueueChatTask: %v", err)
 	}
-	if task.Status != "deferred" || !task.FireAt.Valid {
-		t.Fatalf("task = status %q fire_at %v, want durable deferred task", task.Status, task.FireAt)
+	if agentRun.Status != "deferred" || !agentRun.FireAt.Valid {
+		t.Fatalf("task = status %q fire_at %v, want durable deferred task", agentRun.Status, agentRun.FireAt)
 	}
-	if !task.ChatInputTaskID.Valid || task.ChatInputTaskID.Bytes != task.ID.Bytes {
-		t.Fatalf("task input owner = %s, want self %s", util.UUIDToString(task.ChatInputTaskID), util.UUIDToString(task.ID))
+	if !agentRun.ChatInputRunID.Valid || agentRun.ChatInputRunID.Bytes != agentRun.ID.Bytes {
+		t.Fatalf("task input owner = %s, want self %s", util.UUIDToString(agentRun.ChatInputRunID), util.UUIDToString(agentRun.ID))
 	}
-	if task.FireAt.Time.Before(deadline.Add(-time.Second)) || task.FireAt.Time.After(deadline.Add(time.Second)) {
-		t.Fatalf("task fire_at = %v, want media deadline %v", task.FireAt.Time, deadline)
+	if agentRun.FireAt.Time.Before(deadline.Add(-time.Second)) || agentRun.FireAt.Time.After(deadline.Add(time.Second)) {
+		t.Fatalf("task fire_at = %v, want media deadline %v", agentRun.FireAt.Time, deadline)
 	}
-	var linkedTaskID pgtype.UUID
-	if err := pool.QueryRow(ctx, `SELECT task_id FROM chat_message WHERE id = $1`, messageID).Scan(&linkedTaskID); err != nil {
+	var linkedRunID pgtype.UUID
+	if err := pool.QueryRow(ctx, `SELECT run_id FROM chat_message WHERE id = $1`, messageID).Scan(&linkedRunID); err != nil {
 		t.Fatalf("load sealed media message: %v", err)
 	}
-	if !linkedTaskID.Valid || linkedTaskID.Bytes != task.ID.Bytes {
-		t.Fatalf("message task_id = %s, want %s", util.UUIDToString(linkedTaskID), util.UUIDToString(task.ID))
+	if !linkedRunID.Valid || linkedRunID.Bytes != agentRun.ID.Bytes {
+		t.Fatalf("message run_id = %s, want %s", util.UUIDToString(linkedRunID), util.UUIDToString(agentRun.ID))
 	}
-	if err := pool.QueryRow(ctx, `SELECT task_id FROM chat_message WHERE id = $1`, priorMessageID).Scan(&linkedTaskID); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT run_id FROM chat_message WHERE id = $1`, priorMessageID).Scan(&linkedRunID); err != nil {
 		t.Fatalf("load prior sealed message: %v", err)
 	}
-	if !linkedTaskID.Valid || linkedTaskID.Bytes != priorTask.ID.Bytes {
-		t.Fatalf("prior message task_id = %s, want unchanged owner %s", util.UUIDToString(linkedTaskID), util.UUIDToString(priorTask.ID))
+	if !linkedRunID.Valid || linkedRunID.Bytes != priorRun.ID.Bytes {
+		t.Fatalf("prior message run_id = %s, want unchanged owner %s", util.UUIDToString(linkedRunID), util.UUIDToString(priorRun.ID))
 	}
 
 	if err := q.ClearChatMessageChannelMediaPending(ctx, db.ClearChatMessageChannelMediaPendingParams{
@@ -1339,13 +1339,13 @@ func TestEnqueueChatTaskDefersForChannelMediaAndPromotesWhenReady(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("clear pending media: %v", err)
 	}
-	if err := svc.PromoteChannelChatTasksIfMediaReady(ctx, util.MustParseUUID(chatSessionID)); err != nil {
+	if err := svc.PromoteChannelChatRunsIfMediaReady(ctx, util.MustParseUUID(chatSessionID)); err != nil {
 		t.Fatalf("PromoteChannelChatTasksIfMediaReady: %v", err)
 	}
 	var status string
 	var fireAt pgtype.Timestamptz
-	if err := pool.QueryRow(ctx, `SELECT status, fire_at FROM agent_task_queue WHERE id = $1`, task.ID).Scan(&status, &fireAt); err != nil {
-		t.Fatalf("load promoted task: %v", err)
+	if err := pool.QueryRow(ctx, `SELECT status, fire_at FROM agent_run WHERE id = $1`, agentRun.ID).Scan(&status, &fireAt); err != nil {
+		t.Fatalf("load promoted run: %v", err)
 	}
 	if status != "queued" || fireAt.Valid {
 		t.Fatalf("promoted task = status %q fire_at %v, want queued with no deadline", status, fireAt)

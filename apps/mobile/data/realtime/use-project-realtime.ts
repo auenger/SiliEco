@@ -3,7 +3,7 @@
  * with the active project id; cleans up on navigate-away.
  *
  * Filters every event by id match (`project.id === projectId` for project
- * events, `issue.project_id === projectId` for issue events) so the hook
+ * events, `task.project_id === projectId` for task events) so the hook
  * only mutates the caches it owns (apps/mobile/CLAUDE.md "Realtime → Mount
  * strategy").
  *
@@ -12,20 +12,20 @@
  *   - project:deleted → drop detail + resources, then fire `onDeleted` so
  *                       the screen pops back instead of stranding the user
  *                       on a 404 page.
- *   - issue:updated/created/deleted → patch the related-issues cache so
+ *   - task:updated/created/deleted → patch the related-tasks cache so
  *                       the list under the project stays in sync.
- *                       Listing-level hooks (use-my-issues-realtime) only
- *                       patch `issueKeys.myAll(wsId)`; this cache lives
- *                       under `issueKeys.list(wsId)` with a "byProject"
+ *                       Listing-level hooks (use-my-tasks-realtime) only
+ *                       patch `taskKeys.myAll(wsId)`; this cache lives
+ *                       under `taskKeys.list(wsId)` with a "byProject"
  *                       suffix and isn't covered by them.
- *   - reconnect       → invalidate detail + resources + related-issues
+ *   - reconnect       → invalidate detail + resources + related-tasks
  *                       (we may have missed events while disconnected).
  *
  * `project:created` is not relevant to the per-record hook (no id match).
  */
 import { useQueryClient } from "@tanstack/react-query";
-import type { Issue } from "@silieco/core/types";
-import { issueKeys } from "@/data/queries/issue-keys";
+import type { Task } from "@silieco/core/types";
+import { taskKeys } from "@/data/queries/task-keys";
 import { projectKeys } from "@/data/queries/projects";
 import { useWSSubscriptions } from "@/lib/use-ws-subscriptions";
 import {
@@ -44,8 +44,8 @@ export function useProjectRealtime(
     (ws, wsId) => {
       if (!projectId) return;
 
-      const issueListKey = [
-        ...issueKeys.list(wsId),
+      const taskListKey = [
+        ...taskKeys.list(wsId),
         "byProject",
         projectId,
       ] as const;
@@ -55,7 +55,7 @@ export function useProjectRealtime(
         qc.invalidateQueries({
           queryKey: projectKeys.resources(wsId, projectId),
         });
-        qc.invalidateQueries({ queryKey: issueListKey });
+        qc.invalidateQueries({ queryKey: taskListKey });
       };
 
       return [
@@ -71,38 +71,38 @@ export function useProjectRealtime(
           onDeleted?.();
         }),
 
-        // Issue events for issues IN this project — patch the byProject
+        // Task events for tasks IN this project — patch the byProject
         // cache directly so the list stays fresh without a refetch.
-        ws.on("issue:updated", (payload) => {
-          const issue = payload.issue;
+        ws.on("task:updated", (payload) => {
+          const task = payload.task;
           // Status / project_id changes both matter:
           //  - if it was in this project and still is: replace in place
           //  - if it just moved INTO this project: append (server is authority on order)
           //  - if it just moved OUT: remove from this list
           const wasInList = (
-            qc.getQueryData<Issue[]>(issueListKey) ?? []
-          ).some((i) => i.id === issue.id);
-          const nowInProject = issue.project_id === projectId;
+            qc.getQueryData<Task[]>(taskListKey) ?? []
+          ).some((i) => i.id === task.id);
+          const nowInProject = task.project_id === projectId;
           if (!wasInList && !nowInProject) return;
-          qc.setQueryData<Issue[]>(issueListKey, (old) => {
+          qc.setQueryData<Task[]>(taskListKey, (old) => {
             if (!old) return old;
             if (nowInProject) {
-              return old.some((i) => i.id === issue.id)
-                ? old.map((i) => (i.id === issue.id ? issue : i))
-                : [...old, issue];
+              return old.some((i) => i.id === task.id)
+                ? old.map((i) => (i.id === task.id ? task : i))
+                : [...old, task];
             }
-            return old.filter((i) => i.id !== issue.id);
+            return old.filter((i) => i.id !== task.id);
           });
         }),
-        ws.on("issue:created", (payload) => {
-          if (payload.issue.project_id !== projectId) return;
+        ws.on("task:created", (payload) => {
+          if (payload.task.project_id !== projectId) return;
           // Server is the authority on list position — invalidate so we
           // refetch with the correct ordering rather than guessing.
-          qc.invalidateQueries({ queryKey: issueListKey });
+          qc.invalidateQueries({ queryKey: taskListKey });
         }),
-        ws.on("issue:deleted", (payload) => {
-          qc.setQueryData<Issue[]>(issueListKey, (old) =>
-            old ? old.filter((i) => i.id !== payload.issue_id) : old,
+        ws.on("task:deleted", (payload) => {
+          qc.setQueryData<Task[]>(taskListKey, (old) =>
+            old ? old.filter((i) => i.id !== payload.task_id) : old,
           );
         }),
 

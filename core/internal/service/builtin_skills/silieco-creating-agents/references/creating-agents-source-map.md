@@ -23,7 +23,7 @@ go test ./internal/service -run TestBuiltinSkillsConformToTemplate
 | Secret-safe MCP input: `mcp-config`, `mcp-config-stdin`, `mcp-config-file` (create) | 172–174 | Same three-channel pattern as `custom-env`; `--mcp-config` warns about shell history / `ps`; value must be a JSON object or `null` | `silieco agent create --help` |
 | MCP flags on `agent update` | 200–202 | Same three channels on update; `--mcp-config null` clears. Unlike `custom_env`, `mcp_config` IS settable via update | `silieco agent update --help` |
 | `thinking-level` / `service-tier` flags on `agent update` | 189–190 | Thin pass-throughs; an explicit empty string clears the saved override and restores the runtime/local Codex default | `silieco agent update --help` |
-| `max-concurrent-tasks` flags + validation | `cmd_agent.go` 179, 208; `cmd_agent_validation.go` 5–20 | Shared CLI helper enforces 1–50; create/update call it before their HTTP mutation and omitted create flags stay absent | `silieco agent create --help`; `silieco agent update --help` |
+| `max-concurrent-runs` flags + validation | `cmd_agent.go` 179, 208; `cmd_agent_validation.go` 5–20 | Shared CLI helper enforces 1–50; create/update call it before their HTTP mutation and omitted create flags stay absent | `silieco agent create --help`; `silieco agent update --help` |
 | `runAgentCreate` builds body + `POST /api/agents` | 533–628 | Only sets a body key when the flag `Changed`; validates `max_concurrent_tasks` at 605–611, then posts to `/api/agents` (617) | read 533–628 |
 | Body assembly: description/instructions/runtime-config/custom-args/custom-env/mcp-config/model/thinking-level/service-tier | 548–611 | `model`, `thinking_level`, and `service_tier` are `Changed`-gated pass-throughs; omitted flags are not sent | read the `runAgentCreate` body assembly |
 | `runAgentUpdate` sends `thinking_level` / `service_tier` / `mcp_config` | 630–725 | Each override key is added only when its flag is `Changed`; `max_concurrent_tasks` is range-checked at 693–699; `custom_env` is intentionally not a flag here | read the `runAgentUpdate` body assembly |
@@ -41,7 +41,7 @@ go test ./internal/service -run TestBuiltinSkillsConformToTemplate
 | `agentCopyCmd` (`copy <source-agent-id>`) + flag registrar | 21, 47, 54 | Own file with its own `init()` so `cmd_agent.go` line refs stay stable; `registerAgentCopyFlags` is shared with the tests | `silieco agent copy --help` |
 | Reads source via `GET /api/agents/<id>` | 95 | Composes over existing endpoints — no dedicated copy API | read `runAgentCopy` |
 | Same-runtime vs cross-runtime rule | 114, 187 | `sameRuntime` copies `model`/`thinking_level`/`service_tier`; a different `--runtime-id` drops them and requires `--model` (empty allowed) | `silieco agent copy --help` |
-| Concurrency copy compatibility | `runAgentCopy`, `copiedAgentMaxConcurrentTasks` | Explicit `--max-concurrent-tasks` is validated before any request; valid source values are copied, while historical values outside 1–50 are omitted so create defaults to 6 | read the concurrency body assembly |
+| Concurrency copy compatibility | `runAgentCopy`, `copiedAgentMaxConcurrentRuns` | Explicit `--max-concurrent-runs` is validated before any request; valid source values are copied, while historical values outside 1–50 are omitted so create defaults to 6 | read the concurrency body assembly |
 | Skills copied in the create transaction | 239 | Source skill ids sent as `skill_ids`, bound in the same `POST /api/agents` tx (267); `--no-skills` opts out | read `runAgentCopy` |
 | Secrets never copied | 240–266 | `custom_env`/`mcp_config`/`runtime_config` set only from explicit secret-safe flags, never read from the source | `silieco agent copy --help` |
 
@@ -86,7 +86,7 @@ only.
 
 | Contract | Line | Behavior |
 |---|---|---|
-| `max_concurrent_tasks` default + validation | `CreateAgentFromTemplate`; `defaultAndValidateAgentMaxConcurrentTasks` | Uses the same helper as manual create: omission or `null` defaults to 6; explicit numeric values outside 1–50 return 400 |
+| `max_concurrent_tasks` default + validation | `CreateAgentFromTemplate`; `defaultAndValidateAgentMaxConcurrentRuns` | Uses the same helper as manual create: omission or `null` defaults to 6; explicit numeric values outside 1–50 return 400 |
 
 ## Runtime model/thinking discovery — `core/pkg/agent/{models,thinking}.go`
 
@@ -110,7 +110,7 @@ only.
 | Agent owner or ws owner/admin | 96–103 | `requireWorkspaceRole(..., "owner", "admin", "member")` then `canManageAgentEnv` → 403 otherwise (SILI-5438) |
 | `canManageAgentEnv` predicate | 120 | workspace owner/admin, or `agent.owner_id == member.user_id`; a NULL `owner_id` never matches |
 
-## Routes — `core/cmd/core/router.go`
+## Routes — `core/cmd/server/router.go`
 
 | Contract | Line | Behavior |
 |---|---|---|
@@ -122,11 +122,11 @@ only.
 | Contract | Line | Behavior |
 |---|---|---|
 | Fresh agent re-read on claim | 1109–1111 | `GetAgent(task.AgentID)` — claim uses persisted fields, not create output |
-| Workspace skills FIRST | 1115 | `skills := h.TaskService.LoadAgentSkills(...)` |
-| Built-ins appended | 1116 | `skills = append(skills, h.TaskService.BuiltinSkills()...)` |
-| Runtime payload | `daemon.go` `TaskAgentData` | Carries `Instructions`, `Skills`, `CustomEnv`, `CustomArgs`, `Model`, `ThinkingLevel`, `ServiceTier`, and `McpConfig`; metadata-only fields remain absent |
+| Workspace skills FIRST | 1115 | `skills := h.AgentRunService.LoadAgentSkills(...)` |
+| Built-ins appended | 1116 | `skills = append(skills, h.AgentRunService.BuiltinSkills()...)` |
+| Runtime payload | `daemon.go` `RunAgentData` | Carries `Instructions`, `Skills`, `CustomEnv`, `CustomArgs`, `Model`, `ThinkingLevel`, `ServiceTier`, and `McpConfig`; metadata-only fields remain absent |
 
-## Skill loading — `core/internal/service/task.go`
+## Skill loading — `core/internal/service/agent_run.go`
 
 | Contract | Line | Behavior |
 |---|---|---|
@@ -147,3 +147,11 @@ only.
 | `CreateAgentParams` | generated from `queries/agent.sql` | typed params include nullable `Model`, `ThinkingLevel`, and `ServiceTier` |
 | `UpdateAgent` SET | generated from `queries/agent.sql` | COALESCE updates include model/thinking/service tier; dedicated clear queries restore each nullable override |
 | `UpdateAgentCustomEnv` (called by the `UpdateAgentEnv` handler) | 2652 | `SET custom_env = $2` — the only write path for env values |
+
+## Self-hosted installation and callback
+
+- `packages/views/common/cli-commands.ts:5`: configured instance download/setup URLs.
+- `apps/web/public/cli/install.sh:4`: explicit download base; user-local installation.
+- `packages/views/auth/login-page.tsx:82`: callback validation, including RFC 6598.
+- `core/cmd/silieco/cmd_auth.go:157`: explicit callback host binds the listener.
+- `core/cmd/silieco/cmd_login.go:78`: login discovers the user's workspaces.

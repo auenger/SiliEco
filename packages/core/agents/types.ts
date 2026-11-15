@@ -1,6 +1,6 @@
 // Derived presence types for agents — the user-facing state we display
 // across the UI (list dots, hover cards, status lines). Computed in the
-// front-end from raw server data (agent + runtime + recent tasks); the
+// front-end from raw server data (agent + runtime + recent runs); the
 // back-end never knows about these enums.
 //
 // Two orthogonal dimensions, derived independently and answering only
@@ -11,13 +11,13 @@
 //   1. AgentAvailability — "Can this agent take work right now?"
 //      Depends only on runtime reachability. The dot colour everywhere in
 //      the app reflects this single dimension; never sticky-red because of
-//      a past task outcome.
+//      a past run outcome.
 //
 //   2. Workload — "What is on this agent's plate right now?"
-//      Depends only on the workspace task snapshot. Three states, each
+//      Depends only on the workspace run snapshot. Three states, each
 //      pointing at a clear user action:
-//        working → tasks running, normal
-//        queued  → tasks queued but nothing running (= stuck if availability
+//        working → runs running, normal
+//        queued  → runs queued but nothing running (= stuck if availability
 //                  is offline/unstable; momentary if online)
 //        idle    → nothing to do
 //      No `failed` / `completed` / `cancelled` states — those are historical,
@@ -41,13 +41,13 @@ export type AgentAvailability =
   | "offline" // ⚫ runtime long offline / missing / never registered
   | "archived"; // ⚫ agent.archived_at set — retired, wins over runtime health
 
-// Current task load on this agent. Three states — never historical,
+// Current run load on this agent. Three states — never historical,
 // never an error predictor (Inbox + Recent Work handle that):
 //
 //   working → runningCount > 0. The runningCount/queuedCount on the detail
 //             object preserve the breakdown for display.
-//   queued  → no running task but ≥1 queued/dispatched. Most often means
-//             the runtime is offline and tasks are stuck waiting; a brief
+//   queued  → no running run but ≥1 queued/dispatched. Most often means
+//             the runtime is offline and runs are stuck waiting; a brief
 //             flash on online runtimes between dispatch and run is a
 //             harmless race.
 //   idle    → nothing on the plate.
@@ -56,7 +56,7 @@ export type AgentAvailability =
 // normal; `offline + queued` is the "stuck" state we explicitly surface;
 // `offline + idle` is "agent unavailable, nothing waiting" — both honest.
 export type Workload =
-  | "working" // ≥1 task currently running
+  | "working" // ≥1 run currently running
   | "queued" // nothing running, but ≥1 queued/dispatched
   | "idle"; // nothing on the plate
 
@@ -65,7 +65,7 @@ export interface AgentPresenceDetail {
   workload: Workload;
   runningCount: number;
   queuedCount: number;
-  // Mirrors agent.max_concurrent_tasks — pulled into the detail so the UI
+  // Mirrors agent.max_concurrent_runs — pulled into the detail so the UI
   // can render `running / capacity` ratios without re-fetching the agent.
   capacity: number;
 }

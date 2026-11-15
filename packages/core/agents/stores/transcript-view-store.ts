@@ -55,7 +55,7 @@ export const useTranscriptViewStore = create<TranscriptViewState>()(
       setDensity: (density) => set({ density }),
     }),
     {
-      name: "silieco_transcript_view",
+      name: "silieco_tr1_transcript_view",
       storage: createJSONStorage(() => defaultStorage),
       partialize: (state) => ({
         sortDirection: state.sortDirection,

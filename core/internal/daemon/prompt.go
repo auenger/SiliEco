@@ -14,22 +14,22 @@ import (
 // the retry starts a brand-new provider session with none of the prior
 // conversation. Stating that up front stops the agent from assuming continuity
 // (e.g. "as I said earlier", relying on files/state it never created) and steers
-// it to re-read the issue and triggering thread before acting. The current user
+// it to re-read the task and triggering thread before acting. The current user
 // prompt is preserved verbatim below the notice.
 func freshSessionRetryPrompt(prompt string) string {
-	const notice = "⚠️ Note: a previous provider session for this task could not be resumed, so this is a brand-new session. None of the earlier provider conversation context is available to you now. Do not assume any prior back-and-forth, in-memory state, or uncommitted work carried over — re-read the issue and the triggering thread to reconstruct what you need before acting.\n\n"
+	const notice = "⚠️ Note: a previous provider session for this task could not be resumed, so this is a brand-new session. None of the earlier provider conversation context is available to you now. Do not assume any prior back-and-forth, in-memory state, or uncommitted work carried over — re-read the task and the triggering thread to reconstruct what you need before acting.\n\n"
 	return notice + prompt
 }
 
 // Turn-mode markers consumed by the runtime brief's mode router
-// (execenv.writeWorkflowIssue). The brief is byte-identical on every run and
+// (execenv.writeWorkflowTask). The brief is byte-identical on every run and
 // therefore cannot say what triggered this turn; these lines do, and they are
 // emitted unconditionally from the same branches BuildPrompt uses to pick a
 // path, so the two can never disagree.
 //
-// Reply mode = respond to the triggering comment, do not touch issue status.
+// Reply mode = respond to the triggering comment, do not touch task status.
 // Ownership mode = an assignment/status change started this run; own the
-// status arc. Applying the wrong one silently changes issue status.
+// status arc. Applying the wrong one silently changes task status.
 const (
 	turnModeReply     = "**Turn mode: Reply.** Follow the Reply-mode block in your runtime workflow file for this turn; the Ownership-mode status steps do not apply.\n\n"
 	turnModeOwnership = "**Turn mode: Ownership.** Follow the Ownership-mode block in your runtime workflow file for this turn; the Reply-mode rules do not apply.\n\n"
@@ -38,7 +38,7 @@ const (
 // perTurnContextBlocks renders the run-scoped context blocks that used to live
 // in the runtime brief (CLAUDE.md / AGENTS.md).
 //
-// Every value here changes from one run to the next on the same issue — the
+// Every value here changes from one run to the next on the same task — the
 // initiator differs whenever another person comments, the continuity notice is
 // true of one run and false of the next, and the connected-app set is resolved
 // per run from the runtime MCP overlay. Claude Code loads the brief into
@@ -48,15 +48,15 @@ const (
 // changing them costs only this turn's own tokens (SILI-5377).
 //
 // Returns "" when none of the blocks apply.
-func perTurnContextBlocks(task Task) string {
+func perTurnContextBlocks(agentRun AgentRun) string {
 	var b strings.Builder
-	if task.PriorSessionResumeUnavailable {
+	if agentRun.PriorSessionResumeUnavailable {
 		b.WriteString(execenv.SessionContinuityNotice)
 	}
-	b.WriteString(execenv.BuildTaskInitiatorBlock(task.InitiatorType, task.InitiatorName, task.InitiatorEmail))
-	b.WriteString(execenv.BuildConnectedAppsBlock(task.ConnectedApps))
-	if task.QuickCreatePrompt == "" {
-		b.WriteString(buildWorkflowStagePromptBlock(task.WorkflowStage))
+	b.WriteString(execenv.BuildRunInitiatorBlock(agentRun.InitiatorType, agentRun.InitiatorName, agentRun.InitiatorEmail))
+	b.WriteString(execenv.BuildConnectedAppsBlock(agentRun.ConnectedApps))
+	if agentRun.QuickCreatePrompt == "" {
+		b.WriteString(buildWorkflowStagePromptBlock(agentRun.WorkflowStage))
 	}
 	return b.String()
 }
@@ -67,7 +67,7 @@ func buildWorkflowStagePromptBlock(stage *WorkflowStageContextData) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n## SOP Run Context\n\n")
-	fmt.Fprintf(&b, "This issue belongs to SOP Run %q (run ID: %s), current Stage %q (key: %s, stage ID: %s).\n", stage.InstanceTitle, stage.InstanceID, stage.Name, stage.StableKey, stage.StageID)
+	fmt.Fprintf(&b, "This task belongs to SOP Run %q (run ID: %s), current Stage %q (key: %s, stage ID: %s).\n", stage.InstanceTitle, stage.InstanceID, stage.Name, stage.StableKey, stage.StageID)
 	if len(stage.AvailableStages) > 0 {
 		b.WriteString("Stages available in this SOP Run:\n")
 		for _, candidate := range stage.AvailableStages {
@@ -79,7 +79,7 @@ func buildWorkflowStagePromptBlock(stage *WorkflowStageContextData) string {
 	} else {
 		b.WriteString("This is the final Stage in the SOP Run.\n")
 	}
-	fmt.Fprintf(&b, "Any continuation, child, or follow-up task derived from this issue MUST remain attached to SOP Run %s unless the user explicitly asks for work outside the SOP. Always pass both `--workflow-instance %s` and `--workflow-stage <stage-id>` to `silieco task create`.\n", stage.InstanceID, stage.InstanceID)
+	fmt.Fprintf(&b, "Any continuation, child, or follow-up task derived from this task MUST remain attached to SOP Run %s unless the user explicitly asks for work outside the SOP. Always pass both `--workflow-instance %s` and `--workflow-stage <stage-id>` to `silieco task create`.\n", stage.InstanceID, stage.InstanceID)
 	b.WriteString("Choose `<stage-id>` from the Stage list above: match a specifically named or semantically intended phase first (for example, an MVP/prototype request maps to a Stage named Prototype or MVP); otherwise use the next Stage when the user says next/successor, and otherwise keep the current Stage for work in the same phase. Never create an unbound continuation task merely because it is assigned to a human, parked in Backlog, or should not run automatically. Backlog controls execution only; SOP attachment is independent. Binding a task to a later Stage does not transition the SOP Run.\n")
 	if len(stage.RequiredSkills) > 0 {
 		b.WriteString("The following current-Stage skills are mandatory for this run:\n")
@@ -98,12 +98,12 @@ func buildWorkflowStagePromptBlock(stage *WorkflowStageContextData) string {
 // is provider-agnostic AND host-agnostic now (every OS → write a UTF-8 file,
 // post with `--content-file`) because the shell-layer corruption it guards
 // against is not specific to any one provider or host (SILI-2904, #4182).
-func BuildPrompt(task Task, provider string) string {
-	body := buildPromptBody(task, provider)
+func BuildPrompt(agentRun AgentRun, provider string) string {
+	body := buildPromptBody(agentRun, provider)
 	// Run-scoped context is appended, never prepended: everything ahead of it
 	// is stable across runs of a resumed session, and appending keeps it after
 	// the cached prefix (SILI-5377).
-	if blocks := perTurnContextBlocks(task); blocks != "" {
+	if blocks := perTurnContextBlocks(agentRun); blocks != "" {
 		if !strings.HasSuffix(body, "\n\n") {
 			body += "\n"
 		}
@@ -112,64 +112,64 @@ func BuildPrompt(task Task, provider string) string {
 	return body
 }
 
-func buildPromptBody(task Task, provider string) string {
-	if task.ChatSessionID != "" {
-		return buildChatPrompt(task)
+func buildPromptBody(agentRun AgentRun, provider string) string {
+	if agentRun.ChatSessionID != "" {
+		return buildChatPrompt(agentRun)
 	}
-	if task.TriggerCommentID != "" {
-		return buildCommentPrompt(task, provider)
+	if agentRun.TriggerCommentID != "" {
+		return buildCommentPrompt(agentRun, provider)
 	}
-	if task.AutopilotRunID != "" {
-		return buildAutopilotPrompt(task)
+	if agentRun.AutopilotRunID != "" {
+		return buildAutopilotPrompt(agentRun)
 	}
-	if task.QuickCreatePrompt != "" {
-		return buildQuickCreatePrompt(task)
+	if agentRun.QuickCreatePrompt != "" {
+		return buildQuickCreatePrompt(agentRun)
 	}
 	var b strings.Builder
 	b.WriteString("You are running as a local coding agent for a Silieco workspace.\n\n")
-	fmt.Fprintf(&b, "Your assigned issue ID is: %s\n\n", task.IssueID)
+	fmt.Fprintf(&b, "Your assigned task ID is: %s\n\n", agentRun.TaskID)
 	b.WriteString(turnModeOwnership)
 	// Assignment handoff (SILI-3375): a free-text instruction the person who
-	// assigned/promoted this issue left for you. Frame it as a handoff, not a
+	// assigned/promoted this task left for you. Frame it as a handoff, not a
 	// comment to reply to — there is no comment thread to answer here.
-	if task.HandoffNote != "" {
-		b.WriteString("You were handed this issue with a handoff note. Treat it as the assigner's scoping instruction for this run; follow it before doing anything broader, and do not reply to it as if it were a comment:\n\n")
-		fmt.Fprintf(&b, "> %s\n\n", task.HandoffNote)
+	if agentRun.HandoffNote != "" {
+		b.WriteString("You were handed this task with a handoff note. Treat it as the assigner's scoping instruction for this run; follow it before doing anything broader, and do not reply to it as if it were a comment:\n\n")
+		fmt.Fprintf(&b, "> %s\n\n", agentRun.HandoffNote)
 	}
-	fmt.Fprintf(&b, "Start by running `silieco issue get %s --output json` to understand your task, then complete it.\n", task.IssueID)
-	fmt.Fprintf(&b, "For comment history, follow the rule in your runtime workflow file (assignment-triggered tasks treat the read as mandatory). Scan the threads first with `silieco issue comment list %s --roots-only --summary --output json`, then expand only what matters with `--thread <thread-id> --tail 30`. Your runtime workflow file documents the rest of the read surface, including pagination and `--since` for incremental polling.\n", task.IssueID)
+	fmt.Fprintf(&b, "Start by running `silieco task get %s --output json` to understand your task, then complete it.\n", agentRun.TaskID)
+	fmt.Fprintf(&b, "For comment history, follow the rule in your runtime workflow file (assignment-triggered tasks treat the read as mandatory). Scan the threads first with `silieco task comment list %s --roots-only --summary --output json`, then expand only what matters with `--thread <thread-id> --tail 30`. Your runtime workflow file documents the rest of the read surface, including pagination and `--since` for incremental polling.\n", agentRun.TaskID)
 	return b.String()
 }
 
 // buildQuickCreatePrompt constructs a prompt for quick-create tasks. The
-// user typed a single natural-language sentence in the create-issue modal;
-// the agent's job is to translate it into one `silieco issue create` CLI
+// user typed a single natural-language sentence in the create-task modal;
+// the agent's job is to translate it into one `silieco task create` CLI
 // invocation, using its judgment to decide whether fetching referenced URLs
-// would produce a better issue. No issue exists yet, so the agent must NOT
-// call `silieco issue get` or attempt to comment — there's nothing to read
+// would produce a better task. No task exists yet, so the agent must NOT
+// call `silieco task get` or attempt to comment — there's nothing to read
 // or reply to.
-func buildQuickCreatePrompt(task Task) string {
+func buildQuickCreatePrompt(agentRun AgentRun) string {
 	var b strings.Builder
 	b.WriteString("You are running as a quick-create assistant for a Silieco workspace.\n\n")
-	b.WriteString("A user captured the following input via the quick-create modal. There is NO existing issue. Your job is to create a well-formed issue from this input with a single `silieco issue create` command.\n\n")
-	fmt.Fprintf(&b, "User input:\n> %s\n\n", task.QuickCreatePrompt)
+	b.WriteString("A user captured the following input via the quick-create modal. There is NO existing task. Your job is to create a well-formed task from this input with a single `silieco task create` command.\n\n")
+	fmt.Fprintf(&b, "User input:\n> %s\n\n", agentRun.QuickCreatePrompt)
 
 	b.WriteString("Field rules:\n\n")
 
 	// title
-	b.WriteString("- **title**: required. A concise but semantically rich summary. If the input references external resources (PRs, issues, URLs), use your judgment on whether fetching the resource would produce a meaningfully better title — e.g. \"review PR #123\" → \"Review PR #123: Refactor auth module to OAuth2\". Strip filler words but preserve key semantic information.\n\n")
+	b.WriteString("- **title**: required. A concise but semantically rich summary. If the input references external resources (PRs, tasks, URLs), use your judgment on whether fetching the resource would produce a meaningfully better title — e.g. \"review PR #123\" → \"Review PR #123: Refactor auth module to OAuth2\". Strip filler words but preserve key semantic information.\n\n")
 
 	// description — the core optimization
 	b.WriteString("- **description**: The description is the executing agent's primary context. Aim for high fidelity — they should grasp the user's intent as if they had read the raw input themselves. Use a two-section structure:\n\n")
-	b.WriteString("  1. **User request** — Faithfully restate what the user wants in their own words. Preserve specific names, identifiers, file paths, code snippets, and technical terms verbatim. Strip non-spec material before writing it (this is removal, not paraphrasing): verbal routing wrappers about creating the issue or routing it (e.g. \"create an issue\", \"分配给 X\", \"让 @X 处理\") and pure conversational fillers (e.g. \"对吧？\"). When in doubt, keep it.\n\n")
-	b.WriteString("     CC exception: `silieco issue create` has no `--subscriber` flag, and the platform auto-subscribes members whose `[@Name](mention://member/<uuid>)` link appears in the description. When the user wrote \"cc @Y\", strip the verbal \"cc\" wrapper from the User request body and append a final `CC: <mention link(s)>` line to the description so the cc routing still fires.\n\n")
+	b.WriteString("  1. **User request** — Faithfully restate what the user wants in their own words. Preserve specific names, identifiers, file paths, code snippets, and technical terms verbatim. Strip non-spec material before writing it (this is removal, not paraphrasing): verbal routing wrappers about creating the task or routing it (e.g. \"create an task\", \"分配给 X\", \"让 @X 处理\") and pure conversational fillers (e.g. \"对吧？\"). When in doubt, keep it.\n\n")
+	b.WriteString("     CC exception: `silieco task create` has no `--subscriber` flag, and the platform auto-subscribes members whose `[@Name](mention://member/<uuid>)` link appears in the description. When the user wrote \"cc @Y\", strip the verbal \"cc\" wrapper from the User request body and append a final `CC: <mention link(s)>` line to the description so the cc routing still fires.\n\n")
 	b.WriteString("  2. **Context** — include ONLY when the input cited external resources AND you successfully fetched them AND they produced verifiable facts worth recording. Summarize facts only (e.g. \"PR #45 changes auth to JWT\"), not interpretation or unsolicited reference implementations. If you have nothing factual to add, omit the section entirely — never use it as an apology log for resources you could not fetch.\n\n")
 	b.WriteString("  Hard rules: never invent requirements, implementation details, or acceptance criteria the user did not express; never reduce multi-sentence input to a single vague sentence; never echo the title.\n\n")
-	b.WriteString("  Passing the description: a short, single-line body with no code, quotes, backticks, `$()`, or other special characters may go inline via `--description \"...\"`. Anything multi-line, or containing code snippets / file paths / quotes / backticks / `$()` / special characters, or otherwise long — which quick-create descriptions usually are — MUST be written to `./description.md` and passed with `--description-file ./description.md`; passing rich text inline lets the shell rewrite or truncate it (SILI-2904). That file MUST live inside your current working directory (e.g. `./description.md`) — never `/tmp` or any machine-shared path, where a different run may have left a stale file that would silently become this issue's description. If the file write fails for any reason, stop and fix it; never run `--description-file` against a file whose write did not succeed.\n\n")
+	b.WriteString("  Passing the description: a short, single-line body with no code, quotes, backticks, `$()`, or other special characters may go inline via `--description \"...\"`. Anything multi-line, or containing code snippets / file paths / quotes / backticks / `$()` / special characters, or otherwise long — which quick-create descriptions usually are — MUST be written to `./description.md` and passed with `--description-file ./description.md`; passing rich text inline lets the shell rewrite or truncate it (SILI-2904). That file MUST live inside your current working directory (e.g. `./description.md`) — never `/tmp` or any machine-shared path, where a different run may have left a stale file that would silently become this task's description. If the file write fails for any reason, stop and fix it; never run `--description-file` against a file whose write did not succeed.\n\n")
 
 	// priority
-	if task.QuickCreatePriority != "" {
-		fmt.Fprintf(&b, "- **priority**: required for this run. Pass `--priority %s`; the quick-create selection is authoritative.\n\n", task.QuickCreatePriority)
+	if agentRun.QuickCreatePriority != "" {
+		fmt.Fprintf(&b, "- **priority**: required for this run. Pass `--priority %s`; the quick-create selection is authoritative.\n\n", agentRun.QuickCreatePriority)
 	} else {
 		b.WriteString("- **priority**: one of `urgent`, `high`, `medium`, `low`, or omit. Map P0/P1 → urgent/high; \"asap\" → urgent. If unspecified, omit.\n\n")
 	}
@@ -180,64 +180,64 @@ func buildQuickCreatePrompt(task Task) string {
 	b.WriteString("    - Treat bare @-routing as an assignee directive even when the user did not write the English word \"assign\". This includes Chinese imperatives like `让 @独立团 review 这个 PR`, `给 @X 处理`, or `交给 @X`; strip the leading `@`/`＠` before matching display names. Do not keep that routing wrapper or `@Name` in the description unless it is a true CC-style notification rather than ownership. If the matched entity is a squad, pass the squad's `id` as `--assignee-id`, not the leader agent's id.\n")
 	agentID := ""
 	agentName := ""
-	if task.Agent != nil {
-		agentID = task.Agent.ID
-		agentName = task.Agent.Name
+	if agentRun.Agent != nil {
+		agentID = agentRun.Agent.ID
+		agentName = agentRun.Agent.Name
 	}
 	switch {
-	case task.SquadID != "":
+	case agentRun.SquadID != "":
 		// The user opened quick-create with a SQUAD selected. The task
 		// runs on the squad's leader agent, but the squad is the expected
 		// owner — assigning to the leader would mask the squad's
 		// delegation flow. Always point the default at the squad UUID.
-		if task.SquadName != "" {
-			fmt.Fprintf(&b, "    - When the user did NOT name an assignee, default to the picker SQUAD %q: pass `--assignee-id %q` (the squad's UUID). The user opened quick-create with the squad selected; you (the leader agent) are running on the squad's behalf, so the squad — not you — is the expected owner. Never leave the issue unassigned, and do not assign it to your own agent UUID.\n\n", task.SquadName, task.SquadID)
+		if agentRun.SquadName != "" {
+			fmt.Fprintf(&b, "    - When the user did NOT name an assignee, default to the picker SQUAD %q: pass `--assignee-id %q` (the squad's UUID). The user opened quick-create with the squad selected; you (the leader agent) are running on the squad's behalf, so the squad — not you — is the expected owner. Never leave the task unassigned, and do not assign it to your own agent UUID.\n\n", agentRun.SquadName, agentRun.SquadID)
 		} else {
-			fmt.Fprintf(&b, "    - When the user did NOT name an assignee, default to the picker SQUAD: pass `--assignee-id %q` (the squad's UUID). The user opened quick-create with the squad selected; you (the leader agent) are running on the squad's behalf, so the squad — not you — is the expected owner. Never leave the issue unassigned, and do not assign it to your own agent UUID.\n\n", task.SquadID)
+			fmt.Fprintf(&b, "    - When the user did NOT name an assignee, default to the picker SQUAD: pass `--assignee-id %q` (the squad's UUID). The user opened quick-create with the squad selected; you (the leader agent) are running on the squad's behalf, so the squad — not you — is the expected owner. Never leave the task unassigned, and do not assign it to your own agent UUID.\n\n", agentRun.SquadID)
 		}
 	case agentID != "":
-		fmt.Fprintf(&b, "    - When the user did NOT name an assignee, default to YOURSELF: pass `--assignee-id %q` (your agent UUID). The picker agent is the expected owner because the user opened quick-create with you selected — never leave the issue unassigned. Use the UUID flag, not `--assignee <name>`, so the assignment is unambiguous even when other agents share part of your name.\n\n", agentID)
+		fmt.Fprintf(&b, "    - When the user did NOT name an assignee, default to YOURSELF: pass `--assignee-id %q` (your agent UUID). The picker agent is the expected owner because the user opened quick-create with you selected — never leave the task unassigned. Use the UUID flag, not `--assignee <name>`, so the assignment is unambiguous even when other agents share part of your name.\n\n", agentID)
 	case agentName != "":
-		fmt.Fprintf(&b, "    - When the user did NOT name an assignee, default to YOURSELF: pass `--assignee %q`. The picker agent is the expected owner because the user opened quick-create with you selected — never leave the issue unassigned.\n\n", agentName)
+		fmt.Fprintf(&b, "    - When the user did NOT name an assignee, default to YOURSELF: pass `--assignee %q`. The picker agent is the expected owner because the user opened quick-create with you selected — never leave the task unassigned.\n\n", agentName)
 	default:
-		b.WriteString("    - When the user did NOT name an assignee, default to YOURSELF (the picker agent): pass `--assignee-id <your agent UUID>` (preferred) or `--assignee <your agent name>`. Never leave the issue unassigned.\n\n")
+		b.WriteString("    - When the user did NOT name an assignee, default to YOURSELF (the picker agent): pass `--assignee-id <your agent UUID>` (preferred) or `--assignee <your agent name>`. Never leave the task unassigned.\n\n")
 	}
 
-	if task.QuickCreateDueDate != "" {
-		fmt.Fprintf(&b, "- **due-date**: required for this run. Pass `--due-date %s`; the quick-create selection is authoritative.\n\n", task.QuickCreateDueDate)
+	if agentRun.QuickCreateDueDate != "" {
+		fmt.Fprintf(&b, "- **due-date**: required for this run. Pass `--due-date %s`; the quick-create selection is authoritative.\n\n", agentRun.QuickCreateDueDate)
 	}
 
 	// project — pinned by the modal when the user picked one, otherwise
 	// omitted so the platform routes to the workspace default. Always pass
-	// the UUID (never a name) so the issue lands in the right project even
+	// the UUID (never a name) so the task lands in the right project even
 	// when several share a title.
-	if task.ProjectID != "" {
-		if task.ProjectTitle != "" {
-			fmt.Fprintf(&b, "- **project**: required for this run. Pass `--project %q` so the new issue lands in project %q (the user picked it in the quick-create modal). Do not infer a different project from the prompt text — the modal selection is authoritative.\n", task.ProjectID, task.ProjectTitle)
+	if agentRun.ProjectID != "" {
+		if agentRun.ProjectTitle != "" {
+			fmt.Fprintf(&b, "- **project**: required for this run. Pass `--project %q` so the new task lands in project %q (the user picked it in the quick-create modal). Do not infer a different project from the prompt text — the modal selection is authoritative.\n", agentRun.ProjectID, agentRun.ProjectTitle)
 		} else {
-			fmt.Fprintf(&b, "- **project**: required for this run. Pass `--project %q` so the new issue lands in the project the user picked in the quick-create modal. Do not infer a different project from the prompt text — the modal selection is authoritative.\n", task.ProjectID)
+			fmt.Fprintf(&b, "- **project**: required for this run. Pass `--project %q` so the new task lands in the project the user picked in the quick-create modal. Do not infer a different project from the prompt text — the modal selection is authoritative.\n", agentRun.ProjectID)
 		}
 	} else {
-		b.WriteString("- **project**: omit. The platform will route the issue to the workspace default.\n")
+		b.WriteString("- **project**: omit. The platform will route the task to the workspace default.\n")
 	}
-	if task.WorkflowInstanceID != "" && task.WorkflowStageID != "" {
+	if agentRun.WorkflowInstanceID != "" && agentRun.WorkflowStageID != "" {
 		fmt.Fprintf(
 			&b,
 			"- **SOP Stage**: required for this run. Pass `--workflow-instance %q --workflow-stage %q`. These UUIDs were selected in the create modal and are authoritative; do not replace or omit them.\n",
-			task.WorkflowInstanceID,
-			task.WorkflowStageID,
+			agentRun.WorkflowInstanceID,
+			agentRun.WorkflowStageID,
 		)
 	}
 	// parent — pinned by the modal when the user opened it from "Add sub
-	// issue" on an existing issue. Pass the UUID (never the identifier) so
-	// the create lands the sub-issue under the right parent even when the
+	// task" on an existing task. Pass the UUID (never the identifier) so
+	// the create lands the sub-task under the right parent even when the
 	// workspace prefix changes; the identifier is included in the prose
 	// purely as human-readable context for the agent.
-	if task.ParentIssueID != "" {
-		if task.ParentIssueIdentifier != "" {
-			fmt.Fprintf(&b, "- **parent**: required for this run. Pass `--parent %q` so the new issue is filed as a sub-issue of %s (the user opened quick-create from that issue's \"Add sub issue\" entry). Do not infer a different parent from the prompt text — the modal entry point is authoritative.\n", task.ParentIssueID, task.ParentIssueIdentifier)
+	if agentRun.ParentTaskID != "" {
+		if agentRun.ParentTaskIdentifier != "" {
+			fmt.Fprintf(&b, "- **parent**: required for this run. Pass `--parent %q` so the new task is filed as a sub-task of %s (the user opened quick-create from that task's \"Add sub task\" entry). Do not infer a different parent from the prompt text — the modal entry point is authoritative.\n", agentRun.ParentTaskID, agentRun.ParentTaskIdentifier)
 		} else {
-			fmt.Fprintf(&b, "- **parent**: required for this run. Pass `--parent %q` so the new issue is filed as a sub-issue of the parent the user picked in the quick-create modal. Do not infer a different parent from the prompt text — the modal entry point is authoritative.\n", task.ParentIssueID)
+			fmt.Fprintf(&b, "- **parent**: required for this run. Pass `--parent %q` so the new task is filed as a sub-task of the parent the user picked in the quick-create modal. Do not infer a different parent from the prompt text — the modal entry point is authoritative.\n", agentRun.ParentTaskID)
 		}
 	}
 	b.WriteString("- **status**: omit (defaults to `todo`).\n")
@@ -245,10 +245,10 @@ func buildQuickCreatePrompt(task Task) string {
 
 	// output format
 	b.WriteString("Output format:\n")
-	b.WriteString("- Run exactly one `silieco issue create --output json` invocation. Do not retry for any reason — even on non-zero exit. The issue may already exist; another attempt would create a duplicate.\n")
-	b.WriteString("- Parse the JSON response to read the created issue's `identifier` (preferred) or `id` (fallback). Do not scrape human output and do not assume any workspace issue prefix such as `SILI-`; workspaces can use custom prefixes.\n")
+	b.WriteString("- Run exactly one `silieco task create --output json` invocation. Do not retry for any reason — even on non-zero exit. The task may already exist; another attempt would create a duplicate.\n")
+	b.WriteString("- Parse the JSON response to read the created task's `identifier` (preferred) or `id` (fallback). Do not scrape human output and do not assume any workspace task prefix such as `SILI-`; workspaces can use custom prefixes.\n")
 	b.WriteString("- After success, print exactly one line: `Created <identifier-or-id>: <title>` and exit. No commentary, no follow-up tool calls.\n")
-	b.WriteString("- Do NOT call `silieco issue get` or `silieco issue comment add` — there is no issue to query or comment on.\n")
+	b.WriteString("- Do NOT call `silieco task get` or `silieco task comment add` — there is no task to query or comment on.\n")
 	b.WriteString("- On CLI error or JSON parse error, exit with the error as the only output. The platform writes a failure notification automatically.\n")
 	return b.String()
 }
@@ -259,39 +259,39 @@ func buildQuickCreatePrompt(task Task) string {
 // The reply instructions (including the current TriggerCommentID as --parent)
 // are re-emitted on every turn so resumed sessions cannot carry forward a
 // previous turn's --parent UUID.
-func buildCommentPrompt(task Task, provider string) string {
+func buildCommentPrompt(agentRun AgentRun, provider string) string {
 	var b strings.Builder
 	b.WriteString("You are running as a local coding agent for a Silieco workspace.\n\n")
-	fmt.Fprintf(&b, "Your assigned issue ID is: %s\n\n", task.IssueID)
+	fmt.Fprintf(&b, "Your assigned task ID is: %s\n\n", agentRun.TaskID)
 	// Mode marker for the brief's router. Emitted unconditionally from the same
 	// branch that selects this code path, so the brief and the prompt can never
 	// disagree about which mode this turn is in. It must NOT be gated on
 	// TriggerCommentContent: an empty comment body (or an older server that
 	// doesn't send one) would otherwise leave the turn unlabelled, and the
-	// agent would fall through to Ownership mode and change the issue status.
+	// agent would fall through to Ownership mode and change the task status.
 	b.WriteString(turnModeReply)
-	if task.TriggerCommentContent != "" {
+	if agentRun.TriggerCommentContent != "" {
 		authorLabel := "A user"
-		if task.TriggerAuthorType == "agent" {
-			name := task.TriggerAuthorName
+		if agentRun.TriggerAuthorType == "agent" {
+			name := agentRun.TriggerAuthorName
 			if name == "" {
 				name = "another agent"
 			}
 			authorLabel = fmt.Sprintf("Another agent (%s)", name)
 		}
 		fmt.Fprintf(&b, "[NEW COMMENT] %s just left a new comment. Focus on THIS comment — do not confuse it with previous ones:\n\n", authorLabel)
-		fmt.Fprintf(&b, "> %s\n\n", task.TriggerCommentContent)
+		fmt.Fprintf(&b, "> %s\n\n", agentRun.TriggerCommentContent)
 		// SILI-4195: comments that arrived before this run started were folded
 		// into it rather than dropped. The trigger above is the newest; the
 		// agent must ALSO address these earlier ones so no deliberate user
 		// instruction is silently lost. Prefer the embedded detail so the agent
 		// does not have to guess which thread each folded comment lives in
 		// (they may span multiple threads — review should-fix #3); fall back to
-		// a thread-agnostic issue-wide fetch hint for old servers that only send
+		// a thread-agnostic task-wide fetch hint for old servers that only send
 		// the ids.
-		if len(task.CoalescedComments) > 0 {
-			fmt.Fprintf(&b, "This run also covers %d earlier comment(s) posted before it started — you must read and address them too, not just the one above. They may be in different threads, so each is reproduced here with its own thread:\n\n", len(task.CoalescedComments))
-			for _, cc := range task.CoalescedComments {
+		if len(agentRun.CoalescedComments) > 0 {
+			fmt.Fprintf(&b, "This run also covers %d earlier comment(s) posted before it started — you must read and address them too, not just the one above. They may be in different threads, so each is reproduced here with its own thread:\n\n", len(agentRun.CoalescedComments))
+			for _, cc := range agentRun.CoalescedComments {
 				authorLabel := "A user"
 				if cc.AuthorType == "agent" {
 					name := cc.AuthorName
@@ -314,43 +314,43 @@ func buildCommentPrompt(task Task, provider string) string {
 				b.WriteString(":\n")
 				fmt.Fprintf(&b, "  > %s\n", strings.ReplaceAll(strings.TrimSpace(cc.Content), "\n", "\n  > "))
 			}
-			fmt.Fprintf(&b, "\nIf you need the surrounding discussion for any of them, fetch its thread with `silieco issue comment list %s --thread <thread-id> --tail 30 --output json` using the thread id shown above.\n\n", task.IssueID)
-		} else if len(task.CoalescedCommentIDs) > 0 {
-			fmt.Fprintf(&b, "This run also covers %d earlier comment(s) posted before it started — you must read and address them too, not just the one above: %s. These may be in DIFFERENT threads, so do not assume they share the triggering thread; fetch each by pulling the issue-wide discussion with `silieco issue comment list %s --recent 30 --output json` (expand with `--full` if a thread is folded) and locate the ids above.\n\n",
-				len(task.CoalescedCommentIDs), strings.Join(task.CoalescedCommentIDs, ", "), task.IssueID)
+			fmt.Fprintf(&b, "\nIf you need the surrounding discussion for any of them, fetch its thread with `silieco task comment list %s --thread <thread-id> --tail 30 --output json` using the thread id shown above.\n\n", agentRun.TaskID)
+		} else if len(agentRun.CoalescedCommentIDs) > 0 {
+			fmt.Fprintf(&b, "This run also covers %d earlier comment(s) posted before it started — you must read and address them too, not just the one above: %s. These may be in DIFFERENT threads, so do not assume they share the triggering thread; fetch each by pulling the task-wide discussion with `silieco task comment list %s --recent 30 --output json` (expand with `--full` if a thread is folded) and locate the ids above.\n\n",
+				len(agentRun.CoalescedCommentIDs), strings.Join(agentRun.CoalescedCommentIDs, ", "), agentRun.TaskID)
 		}
-		if task.TriggerAuthorType == "agent" {
+		if agentRun.TriggerAuthorType == "agent" {
 			b.WriteString("⚠️ The triggering comment was posted by another agent. Decide whether a reply is warranted. If you produced actual work this turn (investigated, fixed something, answered a real question), post the result as a normal reply — that is NOT a noise comment, and the standard rule that final results must be delivered via comment still applies. If the triggering comment was a pure acknowledgment, thanks, or sign-off AND you produced no work this turn, do NOT reply — and do NOT post a comment saying 'No reply needed' or similar. Simply exit with no output. Silence is the preferred way to end agent-to-agent threads. If you do reply, do not @mention the other agent as a sign-off (that re-triggers them and starts a loop).\n\n")
 		}
-		if task.Agent != nil && strings.Contains(task.Agent.Instructions, "## Squad Operating Protocol") {
-			fmt.Fprintf(&b, "⚠️ **Squad leader no_action rule:** If you decide no action is needed, call `silieco squad activity %s no_action --reason \"...\"` and EXIT. DO NOT post any comment — not even one that says \"no action needed\" or \"exiting silently\". The squad activity call records your decision; a comment is redundant noise.\n\n", task.IssueID)
+		if agentRun.Agent != nil && strings.Contains(agentRun.Agent.Instructions, "## Squad Operating Protocol") {
+			fmt.Fprintf(&b, "⚠️ **Squad leader no_action rule:** If you decide no action is needed, call `silieco squad activity %s no_action --reason \"...\"` and EXIT. DO NOT post any comment — not even one that says \"no action needed\" or \"exiting silently\". The squad activity call records your decision; a comment is redundant noise.\n\n", agentRun.TaskID)
 		}
 	}
-	fmt.Fprintf(&b, "Start by running `silieco issue get %s --output json` to understand your task, then decide how to proceed.\n\n", task.IssueID)
-	// Comment-reading pointer. Warm path with new comments: issue-wide
+	fmt.Fprintf(&b, "Start by running `silieco task get %s --output json` to understand your task, then decide how to proceed.\n\n", agentRun.TaskID)
+	// Comment-reading pointer. Warm path with new comments: task-wide
 	// since-delta count, but steer the agent to read the triggering thread
 	// first. Warm resumed path with no new comments: the trigger is already
 	// injected, so don't force a duplicate thread read. Cold path: read the
 	// triggering thread, not the flat timeline. Final fallback (no trigger id,
 	// shouldn't happen here): plain read.
-	if hint := execenv.BuildNewCommentsHint(task.IssueID, task.TriggerCommentID, task.TriggerThreadID, task.NewCommentsSince, task.NewCommentCount); hint != "" {
+	if hint := execenv.BuildNewCommentsHint(agentRun.TaskID, agentRun.TriggerCommentID, agentRun.TriggerThreadID, agentRun.NewCommentsSince, agentRun.NewCommentCount); hint != "" {
 		b.WriteString(hint)
-	} else if task.PriorSessionID != "" {
-		b.WriteString(execenv.BuildResumedCommentsHint(task.IssueID, task.TriggerCommentID, task.TriggerThreadID))
-	} else if cold := execenv.BuildColdCommentsHint(task.IssueID, task.TriggerCommentID, task.TriggerThreadID); cold != "" {
+	} else if agentRun.PriorSessionID != "" {
+		b.WriteString(execenv.BuildResumedCommentsHint(agentRun.TaskID, agentRun.TriggerCommentID, agentRun.TriggerThreadID))
+	} else if cold := execenv.BuildColdCommentsHint(agentRun.TaskID, agentRun.TriggerCommentID, agentRun.TriggerThreadID); cold != "" {
 		b.WriteString(cold)
 	} else {
-		fmt.Fprintf(&b, "Read the discussion: scan with `silieco issue comment list %s --roots-only --summary --output json`, then expand what matters with `--thread <thread-id> --tail 30`.\n\n", task.IssueID)
+		fmt.Fprintf(&b, "Read the discussion: scan with `silieco task comment list %s --roots-only --summary --output json`, then expand what matters with `--thread <thread-id> --tail 30`.\n\n", agentRun.TaskID)
 	}
 	// Reply routing. When this run coalesced comments spanning MORE THAN ONE
 	// root thread, answer each thread in its own thread instead of dumping one
 	// merged comment (SILI-4348). Same-thread follow-ups collapse to a single
 	// group upstream, so they keep the ordinary single-parent path below and can
 	// never be split into duplicate replies.
-	if targets := commentReplyThreads(task); len(targets) >= 2 {
-		b.WriteString(execenv.BuildMultiThreadCommentReplyInstructions(task.IssueID, targets))
+	if targets := commentReplyThreads(agentRun); len(targets) >= 2 {
+		b.WriteString(execenv.BuildMultiThreadCommentReplyInstructions(agentRun.TaskID, targets))
 	} else {
-		b.WriteString(execenv.BuildCommentReplyInstructions(provider, task.IssueID, task.TriggerCommentID))
+		b.WriteString(execenv.BuildCommentReplyInstructions(provider, agentRun.TaskID, agentRun.TriggerCommentID))
 	}
 	return b.String()
 }
@@ -371,8 +371,8 @@ func buildCommentPrompt(task Task, provider string) string {
 // trigger comment) consistent with every other thread instead of a special
 // case. Returns nil when there is no trigger or only a single distinct thread —
 // the caller then keeps the existing single-parent reply path unchanged.
-func commentReplyThreads(task Task) []execenv.ThreadReplyTarget {
-	if task.TriggerCommentID == "" {
+func commentReplyThreads(agentRun AgentRun) []execenv.ThreadReplyTarget {
+	if agentRun.TriggerCommentID == "" {
 		return nil
 	}
 	// A comment with no explicit thread id is a root comment: it is its own
@@ -384,8 +384,8 @@ func commentReplyThreads(task Task) []execenv.ThreadReplyTarget {
 		return commentID
 	}
 
-	order := make([]string, 0, len(task.CoalescedComments)+1)
-	parentByThread := make(map[string]string, len(task.CoalescedComments)+1)
+	order := make([]string, 0, len(agentRun.CoalescedComments)+1)
+	parentByThread := make(map[string]string, len(agentRun.CoalescedComments)+1)
 	// note records first-seen order but lets the newest comment win the reply
 	// target: inputs are chronological (coalesced oldest-first, trigger last),
 	// so the last write for a thread is its newest triggering comment.
@@ -399,12 +399,12 @@ func commentReplyThreads(task Task) []execenv.ThreadReplyTarget {
 	// Coalesced (older) comments first: reply under the specific comment that
 	// mentioned the agent, not the thread root, so a mid-thread mention gets its
 	// answer next to the question.
-	for _, cc := range task.CoalescedComments {
+	for _, cc := range agentRun.CoalescedComments {
 		note(threadKey(cc.ThreadID, cc.ID), cc.ID)
 	}
 	// The newest trigger last: it always wins its own thread's reply target,
 	// overriding any earlier coalesced comment that shared the trigger's thread.
-	note(threadKey(task.TriggerThreadID, task.TriggerCommentID), task.TriggerCommentID)
+	note(threadKey(agentRun.TriggerThreadID, agentRun.TriggerCommentID), agentRun.TriggerCommentID)
 
 	if len(order) <= 1 {
 		return nil
@@ -417,12 +417,12 @@ func commentReplyThreads(task Task) []execenv.ThreadReplyTarget {
 }
 
 // buildChatPrompt constructs a prompt for interactive chat tasks.
-func buildChatPrompt(task Task) string {
+func buildChatPrompt(agentRun AgentRun) string {
 	// Proactive self-introduction: the agent was just created and is opening the
 	// conversation. There is no user message to reply to — the agent sends the
 	// first message so the thread reads as the agent messaging its creator, not
 	// the creator prompting the agent (SILI-4230).
-	if task.ChatIntro {
+	if agentRun.ChatIntro {
 		var b strings.Builder
 		b.WriteString("You are running as a chat assistant for a Silieco workspace.\n")
 		b.WriteString("You were just created, and this is the very first message in a direct chat with the person who created you. They have not written anything yet — you are opening the conversation. Send a short, warm, first-person introduction: who you are, what you're good at, and how they can work with you. Do NOT phrase it as an answer to a question or repeat any prompt back; just introduce yourself as if you reached out first.\n")
@@ -431,7 +431,7 @@ func buildChatPrompt(task Task) string {
 
 	var b strings.Builder
 	b.WriteString("You are running as a chat assistant for a Silieco workspace.\n")
-	if task.ChatKind == "group" {
+	if agentRun.ChatKind == "group" {
 		b.WriteString("You were explicitly @mentioned in a Space group chat. The message below contains the recent speaker-labelled group transcript through the triggering message. Use it as shared context, respond as yourself to the whole group, and do not claim another participant's words as your own.\n\n")
 	} else {
 		b.WriteString("A user is chatting with you directly. Respond to their message.\n\n")
@@ -456,14 +456,14 @@ func buildChatPrompt(task Task) string {
 	// channel type. #4776 introduced it that way; the SILI-4899 split moved it into
 	// the Slack branch along with the read commands it happened to mention, which
 	// silently dropped it for Feishu/Lark (GH #6006).
-	if task.ChatChannelType != "" {
-		platform := channelDisplayName(task.ChatChannelType)
-		fmt.Fprintf(&b, "You are operating inside a %s conversation — not the Silieco web app. This conversation and its history live in %s, NOT in Silieco; never look in Silieco issues or comments for it.\n", platform, platform)
-		if task.ChatChannelType == execenv.ChannelTypeSlack {
+	if agentRun.ChatChannelType != "" {
+		platform := channelDisplayName(agentRun.ChatChannelType)
+		fmt.Fprintf(&b, "You are operating inside a %s conversation — not the Silieco web app. This conversation and its history live in %s, NOT in Silieco; never look in Silieco tasks or comments for it.\n", platform, platform)
+		if agentRun.ChatChannelType == execenv.ChannelTypeSlack {
 			b.WriteString("The message below may be only what triggered you. Read the conversation with:\n")
 			b.WriteString("- `silieco chat history --output json` — the channel overview: recent top-level messages, each thread tagged with a `thread_id` and `reply_count`. It does NOT expand thread contents.\n")
 			b.WriteString("- `silieco chat thread [<thread_id>] --output json` — read one thread's messages; omit the id to read the thread you are in, or pass a `thread_id` from the overview to read a specific thread.\n")
-			if task.ChatInThread {
+			if agentRun.ChatInThread {
 				b.WriteString("You were @mentioned inside a thread: start with `silieco chat thread` to read it; if you need the wider channel, run `silieco chat history` and open a specific thread with `silieco chat thread <thread_id>`.\n")
 			} else {
 				b.WriteString("You were @mentioned at the channel top level: start with `silieco chat history` to see the channel, then read a specific thread's contents with `silieco chat thread <thread_id>`.\n")
@@ -479,11 +479,11 @@ func buildChatPrompt(task Task) string {
 		fmt.Fprintf(&b, "Reply to %s with the final outcome only. Do NOT narrate planned or in-progress steps (\"我先读取…\"); completed actions are part of the outcome.\n", platform)
 		b.WriteString("\n")
 	}
-	if task.Agent != nil && len(task.Agent.Skills) > 0 {
-		refs := ExtractSlashSkills(task.ChatMessage)
+	if agentRun.Agent != nil && len(agentRun.Agent.Skills) > 0 {
+		refs := ExtractSlashSkills(agentRun.ChatMessage)
 		if len(refs) > 0 {
-			agentSkills := make(map[string]string, len(task.Agent.Skills))
-			for _, s := range task.Agent.Skills {
+			agentSkills := make(map[string]string, len(agentRun.Agent.Skills))
+			for _, s := range agentRun.Agent.Skills {
 				agentSkills[s.ID] = s.Name
 			}
 
@@ -510,16 +510,16 @@ func buildChatPrompt(task Task) string {
 			}
 		}
 	}
-	fmt.Fprintf(&b, "User message:\n%s\n", task.ChatMessage)
+	fmt.Fprintf(&b, "User message:\n%s\n", agentRun.ChatMessage)
 	// List attachments by id + filename so the agent can fetch them via
 	// the CLI. We deliberately do NOT inline the URL: chat attachments
 	// live behind a signed CDN with a short TTL, so by the time the agent
 	// has finished thinking the URL embedded in the markdown body may
 	// have expired. `silieco attachment download <id>` re-signs at click
 	// time and is the only reliable path.
-	if len(task.ChatMessageAttachments) > 0 {
+	if len(agentRun.ChatMessageAttachments) > 0 {
 		b.WriteString("\nAttachments on this message:\n")
-		for _, a := range task.ChatMessageAttachments {
+		for _, a := range agentRun.ChatMessageAttachments {
 			if a.ContentType != "" {
 				fmt.Fprintf(&b, "- id=%s filename=%q content_type=%s\n", a.ID, a.Filename, a.ContentType)
 			} else {
@@ -527,7 +527,7 @@ func buildChatPrompt(task Task) string {
 			}
 		}
 		b.WriteString("Use `silieco attachment download <id>` to fetch each file locally before referring to it.\n")
-		b.WriteString("When creating an issue that should preserve one of these attachments, pass `--attachment-id <id>` to `silieco issue create` in addition to keeping the attachment markdown inline.\n")
+		b.WriteString("When creating an task that should preserve one of these attachments, pass `--attachment-id <id>` to `silieco task create` in addition to keeping the attachment markdown inline.\n")
 	}
 	// Outbound attachments: how the agent puts an image/file INTO its reply.
 	// Web/mobile chat only — for IM-channel chats the reply is delivered to
@@ -536,10 +536,10 @@ func buildChatPrompt(task Task) string {
 	// channel at all", unlike the history block above which is Slack-only; the
 	// two layers must not be collapsed into one condition (SILI-4899). The brief's
 	// `## Output` section states the same policy for every surface.
-	if task.ChatChannelType == "" {
+	if agentRun.ChatChannelType == "" {
 		b.WriteString("\nTo include a file or image you produced in your reply, run `silieco attachment upload <local-path>`. The file binds to your reply automatically and appears as an attachment card below it even if you paste nothing. The command also returns a `markdown` snippet you may paste on its own line to place the item where you want it (files render as a card, images inline).\n")
 	} else {
-		fmt.Fprintf(&b, "\nThis reply is delivered to %s as text. You cannot attach a file to it: `silieco attachment upload` binds to a Silieco chat reply, which this is not. If you produce a file, describe it in words — never write its local path as a link, and never upload it and then write as though it arrived.\n", channelDisplayName(task.ChatChannelType))
+		fmt.Fprintf(&b, "\nThis reply is delivered to %s as text. You cannot attach a file to it: `silieco attachment upload` binds to a Silieco chat reply, which this is not. If you produce a file, describe it in words — never write its local path as a link, and never upload it and then write as though it arrived.\n", channelDisplayName(agentRun.ChatChannelType))
 	}
 	return b.String()
 }
@@ -552,37 +552,37 @@ func channelDisplayName(channelType string) string {
 }
 
 // buildAutopilotPrompt constructs a prompt for run_only autopilot tasks.
-func buildAutopilotPrompt(task Task) string {
+func buildAutopilotPrompt(agentRun AgentRun) string {
 	var b strings.Builder
 	b.WriteString("You are running as a local coding agent for a Silieco workspace.\n\n")
-	b.WriteString("This task was triggered by an Autopilot in run-only mode. There is no assigned Silieco issue for this run.\n\n")
-	fmt.Fprintf(&b, "Autopilot run ID: %s\n", task.AutopilotRunID)
-	if task.AutopilotID != "" {
-		fmt.Fprintf(&b, "Autopilot ID: %s\n", task.AutopilotID)
+	b.WriteString("This task was triggered by an Autopilot in run-only mode. There is no assigned Silieco task for this run.\n\n")
+	fmt.Fprintf(&b, "Autopilot run ID: %s\n", agentRun.AutopilotRunID)
+	if agentRun.AutopilotID != "" {
+		fmt.Fprintf(&b, "Autopilot ID: %s\n", agentRun.AutopilotID)
 	}
-	if task.AutopilotTitle != "" {
-		fmt.Fprintf(&b, "Autopilot title: %s\n", task.AutopilotTitle)
+	if agentRun.AutopilotTitle != "" {
+		fmt.Fprintf(&b, "Autopilot title: %s\n", agentRun.AutopilotTitle)
 	}
-	if task.AutopilotSource != "" {
-		fmt.Fprintf(&b, "Trigger source: %s\n", task.AutopilotSource)
+	if agentRun.AutopilotSource != "" {
+		fmt.Fprintf(&b, "Trigger source: %s\n", agentRun.AutopilotSource)
 	}
-	if strings.TrimSpace(string(task.AutopilotTriggerPayload)) != "" {
-		fmt.Fprintf(&b, "Trigger payload:\n%s\n", strings.TrimSpace(string(task.AutopilotTriggerPayload)))
+	if strings.TrimSpace(string(agentRun.AutopilotTriggerPayload)) != "" {
+		fmt.Fprintf(&b, "Trigger payload:\n%s\n", strings.TrimSpace(string(agentRun.AutopilotTriggerPayload)))
 	}
 	b.WriteString("\nAutopilot instructions:\n")
-	if strings.TrimSpace(task.AutopilotDescription) != "" {
-		b.WriteString(task.AutopilotDescription)
+	if strings.TrimSpace(agentRun.AutopilotDescription) != "" {
+		b.WriteString(agentRun.AutopilotDescription)
 		b.WriteString("\n\n")
-	} else if task.AutopilotTitle != "" {
-		fmt.Fprintf(&b, "%s\n\n", task.AutopilotTitle)
+	} else if agentRun.AutopilotTitle != "" {
+		fmt.Fprintf(&b, "%s\n\n", agentRun.AutopilotTitle)
 	} else {
 		b.WriteString("No additional autopilot instructions were provided. Inspect the autopilot configuration before proceeding.\n\n")
 	}
-	if task.AutopilotID != "" {
-		fmt.Fprintf(&b, "Start by running `silieco autopilot get %s --output json` if you need the full autopilot configuration, then complete the instructions above.\n", task.AutopilotID)
+	if agentRun.AutopilotID != "" {
+		fmt.Fprintf(&b, "Start by running `silieco autopilot get %s --output json` if you need the full autopilot configuration, then complete the instructions above.\n", agentRun.AutopilotID)
 	} else {
 		b.WriteString("Complete the instructions above.\n")
 	}
-	b.WriteString("Do not run `silieco issue get`; this run does not have an issue ID.\n")
+	b.WriteString("Do not run `silieco task get`; this run does not have an task ID.\n")
 	return b.String()
 }

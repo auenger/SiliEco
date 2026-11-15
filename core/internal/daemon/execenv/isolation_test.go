@@ -44,9 +44,9 @@ func TestPreparationHelperRoundTripsReuse(t *testing.T) {
 	params := PrepareParams{
 		WorkspacesRoot: t.TempDir(),
 		WorkspaceID:    "ws-helper-reuse",
-		TaskID:         "99999999-8888-7777-6666-555555555555",
+		RunID:          "99999999-8888-7777-6666-555555555555",
 		Provider:       "claude",
-		Task:           TaskContextForEnv{IssueID: "issue-helper-reuse"},
+		AgentRun:       RunContextForEnv{TaskID: "task-helper-reuse"},
 	}
 	env, err := PrepareIsolated(ctx, preparationHelperTestCommand(), params, logger)
 	if err != nil {
@@ -56,8 +56,8 @@ func TestPreparationHelperRoundTripsReuse(t *testing.T) {
 		WorkspacesRoot: params.WorkspacesRoot,
 		WorkDir:        env.WorkDir,
 		Provider:       params.Provider,
-		Task: TaskContextForEnv{
-			IssueID:         "issue-helper-reuse",
+		AgentRun: RunContextForEnv{
+			TaskID:          "task-helper-reuse",
 			NewCommentCount: 1,
 			ProjectID:       "project-helper-reuse",
 			ProjectResources: []ProjectResourceForEnv{
@@ -84,10 +84,10 @@ func TestPreparationHelperRoundTripsProjectResources(t *testing.T) {
 	params := PrepareParams{
 		WorkspacesRoot: t.TempDir(),
 		WorkspaceID:    "ws-helper-project-resource",
-		TaskID:         "88888888-7777-6666-5555-444444444444",
+		RunID:          "88888888-7777-6666-5555-444444444444",
 		Provider:       "claude",
-		Task: TaskContextForEnv{
-			IssueID:   "issue-helper-project-resource",
+		AgentRun: RunContextForEnv{
+			TaskID:    "task-helper-project-resource",
 			ProjectID: "project-helper-project-resource",
 			ProjectResources: []ProjectResourceForEnv{
 				{

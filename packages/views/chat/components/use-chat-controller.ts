@@ -12,15 +12,15 @@ import { useWorkspaceId } from "@silieco/core/hooks";
 import { useAuthStore } from "@silieco/core/auth";
 import { agentListOptions, memberListOptions } from "@silieco/core/workspace/queries";
 import { projectListOptions } from "@silieco/core/projects/queries";
-import { canAssignAgent } from "@silieco/views/issues/components";
+import { canAssignAgent } from "@silieco/views/tasks/components";
 import { api, dispatchReasonCode } from "@silieco/core/api";
 import { useAgentPresenceDetail, useWorkspaceAgentAvailability } from "@silieco/core/agents";
 import {
   chatSessionsOptions,
   chatMessagesPageOptions,
-  pendingChatTaskOptions,
+  pendingChatRunOptions,
   chatKeys,
-  isTaskMessageTaskId,
+  isAgentRunMessageRunId,
   sortChatSessions,
 } from "@silieco/core/chat/queries";
 import {
@@ -39,7 +39,7 @@ import type {
   Attachment,
   ChatMessage,
   ChatMessagesPage,
-  ChatPendingTask,
+  ChatPendingRun,
 } from "@silieco/core/types";
 import { useT } from "../../i18n";
 import { useAppForeground } from "../../common/use-app-foreground";
@@ -94,6 +94,8 @@ export function isStillOnComposeTarget(
  *    cannot misfile a project change into the new-chat draft.
  *  - `detachCurrent`: removing context from the open session — safe in place,
  *    it only changes what future turns receive.
+ *  - `updateGroup`: keep the shared roster and history while updating the
+ *    project context of future group turns.
  *  - `startFreshChat`: switching to a DIFFERENT project. A fresh chat is
  *    started so the old project's provider memory / reused workdir cannot
  *    bleed in. It must stay bound to the agent whose session we are leaving
@@ -109,16 +111,20 @@ export function isStillOnComposeTarget(
 export type ProjectContextChange =
   | { kind: "awaitSession" }
   | { kind: "detachCurrent"; sessionId: string }
+  | { kind: "updateGroup"; sessionId: string; projectId: string | null }
   | { kind: "startFreshChat"; agentId: string; projectId: string }
   | { kind: "setDraftProject"; projectId: string | null };
 
 export function planProjectContextChange(input: {
   targetProjectId: string | null;
   activeSessionId: string | null;
-  currentSession: { id: string; agent_id: string } | null;
+  currentSession: { id: string; agent_id: string; kind?: "direct" | "group" } | null;
 }): ProjectContextChange {
   if (input.activeSessionId) {
     if (!input.currentSession) return { kind: "awaitSession" };
+    if (input.currentSession.kind === "group") {
+      return { kind: "updateGroup", sessionId: input.currentSession.id, projectId: input.targetProjectId };
+    }
     if (input.targetProjectId === null) {
       return { kind: "detachCurrent", sessionId: input.currentSession.id };
     }
@@ -131,20 +137,20 @@ export function planProjectContextChange(input: {
   return { kind: "setDraftProject", projectId: input.targetProjectId };
 }
 
-// True when a session has an in-flight pending task in the cache — the signal
+// True when a session has an in-flight pending run in the cache — the signal
 // of a just-created (or actively-sending) session still awaiting server
 // confirmation, before the sessions-list refetch includes it. `handleSend`
-// seeds this task from the server response the instant the send is accepted, so
+// seeds this run from the server response the instant the send is accepted, so
 // it is populated before `setActiveSession` publishes the new session.
 // Deliberately NOT "has cached messages": a session deleted elsewhere can still
 // have real cached history, which must not exempt it from the stale-session
 // self-heal.
-export function hasInFlightPendingTask(
+export function hasInFlightPendingRun(
   qc: ReturnType<typeof useQueryClient>,
   sessionId: string,
 ): boolean {
-  const pending = qc.getQueryData<ChatPendingTask>(chatKeys.pendingTask(sessionId));
-  return Boolean(pending?.task_id);
+  const pending = qc.getQueryData<ChatPendingRun>(chatKeys.pendingRun(sessionId));
+  return Boolean(pending?.run_id);
 }
 const CHAT_VIRTUOSO_INITIAL_FIRST_ITEM_INDEX = 1_000_000;
 
@@ -235,11 +241,11 @@ export function useChatController(opts?: { isActive?: boolean }) {
       : 0;
   const showSkeleton = !!activeSessionId && messagesLoading;
 
-  const { data: pendingTask } = useQuery(
-    pendingChatTaskOptions(activeSessionId ?? ""),
+  const { data: pendingRun } = useQuery(
+    pendingChatRunOptions(activeSessionId ?? ""),
   );
-  const pendingTaskId = pendingTask?.task_id ?? null;
-  const stopRequestedBeforeTaskRef = useRef(false);
+  const pendingRunId = pendingRun?.run_id ?? null;
+  const stopRequestedBeforeRunRef = useRef(false);
   // Durable deferred-cancellation draft restores (#5219). The whole lifecycle —
   // fetch, offer, skip-and-re-offer, apply, consume, reconcile — lives in this
   // hook, shared with the floating chat window.
@@ -380,7 +386,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
         activeSessionId &&
         (!sessionsLoaded ||
           sessions.some((s) => s.id === activeSessionId) ||
-          hasInFlightPendingTask(qc, activeSessionId))
+          hasInFlightPendingRun(qc, activeSessionId))
       ) {
         return activeSessionId;
       }
@@ -423,7 +429,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
   useEffect(() => {
     if (!activeSessionId || !sessionsLoaded) return;
     if (sessions.some((s) => s.id === activeSessionId)) return;
-    if (hasInFlightPendingTask(qc, activeSessionId)) return;
+    if (hasInFlightPendingRun(qc, activeSessionId)) return;
     uiLogger.info("clearing dangling activeSessionId", { sessionId: activeSessionId });
     setActiveSession(null);
   }, [activeSessionId, sessionsLoaded, sessions, qc, setActiveSession]);
@@ -432,21 +438,21 @@ export function useChatController(opts?: { isActive?: boolean }) {
   // (SILI-5181 L2); surfaces only forward whether the affordance exists.
   const uploadEnabled = isGroupSession || !!activeAgent;
 
-  const cancelChatTask = useCallback(
+  const cancelChatRun = useCallback(
     async (
-      taskId: string,
+      runId: string,
       sessionId: string,
       options: { restoreDraftToInput: boolean; source: string },
     ) => {
-      apiLogger.info("cancelTask.start", {
-        taskId,
+      apiLogger.info("cancelRun.start", {
+        runId,
         sessionId,
         source: options.source,
       });
-      qc.setQueryData(chatKeys.pendingTask(sessionId), {});
+      qc.setQueryData(chatKeys.pendingRun(sessionId), {});
 
       try {
-        const result = await api.cancelTaskById(taskId);
+        const result = await api.cancelRunById(runId);
         const restored = result.cancelled_chat_message;
         if (restored?.restore_to_input) {
           removeChatMessageFromCaches(qc, restored.chat_session_id, restored.message_id);
@@ -461,15 +467,15 @@ export function useChatController(opts?: { isActive?: boolean }) {
         }
         qc.invalidateQueries({ queryKey: chatKeys.messages(sessionId) });
         qc.invalidateQueries({ queryKey: chatKeys.messagesPage(sessionId) });
-        apiLogger.info("cancelTask.success", {
-          taskId,
+        apiLogger.info("cancelRun.success", {
+          runId,
           sessionId,
           restoredToInput: !!restored?.restore_to_input && options.restoreDraftToInput,
         });
         return result;
       } catch (err) {
-        apiLogger.warn("cancelTask.error (task may have already finished)", {
-          taskId,
+        apiLogger.warn("cancelRun.error (run may have already finished)", {
+          runId,
           sessionId,
           err,
         });
@@ -493,7 +499,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
         return false;
       }
       // Read-only conversation: the agent is retired and can no longer pick up
-      // work, so refuse to enqueue a task that would sit orphaned forever. The
+      // work, so refuse to enqueue a run that would sit orphaned forever. The
       // input is disabled in this state; this is the belt-and-braces guard.
       if (!isGroupSession && isAgentArchived) {
         apiLogger.warn("sendChatMessage skipped: agent is archived", {
@@ -558,13 +564,13 @@ export function useChatController(opts?: { isActive?: boolean }) {
       apiLogger.info("sendChatMessage.success", {
         sessionId,
         messageId: result.message_id,
-        taskId: result.task_id,
+        runId: result.run_id,
       });
 
       // Render the accepted message from the server response. Prime the message
       // caches BEFORE publishing the session so the first useQuery read after
       // activeSessionId flips hits data synchronously (no new-chat skeleton
-      // flash), and seed the pending task with the server's real id and
+      // flash), and seed the pending run with the server's real id and
       // created_at so the StatusPill mounts anchored to the true clock and the
       // stale-session self-heal exempts this just-created session until the
       // sessions-list refetch includes it.
@@ -573,7 +579,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
         chat_session_id: sessionId,
         role: "user",
         content: finalContent,
-        task_id: result.task_id ?? null,
+        run_id: result.run_id ?? null,
         created_at: result.created_at,
         sender_user_id: user?.id ?? null,
         attachments: draftAttachments,
@@ -583,9 +589,9 @@ export function useChatController(opts?: { isActive?: boolean }) {
         chatKeys.messages(sessionId),
         (old) => (old ? [...old, sent] : [sent]),
       );
-      if (result.task_id) {
-        qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(sessionId), {
-          task_id: result.task_id,
+      if (result.run_id) {
+        qc.setQueryData<ChatPendingRun>(chatKeys.pendingRun(sessionId), {
+          run_id: result.run_id,
           status: "queued",
           created_at: result.created_at,
         });
@@ -601,9 +607,9 @@ export function useChatController(opts?: { isActive?: boolean }) {
       }
       commitInput?.({ extraDraftKeys: [sessionId], clearEditor: stillOnSourceSession });
 
-      if (result.task_id && stopRequestedBeforeTaskRef.current) {
-        stopRequestedBeforeTaskRef.current = false;
-        await cancelChatTask(result.task_id, sessionId, {
+      if (result.run_id && stopRequestedBeforeRunRef.current) {
+        stopRequestedBeforeRunRef.current = false;
+        await cancelChatRun(result.run_id, sessionId, {
           restoreDraftToInput: true,
           source: "deferred-send",
         });
@@ -632,7 +638,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
       isGroupSession,
       isAgentArchived,
       ensureSession,
-      cancelChatTask,
+      cancelChatRun,
       qc,
       setActiveSession,
       t,
@@ -642,28 +648,28 @@ export function useChatController(opts?: { isActive?: boolean }) {
   );
 
   const handleStop = useCallback(() => {
-    if (!pendingTaskId || !activeSessionId) {
-      apiLogger.debug("cancelTask skipped: no pending task");
+    if (!pendingRunId || !activeSessionId) {
+      apiLogger.debug("cancelRun skipped: no pending run");
       return;
     }
-    if (!isTaskMessageTaskId(pendingTaskId)) {
-      stopRequestedBeforeTaskRef.current = true;
-      apiLogger.info("cancelTask.deferred until server task id", {
-        taskId: pendingTaskId,
+    if (!isAgentRunMessageRunId(pendingRunId)) {
+      stopRequestedBeforeRunRef.current = true;
+      apiLogger.info("cancelRun.deferred until server run id", {
+        runId: pendingRunId,
         sessionId: activeSessionId,
       });
       return;
     }
-    void cancelChatTask(pendingTaskId, activeSessionId, {
+    void cancelChatRun(pendingRunId, activeSessionId, {
       restoreDraftToInput: true,
       source: "active-input",
     });
-  }, [pendingTaskId, activeSessionId, cancelChatTask]);
+  }, [pendingRunId, activeSessionId, cancelChatRun]);
 
   const handleNewChat = useCallback(() => {
     uiLogger.info("newChat", {
       previousSessionId: activeSessionId,
-      previousPendingTask: pendingTaskId,
+      previousPendingRun: pendingRunId,
     });
     // A fresh chat has no project unless the user explicitly chooses one.
     // The open session's project is server-owned history, not a default for
@@ -673,7 +679,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
     requestInputFocus();
   }, [
     activeSessionId,
-    pendingTaskId,
+    pendingRunId,
     setSelectedProjectId,
     setActiveSession,
     requestInputFocus,
@@ -736,6 +742,9 @@ export function useChatController(opts?: { isActive?: boolean }) {
       switch (plan.kind) {
         case "awaitSession":
           return;
+        case "updateGroup":
+          setSessionProject.mutate({ sessionId: plan.sessionId, projectId: plan.projectId });
+          break;
         case "detachCurrent":
           setSessionProject.mutate({ sessionId: plan.sessionId, projectId: null });
           break;
@@ -788,7 +797,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
     [setArchived],
   );
 
-  const hasMessages = messages.length > 0 || !!pendingTaskId;
+  const hasMessages = messages.length > 0 || !!pendingRunId;
 
   return {
     // identity / lists
@@ -815,8 +824,8 @@ export function useChatController(opts?: { isActive?: boolean }) {
     availability,
     // messages
     messages,
-    pendingTask,
-    pendingTaskId,
+    pendingRun,
+    pendingRunId,
     showSkeleton,
     hasMessages,
     firstItemIndex,

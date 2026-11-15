@@ -14,7 +14,7 @@ import { Toaster } from "@silieco/ui/components/ui/sonner";
 import { DesktopLoginPage } from "./pages/login";
 import { DesktopShell } from "./components/desktop-layout";
 import { UpdateNotification } from "./components/update-notification";
-import { IssueWindow } from "./components/issue-window";
+import { TaskWindow } from "./components/task-window";
 import { useTabStore } from "./stores/tab-store";
 import { useWindowOverlayStore } from "./stores/window-overlay-store";
 import { useDaemonIPCBridge } from "./platform/daemon-ipc-bridge";
@@ -51,7 +51,7 @@ const HTML_LANG: Record<SupportedLocale, string> = {
 function useCmdWCloseTab() {
   useEffect(() => {
     return window.desktopAPI.onCloseActiveTab(() => {
-      if (window.desktopAPI.windowContext?.kind === "issue") {
+      if (window.desktopAPI.windowContext?.kind === "task") {
         window.desktopAPI.closeWindow();
         return;
       }
@@ -74,12 +74,12 @@ function useCmdWCloseTab() {
   }, []);
 }
 
-function IssueWindowContent() {
+function TaskWindowContent() {
   const user = useAuthStore((state) => state.user);
   const isLoading = useAuthStore((state) => state.isLoading);
   const context = window.desktopAPI.windowContext ?? { kind: "main" as const };
 
-  if (context.kind !== "issue") return null;
+  if (context.kind !== "task") return null;
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -88,7 +88,7 @@ function IssueWindowContent() {
     );
   }
 
-  return user ? <IssueWindow context={context} /> : <DesktopLoginPage />;
+  return user ? <TaskWindow context={context} /> : <DesktopLoginPage />;
 }
 
 /**
@@ -172,7 +172,7 @@ function AppContent() {
   // Sync token and start the daemon whenever the user logs in.
   useEffect(() => {
     if (!user) return;
-    const token = localStorage.getItem("silieco_token");
+    const token = localStorage.getItem("silieco_tr1_token");
     if (!token) return;
     const userId = user.id;
     (async () => {
@@ -216,7 +216,7 @@ function AppContent() {
   //   un-onboarded (any wsCount):
   //     pending invites on email     → /invitations overlay
   //     no invites                   → /onboarding overlay
-  //   onboarded + no workspace       → /workspaces/new overlay
+  //   onboarded + no workspace       → /workspaces overlay
   //
   // V3 invariant: `onboarded_at != null` is the only path into the
   // dashboard. CreateWorkspace does not mark onboarded; only Step 3's
@@ -264,7 +264,7 @@ function AppContent() {
         cancelled = true;
       };
     }
-    open({ type: "new-workspace" });
+    open({ type: "workspaces" });
     return undefined;
   }, [user, workspaceListFetched, wsCount, workspaces, hasOnboarded, qc]);
 
@@ -347,7 +347,7 @@ function BlockingRuntimeConfigError({ message }: { message: string }) {
 // we explicitly reset them here.
 async function handleDaemonLogout() {
   // Report synchronously before async daemon cleanup so a rapidly closed main
-  // window cannot leave authenticated issue renderers behind.
+  // window cannot leave authenticated task renderers behind.
   window.desktopAPI.reportAuthSession?.(null);
   useTabStore.getState().reset();
   useWindowOverlayStore.getState().close();
@@ -458,8 +458,8 @@ export default function App() {
               apiUrl={runtimeConfigResult.config.apiUrl}
             />
           )}
-          {windowContext.kind === "issue" ? (
-            <IssueWindowContent />
+          {windowContext.kind === "task" ? (
+            <TaskWindowContent />
           ) : (
             <AppContent />
           )}

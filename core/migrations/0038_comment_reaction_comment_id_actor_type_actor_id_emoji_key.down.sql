@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.comment_reaction_comment_id_actor_type_actor_id_emoji_key;

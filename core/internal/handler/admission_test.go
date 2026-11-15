@@ -20,9 +20,9 @@ func TestRunToResponseDoesNotReverseEngineerReasonCode(t *testing.T) {
 			Valid:  true,
 		},
 	}
-	resp := runToResponse(run)
+	resp := autopilotRunToResponse(run)
 	if resp.ReasonCode != nil {
-		t.Fatalf("runToResponse should not synthesize a reason_code from failure_reason, got %q", *resp.ReasonCode)
+		t.Fatalf("agentRunToResponse should not synthesize a reason_code from failure_reason, got %q", *resp.ReasonCode)
 	}
 	if resp.FailureReason == nil || *resp.FailureReason == "" {
 		t.Errorf("failure_reason should still be surfaced for history rows")

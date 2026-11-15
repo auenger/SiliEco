@@ -9,7 +9,7 @@ import (
 
 func TestBuildChatPromptGroupMentionUsesSharedTranscript(t *testing.T) {
 	transcript := "Recent group conversation (oldest to newest):\n\nRyan (human):\nPlease review this plan\n"
-	out := buildChatPrompt(Task{
+	out := buildChatPrompt(AgentRun{
 		ChatSessionID: "group-1",
 		ChatKind:      "group",
 		ChatMessage:   transcript,
@@ -27,39 +27,39 @@ func TestBuildChatPromptGroupMentionUsesSharedTranscript(t *testing.T) {
 }
 
 // TestBuildQuickCreatePromptRules locks in the rules that govern how the
-// quick-create agent is allowed to translate raw user input into the issue
+// quick-create agent is allowed to translate raw user input into the task
 // description body. Each substring corresponds to a concrete failure mode
 // observed in production output:
-//   - meta-instructions ("create an issue", "cc @X") leaking into the body
+//   - meta-instructions ("create an task", "cc @X") leaking into the body
 //   - the Context section being misused as an apology log when no external
 //     references were actually fetched
 //   - hard-line rules being silently dropped on prompt rewrites
 func TestBuildQuickCreatePromptRules(t *testing.T) {
-	out := buildQuickCreatePrompt(Task{QuickCreatePrompt: "fix the login button color"})
+	out := buildQuickCreatePrompt(AgentRun{QuickCreatePrompt: "fix the login button color"})
 
 	mustContain := []string{
 		// high-fidelity invariant
 		"Faithfully restate what the user wants",
 		"Preserve specific names, identifiers, file paths",
 		// strip non-spec material: verbal routing wrappers + conversational fillers
-		"verbal routing wrappers about creating the issue",
+		"verbal routing wrappers about creating the task",
 		"pure conversational fillers",
 		// cc routing must survive: mention link stays in description so the
-		// auto-subscribe path fires (silieco issue create has no --subscriber flag)
+		// auto-subscribe path fires (silieco task create has no --subscriber flag)
 		"CC exception",
 		"auto-subscribes members",
 		// context section is conditional and must not be an apology log
 		"include ONLY when the input cited external resources",
 		"never use it as an apology log",
 		// output/reporting must be workspace-prefix agnostic. Workspaces can
-		// use custom issue prefixes, so a successful issue creation should
+		// use custom task prefixes, so a successful task creation should
 		// not look failed merely because the identifier does not match one
 		// fixed prefix.
-		"silieco issue create --output json",
+		"silieco task create --output json",
 		"JSON response",
 		"identifier",
 		"Do not scrape human output",
-		"do not assume any workspace issue prefix",
+		"do not assume any workspace task prefix",
 		"Created <identifier-or-id>: <title>",
 		// hard rules
 		"never invent requirements",
@@ -73,8 +73,8 @@ func TestBuildQuickCreatePromptRules(t *testing.T) {
 }
 
 func TestBuildPromptDeclaresMandatorySOPStageSkills(t *testing.T) {
-	out := BuildPrompt(Task{
-		IssueID: "issue-1",
+	out := BuildPrompt(AgentRun{
+		TaskID: "task-1",
 		WorkflowStage: &WorkflowStageContextData{
 			InstanceID: "run-1", InstanceTitle: "Payment feature SOP",
 			StageID: "stage-current", Name: "Feature split", StableKey: "split_feature",
@@ -100,20 +100,20 @@ func TestBuildPromptDeclaresMandatorySOPStageSkills(t *testing.T) {
 }
 
 func TestQuickCreatePromptDoesNotExecuteTargetStageSkills(t *testing.T) {
-	out := BuildPrompt(Task{
+	out := BuildPrompt(AgentRun{
 		QuickCreatePrompt: "Create the payment feature",
 		WorkflowStage: &WorkflowStageContextData{
 			Name: "Feature split", RequiredSkills: []string{"silieco-split-feature"},
 		},
 	}, "codex")
 	if strings.Contains(out, "mandatory for this run") || strings.Contains(out, "silieco-split-feature") {
-		t.Fatalf("quick-create must only create the issue, not execute its target Stage skill:\n%s", out)
+		t.Fatalf("quick-create must only create the task, not execute its target Stage skill:\n%s", out)
 	}
 }
 
 func TestCommentPromptIncludesCurrentAndNextSOPStage(t *testing.T) {
-	out := BuildPrompt(Task{
-		IssueID: "issue-1", TriggerCommentID: "comment-1", TriggerCommentContent: "请创建下一个阶段的任务",
+	out := BuildPrompt(AgentRun{
+		TaskID: "task-1", TriggerCommentID: "comment-1", TriggerCommentContent: "请创建下一个阶段的任务",
 		WorkflowStage: &WorkflowStageContextData{
 			InstanceID: "run-1", InstanceTitle: "Feature SOP", StageID: "stage-current", Name: "Split", StableKey: "split",
 			NextStage: &WorkflowNextStageData{StageID: "stage-next", Name: "Develop", StableKey: "develop"},
@@ -137,7 +137,7 @@ func TestCommentPromptIncludesCurrentAndNextSOPStage(t *testing.T) {
 // input like "assign to <SquadName>" silently fell through to
 // "Unrecognized assignee" because squads were never queried.
 func TestBuildQuickCreatePromptAssigneeIncludesSquads(t *testing.T) {
-	out := buildQuickCreatePrompt(Task{QuickCreatePrompt: "fix the login button color"})
+	out := buildQuickCreatePrompt(AgentRun{QuickCreatePrompt: "fix the login button color"})
 	mustContain := []string{
 		"silieco squad list",
 		"Squads are first-class assignees",
@@ -154,9 +154,9 @@ func TestBuildQuickCreatePromptAssigneeIncludesSquads(t *testing.T) {
 
 // TestBuildQuickCreatePromptSquadDefaultsToSquad locks in the SILI-2203
 // fix: when the picker was a squad, the task runs on the squad's leader
-// agent, but the default assignee for issues created by this run must
+// agent, but the default assignee for tasks created by this run must
 // point at the SQUAD's UUID — not the leader agent's UUID. The previous
-// "default to YOURSELF" instruction made squad-created issues land under
+// "default to YOURSELF" instruction made squad-created tasks land under
 // the leader, hiding them from the squad's delegation flow.
 func TestBuildQuickCreatePromptSquadDefaultsToSquad(t *testing.T) {
 	const (
@@ -164,7 +164,7 @@ func TestBuildQuickCreatePromptSquadDefaultsToSquad(t *testing.T) {
 		squadName = "独立团"
 		leaderID  = "bbbb1111-2222-3333-4444-666666666666"
 	)
-	out := buildQuickCreatePrompt(Task{
+	out := buildQuickCreatePrompt(AgentRun{
 		QuickCreatePrompt: "fix the login button color",
 		Agent:             &AgentData{ID: leaderID, Name: "leader-agent"},
 		SquadID:           squadID,
@@ -206,7 +206,7 @@ func TestBuildQuickCreatePromptSquadDefaultsToSquad(t *testing.T) {
 // addition was meant to fix.
 func TestBuildQuickCreatePromptProjectPinning(t *testing.T) {
 	const projectID = "11111111-2222-3333-4444-555555555555"
-	out := buildQuickCreatePrompt(Task{
+	out := buildQuickCreatePrompt(AgentRun{
 		QuickCreatePrompt: "fix the login button color",
 		ProjectID:         projectID,
 		ProjectTitle:      "Web App",
@@ -225,7 +225,7 @@ func TestBuildQuickCreatePromptProjectPinning(t *testing.T) {
 	// Without a project, the prompt must keep the legacy "omit" instruction
 	// so the agent doesn't accidentally start passing --project on plain
 	// quick-create runs.
-	plain := buildQuickCreatePrompt(Task{QuickCreatePrompt: "fix the login button color"})
+	plain := buildQuickCreatePrompt(AgentRun{QuickCreatePrompt: "fix the login button color"})
 	if !strings.Contains(plain, "**project**: omit") {
 		t.Errorf("buildQuickCreatePrompt without project must keep the omit instruction, got:\n%s", plain)
 	}
@@ -235,7 +235,7 @@ func TestBuildQuickCreatePromptProjectPinning(t *testing.T) {
 }
 
 func TestBuildQuickCreatePromptExplicitPriorityAndDueDate(t *testing.T) {
-	out := buildQuickCreatePrompt(Task{
+	out := buildQuickCreatePrompt(AgentRun{
 		QuickCreatePrompt:   "fix the login button color",
 		QuickCreatePriority: "urgent",
 		QuickCreateDueDate:  "2026-08-01",
@@ -255,28 +255,28 @@ func TestBuildQuickCreatePromptExplicitPriorityAndDueDate(t *testing.T) {
 }
 
 // TestBuildQuickCreatePromptParentPinning verifies that when the user
-// opened quick-create from "Add sub issue" on an existing issue, the prompt
-// instructs the agent to pass `--parent <uuid>` so the new issue is filed
-// as a sub-issue. The frontend already seeds parent_issue_id silently
+// opened quick-create from "Add sub task" on an existing task, the prompt
+// instructs the agent to pass `--parent <uuid>` so the new task is filed
+// as a sub-task. The frontend already seeds parent_task_id silently
 // through the manual→agent switch, so this is the last hop that has to
 // hold up — without the prompt instruction the agent would create a
-// standalone issue and the sub-issue relationship would be silently
+// standalone task and the sub-task relationship would be silently
 // dropped.
 func TestBuildQuickCreatePromptParentPinning(t *testing.T) {
 	const (
 		parentID         = "33333333-2222-1111-4444-555555555555"
 		parentIdentifier = "SILI-2534"
 	)
-	out := buildQuickCreatePrompt(Task{
-		QuickCreatePrompt:     "fix the login button color",
-		ParentIssueID:         parentID,
-		ParentIssueIdentifier: parentIdentifier,
+	out := buildQuickCreatePrompt(AgentRun{
+		QuickCreatePrompt:    "fix the login button color",
+		ParentTaskID:         parentID,
+		ParentTaskIdentifier: parentIdentifier,
 	})
 	mustContain := []string{
 		"--parent \"" + parentID + "\"",
 		parentIdentifier,
 		"modal entry point is authoritative",
-		"filed as a sub-issue",
+		"filed as a sub-task",
 	}
 	for _, s := range mustContain {
 		if !strings.Contains(out, s) {
@@ -285,19 +285,19 @@ func TestBuildQuickCreatePromptParentPinning(t *testing.T) {
 	}
 
 	// When only the UUID is available (identifier lookup failed on claim),
-	// the agent must still get the --parent instruction so the sub-issue
+	// the agent must still get the --parent instruction so the sub-task
 	// intent isn't silently dropped.
-	uuidOnly := buildQuickCreatePrompt(Task{
+	uuidOnly := buildQuickCreatePrompt(AgentRun{
 		QuickCreatePrompt: "fix the login button color",
-		ParentIssueID:     parentID,
+		ParentTaskID:      parentID,
 	})
 	if !strings.Contains(uuidOnly, "--parent \""+parentID+"\"") {
 		t.Errorf("buildQuickCreatePrompt with parent UUID only must still pin --parent, got:\n%s", uuidOnly)
 	}
 
 	// Without a parent, the prompt must NOT mention --parent at all — a
-	// plain quick-create run should not start filing sub-issues.
-	plain := buildQuickCreatePrompt(Task{QuickCreatePrompt: "fix the login button color"})
+	// plain quick-create run should not start filing sub-tasks.
+	plain := buildQuickCreatePrompt(AgentRun{QuickCreatePrompt: "fix the login button color"})
 	if strings.Contains(plain, "--parent") {
 		t.Errorf("buildQuickCreatePrompt without parent must NOT mention --parent, got:\n%s", plain)
 	}
@@ -311,8 +311,8 @@ func TestBuildQuickCreatePromptParentPinning(t *testing.T) {
 // only fired for agent-triggered comments, so member-triggered ones
 // (like "LGTM") bypassed it.
 func TestBuildPromptSquadLeaderNoActionForMemberTrigger(t *testing.T) {
-	task := Task{
-		IssueID:               "issue-123",
+	agentRun := AgentRun{
+		TaskID:                "task-123",
 		TriggerCommentID:      "comment-456",
 		TriggerCommentContent: "LGTM",
 		TriggerAuthorType:     "member",
@@ -321,7 +321,7 @@ func TestBuildPromptSquadLeaderNoActionForMemberTrigger(t *testing.T) {
 			Instructions: "Some instructions\n\n## Squad Operating Protocol\n\nYou are the LEADER...",
 		},
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 	if !strings.Contains(out, "Squad leader no_action rule") {
 		t.Errorf("buildCommentPrompt must inject squad leader no_action rule for member-triggered comments, got:\n%s", out)
 	}
@@ -333,8 +333,8 @@ func TestBuildPromptSquadLeaderNoActionForMemberTrigger(t *testing.T) {
 // TestBuildPromptSquadLeaderNoActionForAgentTrigger verifies the rule also
 // fires for agent-triggered comments (the original path that already worked).
 func TestBuildPromptSquadLeaderNoActionForAgentTrigger(t *testing.T) {
-	task := Task{
-		IssueID:               "issue-123",
+	agentRun := AgentRun{
+		TaskID:                "task-123",
 		TriggerCommentID:      "comment-456",
 		TriggerCommentContent: "Deploy complete.",
 		TriggerAuthorType:     "agent",
@@ -343,21 +343,21 @@ func TestBuildPromptSquadLeaderNoActionForAgentTrigger(t *testing.T) {
 			Instructions: "Some instructions\n\n## Squad Operating Protocol\n\nYou are the LEADER...",
 		},
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 	if !strings.Contains(out, "Squad leader no_action rule") {
 		t.Errorf("buildCommentPrompt must inject squad leader no_action rule for agent-triggered comments, got:\n%s", out)
 	}
 }
 
-func TestBuildChatPromptAttachmentIDsCanBeBoundToCreatedIssues(t *testing.T) {
-	task := Task{
+func TestBuildChatPromptAttachmentIDsCanBeBoundToCreatedTasks(t *testing.T) {
+	agentRun := AgentRun{
 		ChatSessionID: "sess-1",
-		ChatMessage:   "please create an issue with this screenshot",
+		ChatMessage:   "please create an task with this screenshot",
 		ChatMessageAttachments: []ChatAttachmentMeta{
 			{ID: "019ec09d-6222-722b-bdfa-427b105d80be", Filename: "shot.png", ContentType: "image/png"},
 		},
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 	for _, want := range []string{
 		"Attachments on this message:",
 		"id=019ec09d-6222-722b-bdfa-427b105d80be",
@@ -372,7 +372,7 @@ func TestBuildChatPromptAttachmentIDsCanBeBoundToCreatedIssues(t *testing.T) {
 
 func TestBuildChatPromptChannelAwareness(t *testing.T) {
 	t.Run("slack-backed prompt teaches both read commands", func(t *testing.T) {
-		out := buildChatPrompt(Task{
+		out := buildChatPrompt(AgentRun{
 			ChatSessionID:   "sess-1",
 			ChatChannelType: "slack",
 			ChatMessage:     "你刚刚和 xxx 聊了什么",
@@ -385,21 +385,21 @@ func TestBuildChatPromptChannelAwareness(t *testing.T) {
 	})
 
 	t.Run("top-level mention starts with history", func(t *testing.T) {
-		out := buildChatPrompt(Task{ChatSessionID: "s", ChatChannelType: "slack", ChatInThread: false, ChatMessage: "hi"})
+		out := buildChatPrompt(AgentRun{ChatSessionID: "s", ChatChannelType: "slack", ChatInThread: false, ChatMessage: "hi"})
 		if !strings.Contains(out, "top level: start with `silieco chat history`") {
 			t.Fatalf("expected top-level guidance, got:\n%s", out)
 		}
 	})
 
 	t.Run("in-thread mention starts with thread", func(t *testing.T) {
-		out := buildChatPrompt(Task{ChatSessionID: "s", ChatChannelType: "slack", ChatInThread: true, ChatMessage: "hi"})
+		out := buildChatPrompt(AgentRun{ChatSessionID: "s", ChatChannelType: "slack", ChatInThread: true, ChatMessage: "hi"})
 		if !strings.Contains(out, "inside a thread: start with `silieco chat thread`") {
 			t.Fatalf("expected in-thread guidance, got:\n%s", out)
 		}
 	})
 
 	t.Run("web-only session has no channel block", func(t *testing.T) {
-		out := buildChatPrompt(Task{
+		out := buildChatPrompt(AgentRun{
 			ChatSessionID: "sess-1",
 			ChatMessage:   "hi",
 		})
@@ -420,7 +420,7 @@ func TestBuildChatPromptChannelAwareness(t *testing.T) {
 // it only ever asserted the rule on the Slack case.
 //
 // The carve-out is pinned alongside the prohibition on purpose. A rule phrased
-// as "don't say what you just did" reads as forbidding "已创建 Issue X" — the
+// as "don't say what you just did" reads as forbidding "已创建 Task X" — the
 // actual deliverable for a do-this request — so the two must move together: the
 // prohibition covers PROCESS, never the completed outcome.
 func TestBuildChatPromptNoNarrationOnEveryChannel(t *testing.T) {
@@ -439,7 +439,7 @@ func TestBuildChatPromptNoNarrationOnEveryChannel(t *testing.T) {
 		{name: "direct chat has no channel to deliver into", channelType: "", want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out := buildChatPrompt(Task{
+			out := buildChatPrompt(AgentRun{
 				ChatSessionID:   "sess-1",
 				ChatChannelType: tc.channelType,
 				ChatMessage:     "hi",
@@ -453,7 +453,7 @@ func TestBuildChatPromptNoNarrationOnEveryChannel(t *testing.T) {
 				return
 			}
 			// The prohibition must not read as a blanket ban on past tense. If a
-			// future edit drops the carve-out, an agent asked to create an issue
+			// future edit drops the carve-out, an agent asked to create an task
 			// has no way left to report that it did.
 			if strings.Contains(out, "must not say what you are about to do or just did") {
 				t.Errorf("prohibition must scope to process, not completed outcomes\n--- output ---\n%s", out)
@@ -520,7 +520,7 @@ func TestBuildChatPromptTwoLayerChannelPolicy(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out := buildChatPrompt(Task{
+			out := buildChatPrompt(AgentRun{
 				ChatSessionID:   "sess-1",
 				ChatChannelType: tc.channelType,
 				ChatMessage:     "hi",
@@ -544,7 +544,7 @@ func TestBuildChatPromptTwoLayerChannelPolicy(t *testing.T) {
 // no Feishu history reader there is nothing to select between, so the flag must
 // not leak either command into a Feishu prompt even if the server sets it.
 func TestBuildChatPromptFeishuIgnoresChatInThread(t *testing.T) {
-	out := buildChatPrompt(Task{
+	out := buildChatPrompt(AgentRun{
 		ChatSessionID:   "sess-1",
 		ChatChannelType: execenv.ChannelTypeFeishu,
 		ChatInThread:    true,
@@ -562,7 +562,7 @@ func TestBuildChatPromptAgentIntro(t *testing.T) {
 	// prompt must tell the agent to open the conversation itself, and must NOT
 	// carry the generic "respond to their message" framing or an empty
 	// "User message:" section that would confuse the agent.
-	out := buildChatPrompt(Task{ChatSessionID: "sess-1", ChatIntro: true})
+	out := buildChatPrompt(AgentRun{ChatSessionID: "sess-1", ChatIntro: true})
 	for _, want := range []string{
 		"You were just created",
 		"you are opening the conversation",
@@ -581,14 +581,14 @@ func TestBuildChatPromptAgentIntro(t *testing.T) {
 
 func TestBuildChatPromptSlashSkills(t *testing.T) {
 	t.Run("injects selected skills block", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			ChatSessionID: "sess-1",
 			ChatMessage:   "please [/deploy](slash://skill/abc-123) this",
 			Agent: &AgentData{
 				Skills: []SkillData{{ID: "abc-123", Name: "deploy"}},
 			},
 		}
-		out := buildChatPrompt(task)
+		out := buildChatPrompt(agentRun)
 		if !strings.Contains(out, "Explicitly selected skills:\n- deploy\n") {
 			t.Fatalf("expected selected skills block, got:\n%s", out)
 		}
@@ -598,42 +598,42 @@ func TestBuildChatPromptSlashSkills(t *testing.T) {
 	})
 
 	t.Run("ignores skills not belonging to agent", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			ChatSessionID: "sess-1",
 			ChatMessage:   "[/hacker-skill](slash://skill/evil-id)",
 			Agent: &AgentData{
 				Skills: []SkillData{{ID: "good-id", Name: "deploy"}},
 			},
 		}
-		out := buildChatPrompt(task)
+		out := buildChatPrompt(agentRun)
 		if strings.Contains(out, "Explicitly selected skills") {
 			t.Fatalf("should not inject block for unknown skill ID, got:\n%s", out)
 		}
 	})
 
 	t.Run("validates by ID not label", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			ChatSessionID: "sess-1",
 			ChatMessage:   "[/deploy](slash://skill/wrong-id)",
 			Agent: &AgentData{
 				Skills: []SkillData{{ID: "real-id", Name: "deploy"}},
 			},
 		}
-		out := buildChatPrompt(task)
+		out := buildChatPrompt(agentRun)
 		if strings.Contains(out, "Explicitly selected skills") {
 			t.Fatalf("matching label with wrong ID must not pass, got:\n%s", out)
 		}
 	})
 
 	t.Run("uses canonical name not label", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			ChatSessionID: "sess-1",
 			ChatMessage:   "[/spoofed-name](slash://skill/real-id)",
 			Agent: &AgentData{
 				Skills: []SkillData{{ID: "real-id", Name: "deploy"}},
 			},
 		}
-		out := buildChatPrompt(task)
+		out := buildChatPrompt(agentRun)
 		if !strings.Contains(out, "- deploy\n") {
 			t.Fatalf("expected canonical name 'deploy', got:\n%s", out)
 		}
@@ -646,38 +646,38 @@ func TestBuildChatPromptSlashSkills(t *testing.T) {
 	})
 
 	t.Run("deduplicates skills", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			ChatSessionID: "sess-1",
 			ChatMessage:   "[/deploy](slash://skill/a) and [/deploy](slash://skill/a) again",
 			Agent: &AgentData{
 				Skills: []SkillData{{ID: "a", Name: "deploy"}},
 			},
 		}
-		out := buildChatPrompt(task)
+		out := buildChatPrompt(agentRun)
 		if strings.Count(out, "- deploy") != 1 {
 			t.Fatalf("expected exactly 1 '- deploy', got:\n%s", out)
 		}
 	})
 
 	t.Run("omits block when no valid skills", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			ChatSessionID: "sess-1",
 			ChatMessage:   "just a normal message",
 			Agent:         &AgentData{Skills: []SkillData{{ID: "a", Name: "deploy"}}},
 		}
-		out := buildChatPrompt(task)
+		out := buildChatPrompt(agentRun)
 		if strings.Contains(out, "Explicitly selected skills") {
 			t.Fatalf("should not inject block when no slash links, got:\n%s", out)
 		}
 	})
 
 	t.Run("omits block when agent has no skills", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			ChatSessionID: "sess-1",
 			ChatMessage:   "[/deploy](slash://skill/abc-123)",
 			Agent:         &AgentData{},
 		}
-		out := buildChatPrompt(task)
+		out := buildChatPrompt(agentRun)
 		if strings.Contains(out, "Explicitly selected skills") {
 			t.Fatalf("should not inject block for agent with no skills, got:\n%s", out)
 		}
@@ -690,9 +690,9 @@ func TestBuildChatPromptSlashSkills(t *testing.T) {
 // only then offers the full-thread read, while still keeping older history
 // available through pagination.
 func TestBuildPromptDefaultScansRootsFirst(t *testing.T) {
-	out := BuildPrompt(Task{IssueID: "issue-default-1"}, "claude")
+	out := BuildPrompt(AgentRun{TaskID: "task-default-1"}, "claude")
 	for _, s := range []string{
-		"silieco issue comment list issue-default-1 --roots-only --summary --output json",
+		"silieco task comment list task-default-1 --roots-only --summary --output json",
 		"--since",
 	} {
 		if !strings.Contains(out, s) {
@@ -725,7 +725,7 @@ func TestBuildPromptDefaultScansRootsFirst(t *testing.T) {
 	if strings.Contains(out, "If you need comment history") {
 		t.Errorf("default BuildPrompt still carries the legacy 'If you need' soft phrasing that conflicts with the mandatory workflow\n--- output ---\n%s", out)
 	}
-	if strings.Contains(out, "silieco issue comment list issue-default-1 --output json") {
+	if strings.Contains(out, "silieco task comment list task-default-1 --output json") {
 		t.Errorf("default BuildPrompt still presents the unbounded flat read as the assignment catch-up command\n--- output ---\n%s", out)
 	}
 }
@@ -733,8 +733,8 @@ func TestBuildPromptDefaultScansRootsFirst(t *testing.T) {
 // TestBuildPromptNonSquadLeaderNoRule verifies that non-squad-leader agents
 // do NOT get the squad leader no_action rule injected.
 func TestBuildPromptNonSquadLeaderNoRule(t *testing.T) {
-	task := Task{
-		IssueID:               "issue-123",
+	agentRun := AgentRun{
+		TaskID:                "task-123",
 		TriggerCommentID:      "comment-456",
 		TriggerCommentContent: "LGTM",
 		TriggerAuthorType:     "member",
@@ -743,24 +743,24 @@ func TestBuildPromptNonSquadLeaderNoRule(t *testing.T) {
 			Instructions: "Some instructions without the squad marker",
 		},
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 	if strings.Contains(out, "Squad leader no_action rule") {
 		t.Errorf("buildCommentPrompt must NOT inject squad leader no_action rule for non-squad-leader agents, got:\n%s", out)
 	}
 }
 
 // TestBuildPromptNewCommentsHint pins that a comment-triggered task whose agent
-// ran before on this issue (NewCommentsSince set, NewCommentCount > 0) gets the
+// ran before on this task (NewCommentsSince set, NewCommentCount > 0) gets the
 // since-delta hint with the ISSUE-WIDE new-comment count, but is steered to read
 // the triggering (parent) thread first rather than blindly pulling every new
 // comment.
 func TestBuildPromptNewCommentsHint(t *testing.T) {
 	const (
-		issueID = "issue-new-1"
-		since   = "2026-05-28T11:00:00Z"
+		taskID = "task-new-1"
+		since  = "2026-05-28T11:00:00Z"
 	)
-	task := Task{
-		IssueID:               issueID,
+	agentRun := AgentRun{
+		TaskID:                taskID,
 		TriggerCommentID:      "trigger-1",
 		TriggerThreadID:       "thread-root-1",
 		TriggerCommentContent: "please look",
@@ -768,26 +768,26 @@ func TestBuildPromptNewCommentsHint(t *testing.T) {
 		NewCommentCount:       3,
 		NewCommentsSince:      since,
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 
-	// Issue-wide count (reverted from the thread-scoped wording).
-	if !strings.Contains(out, "3 new comment(s) on this issue since your last run") {
-		t.Errorf("hint must report the issue-wide new-comment count, got:\n%s", out)
+	// Task-wide count (reverted from the thread-scoped wording).
+	if !strings.Contains(out, "3 new comment(s) on this task since your last run") {
+		t.Errorf("hint must report the task-wide new-comment count, got:\n%s", out)
 	}
 	// Don't-blindly-read-all guidance.
 	if !strings.Contains(out, "blindly") {
 		t.Errorf("hint must discourage blindly reading every new comment, got:\n%s", out)
 	}
 	// Parent thread first: the --thread <trigger> read is the prioritized action.
-	if !strings.Contains(out, "silieco issue comment list "+issueID+" --thread thread-root-1 --since "+since+" --output json") {
+	if !strings.Contains(out, "silieco task comment list "+taskID+" --thread thread-root-1 --since "+since+" --output json") {
 		t.Errorf("hint must point at the triggering (parent) thread --since read first, got:\n%s", out)
 	}
 	if !strings.Contains(out, "--tail 30") {
 		t.Errorf("hint must offer the full-thread (--tail 30) option, got:\n%s", out)
 	}
-	// Issue-wide catch-up is demoted to an only-if-needed fallback.
-	if !strings.Contains(out, "silieco issue comment list "+issueID+" --since "+since+" --output json") {
-		t.Errorf("hint must keep the issue-wide --since catch-up as a fallback, got:\n%s", out)
+	// Task-wide catch-up is demoted to an only-if-needed fallback.
+	if !strings.Contains(out, "silieco task comment list "+taskID+" --since "+since+" --output json") {
+		t.Errorf("hint must keep the task-wide --since catch-up as a fallback, got:\n%s", out)
 	}
 	// The old cursor-heavy paragraph must be gone.
 	if strings.Contains(out, "Next reply cursor") || strings.Contains(out, "--before-id") {
@@ -800,9 +800,9 @@ func TestBuildPromptNewCommentsHint(t *testing.T) {
 // instead point the agent at the triggering CONVERSATION (--thread <trigger>
 // --tail 30) rather than dumping the flat timeline.
 func TestBuildPromptColdStartThreadRead(t *testing.T) {
-	const issueID = "issue-cold-1"
-	task := Task{
-		IssueID:               issueID,
+	const taskID = "task-cold-1"
+	agentRun := AgentRun{
+		TaskID:                taskID,
 		TriggerCommentID:      "trigger-1",
 		TriggerThreadID:       "thread-root-1",
 		TriggerCommentContent: "hi",
@@ -810,18 +810,18 @@ func TestBuildPromptColdStartThreadRead(t *testing.T) {
 		NewCommentCount:       0,
 		NewCommentsSince:      "",
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 	if strings.Contains(out, "new comment(s) since your last run") {
 		t.Errorf("no since-delta hint should render on cold start, got:\n%s", out)
 	}
-	if !strings.Contains(out, "silieco issue comment list "+issueID+" --thread thread-root-1 --tail 30 --output json") {
+	if !strings.Contains(out, "silieco task comment list "+taskID+" --thread thread-root-1 --tail 30 --output json") {
 		t.Errorf("cold start must point at the triggering thread read, got:\n%s", out)
 	}
 	// SILI-5372: cross-thread background is a cheap roots scan. The hint names
 	// only the reads it wants run — `--recent` and its saturation trap are
 	// documented once in the brief's `## Available Commands`, so restating the
 	// flag surface here would put reference text on every cold turn.
-	if !strings.Contains(out, "silieco issue comment list "+issueID+" --roots-only --summary --output json") {
+	if !strings.Contains(out, "silieco task comment list "+taskID+" --roots-only --summary --output json") {
 		t.Errorf("cold start should offer the cheap roots scan for cross-thread background, got:\n%s", out)
 	}
 	if strings.Contains(out, "--recent") {
@@ -834,9 +834,9 @@ func TestBuildPromptColdStartThreadRead(t *testing.T) {
 // comment is already embedded in the per-turn prompt, so the agent should not
 // be told to re-read the triggering thread's latest 30 replies by default.
 func TestBuildPromptResumedNoDeltaDoesNotForceThreadRead(t *testing.T) {
-	const issueID = "issue-resumed-1"
-	task := Task{
-		IssueID:               issueID,
+	const taskID = "task-resumed-1"
+	agentRun := AgentRun{
+		TaskID:                taskID,
 		TriggerCommentID:      "trigger-1",
 		TriggerThreadID:       "thread-root-1",
 		TriggerCommentContent: "hi again",
@@ -845,15 +845,15 @@ func TestBuildPromptResumedNoDeltaDoesNotForceThreadRead(t *testing.T) {
 		NewCommentCount:       0,
 		NewCommentsSince:      "",
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 
 	for _, want := range []string{
 		"triggering comment is already included above",
-		"No other new comments on this issue since your last run",
+		"No other new comments on this task since your last run",
 		"active thread anchor `thread-root-1` and triggering comment ID `trigger-1`",
 		"If your reply depends on thread context",
 		"do not rely only on resumed session memory",
-		"silieco issue comment list " + issueID + " --thread thread-root-1 --tail 30 --output json",
+		"silieco task comment list " + taskID + " --thread thread-root-1 --tail 30 --output json",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("resumed/no-delta prompt missing %q\n--- output ---\n%s", want, out)
@@ -877,8 +877,8 @@ func TestBuildPromptResumedNoDeltaDoesNotForceThreadRead(t *testing.T) {
 // command — wrong (and lossy) when the folded comments came from different
 // threads.
 func TestBuildCommentPromptCoalescedCrossThread(t *testing.T) {
-	task := Task{
-		IssueID:               "issue-xthread-1",
+	agentRun := AgentRun{
+		TaskID:                "task-xthread-1",
 		TriggerCommentID:      "trigger-newest",
 		TriggerThreadID:       "thread-root-A",
 		TriggerCommentContent: "latest instruction",
@@ -889,7 +889,7 @@ func TestBuildCommentPromptCoalescedCrossThread(t *testing.T) {
 			{ID: "c-old-2", ThreadID: "thread-root-B", AuthorType: "member", AuthorName: "Bob", Content: "comment in a different thread", CreatedAt: "2026-07-08T02:00:00Z"},
 		},
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 
 	// The stale same-thread assumption must be gone.
 	if strings.Contains(out, "they are in the triggering thread") {
@@ -919,23 +919,23 @@ func TestBuildCommentPromptCoalescedCrossThread(t *testing.T) {
 
 // TestBuildCommentPromptCoalescedIDsOnlyFallback pins the old-server fallback:
 // when only coalesced ids are shipped (no embedded detail), the prompt must
-// still NOT assume a shared thread and must point at an issue-wide fetch.
+// still NOT assume a shared thread and must point at an task-wide fetch.
 func TestBuildCommentPromptCoalescedIDsOnlyFallback(t *testing.T) {
-	task := Task{
-		IssueID:               "issue-fallback-1",
+	agentRun := AgentRun{
+		TaskID:                "task-fallback-1",
 		TriggerCommentID:      "trigger-newest",
 		TriggerThreadID:       "thread-root-A",
 		TriggerCommentContent: "latest instruction",
 		TriggerAuthorType:     "member",
 		CoalescedCommentIDs:   []string{"c-old-1", "c-old-2"},
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 
 	if strings.Contains(out, "they are in the triggering thread") {
 		t.Errorf("id-only fallback must not assume a shared thread, got:\n%s", out)
 	}
 	if !strings.Contains(out, "--recent 30") {
-		t.Errorf("id-only fallback must point at an issue-wide fetch (--recent 30), got:\n%s", out)
+		t.Errorf("id-only fallback must point at an task-wide fetch (--recent 30), got:\n%s", out)
 	}
 	for _, id := range []string{"c-old-1", "c-old-2"} {
 		if !strings.Contains(out, id) {
@@ -953,7 +953,7 @@ func TestBuildCommentPromptCoalescedIDsOnlyFallback(t *testing.T) {
 //   - no coalesced comments (ordinary single comment) → nil.
 func TestCommentReplyThreadsGrouping(t *testing.T) {
 	t.Run("three distinct root threads fan out", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			TriggerCommentID: "c3",
 			TriggerThreadID:  "c3", // a root comment is its own thread
 			CoalescedComments: []CoalescedCommentData{
@@ -961,7 +961,7 @@ func TestCommentReplyThreadsGrouping(t *testing.T) {
 				{ID: "c2", ThreadID: "c2", Content: "毛泽东诗词背一首"},
 			},
 		}
-		targets := commentReplyThreads(task)
+		targets := commentReplyThreads(agentRun)
 		if len(targets) != 3 {
 			t.Fatalf("want 3 targets, got %d: %+v", len(targets), targets)
 		}
@@ -974,7 +974,7 @@ func TestCommentReplyThreadsGrouping(t *testing.T) {
 	})
 
 	t.Run("same-thread follow-ups consolidate to a single group", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			TriggerCommentID: "c3",
 			TriggerThreadID:  "thread-A",
 			CoalescedComments: []CoalescedCommentData{
@@ -982,13 +982,13 @@ func TestCommentReplyThreadsGrouping(t *testing.T) {
 				{ID: "c2", ThreadID: "thread-A", Content: "追问 2"},
 			},
 		}
-		if targets := commentReplyThreads(task); targets != nil {
+		if targets := commentReplyThreads(agentRun); targets != nil {
 			t.Fatalf("same-thread follow-ups must not fan out; got %d targets: %+v", len(targets), targets)
 		}
 	})
 
 	t.Run("mixed: trigger thread plus one other thread", func(t *testing.T) {
-		task := Task{
+		agentRun := AgentRun{
 			TriggerCommentID: "c3",
 			TriggerThreadID:  "thread-A",
 			CoalescedComments: []CoalescedCommentData{
@@ -996,7 +996,7 @@ func TestCommentReplyThreadsGrouping(t *testing.T) {
 				{ID: "c2", ThreadID: "thread-B", Content: "other thread"},
 			},
 		}
-		targets := commentReplyThreads(task)
+		targets := commentReplyThreads(agentRun)
 		if len(targets) != 2 {
 			t.Fatalf("want 2 targets (thread-A, thread-B), got %d: %+v", len(targets), targets)
 		}
@@ -1017,8 +1017,8 @@ func TestCommentReplyThreadsGrouping(t *testing.T) {
 	})
 
 	t.Run("no coalesced comments → nil", func(t *testing.T) {
-		task := Task{TriggerCommentID: "c1", TriggerThreadID: "thread-A"}
-		if targets := commentReplyThreads(task); targets != nil {
+		agentRun := AgentRun{TriggerCommentID: "c1", TriggerThreadID: "thread-A"}
+		if targets := commentReplyThreads(agentRun); targets != nil {
 			t.Fatalf("ordinary single-comment run must not fan out; got %+v", targets)
 		}
 	})
@@ -1026,7 +1026,7 @@ func TestCommentReplyThreadsGrouping(t *testing.T) {
 	t.Run("non-trigger thread replies under its newest mention, not root", func(t *testing.T) {
 		// Two mid-thread mentions in thread-B (oldest c1, newer c2); the reply
 		// should target the newest specific comment (c2), not the root thread-B.
-		task := Task{
+		agentRun := AgentRun{
 			TriggerCommentID: "c9",
 			TriggerThreadID:  "thread-A",
 			CoalescedComments: []CoalescedCommentData{
@@ -1034,7 +1034,7 @@ func TestCommentReplyThreadsGrouping(t *testing.T) {
 				{ID: "c2", ThreadID: "thread-B", Content: "newer mention", CreatedAt: "2026-07-10T02:00:00Z"},
 			},
 		}
-		targets := commentReplyThreads(task)
+		targets := commentReplyThreads(agentRun)
 		got := map[string]string{}
 		for _, tgt := range targets {
 			got[tgt.ThreadID] = tgt.ParentID
@@ -1054,8 +1054,8 @@ func TestCommentReplyThreadsGrouping(t *testing.T) {
 // explicitly overriding the "one comment per run" rule, instead of the single
 // --parent cookbook.
 func TestBuildCommentPromptCrossThreadFansOutReplies(t *testing.T) {
-	task := Task{
-		IssueID:               "issue-xthread-2",
+	agentRun := AgentRun{
+		TaskID:                "task-xthread-2",
 		TriggerCommentID:      "c3",
 		TriggerThreadID:       "c3",
 		TriggerCommentContent: "莎士比亚名言来一句",
@@ -1066,7 +1066,7 @@ func TestBuildCommentPromptCrossThreadFansOutReplies(t *testing.T) {
 			{ID: "c2", ThreadID: "c2", AuthorType: "member", AuthorName: "Yushen", Content: "毛泽东诗词背一首", CreatedAt: "2026-07-10T02:00:00Z"},
 		},
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 
 	for _, want := range []string{
 		"3 DISTINCT threads",
@@ -1104,8 +1104,8 @@ func TestBuildCommentPromptCrossThreadFansOutReplies(t *testing.T) {
 // single-parent reply path (one reply, under the trigger comment) and must NOT
 // trigger the multi-thread fan-out.
 func TestBuildCommentPromptSameThreadKeepsSingleReply(t *testing.T) {
-	task := Task{
-		IssueID:               "issue-samethread-1",
+	agentRun := AgentRun{
+		TaskID:                "task-samethread-1",
 		TriggerCommentID:      "c3",
 		TriggerThreadID:       "thread-A",
 		TriggerCommentContent: "追问 3",
@@ -1116,7 +1116,7 @@ func TestBuildCommentPromptSameThreadKeepsSingleReply(t *testing.T) {
 			{ID: "c2", ThreadID: "thread-A", AuthorType: "member", AuthorName: "Yushen", Content: "追问 2", CreatedAt: "2026-07-10T02:00:00Z"},
 		},
 	}
-	out := BuildPrompt(task, "claude")
+	out := BuildPrompt(agentRun, "claude")
 
 	if strings.Contains(out, "DISTINCT threads") {
 		t.Errorf("same-thread coalescing must not emit the multi-thread fan-out block, got:\n%s", out)
@@ -1135,8 +1135,8 @@ func TestBuildCommentPromptSameThreadKeepsSingleReply(t *testing.T) {
 func TestPerTurnContextBlocksCarryMovedBriefSections(t *testing.T) {
 	t.Parallel()
 
-	task := Task{
-		IssueID:                       "issue-1",
+	agentRun := AgentRun{
+		TaskID:                        "task-1",
 		TriggerCommentID:              "comment-1",
 		TriggerCommentContent:         "please look at this",
 		PriorSessionResumeUnavailable: true,
@@ -1151,7 +1151,7 @@ func TestPerTurnContextBlocksCarryMovedBriefSections(t *testing.T) {
 		}},
 	}
 
-	prompt := BuildPrompt(task, "claude")
+	prompt := BuildPrompt(agentRun, "claude")
 	for _, want := range []string{
 		"## Session Continuity Notice",
 		"could NOT be restored",
@@ -1171,7 +1171,7 @@ func TestPerTurnContextBlocksCarryMovedBriefSections(t *testing.T) {
 func TestPerTurnContextBlocksOmittedWhenEmpty(t *testing.T) {
 	t.Parallel()
 
-	prompt := BuildPrompt(Task{IssueID: "issue-1"}, "claude")
+	prompt := BuildPrompt(AgentRun{TaskID: "task-1"}, "claude")
 	for _, banned := range []string{
 		"## Session Continuity Notice",
 		"## Task Initiator",
@@ -1188,8 +1188,8 @@ func TestPerTurnContextBlocksOmittedWhenEmpty(t *testing.T) {
 func TestPerTurnContextBlocksOnAssignmentPath(t *testing.T) {
 	t.Parallel()
 
-	prompt := BuildPrompt(Task{
-		IssueID:       "issue-1",
+	prompt := BuildPrompt(AgentRun{
+		TaskID:        "task-1",
 		InitiatorType: "agent",
 		InitiatorName: "GPT-Boy",
 	}, "claude")
@@ -1206,39 +1206,39 @@ func TestPerTurnContextBlocksOnAssignmentPath(t *testing.T) {
 // The dangerous case is a comment-triggered run whose comment body is empty (or
 // an older server that doesn't send one). Before this guard the prompt emitted
 // no `[NEW COMMENT]` block at all, the brief fell through to Ownership mode,
-// and the agent would change the issue status on a turn that must not.
+// and the agent would change the task status on a turn that must not.
 func TestTurnModeMarkerAlwaysPresent(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name string
-		task Task
-		want string
-		deny string
+		name     string
+		agentRun AgentRun
+		want     string
+		deny     string
 	}{
 		{
-			name: "comment-triggered with content",
-			task: Task{IssueID: "issue-1", TriggerCommentID: "c-1", TriggerCommentContent: "please look"},
-			want: "**Turn mode: Reply.**",
-			deny: "**Turn mode: Ownership.**",
+			name:     "comment-triggered with content",
+			agentRun: AgentRun{TaskID: "task-1", TriggerCommentID: "c-1", TriggerCommentContent: "please look"},
+			want:     "**Turn mode: Reply.**",
+			deny:     "**Turn mode: Ownership.**",
 		},
 		{
-			name: "comment-triggered with EMPTY content",
-			task: Task{IssueID: "issue-1", TriggerCommentID: "c-1"},
-			want: "**Turn mode: Reply.**",
-			deny: "**Turn mode: Ownership.**",
+			name:     "comment-triggered with EMPTY content",
+			agentRun: AgentRun{TaskID: "task-1", TriggerCommentID: "c-1"},
+			want:     "**Turn mode: Reply.**",
+			deny:     "**Turn mode: Ownership.**",
 		},
 		{
-			name: "assignment-triggered",
-			task: Task{IssueID: "issue-1"},
-			want: "**Turn mode: Ownership.**",
-			deny: "**Turn mode: Reply.**",
+			name:     "assignment-triggered",
+			agentRun: AgentRun{TaskID: "task-1"},
+			want:     "**Turn mode: Ownership.**",
+			deny:     "**Turn mode: Reply.**",
 		},
 		{
-			name: "assignment-triggered with handoff note",
-			task: Task{IssueID: "issue-1", HandoffNote: "start with the API"},
-			want: "**Turn mode: Ownership.**",
-			deny: "**Turn mode: Reply.**",
+			name:     "assignment-triggered with handoff note",
+			agentRun: AgentRun{TaskID: "task-1", HandoffNote: "start with the API"},
+			want:     "**Turn mode: Ownership.**",
+			deny:     "**Turn mode: Reply.**",
 		},
 	}
 
@@ -1246,7 +1246,7 @@ func TestTurnModeMarkerAlwaysPresent(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			prompt := BuildPrompt(tc.task, "claude")
+			prompt := BuildPrompt(tc.agentRun, "claude")
 			if !strings.Contains(prompt, tc.want) {
 				t.Errorf("prompt missing turn-mode marker %q\n---\n%s", tc.want, prompt)
 			}
@@ -1257,23 +1257,23 @@ func TestTurnModeMarkerAlwaysPresent(t *testing.T) {
 	}
 }
 
-// The mode marker only makes sense for the two issue paths — the issue-less
-// kinds have no Reply/Ownership distinction and no issue status to protect.
-func TestTurnModeMarkerAbsentOnIssuelessKinds(t *testing.T) {
+// The mode marker only makes sense for the two task paths — the task-less
+// kinds have no Reply/Ownership distinction and no task status to protect.
+func TestTurnModeMarkerAbsentOnTasklessKinds(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name string
-		task Task
+		name     string
+		agentRun AgentRun
 	}{
-		{"chat", Task{ChatSessionID: "chat-1"}},
-		{"quick-create", Task{QuickCreatePrompt: "make an issue"}},
-		{"autopilot", Task{AutopilotRunID: "run-1"}},
+		{"chat", AgentRun{ChatSessionID: "chat-1"}},
+		{"quick-create", AgentRun{QuickCreatePrompt: "make an task"}},
+		{"autopilot", AgentRun{AutopilotRunID: "run-1"}},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			prompt := BuildPrompt(tc.task, "claude")
+			prompt := BuildPrompt(tc.agentRun, "claude")
 			for _, banned := range []string{"**Turn mode: Reply.**", "**Turn mode: Ownership.**"} {
 				if strings.Contains(prompt, banned) {
 					t.Errorf("%s prompt must not carry %q\n---\n%s", tc.name, banned, prompt)
@@ -1289,7 +1289,7 @@ func TestTurnModeMarkerAbsentOnIssuelessKinds(t *testing.T) {
 func TestBriefModeRouterMatchesPromptMarkers(t *testing.T) {
 	t.Parallel()
 
-	brief, err := execenv.InjectRuntimeConfig(t.TempDir(), "claude", execenv.TaskContextForEnv{IssueID: "issue-1"})
+	brief, err := execenv.InjectRuntimeConfig(t.TempDir(), "claude", execenv.RunContextForEnv{TaskID: "task-1"})
 	if err != nil {
 		t.Fatalf("InjectRuntimeConfig: %v", err)
 	}

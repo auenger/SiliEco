@@ -19,3 +19,5 @@ export {
   useUpdateProjectResource,
   useDeleteProjectResource,
 } from "./resource-queries";
+
+export { useCheckProjectDirectory, projectDirectoryKey, projectDirectoryOptions, projectPreviewOptions } from "./directory-queries";

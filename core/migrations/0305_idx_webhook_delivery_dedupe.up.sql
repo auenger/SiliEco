@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY idx_webhook_delivery_dedupe ON public.webhook_delivery USING btree (trigger_id, dedupe_key) WHERE ((dedupe_key IS NOT NULL) AND (status <> ALL (ARRAY['rejected'::text, 'failed'::text])));

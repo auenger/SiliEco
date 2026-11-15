@@ -2,8 +2,8 @@
   "nav": {
     "inbox": "インボックス",
     "chat": "チャット",
-    "my_issues": "マイTask",
-    "issues": "Task",
+    "my_tasks": "マイTask",
+    "tasks": "Task",
     "projects": "プロジェクト",
     "resources": "リソース",
     "workflows": "ワークフロー",
@@ -16,7 +16,7 @@
     "settings": "設定"
   },
   "tab": {
-    "issue": "Task",
+    "task": "Task",
     "project": "プロジェクト",
     "autopilot": "オートパイロット",
     "agent": "エージェント",
@@ -47,8 +47,8 @@
     "invitation_join": "参加",
     "invitation_decline": "辞退",
     "log_out": "ログアウト",
-    "new_issue": "新規Task",
-    "new_issue_shortcut": "C",
+    "new_task": "新規Task",
+    "new_task_shortcut": "C",
     "pinned_label": "ピン留め済み",
     "workspace_group": "ワークスペース",
     "configure_group": "設定",

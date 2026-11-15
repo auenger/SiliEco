@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestRenderIssueContextIncludesCurrentAndNextSOPStage(t *testing.T) {
-	out := renderIssueContext("codex", TaskContextForEnv{
-		IssueID:                    "issue-1",
+func TestRenderTaskContextIncludesCurrentAndNextSOPStage(t *testing.T) {
+	out := renderTaskContext("codex", RunContextForEnv{
+		TaskID:                     "task-1",
 		WorkflowInstanceID:         "run-1",
 		WorkflowInstanceTitle:      "Payment SOP",
 		WorkflowStageID:            "stage-current",
@@ -29,7 +29,7 @@ func TestRenderIssueContextIncludesCurrentAndNextSOPStage(t *testing.T) {
 		"Backlog or human assignment", "silieco-split-feature",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("issue context missing %q:\n%s", want, out)
+			t.Fatalf("task context missing %q:\n%s", want, out)
 		}
 	}
 }

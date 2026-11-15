@@ -15,7 +15,7 @@ import (
 
 // Codex filters environment variables before running shell tool subprocesses.
 // Its default secret guard drops names containing KEY, SECRET, or TOKEN, so a
-// daemon-spawned Codex process can have SILIECO_TOKEN while `silieco issue ...`
+// daemon-spawned Codex process can have SILIECO_TOKEN while `silieco task ...`
 // inside a shell tool does not. The daemon therefore owns the shell policy in
 // each task's isolated Codex home.
 const (

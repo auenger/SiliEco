@@ -39,7 +39,7 @@ describe("ApiClient pull-request response schema", () => {
       ),
     );
 
-    const result = await new ApiClient("https://api.example.test").listIssuePullRequests("issue-1");
+    const result = await new ApiClient("https://api.example.test").listTaskPullRequests("task-1");
     expect(result.pull_requests[0]).toMatchObject({
       id: "pr-1",
       failed_check_names: ["backend"],
@@ -64,7 +64,7 @@ describe("ApiClient pull-request response schema", () => {
     );
 
     await expect(
-      new ApiClient("https://api.example.test").listIssuePullRequests("issue-1"),
+      new ApiClient("https://api.example.test").listTaskPullRequests("task-1"),
     ).resolves.toEqual({ pull_requests: [] });
   });
 });
@@ -132,14 +132,14 @@ describe("ApiClient server Table query", () => {
     };
 
     await expect(
-      client.listIssueTableGroups({
+      client.listTaskTableGroups({
         query,
         group: { kind: "status" },
         page: { limit: 100, cursor: null },
       }),
     ).resolves.toMatchObject({ total: 1001, groups: [{ count: 1001 }] });
     await expect(
-      client.listIssueTableRows({
+      client.listTaskTableRows({
         query,
         group: { kind: "status" },
         group_key: "status:todo",
@@ -149,7 +149,7 @@ describe("ApiClient server Table query", () => {
       }),
     ).resolves.toMatchObject({ branch_total: 0, next_cursor: "next-page" });
     await expect(
-      client.listIssueTableFacets({
+      client.listTaskTableFacets({
         query,
         facets: [{ kind: "status" }],
       }),
@@ -188,7 +188,7 @@ describe("ApiClient server Table query", () => {
     };
 
     await expect(
-      client.listIssueTableGroups({
+      client.listTaskTableGroups({
         query,
         group: { kind: "status" },
         page: { limit: 100, cursor: null },
@@ -200,7 +200,7 @@ describe("ApiClient server Table query", () => {
       next_cursor: null,
     });
     await expect(
-      client.listIssueTableRows({
+      client.listTaskTableRows({
         query,
         group: { kind: "none" },
         group_key: null,
@@ -218,7 +218,7 @@ describe("ApiClient server Table query", () => {
       next_cursor: null,
     });
     await expect(
-      client.listIssueTableFacets({
+      client.listTaskTableFacets({
         query,
         facets: [{ kind: "status" }],
       }),
@@ -277,13 +277,13 @@ describe("ApiClient server Table query", () => {
     };
 
     await expect(
-      client.listIssueTableGroups({ query, group: { kind: "status" } }),
+      client.listTaskTableGroups({ query, group: { kind: "status" } }),
     ).resolves.toMatchObject({
       total: 1,
       groups: [{ value: { kind: "status", status: "paused" } }],
     });
     await expect(
-      client.listIssueTableGroups({ query, group: { kind: "assignee" } }),
+      client.listTaskTableGroups({ query, group: { kind: "assignee" } }),
     ).resolves.toMatchObject({
       total: 1,
       groups: [
@@ -337,7 +337,7 @@ describe("ApiClient server Table query", () => {
     };
 
     await expect(
-      client.listIssueTableGroups({
+      client.listTaskTableGroups({
         query,
         group: {
           kind: "compound",
@@ -364,10 +364,16 @@ describe("ApiClient server Table query", () => {
   });
 });
 
-describe("ApiClient issue move intent", () => {
+describe("ApiClient task move intent", () => {
   it("posts relative anchors without a client-authored position", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ id: "issue-1", position: 15 }), {
+      new Response(JSON.stringify({
+        id: "task-1", workspace_id: "ws-1", number: 1, identifier: "TEST-1",
+        title: "Move task", description: null, status: "in_progress", priority: "none",
+        assignee_type: null, assignee_id: null, creator_type: "member", creator_id: "member-1",
+        parent_task_id: null, project_id: null, position: 15, start_date: null, due_date: null,
+        created_at: "2026-11-06T00:00:00Z", updated_at: "2026-11-06T00:00:01Z",
+      }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
@@ -375,20 +381,20 @@ describe("ApiClient issue move intent", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = new ApiClient("https://api.example.test");
 
-    await client.moveIssue("issue-1", {
+    await client.moveTask("task-1", {
       status: "in_progress",
-      before_id: "issue-0",
-      after_id: "issue-2",
+      before_id: "task-0",
+      after_id: "task-2",
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.example.test/api/tasks/issue-1/move",
+      "https://api.example.test/api/tasks/task-1/move",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
           status: "in_progress",
-          before_id: "issue-0",
-          after_id: "issue-2",
+          before_id: "task-0",
+          after_id: "task-2",
         }),
       }),
     );
@@ -402,8 +408,8 @@ describe("ApiClient workspace working agents", () => {
         id: "agent-1",
         name: "Agent 1",
         avatar_url: null,
-        running_task_count: 2,
-        issue_ids: ["issue-1"],
+        running_run_count: 2,
+        task_ids: ["task-1"],
       },
     ];
     const fetchMock = vi.fn().mockImplementation(() =>
@@ -418,26 +424,26 @@ describe("ApiClient workspace working agents", () => {
 
     const client = new ApiClient("https://api.example.test");
     await expect(
-      client.getWorkspaceWorkingAgents("issue", "assigned"),
+      client.getWorkspaceWorkingAgents("task", "assigned"),
     ).resolves.toEqual(payload);
     await expect(
-      client.getWorkspaceWorkingAgents("issue"),
+      client.getWorkspaceWorkingAgents("task"),
     ).resolves.toEqual(payload);
     await expect(client.getWorkspaceWorkingAgents()).resolves.toEqual(payload);
     await expect(
-      client.getWorkspaceWorkingAgents("issue", undefined, "parent-1"),
+      client.getWorkspaceWorkingAgents("task", undefined, "parent-1"),
     ).resolves.toEqual(payload);
-    // The server rejects parent alongside scope, so a My Issues relation wins
+    // The server rejects parent alongside scope, so a My Tasks relation wins
     // and the parent is dropped rather than sent into a 400.
     await expect(
-      client.getWorkspaceWorkingAgents("issue", "assigned", "parent-1"),
+      client.getWorkspaceWorkingAgents("task", "assigned", "parent-1"),
     ).resolves.toEqual(payload);
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "https://api.example.test/api/working-agents?type=issue&scope=mine&relation=assigned",
-      "https://api.example.test/api/working-agents?type=issue",
+      "https://api.example.test/api/working-agents?type=task&scope=mine&relation=assigned",
+      "https://api.example.test/api/working-agents?type=task",
       "https://api.example.test/api/working-agents",
-      "https://api.example.test/api/working-agents?type=issue&parent=parent-1",
-      "https://api.example.test/api/working-agents?type=issue&scope=mine&relation=assigned",
+      "https://api.example.test/api/working-agents?type=task&parent=parent-1",
+      "https://api.example.test/api/working-agents?type=task&scope=mine&relation=assigned",
     ]);
   });
 });
@@ -465,9 +471,9 @@ describe("ApiClient label response schemas", () => {
       client.updateLabel("label-1", { name: "Operations" }),
     ).resolves.toMatchObject({ id: "" });
 
-    await expect(client.listLabelsForIssue("issue-1")).resolves.toEqual({ labels: [] });
-    await expect(client.attachLabel("issue-1", "label-1")).resolves.toEqual({ labels: [] });
-    await expect(client.detachLabel("issue-1", "label-1")).resolves.toEqual({ labels: [] });
+    await expect(client.listLabelsForTask("task-1")).resolves.toEqual({ labels: [] });
+    await expect(client.attachLabel("task-1", "label-1")).resolves.toEqual({ labels: [] });
+    await expect(client.detachLabel("task-1", "label-1")).resolves.toEqual({ labels: [] });
 
     await expect(client.listLabelsForResource("agent", "agent-1")).resolves.toEqual({ labels: [] });
     await expect(
@@ -631,7 +637,7 @@ describe("ApiClient", () => {
     }
   });
 
-  it("preserves planned and delivered comment coverage from issue task runs", async () => {
+  it("preserves planned and delivered comment coverage from task task runs", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -651,7 +657,7 @@ describe("ApiClient", () => {
     );
 
     const client = new ApiClient("https://api.example.test");
-    const tasks = await client.listTasksByIssue("issue-1");
+    const tasks = await client.listRunsByTask("task-1");
 
     expect(tasks[0]?.trigger_comment_id).toBe("comment-3");
     expect(tasks[0]?.coalesced_comment_ids).toEqual([
@@ -689,7 +695,7 @@ describe("ApiClient", () => {
     );
 
     const client = new ApiClient("https://api.example.test");
-    const tasks = await client.listTasksByIssue("issue-1");
+    const tasks = await client.listRunsByTask("task-1");
 
     expect(tasks).toHaveLength(2);
     expect(tasks[0]?.coalesced_comment_ids).toBeUndefined();
@@ -717,7 +723,7 @@ describe("ApiClient", () => {
       title: "Daily triage",
       project_id: "project-1",
       assignee_id: "agent-1",
-      execution_mode: "create_issue",
+      execution_mode: "create_task",
     });
     await client.updateAutopilot("ap-1", { status: "paused", project_id: null });
     await client.deleteAutopilot("ap-1");
@@ -748,7 +754,7 @@ describe("ApiClient", () => {
           title: "Daily triage",
           project_id: "project-1",
           assignee_id: "agent-1",
-          execution_mode: "create_issue",
+          execution_mode: "create_task",
         }),
       },
       {
@@ -831,7 +837,7 @@ describe("ApiClient", () => {
     const client = new ApiClient("https://api.example.test");
     const response = await client.createFeedback({
       message: "Desktop route crashed",
-      url: "app://desktop/acme/issues",
+      url: "app://desktop/acme/tasks",
       workspace_id: "ws-1",
       kind: "bug",
     });
@@ -846,7 +852,7 @@ describe("ApiClient", () => {
         method: "POST",
         body: JSON.stringify({
           message: "Desktop route crashed",
-          url: "app://desktop/acme/issues",
+          url: "app://desktop/acme/tasks",
           workspace_id: "ws-1",
           kind: "bug",
         }),
@@ -883,7 +889,7 @@ describe("ApiClient", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify({
           id: "comment-1",
-          issue_id: "issue-1",
+          task_id: "task-1",
           author_type: "member",
           author_id: "user-1",
           content: "hello",
@@ -901,7 +907,7 @@ describe("ApiClient", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify({
           id: "comment-1",
-          issue_id: "issue-1",
+          task_id: "task-1",
           author_type: "member",
           author_id: "user-1",
           content: "updated",
@@ -919,9 +925,9 @@ describe("ApiClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new ApiClient("https://api.example.test");
-    await client.previewCommentTriggers("issue-1", "hello", "parent-1", "comment-1");
+    await client.previewCommentTriggers("task-1", "hello", "parent-1", "comment-1");
     await client.createComment(
-      "issue-1",
+      "task-1",
       "hello",
       "comment",
       "parent-1",
@@ -936,12 +942,12 @@ describe("ApiClient", () => {
       body: init?.body,
     }))).toMatchObject([
       {
-        url: "https://api.example.test/api/tasks/issue-1/comments/trigger-preview",
+        url: "https://api.example.test/api/tasks/task-1/comments/trigger-preview",
         method: "POST",
         body: JSON.stringify({ content: "hello", parent_id: "parent-1", editing_comment_id: "comment-1" }),
       },
       {
-        url: "https://api.example.test/api/tasks/issue-1/comments",
+        url: "https://api.example.test/api/tasks/task-1/comments",
         method: "POST",
         body: JSON.stringify({
           content: "hello",
@@ -1073,7 +1079,7 @@ describe("ApiClient", () => {
             JSON.stringify({
               id: "att-1",
               workspace_id: "ws-1",
-              issue_id: null,
+              task_id: null,
               comment_id: null,
               uploader_type: "member",
               uploader_id: "u-1",
@@ -1173,7 +1179,7 @@ describe("ApiClient", () => {
     });
   });
 
-  describe("listChatMessagesPage deployment-order fallback", () => {
+  describe("listChatMessagesPage errors", () => {
     const jsonResponse = (body: unknown, status: number, statusText = "") =>
       new Response(JSON.stringify(body), {
         status,
@@ -1181,31 +1187,16 @@ describe("ApiClient", () => {
         headers: { "Content-Type": "application/json" },
       });
 
-    it("falls back to the legacy full-list endpoint when the paged route 404s", async () => {
-      const legacy = [
-        { id: "m1", role: "user", content: "hi", created_at: "2026-06-01T00:00:00Z" },
-        { id: "m2", role: "assistant", content: "yo", created_at: "2026-06-01T00:00:01Z" },
-      ];
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce(jsonResponse({ error: "not found" }, 404, "Not Found"))
-        .mockResolvedValueOnce(jsonResponse(legacy, 200));
+    it("propagates a missing page endpoint without retrying another contract", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: "not found" }, 404, "Not Found"));
       vi.stubGlobal("fetch", fetchMock);
-
       const client = new ApiClient("https://api.example.test");
-      const page = await client.listChatMessagesPage("session-1", { limit: 50 });
-
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(fetchMock.mock.calls[0]![0]).toBe(
-        "https://api.example.test/api/chat/sessions/session-1/messages/page?limit=50",
-      );
-      expect(fetchMock.mock.calls[1]![0]).toBe(
-        "https://api.example.test/api/chat/sessions/session-1/messages",
-      );
-      expect(page).toEqual({ messages: legacy, limit: 50, has_more: false, next_cursor: null });
+      await expect(client.listChatMessagesPage("session-1", { limit: 50 })).rejects.toMatchObject({ status: 404 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]![0]).toBe("https://api.example.test/api/chat/sessions/session-1/messages/page?limit=50");
     });
 
-    it("does NOT fall back on a cursor request — a 404 there propagates", async () => {
+    it("propagates a missing cursor page", async () => {
       const fetchMock = vi
         .fn()
         .mockResolvedValue(jsonResponse({ error: "not found" }, 404, "Not Found"));
@@ -1217,11 +1208,11 @@ describe("ApiClient", () => {
           before: { created_at: "2026-06-01T00:00:00Z", id: "m1" },
         }),
       ).rejects.toBeInstanceOf(ApiError);
-      // Only the paged request fires; no legacy full-list call that would duplicate messages.
+      // A failed cursor request must not duplicate the initial page.
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it("propagates non-404 errors instead of masking them with the legacy list", async () => {
+    it("propagates server errors", async () => {
       const fetchMock = vi
         .fn()
         .mockResolvedValue(jsonResponse({ error: "boom" }, 500, "Internal Server Error"));
@@ -1235,12 +1226,12 @@ describe("ApiClient", () => {
     });
   });
 
-  describe("cancelTaskById response parsing", () => {
+  describe("cancelRunById response parsing", () => {
     const taskResponse = {
       id: "task-1",
       agent_id: "agent-1",
       runtime_id: "runtime-1",
-      issue_id: "",
+      task_id: "",
       status: "cancelled",
       priority: 0,
       dispatched_at: null,
@@ -1269,7 +1260,7 @@ describe("ApiClient", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       const client = new ApiClient("https://api.example.test");
-      const result = await client.cancelTaskById("task-1");
+      const result = await client.cancelRunById("task-1");
 
       expect(fetchMock.mock.calls[0]).toMatchObject([
         "https://api.example.test/api/runs/task-1/cancel",
@@ -1304,7 +1295,7 @@ describe("ApiClient", () => {
       );
 
       const client = new ApiClient("https://api.example.test");
-      const result = await client.cancelTaskById("task-1");
+      const result = await client.cancelRunById("task-1");
 
       expect(result.attribution).toEqual({
         source: "direct_human",
@@ -1327,7 +1318,7 @@ describe("ApiClient", () => {
       );
 
       const client = new ApiClient("https://api.example.test");
-      const result = await client.cancelTaskById("task-1");
+      const result = await client.cancelRunById("task-1");
 
       expect(result.attribution).toBeUndefined();
     });
@@ -1345,7 +1336,7 @@ describe("ApiClient", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
 
-      await new ApiClient("https://api.example.test").cancelTaskById("task-1");
+      await new ApiClient("https://api.example.test").cancelRunById("task-1");
 
       const init = fetchMock.mock.calls[0]?.[1] as { headers: Record<string, string> };
       expect(init.headers["X-Client-Capabilities"]).toBe(CHAT_DRAFT_RESTORE_CAPABILITY);
@@ -1366,7 +1357,7 @@ describe("ApiClient", () => {
       );
 
       const client = new ApiClient("https://api.example.test");
-      const result = await client.cancelTaskById("task-1");
+      const result = await client.cancelRunById("task-1");
 
       expect(result.id).toBe("task-1");
       expect(result.cancelled_chat_message).toBeUndefined();
@@ -1399,7 +1390,7 @@ describe("ApiClient", () => {
       );
 
       const client = new ApiClient("https://api.example.test");
-      const result = await client.cancelTaskById("task-1");
+      const result = await client.cancelRunById("task-1");
 
       expect(result.id).toBe("");
       expect(result.cancelled_chat_message).toBeUndefined();
@@ -1427,7 +1418,7 @@ describe("ApiClient", () => {
       const body = init?.body as FormData;
       expect(body).toBeInstanceOf(FormData);
       expect(body.get("chat_session_id")).toBe("session-123");
-      expect(body.get("issue_id")).toBeNull();
+      expect(body.get("task_id")).toBeNull();
       expect(body.get("comment_id")).toBeNull();
     });
 
@@ -1443,7 +1434,7 @@ describe("ApiClient", () => {
       const client = new ApiClient("https://api.example.test");
       const controller = new AbortController();
       const file = new File(["hi"], "hi.png", { type: "image/png" });
-      await client.uploadFile(file, { issueId: "issue-1" }, controller.signal);
+      await client.uploadFile(file, { taskId: "task-1" }, controller.signal);
 
       const [, init] = fetchMock.mock.calls[0]!;
       expect(init?.signal).toBe(controller.signal);
@@ -1472,7 +1463,7 @@ describe("ApiClient", () => {
 
     it("sendChatMessage serialises attachment_ids onto the JSON body when present", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ message_id: "m1", task_id: "t1", created_at: "" }), {
+        new Response(JSON.stringify({ message_id: "m1", run_id: "t1", created_at: "" }), {
           status: 201,
           headers: { "Content-Type": "application/json" },
         }),
@@ -1492,7 +1483,7 @@ describe("ApiClient", () => {
     it("sendChatMessage omits attachment_ids when the list is empty or undefined", async () => {
       const fetchMock = vi.fn().mockImplementation(() =>
         Promise.resolve(
-          new Response(JSON.stringify({ message_id: "m1", task_id: "t1", created_at: "" }), {
+          new Response(JSON.stringify({ message_id: "m1", run_id: "t1", created_at: "" }), {
             status: 201,
             headers: { "Content-Type": "application/json" },
           }),
@@ -1672,14 +1663,14 @@ describe("ApiClient execution rework", () => {
 describe("ApiClient review recovery", () => {
   const id="11111111-1111-4111-8111-111111111111";
   const newId="22222222-2222-4222-8222-222222222222";
-  const body={failed_task_id:id,expected_result_revision:2,expected_basis_hash:"a".repeat(64),reason:"Network restored"};
-  const recovery={recovery_id:newId,instance_id:id,execution_id:id,request_id:id,failed_task_id:id,task_id:newId,allowed_attempts:3,max_attempts:6};
+  const body={failed_run_id:id,expected_result_revision:2,expected_basis_hash:"a".repeat(64),reason:"Network restored"};
+  const recovery={recovery_id:newId,instance_id:id,execution_id:id,request_id:id,failed_run_id:id,run_id:newId,allowed_attempts:3,max_attempts:6};
   it("posts the exact reviewed call and parses the audit result",async()=>{
     const request=vi.fn().mockResolvedValue(new Response(JSON.stringify(recovery),{status:200}));vi.stubGlobal("fetch",request);
     await expect(new ApiClient("https://api.example.test").recoverWorkflowAgentReview(id,id,id,body)).resolves.toEqual(recovery);
     expect(request).toHaveBeenCalledWith(`https://api.example.test/api/workflow-instances/${id}/executions/${id}/reviews/${id}/recover`,expect.objectContaining({method:"POST",body:JSON.stringify(body)}));
   });
-  it.each([{}, {...recovery,task_id:id}, {...recovery,request_id:newId}, {...recovery,allowed_attempts:4}])("rejects malformed or unrelated recovery responses",async response=>{
+  it.each([{}, {...recovery,run_id:id}, {...recovery,request_id:newId}, {...recovery,allowed_attempts:4}])("rejects malformed or unrelated recovery responses",async response=>{
     vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify(response),{status:200})));
     await expect(new ApiClient("https://api.example.test").recoverWorkflowAgentReview(id,id,id,body)).resolves.toBeNull();
   });

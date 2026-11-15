@@ -4,8 +4,6 @@ import { useRef, useState } from "react";
 import {
   ChevronRight,
   ChevronDown,
-  FileText,
-  File,
   Folder,
   FolderOpen,
   MoreHorizontal,
@@ -20,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@silieco/ui/components/ui/dropdown-menu";
 import { cn } from "@silieco/ui/lib/utils";
+import { fileTypeIcon } from "../../common/file-type-icon";
 import { useT } from "../../i18n";
 
 /**
@@ -93,11 +92,6 @@ function buildTree(filePaths: string[]): FileTreeNode[] {
   return sortNodes(root);
 }
 
-function getFileIcon(name: string) {
-  if (name.endsWith(".md") || name.endsWith(".mdx")) return FileText;
-  return File;
-}
-
 // ---------------------------------------------------------------------------
 // Tree node renderer
 // ---------------------------------------------------------------------------
@@ -158,7 +152,7 @@ function TreeNodeItem({
     );
   }
 
-  const Icon = getFileIcon(node.name);
+  const Icon = fileTypeIcon(node.name);
   const editable = !!actions && node.path !== actions.reservedPath;
 
   if (renaming && actions) {

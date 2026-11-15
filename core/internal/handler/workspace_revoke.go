@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
@@ -49,6 +50,9 @@ func (h *Handler) revokeAndRemoveMember(ctx context.Context, workspaceID, userID
 	defer tx.Rollback(ctx)
 
 	qtx := h.Queries.WithTx(tx)
+	if err := relational.LockForDelete(ctx, tx, relational.DeleteMember, memberID); err != nil {
+		return empty, err
+	}
 
 	runtimes, err := qtx.ListAgentRuntimesByOwner(ctx, db.ListAgentRuntimesByOwnerParams{
 		WorkspaceID: workspaceID,
@@ -80,7 +84,7 @@ func (h *Handler) revokeAndRemoveMember(ctx context.Context, workspaceID, userID
 
 		// Cancel by runtime AND by archived agent. agent.runtime_id can be
 		// reassigned via UpdateAgent without rewriting the runtime_id on
-		// historical agent_task_queue rows, so an archived agent may still
+		// historical agent_run rows, so an archived agent may still
 		// have queued/running tasks pinned to a different runtime — and
 		// ClaimAgentTask does not gate on agent.archived_at, so those tasks
 		// would otherwise stay claimable after the agent is gone.
@@ -88,7 +92,7 @@ func (h *Handler) revokeAndRemoveMember(ctx context.Context, workspaceID, userID
 		for i, a := range result.ArchivedAgents {
 			archivedAgentIDs[i] = a.ID
 		}
-		result.CancelledTasks, err = qtx.CancelAgentTasksByRuntimeOrAgent(ctx, db.CancelAgentTasksByRuntimeOrAgentParams{
+		result.CancelledRuns, err = qtx.CancelAgentRunsByRuntimeOrAgent(ctx, db.CancelAgentRunsByRuntimeOrAgentParams{
 			RuntimeIds: runtimeIDs,
 			AgentIds:   archivedAgentIDs,
 		})
@@ -171,7 +175,7 @@ func (h *Handler) revokeAndRemoveMember(ctx context.Context, workspaceID, userID
 type revocationResult struct {
 	Runtimes           []db.AgentRuntime
 	ArchivedAgents     []db.Agent
-	CancelledTasks     []db.AgentTaskQueue
+	CancelledRuns      []db.AgentRun
 	OfflineRuntimeIDs  []db.ForceOfflineRuntimesByIDsRow
 	RevokedTokenHashes []string
 }
@@ -181,7 +185,7 @@ func (r revocationResult) isEmpty() bool {
 }
 
 // publishRevocation runs all post-commit side effects: invalidate daemon token
-// cache, broadcast task:cancelled with per-agent reconciliation, broadcast
+// cache, broadcast run:cancelled with per-agent reconciliation, broadcast
 // agent:archived, and signal a runtime-list refresh. Safe to call on an empty
 // result — it returns immediately.
 func (h *Handler) publishRevocation(ctx context.Context, result revocationResult, workspaceIDStr, actorType, actorIDStr string) {
@@ -197,8 +201,8 @@ func (h *Handler) publishRevocation(ctx context.Context, result revocationResult
 	// per-task event broadcast. Run this before the agent:archived burst so
 	// subscribers see "task cancelled" before the parent agent disappears
 	// from active lists, matching the order ArchiveAgent uses.
-	if h.TaskService != nil && len(result.CancelledTasks) > 0 {
-		h.TaskService.BroadcastCancelledTasks(ctx, result.CancelledTasks)
+	if h.AgentRunService != nil && len(result.CancelledRuns) > 0 {
+		h.AgentRunService.BroadcastCancelledRuns(ctx, result.CancelledRuns)
 	}
 
 	for _, agent := range result.ArchivedAgents {
@@ -230,7 +234,7 @@ func logRevocation(result revocationResult, workspaceID, userID string, attrs ..
 		"user_id", userID,
 		"runtimes_revoked", len(result.Runtimes),
 		"agents_archived", len(result.ArchivedAgents),
-		"tasks_cancelled", len(result.CancelledTasks),
+		"runs_cancelled", len(result.CancelledRuns),
 		"runtimes_taken_offline", len(result.OfflineRuntimeIDs),
 		"daemon_tokens_revoked", len(result.RevokedTokenHashes),
 	}

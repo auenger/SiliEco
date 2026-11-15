@@ -28,7 +28,7 @@ function makeMachine(
     health: "online",
     runtimes: [],
     onlineCount: 1,
-    issueCount: 0,
+    taskCount: 0,
     runningCount: 0,
     queuedCount: 0,
     providerNames: ["claude"],

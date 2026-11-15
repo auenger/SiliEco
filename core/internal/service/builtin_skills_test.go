@@ -202,15 +202,15 @@ func TestMentioningSkillTeachesTheParserContract(t *testing.T) {
 	}
 }
 
-func TestWorkingOnIssuesSkillCoversIssueLoopContracts(t *testing.T) {
-	skill, ok := findSkill(t, "silieco-working-on-issues")
+func TestWorkingOnTasksSkillCoversTaskLoopContracts(t *testing.T) {
+	skill, ok := findSkill(t, "silieco-working-on-tasks")
 	if !ok {
 		return
 	}
 	fm, body, _ := splitFrontmatter(skill.Content)
 
 	if got := strings.TrimSpace(fm["user-invocable"]); got != "false" {
-		t.Errorf("user-invocable = %q, want false (issue workflow guidance triggers from context)", got)
+		t.Errorf("user-invocable = %q, want false (task workflow guidance triggers from context)", got)
 	}
 	if got := strings.TrimSpace(fm["allowed-tools"]); !strings.Contains(got, "Bash(silieco *)") {
 		t.Errorf("allowed-tools = %q, want access to the Silieco CLI", got)
@@ -220,38 +220,38 @@ func TestWorkingOnIssuesSkillCoversIssueLoopContracts(t *testing.T) {
 	// references/source-map.md, not here, so a downstream main merge that
 	// shifts a line cannot rot this test into pinning a stale lie.
 	mustContain := []string{
-		"silieco issue pull-requests <issue-id> --output json",
-		"Default for code-changing issue work",
-		"open or update a PR before posting the final Silieco issue comment",
+		"silieco task pull-requests <task-id> --output json",
+		"Default for code-changing task work",
+		"open or update a PR before posting the final Silieco task comment",
 		"This is a default, not",
-		"Use a routable issue key in the PR title, body, or branch",
+		"Use a routable task key in the PR title, body, or branch",
 		"include the PR URL when a PR exists",
 		"Closes SILI-2759",
 		"--status backlog",
 		"pr_url",
-		"references/working-on-issues-source-map.md",
+		"references/working-on-tasks-source-map.md",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {
-			t.Errorf("working-on-issues skill missing %q", want)
+			t.Errorf("working-on-tasks skill missing %q", want)
 		}
 	}
 
 	mustNotContain := []string{
 		"Start from the trigger, not from memory",
-		"silieco issue get <issue-id> --output json",
-		"silieco issue metadata list <issue-id> --output json",
-		"silieco issue comment list <issue-id> --thread <trigger-comment-id>",
-		"silieco issue comment add <issue-id> --parent <trigger-comment-id>",
+		"silieco task get <task-id> --output json",
+		"silieco task metadata list <task-id> --output json",
+		"silieco task comment list <task-id> --thread <trigger-comment-id>",
+		"silieco task comment add <task-id> --parent <trigger-comment-id>",
 	}
 	for _, forbidden := range mustNotContain {
 		if strings.Contains(body, forbidden) {
-			t.Errorf("working-on-issues skill duplicates runtime prompt contract %q", forbidden)
+			t.Errorf("working-on-tasks skill duplicates runtime prompt contract %q", forbidden)
 		}
 	}
 
-	if !skillHasFile(skill, "references/working-on-issues-source-map.md") {
-		t.Errorf("working-on-issues skill missing supporting file references/working-on-issues-source-map.md")
+	if !skillHasFile(skill, "references/working-on-tasks-source-map.md") {
+		t.Errorf("working-on-tasks skill missing supporting file references/working-on-tasks-source-map.md")
 	}
 }
 
@@ -426,7 +426,7 @@ func TestAutopilotsSkillCoversDispatchAndSideEffects(t *testing.T) {
 
 	mustContain := []string{
 		"An autopilot is not an agent",
-		"create_issue",
+		"create_task",
 		"run_only",
 		"silieco autopilot trigger-add <autopilot-id> --kind schedule",
 		"silieco autopilot trigger <autopilot-id> --output json",
@@ -461,8 +461,8 @@ func TestRuntimesAndReposSkillCoversClaimAndCheckoutChain(t *testing.T) {
 	}
 
 	mustContain := []string{
-		"agent_task_queue",
-		"daemon polls/claims the task",
+		"agent_run",
+		"daemon polls/claims the run",
 		"silieco runtime list --output json",
 		"silieco repo checkout <url>",
 		"SILIECO_DAEMON_PORT",

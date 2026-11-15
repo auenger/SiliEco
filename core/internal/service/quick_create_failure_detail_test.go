@@ -6,14 +6,14 @@ import (
 )
 
 // TestQuickCreateFailureDetail pins the reason-extraction that turns the opaque
-// "agent finished without creating an issue" inbox into the concrete CLI error
+// "agent finished without creating an task" inbox into the concrete CLI error
 // the quick-create agent actually emitted (GH #5885).
 func TestQuickCreateFailureDetail(t *testing.T) {
 	t.Parallel()
 
 	t.Run("real CLI error passes through", func(t *testing.T) {
 		t.Parallel()
-		out := "Error: an active issue already exists: JKY-30 (blocked)."
+		out := "Error: an active task already exists: JKY-30 (blocked)."
 		result := []byte(`{"output":"` + out + `"}`)
 		if got := quickCreateFailureDetail(result); got != out {
 			t.Fatalf("expected passthrough of the CLI error\n got: %q\nwant: %q", got, out)
@@ -36,7 +36,7 @@ func TestQuickCreateFailureDetail(t *testing.T) {
 
 	t.Run("missing output field yields empty", func(t *testing.T) {
 		t.Parallel()
-		if got := quickCreateFailureDetail([]byte(`{"task_id":"abc"}`)); got != "" {
+		if got := quickCreateFailureDetail([]byte(`{"run_id":"abc"}`)); got != "" {
 			t.Fatalf("expected empty detail when output absent, got %q", got)
 		}
 	})

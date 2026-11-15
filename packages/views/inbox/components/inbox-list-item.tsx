@@ -1,9 +1,9 @@
 "use client";
 
-import { StatusIcon } from "../../issues/components";
+import { StatusIcon } from "../../tasks/components";
 import {
-  IssueAgentActivityIndicator,
-} from "../../issues/components/issue-agent-activity-indicator";
+  TaskAgentActivityIndicator,
+} from "../../tasks/components/task-agent-activity-indicator";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { Archive, ArchiveRestore } from "lucide-react";
 import type { InboxItem } from "@silieco/core/types";
@@ -104,8 +104,8 @@ export function InboxListItem({
             >
               <ActionIcon className="h-3.5 w-3.5" />
             </span>
-            {item.issue_status && (
-              <StatusIcon status={item.issue_status} className="h-3.5 w-3.5 shrink-0" />
+            {item.task_status && (
+              <StatusIcon status={item.task_status} className="h-3.5 w-3.5 shrink-0" />
             )}
           </div>
         </div>
@@ -119,9 +119,9 @@ export function InboxListItem({
                 elapsed time, which does not change whether you open the row.
                 The row already carries the ActorAvatar hover card on the
                 left, so a second popup here was mostly noise. */}
-            {item.issue_id && (
-              <IssueAgentActivityIndicator
-                issueId={item.issue_id}
+            {item.task_id && (
+              <TaskAgentActivityIndicator
+                taskId={item.task_id}
                 hoverCard={false}
               />
             )}

@@ -15,9 +15,9 @@ export { ONBOARDING_STEP_ORDER } from "./step-order";
 export {
   needsSourceBackfill,
   SOURCE_BACKFILL_MAX_DISMISSALS,
-  SOURCE_BACKFILL_MIN_AGENT_DONE_ISSUES,
+  SOURCE_BACKFILL_MIN_AGENT_DONE_TASKS,
 } from "./needs-backfill";
-export { agentCompletedIssueCountOptions } from "./queries";
+export { agentCompletedTaskCountOptions } from "./queries";
 export {
   useWelcomeStore,
   type WelcomeSignal,

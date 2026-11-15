@@ -65,7 +65,7 @@ func (q *Queries) CreateSkillEvaluationSuite(ctx context.Context, arg CreateSkil
 }
 
 const getSkillEvaluationSuite = `-- name: GetSkillEvaluationSuite :one
-SELECT id, workspace_id, skill_id, name, suite_hash, schema_version, validator_version, definition, improvement_count, regression_count, held_out_count, created_by, created_at FROM skill_evaluation_suite WHERE workspace_id=$1 AND skill_id=$2 AND id=$3
+SELECT id, workspace_id, skill_id, name, suite_hash, schema_version, validator_version, definition, improvement_count, regression_count, held_out_count, created_by, created_at FROM skill_evaluation_suite WHERE skill_evaluation_suite.workspace_id=$1 AND skill_id=$2 AND id=$3
 `
 
 type GetSkillEvaluationSuiteParams struct {
@@ -97,7 +97,7 @@ func (q *Queries) GetSkillEvaluationSuite(ctx context.Context, arg GetSkillEvalu
 }
 
 const getSkillEvaluationSuiteByHash = `-- name: GetSkillEvaluationSuiteByHash :one
-SELECT id, workspace_id, skill_id, name, suite_hash, schema_version, validator_version, definition, improvement_count, regression_count, held_out_count, created_by, created_at FROM skill_evaluation_suite WHERE workspace_id=$1 AND skill_id=$2 AND suite_hash=$3
+SELECT id, workspace_id, skill_id, name, suite_hash, schema_version, validator_version, definition, improvement_count, regression_count, held_out_count, created_by, created_at FROM skill_evaluation_suite WHERE skill_evaluation_suite.workspace_id=$1 AND skill_id=$2 AND suite_hash=$3
 `
 
 type GetSkillEvaluationSuiteByHashParams struct {
@@ -128,7 +128,7 @@ func (q *Queries) GetSkillEvaluationSuiteByHash(ctx context.Context, arg GetSkil
 }
 
 const getSkillEvaluationSuiteCursor = `-- name: GetSkillEvaluationSuiteCursor :one
-SELECT id,created_at FROM skill_evaluation_suite WHERE workspace_id=$1 AND skill_id=$2 AND id=$3
+SELECT id,created_at FROM skill_evaluation_suite WHERE skill_evaluation_suite.workspace_id=$1 AND skill_id=$2 AND id=$3
 `
 
 type GetSkillEvaluationSuiteCursorParams struct {

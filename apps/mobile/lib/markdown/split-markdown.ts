@@ -4,14 +4,14 @@
  * react-native-enriched-markdown gives us native-quality rendering of
  * prose (paragraphs / headings / lists / quotes / tables / inline code /
  * links / mentions) but does NOT let us inject React for any leaf node
- * (see issues #54, #232, #246 — maintainer's stance is "no custom
+ * (see tasks #54, #232, #246 — maintainer's stance is "no custom
  * renderers, ever, by design"). That blocks three product needs:
  *
  *   1. Shiki syntax-highlighted code blocks (web parity).
  *   2. Tap-to-lightbox on images.
  *   3. Horizontal scroll + copy button on code.
  *
- * Maintainer-endorsed workaround (issue #246): split the markdown at
+ * Maintainer-endorsed workaround (task #246): split the markdown at
  * those boundaries, render each fragment as its own enriched instance
  * for prose and as React for the rest. This file is that splitter.
  *
@@ -40,7 +40,7 @@
  * only inspects top-level tokens — descending into list/quote children
  * would force us to also re-serialise their surrounding markdown,
  * complicating prose reconstruction. Top-level code is the >95% case
- * for issue descriptions / comments; revisit if real content shows
+ * for task descriptions / comments; revisit if real content shows
  * otherwise.
  */
 import { marked, type Tokens } from "marked";

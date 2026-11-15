@@ -20,7 +20,6 @@ describe("paths.workspace() shape", () => {
         "usage",
         "workflows",
         "tasks",
-        "issues",
         "projects",
         "resources",
         "autopilots",
@@ -30,7 +29,6 @@ describe("paths.workspace() shape", () => {
         "squads",
         "inbox",
         "myTasks",
-        "myIssues",
         "runtimes",
         "skills",
         "squads",
@@ -46,7 +44,6 @@ describe("paths.workspace() shape", () => {
     const expectedSegments: Array<[string, string]> = [
       ["usage", "usage"],
       ["tasks", "tasks"],
-      ["issues", "tasks"],
       ["projects", "projects"],
       ["resources", "resources"],
       ["autopilots", "autopilots"],
@@ -56,7 +53,6 @@ describe("paths.workspace() shape", () => {
       ["squads", "squads"],
       ["inbox", "inbox"],
       ["myTasks", "my-tasks"],
-      ["myIssues", "my-tasks"],
       ["runtimes", "runtimes"],
       ["skills", "skills"],
       ["squads", "squads"],
@@ -92,7 +88,7 @@ describe("global path / reserved slug consistency", () => {
     for (const prefix of globalPrefixes) {
       expect(isGlobalPath(prefix)).toBe(true);
     }
-    expect(isGlobalPath("/acme/issues")).toBe(false);
+    expect(isGlobalPath("/acme/tasks")).toBe(false);
     expect(isGlobalPath("/")).toBe(false);
   });
 

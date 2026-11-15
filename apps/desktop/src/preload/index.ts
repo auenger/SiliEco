@@ -22,8 +22,8 @@ import {
 } from "../shared/navigation-gestures";
 import {
   readDesktopWindowContext,
-  type IssueWindowRequest,
-} from "../shared/issue-window";
+  type TaskWindowRequest,
+} from "../shared/task-window";
 import { AUTH_SESSION_STATE_CHANNEL } from "../shared/auth-session";
 import type {
   DaemonStatus,
@@ -131,7 +131,7 @@ const desktopAPI = {
   /** Validated runtime endpoint config, or a blocking config error. */
   runtimeConfig,
   /** Identifies whether this renderer owns the main tabbed window or a
-   *  dedicated issue window, parsed from validated launch arguments. */
+   *  dedicated task window, parsed from validated launch arguments. */
   windowContext,
   /** Read any freeze/crash breadcrumb left by a previous session, so the
    *  renderer can flush it to telemetry on boot. Returns null when there's
@@ -148,7 +148,7 @@ const desktopAPI = {
    *  handed to analytics. Anything left unacknowledged is retried next boot. */
   ackFreeze: (ts: number) => ipcRenderer.send("freeze:ack", ts),
   /** Report only the resolved user id (never a token) so main can close
-   *  dedicated issue windows that belong to an old account. */
+   *  dedicated task windows that belong to an old account. */
   reportAuthSession: (userId: string | null) =>
     ipcRenderer.send(AUTH_SESSION_STATE_CHANNEL, userId),
   /** Listen for auth token delivered via deep link */
@@ -170,16 +170,16 @@ const desktopAPI = {
   /**
    * Show a native OS notification for a new inbox item. Fired from the
    * renderer only when the app is unfocused — in-focus feedback is the
-   * inbox sidebar's unread styling. `slug`, `itemId`, and `issueKey` are
+   * inbox sidebar's unread styling. `slug`, `itemId`, and `taskKey` are
    * all round-tripped on click: slug pins routing to the source workspace
    * (the user may switch workspaces before clicking the banner), itemId
-   * lets the renderer mark the row read, issueKey maps to the inbox URL
+   * lets the renderer mark the row read, taskKey maps to the inbox URL
    * param.
    */
   showNotification: (payload: {
     slug: string;
     itemId: string;
-    issueKey: string;
+    taskKey: string;
     title: string;
     body: string;
   }) => ipcRenderer.send("notification:show", payload),
@@ -192,14 +192,14 @@ const desktopAPI = {
   /**
    * Subscribe to "open this inbox row" requests sent by the main process
    * when the user clicks an OS notification banner. Returns an unsubscribe
-   * function. The payload echoes the `slug`, `itemId`, and `issueKey` that
+   * function. The payload echoes the `slug`, `itemId`, and `taskKey` that
    * were passed to `showNotification`.
    */
   onInboxOpen: (
     callback: (payload: {
       slug: string;
       itemId: string;
-      issueKey: string;
+      taskKey: string;
     }) => void,
   ) => subscribeToMainRendererChannel("inbox:open", callback),
   /** Listen for native macOS back/forward swipe gestures. */
@@ -237,9 +237,9 @@ const desktopAPI = {
   },
   /** Ask the main process to close the window (used after closing the last tab). */
   closeWindow: () => ipcRenderer.send("window:close"),
-  /** Open a validated issue-detail route in a dedicated native window. */
-  openIssueWindow: (request: IssueWindowRequest) =>
-    ipcRenderer.invoke("window:open-issue", request),
+  /** Open a validated task-detail route in a dedicated native window. */
+  openTaskWindow: (request: TaskWindowRequest) =>
+    ipcRenderer.invoke("window:open-task", request),
 };
 
 type DaemonReauthResult =

@@ -12,8 +12,8 @@ export type {
 } from "./client";
 export { parseWithFallback, setSchemaLogger } from "./schema";
 export type { ParseOptions } from "./schema";
-export { DuplicateIssueErrorBodySchema } from "./schemas";
-export type { DuplicateIssueErrorBody } from "./schemas";
+export { DuplicateTaskErrorBodySchema } from "./schemas";
+export type { DuplicateTaskErrorBody } from "./schemas";
 export { WSClient } from "./ws-client";
 
 import type { ApiClient as ApiClientType } from "./client";
@@ -33,7 +33,7 @@ export function getApi(): ApiClientType {
 
 /**
  * Convenience re-export: a proxy that forwards every property access to the
- * singleton so existing call-sites (`api.listIssues(...)`) keep working.
+ * singleton so existing call-sites (`api.listTasks(...)`) keep working.
  */
 export const api = new Proxy({} as ApiClientType, {
   get(_target, prop, receiver) {

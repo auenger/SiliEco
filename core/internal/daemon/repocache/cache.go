@@ -430,7 +430,7 @@ type WorktreeParams struct {
 	WorkDir             string // parent directory for the worktree (e.g. task workdir)
 	Ref                 string // optional branch, tag, or commit to base the worktree on
 	AgentName           string // for branch naming
-	TaskID              string // for branch naming uniqueness
+	RunID               string // for branch naming uniqueness
 	CoAuthoredByEnabled bool   // install prepare-commit-msg hook for Co-authored-by trailer
 	// IsolatedGitMetadata creates a local clone whose .git directory lives
 	// inside WorkDir instead of a linked worktree whose gitdir lives under the
@@ -500,7 +500,7 @@ func (c *Cache) CreateWorktree(params WorktreeParams) (*WorktreeResult, error) {
 	}
 
 	// Build branch name: agent/{sanitized-name}/{short-task-id}
-	branchName := fmt.Sprintf("agent/%s/%s", sanitizeName(params.AgentName), shortID(params.TaskID))
+	branchName := fmt.Sprintf("agent/%s/%s", sanitizeName(params.AgentName), shortID(params.RunID))
 
 	// Derive directory name from repo URL.
 	dirName := repoNameFromURL(params.RepoURL)

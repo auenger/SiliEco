@@ -3,15 +3,15 @@ package execenv
 import "fmt"
 
 // BuildNewCommentsHint returns the comment-reading pointer for the WARM path —
-// the agent ran on this issue before, so there is a since-anchor. The server
+// the agent ran on this task before, so there is a since-anchor. The server
 // count is ISSUE-WIDE (every thread, not just the triggering one) and excludes
 // the triggering comment itself because that body is already injected into the
 // prompt. It ships only the COUNT and the cursor — never the comment bodies —
 // so the server stays cheap and the agent pulls details on demand.
 //
-// The agent is told the full issue-wide volume but steered to read the
+// The agent is told the full task-wide volume but steered to read the
 // triggering (parent) thread FIRST instead of blindly catching up on every
-// thread. The issue-wide `--since` catch-up is kept as an explicit
+// thread. The task-wide `--since` catch-up is kept as an explicit
 // "only if you need it" fallback.
 //
 // Both the per-turn prompt (daemon.buildCommentPrompt) and the CLAUDE.md
@@ -19,64 +19,64 @@ import "fmt"
 // (hard requirement from PR #2816).
 //
 // Renders nothing on cold start (no prior run → newCommentsSince empty) or when
-// there are no new comments (newCommentCount <= 0) or issueID is empty. In those
+// there are no new comments (newCommentCount <= 0) or taskID is empty. In those
 // cases the caller falls back to BuildResumedCommentsHint (when a prior session
 // is active) or BuildColdCommentsHint.
-func BuildNewCommentsHint(issueID, triggerCommentID, triggerThreadID, newCommentsSince string, newCommentCount int) string {
-	if newCommentCount <= 0 || newCommentsSince == "" || issueID == "" {
+func BuildNewCommentsHint(taskID, triggerCommentID, triggerThreadID, newCommentsSince string, newCommentCount int) string {
+	if newCommentCount <= 0 || newCommentsSince == "" || taskID == "" {
 		return ""
 	}
 	threadID := activeThreadID(triggerThreadID, triggerCommentID)
 	// When we know the triggering thread, steer the agent to read THAT thread
-	// first rather than blindly pulling every new comment issue-wide. The
-	// issue-wide --since catch-up is demoted to an only-if-needed fallback.
+	// first rather than blindly pulling every new comment task-wide. The
+	// task-wide --since catch-up is demoted to an only-if-needed fallback.
 	if threadID != "" {
 		return fmt.Sprintf(
-			"%d new comment(s) on this issue since your last run — don't read them all blindly. "+
+			"%d new comment(s) on this task since your last run — don't read them all blindly. "+
 				"Start with the thread your triggering comment is in: "+
-				"`silieco issue comment list %s --thread %s --since %s --output json` "+
+				"`silieco task comment list %s --thread %s --since %s --output json` "+
 				"(swap `--since` for `--tail 30` if you need the full thread, not just the delta). "+
-				"Only if you need context from the other threads, catch up issue-wide: "+
-				"`silieco issue comment list %s --since %s --output json`.\n\n",
-			newCommentCount, issueID, threadID, newCommentsSince, issueID, newCommentsSince,
+				"Only if you need context from the other threads, catch up task-wide: "+
+				"`silieco task comment list %s --since %s --output json`.\n\n",
+			newCommentCount, taskID, threadID, newCommentsSince, taskID, newCommentsSince,
 		)
 	}
 	// Defensive: comment triggers always carry a trigger id, but if one is
 	// missing there is no thread to anchor on, so fall back to the plain
-	// issue-wide catch-up.
+	// task-wide catch-up.
 	return fmt.Sprintf(
-		"%d new comment(s) on this issue since your last run. Catch up: "+
-			"`silieco issue comment list %s --since %s --output json`.\n\n",
-		newCommentCount, issueID, newCommentsSince,
+		"%d new comment(s) on this task since your last run. Catch up: "+
+			"`silieco task comment list %s --since %s --output json`.\n\n",
+		newCommentCount, taskID, newCommentsSince,
 	)
 }
 
 // BuildResumedCommentsHint returns the comment-reading pointer for the WARM
 // no-delta path: the daemon is resuming a prior provider session and the
 // triggering comment body has already been injected into the per-turn prompt.
-// newCommentCount == 0 here means no new comments arrived issue-wide since the
+// newCommentCount == 0 here means no new comments arrived task-wide since the
 // last run (beyond the injected trigger and the agent's own replies). Keep the
 // read bounded and conditional, but make it explicit that context-dependent
 // replies should refresh the triggering conversation rather than trusting
 // resumed memory alone.
-func BuildResumedCommentsHint(issueID, triggerCommentID, triggerThreadID string) string {
+func BuildResumedCommentsHint(taskID, triggerCommentID, triggerThreadID string) string {
 	threadID := activeThreadID(triggerThreadID, triggerCommentID)
-	if issueID == "" || threadID == "" {
+	if taskID == "" || threadID == "" {
 		return ""
 	}
 	return fmt.Sprintf(
 		"You're resuming the prior session, and the triggering comment is already included above. "+
-			"No other new comments on this issue since your last run. "+
+			"No other new comments on this task since your last run. "+
 			"Use the active thread anchor `%s` and triggering comment ID `%s`. "+
 			"If your reply depends on thread context, do not rely only on resumed session memory — "+
 			"first pull the triggering conversation with: "+
-			"`silieco issue comment list %s --thread %s --tail 30 --output json`.\n\n",
-		threadID, triggerCommentID, issueID, threadID,
+			"`silieco task comment list %s --thread %s --tail 30 --output json`.\n\n",
+		threadID, triggerCommentID, taskID, threadID,
 	)
 }
 
 // BuildColdCommentsHint returns the comment-reading pointer for the COLD path —
-// the agent has no prior run on this issue, so there is no since-anchor and
+// the agent has no prior run on this task, so there is no since-anchor and
 // BuildNewCommentsHint renders nothing. Instead of dumping the whole flat
 // timeline (oldest-first, server cap 2000), point the agent at the triggering
 // CONVERSATION: `--thread <trigger> --tail 30` returns that thread's root plus
@@ -91,19 +91,19 @@ func BuildResumedCommentsHint(issueID, triggerCommentID, triggerThreadID string)
 // single-source rule as BuildNewCommentsHint, PR #2816). Returns "" when there
 // is no triggering comment to thread from, so the caller can keep a final plain
 // fallback.
-func BuildColdCommentsHint(issueID, triggerCommentID, triggerThreadID string) string {
+func BuildColdCommentsHint(taskID, triggerCommentID, triggerThreadID string) string {
 	threadID := activeThreadID(triggerThreadID, triggerCommentID)
-	if issueID == "" || threadID == "" {
+	if taskID == "" || threadID == "" {
 		return ""
 	}
 	return fmt.Sprintf(
 		"Read the triggering conversation first: "+
-			"`silieco issue comment list %s --thread %s --tail 30 --output json` "+
+			"`silieco task comment list %s --thread %s --tail 30 --output json` "+
 			"(that thread's root + its 30 newest replies). "+
 			"Need cross-thread background? Scan the other threads cheaply with "+
-			"`silieco issue comment list %s --roots-only --summary --output json` and expand only "+
+			"`silieco task comment list %s --roots-only --summary --output json` and expand only "+
 			"what looks relevant.\n\n",
-		issueID, threadID, issueID,
+		taskID, threadID, taskID,
 	)
 }
 
@@ -141,14 +141,14 @@ func activeThreadID(triggerThreadID, triggerCommentID string) string {
 //     `?` before the bytes reach `silieco.exe` (#2198 Chinese, #2236
 //     Chinese, #2376 Cyrillic).
 //     2. On any host, when the model emits a multi-flag command (e.g.
-//     `silieco issue create --title ... --assignee-id ... --project ...`)
+//     `silieco task create --title ... --assignee-id ... --project ...`)
 //     the bash heredoc/flag boundary is fragile: a `BODY \` "terminator
 //     with trailing token" is not recognised as the heredoc end, so flag
 //     lines after it are swallowed into the description; or a clean
 //     terminator turns the trailing `--assignee ...` line into a separate
 //     shell statement that fails while the create already succeeded with
 //     no assignee. Both paths exit 0 with silently dropped flags. Github
-//     issue #4182 documents two confirmed cases (OXY-78, OXY-76).
+//     task #4182 documents two confirmed cases (OXY-78, OXY-76).
 //
 // The single safe path is therefore: write the body to a UTF-8 file with
 // the file-write tool, post with `--content-file`, then remove the file.
@@ -158,11 +158,11 @@ func activeThreadID(triggerThreadID, triggerCommentID string) string {
 //
 // provider is retained for caller symmetry and future per-provider tweaks; the
 // guardrail itself is intentionally identical across providers and hosts.
-func BuildCommentReplyInstructions(provider, issueID, triggerCommentID string) string {
+func BuildCommentReplyInstructions(provider, taskID, triggerCommentID string) string {
 	if triggerCommentID == "" {
 		return ""
 	}
-	return buildCommentReplyInstructionsSlim(provider, issueID, triggerCommentID)
+	return buildCommentReplyInstructionsSlim(provider, taskID, triggerCommentID)
 }
 
 // buildCommentReplyInstructionsSlim is the compressed reply-instructions
@@ -178,7 +178,7 @@ func BuildCommentReplyInstructions(provider, issueID, triggerCommentID string) s
 // canonical `## Comment Formatting` section the same brief carries, so
 // repeating it inline at every comment-triggered step 7 would be
 // duplication, not signal.
-func buildCommentReplyInstructionsSlim(provider, issueID, triggerCommentID string) string {
+func buildCommentReplyInstructionsSlim(provider, taskID, triggerCommentID string) string {
 	if runtimeGOOS == "windows" {
 		return fmt.Sprintf(
 			"If you decide to reply, post it as a comment — always use the trigger comment ID below, "+
@@ -186,10 +186,10 @@ func buildCommentReplyInstructionsSlim(provider, issueID, triggerCommentID strin
 				"On Windows, write the reply body to a UTF-8 file with your file-write tool first, then post with `--content-file`. "+
 				"Do NOT pipe via `--content-stdin` — PowerShell 5.1's `$OutputEncoding` defaults to ASCIIEncoding when piping to native commands and silently drops non-ASCII (Chinese, Japanese, Cyrillic, accents, emoji) as `?` before bytes reach `silieco.exe`. "+
 				"See ## Comment Formatting above for the full rule:\n\n"+
-				"    silieco issue comment add %s --parent %s --content-file ./reply.md\n"+
+				"    silieco task comment add %s --parent %s --content-file ./reply.md\n"+
 				"    Remove-Item ./reply.md\n\n"+
 				"Do NOT write literal `\\n` escapes to simulate line breaks; the file preserves real newlines.\n",
-			issueID, triggerCommentID,
+			taskID, triggerCommentID,
 		)
 	}
 	return fmt.Sprintf(
@@ -197,10 +197,10 @@ func buildCommentReplyInstructionsSlim(provider, issueID, triggerCommentID strin
 			"do NOT reuse --parent values from previous turns in this session.\n\n"+
 			"Write the reply body to a UTF-8 file with your file-write tool first, then post it with `--content-file` "+
 			"(see ## Comment Formatting above for why inline `--content` and `--content-stdin` HEREDOCs are unsafe — SILI-2904 / #4182):\n\n"+
-			"    silieco issue comment add %s --parent %s --content-file ./reply.md\n"+
+			"    silieco task comment add %s --parent %s --content-file ./reply.md\n"+
 			"    rm ./reply.md\n\n"+
 			"Do NOT write literal `\\n` escapes to simulate line breaks; the file preserves real newlines.\n",
-		issueID, triggerCommentID,
+		taskID, triggerCommentID,
 	)
 }
 
@@ -227,8 +227,8 @@ type ThreadReplyTarget struct {
 // before this instruction is emitted, so a per-thread fan-out cannot split it.
 //
 // Returns "" for fewer than two targets; callers keep the single-parent path.
-func BuildMultiThreadCommentReplyInstructions(issueID string, targets []ThreadReplyTarget) string {
-	if issueID == "" || len(targets) < 2 {
+func BuildMultiThreadCommentReplyInstructions(taskID string, targets []ThreadReplyTarget) string {
+	if taskID == "" || len(targets) < 2 {
 		return ""
 	}
 
@@ -244,20 +244,20 @@ func BuildMultiThreadCommentReplyInstructions(issueID string, targets []ThreadRe
 	if runtimeGOOS == "windows" {
 		cookbook = fmt.Sprintf(
 			"For EACH thread above, write that reply's body to its own UTF-8 file with your file-write tool, then post it with `--content-file` (do NOT use inline `--content` or a `--content-stdin` HEREDOC — see ## Comment Formatting above for why). Use a DISTINCT file per thread (never reuse one file) and remove each after posting:\n\n"+
-				"    silieco issue comment add %s --parent <thread-1-parent> --content-file ./reply-1.md\n"+
+				"    silieco task comment add %s --parent <thread-1-parent> --content-file ./reply-1.md\n"+
 				"    Remove-Item ./reply-1.md\n"+
-				"    silieco issue comment add %s --parent <thread-2-parent> --content-file ./reply-2.md\n"+
+				"    silieco task comment add %s --parent <thread-2-parent> --content-file ./reply-2.md\n"+
 				"    Remove-Item ./reply-2.md\n\n",
-			issueID, issueID,
+			taskID, taskID,
 		)
 	} else {
 		cookbook = fmt.Sprintf(
 			"For EACH thread above, write that reply's body to its own UTF-8 file with your file-write tool, then post it with `--content-file` (do NOT use inline `--content` or a `--content-stdin` HEREDOC — see ## Comment Formatting above for why). Use a DISTINCT file per thread (never reuse one file) and remove each after posting:\n\n"+
-				"    silieco issue comment add %s --parent <thread-1-parent> --content-file ./reply-1.md\n"+
+				"    silieco task comment add %s --parent <thread-1-parent> --content-file ./reply-1.md\n"+
 				"    rm ./reply-1.md\n"+
-				"    silieco issue comment add %s --parent <thread-2-parent> --content-file ./reply-2.md\n"+
+				"    silieco task comment add %s --parent <thread-2-parent> --content-file ./reply-2.md\n"+
 				"    rm ./reply-2.md\n\n",
-			issueID, issueID,
+			taskID, taskID,
 		)
 	}
 

@@ -34,7 +34,7 @@ var daemonCmd = &cobra.Command{
 var daemonStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the local agent runtime daemon",
-	Long:  "Start the daemon process that polls for tasks and executes them using local agent CLIs (Claude, Codex).\nRuns in the background by default. Use --foreground to run in the current terminal.",
+	Long:  "Start the daemon process that polls for agent runs and executes them using local agent CLIs (Claude, Codex).\nRuns in the background by default. Use --foreground to run in the current terminal.",
 	RunE:  runDaemonStart,
 }
 
@@ -91,12 +91,12 @@ func init() {
 	f.String("daemon-id", "", "Unique daemon identifier (env: SILIECO_DAEMON_ID)")
 	f.String("device-name", "", "Human-readable device name (env: SILIECO_DAEMON_DEVICE_NAME)")
 	f.String("runtime-name", "", "Runtime display name (env: SILIECO_AGENT_RUNTIME_NAME)")
-	f.Duration("poll-interval", 0, "Task poll interval (env: SILIECO_DAEMON_POLL_INTERVAL)")
+	f.Duration("poll-interval", 0, "Run poll interval (env: SILIECO_DAEMON_POLL_INTERVAL)")
 	f.Duration("heartbeat-interval", 0, "Heartbeat interval (env: SILIECO_DAEMON_HEARTBEAT_INTERVAL)")
-	f.Duration("agent-timeout", 0, "Absolute per-task wall-clock cap; 0 = no cap, rely on the watchdogs (env: SILIECO_AGENT_TIMEOUT)")
+	f.Duration("agent-timeout", 0, "Absolute per-run wall-clock cap; 0 = no cap, rely on the watchdogs (env: SILIECO_AGENT_TIMEOUT)")
 	f.Duration("codex-semantic-inactivity-timeout", 0, "Codex semantic inactivity timeout (env: SILIECO_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
 	f.Duration("codex-handshake-timeout", 0, "Codex app-server startup RPC timeout (env: SILIECO_CODEX_HANDSHAKE_TIMEOUT)")
-	f.Int("max-concurrent-tasks", 0, "Max tasks running in parallel (env: SILIECO_DAEMON_MAX_CONCURRENT_TASKS)")
+	f.Int("max-concurrent-runs", 0, "Maximum concurrent runs (env: SILIECO_DAEMON_MAX_CONCURRENT_RUNS)")
 	f.Bool("no-auto-update", false, "Disable periodic CLI self-update (env: SILIECO_DAEMON_AUTO_UPDATE=false)")
 	f.Duration("auto-update-interval", 0, "How often to poll GitHub for a newer release (env: SILIECO_DAEMON_AUTO_UPDATE_INTERVAL)")
 
@@ -111,12 +111,12 @@ func init() {
 	rf.String("daemon-id", "", "Unique daemon identifier (env: SILIECO_DAEMON_ID)")
 	rf.String("device-name", "", "Human-readable device name (env: SILIECO_DAEMON_DEVICE_NAME)")
 	rf.String("runtime-name", "", "Runtime display name (env: SILIECO_AGENT_RUNTIME_NAME)")
-	rf.Duration("poll-interval", 0, "Task poll interval (env: SILIECO_DAEMON_POLL_INTERVAL)")
+	rf.Duration("poll-interval", 0, "Run poll interval (env: SILIECO_DAEMON_POLL_INTERVAL)")
 	rf.Duration("heartbeat-interval", 0, "Heartbeat interval (env: SILIECO_DAEMON_HEARTBEAT_INTERVAL)")
-	rf.Duration("agent-timeout", 0, "Absolute per-task wall-clock cap; 0 = no cap, rely on the watchdogs (env: SILIECO_AGENT_TIMEOUT)")
+	rf.Duration("agent-timeout", 0, "Absolute per-run wall-clock cap; 0 = no cap, rely on the watchdogs (env: SILIECO_AGENT_TIMEOUT)")
 	rf.Duration("codex-semantic-inactivity-timeout", 0, "Codex semantic inactivity timeout (env: SILIECO_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
 	rf.Duration("codex-handshake-timeout", 0, "Codex app-server startup RPC timeout (env: SILIECO_CODEX_HANDSHAKE_TIMEOUT)")
-	rf.Int("max-concurrent-tasks", 0, "Max tasks running in parallel (env: SILIECO_DAEMON_MAX_CONCURRENT_TASKS)")
+	rf.Int("max-concurrent-runs", 0, "Maximum concurrent runs (env: SILIECO_DAEMON_MAX_CONCURRENT_RUNS)")
 	rf.Bool("no-auto-update", false, "Disable periodic CLI self-update (env: SILIECO_DAEMON_AUTO_UPDATE=false)")
 	rf.Duration("auto-update-interval", 0, "How often to poll GitHub for a newer release (env: SILIECO_DAEMON_AUTO_UPDATE_INTERVAL)")
 
@@ -633,8 +633,8 @@ func buildDaemonStartArgs(cmd *cobra.Command) []string {
 	if d, _ := cmd.Flags().GetDuration("codex-handshake-timeout"); d > 0 {
 		args = append(args, "--codex-handshake-timeout", d.String())
 	}
-	if n, _ := cmd.Flags().GetInt("max-concurrent-tasks"); n > 0 {
-		args = append(args, "--max-concurrent-tasks", strconv.Itoa(n))
+	if n, _ := cmd.Flags().GetInt("max-concurrent-runs"); n > 0 {
+		args = append(args, "--max-concurrent-runs", strconv.Itoa(n))
 	}
 	if b, _ := cmd.Flags().GetBool("no-auto-update"); b {
 		args = append(args, "--no-auto-update")
@@ -765,9 +765,9 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	if handshakeOverride > 0 {
 		overrides.CodexHandshakeTimeout = handshakeOverride
 	}
-	maxFlag, _ := cmd.Flags().GetInt("max-concurrent-tasks")
-	if n := resolveDaemonIntOverride(maxFlag, "SILIECO_DAEMON_MAX_CONCURRENT_TASKS", fileCfg.MaxConcurrentTasks); n > 0 {
-		overrides.MaxConcurrentTasks = n
+	maxFlag, _ := cmd.Flags().GetInt("max-concurrent-runs")
+	if n := resolveDaemonIntOverride(maxFlag, "SILIECO_DAEMON_MAX_CONCURRENT_RUNS", fileCfg.MaxConcurrentRuns); n > 0 {
+		overrides.MaxConcurrentRuns = n
 	}
 	// --no-auto-update / SILIECO_DAEMON_AUTO_UPDATE=false / config.json
 	// disable_auto_update are all single-direction: none of them can force
@@ -1235,7 +1235,7 @@ func resolveDaemonDurationOverride(flagValue time.Duration, envName, cfgValue st
 	return parsed, nil
 }
 
-// resolveDaemonIntOverride is the max_concurrent_tasks counterpart to
+// resolveDaemonIntOverride is the max_concurrent_runs counterpart to
 // resolveDaemonStringOverride. flagValue > 0 wins; otherwise the config
 // value applies only when the env var is unset.
 func resolveDaemonIntOverride(flagValue int, envName string, cfgValue int) int {
@@ -1318,12 +1318,12 @@ func runDaemonDiskUsage(cmd *cobra.Command, _ []string) error {
 	profile := resolveProfile(cmd)
 	rootOverride, _ := cmd.Flags().GetString("workspaces-root")
 	byWorkspace, _ := cmd.Flags().GetBool("by-workspace")
-	byTask, _ := cmd.Flags().GetBool("by-task")
+	byRun, _ := cmd.Flags().GetBool("by-task")
 	top, _ := cmd.Flags().GetInt("top")
 	output, _ := cmd.Flags().GetString("output")
 	allProfiles, _ := cmd.Flags().GetBool("all-profiles")
 
-	if byWorkspace && byTask {
+	if byWorkspace && byRun {
 		return fmt.Errorf("--by-workspace and --by-task are mutually exclusive")
 	}
 	if top < 0 {
@@ -1352,8 +1352,8 @@ func runDaemonDiskUsage(cmd *cobra.Command, _ []string) error {
 			if top < len(report.Workspaces) {
 				report.Workspaces = report.Workspaces[:top]
 			}
-		} else if top < len(report.Tasks) {
-			report.Tasks = report.Tasks[:top]
+		} else if top < len(report.Runs) {
+			report.Runs = report.Runs[:top]
 		}
 	}
 
@@ -1366,7 +1366,7 @@ func runDaemonDiskUsage(cmd *cobra.Command, _ []string) error {
 		printDiskUsageOtherRootsHint(os.Stdout, report, profile, rootOverride)
 		return nil
 	}
-	printDiskUsageTaskTable(os.Stdout, report)
+	printDiskUsageRunTable(os.Stdout, report)
 	printDiskUsageOtherRootsHint(os.Stdout, report, profile, rootOverride)
 	return nil
 }
@@ -1394,8 +1394,8 @@ func runDaemonDiskUsageAggregate(byWorkspace bool, top int, output string) error
 				if top < len(r.Workspaces) {
 					r.Workspaces = r.Workspaces[:top]
 				}
-			} else if top < len(r.Tasks) {
-				r.Tasks = r.Tasks[:top]
+			} else if top < len(r.Runs) {
+				r.Runs = r.Runs[:top]
 			}
 		}
 	}
@@ -1465,49 +1465,49 @@ func printAggregateDiskUsage(w io.Writer, agg daemon.AggregateDiskUsageReport, b
 		if byWorkspace {
 			printDiskUsageWorkspaceTable(w, root.Report)
 		} else {
-			printDiskUsageTaskTable(w, root.Report)
+			printDiskUsageRunTable(w, root.Report)
 		}
 	}
 	fmt.Fprintf(w, "\nGrand total: %s across %d task(s) in %d root(s); %s reclaimable as artifacts (%.1f%%).\n",
-		formatBytes(agg.TotalSizeBytes), agg.TotalTaskCount, len(agg.Roots),
+		formatBytes(agg.TotalSizeBytes), agg.TotalRunCount, len(agg.Roots),
 		formatBytes(agg.TotalArtifactSizeBytes), agg.TotalArtifactRatio*100)
 }
 
-func printDiskUsageTaskTable(w io.Writer, report daemon.DiskUsageReport) {
+func printDiskUsageRunTable(w io.Writer, report daemon.DiskUsageReport) {
 	fmt.Fprintf(w, "Workspaces root: %s\n", report.WorkspacesRoot)
-	if report.TotalTaskCount == 0 {
+	if report.TotalRunCount == 0 {
 		fmt.Fprintln(w, "(no task directories)")
 		return
 	}
-	rows := make([][]string, 0, len(report.Tasks))
+	rows := make([][]string, 0, len(report.Runs))
 	var displayedSize, displayedArtifact int64
-	for _, task := range report.Tasks {
-		displayedSize += task.SizeBytes
-		displayedArtifact += task.ArtifactSizeBytes
+	for _, agentRun := range report.Runs {
+		displayedSize += agentRun.SizeBytes
+		displayedArtifact += agentRun.ArtifactSizeBytes
 		rows = append(rows, []string{
-			task.WorkspaceShort + "/" + task.TaskShort,
-			task.Kind,
-			emptyDash(task.ParentStatus),
-			formatAge(task.AgeSeconds),
-			formatBytes(task.SizeBytes),
-			formatBytes(task.ArtifactSizeBytes),
+			agentRun.WorkspaceShort + "/" + agentRun.RunShort,
+			agentRun.Kind,
+			emptyDash(agentRun.ParentStatus),
+			formatAge(agentRun.AgeSeconds),
+			formatBytes(agentRun.SizeBytes),
+			formatBytes(agentRun.ArtifactSizeBytes),
 		})
 	}
 	cli.PrintTable(w, []string{"PATH", "KIND", "STATUS", "AGE", "SIZE", "ARTIFACTS"}, rows)
 
-	if len(report.Tasks) < report.TotalTaskCount {
+	if len(report.Runs) < report.TotalRunCount {
 		// Report-wide totals stay anchored to the full scan; the displayed
 		// row is what the user is currently looking at. Calling these out
 		// separately keeps `--top N` from misleading at-a-glance triage.
 		fmt.Fprintf(w, "\nShowing top %d of %d task(s). Displayed: %s (%s artifacts). Scan total: %s (%s artifacts, %.1f%% reclaimable).\n",
-			len(report.Tasks), report.TotalTaskCount,
+			len(report.Runs), report.TotalRunCount,
 			formatBytes(displayedSize), formatBytes(displayedArtifact),
 			formatBytes(report.TotalSizeBytes), formatBytes(report.TotalArtifactSizeBytes),
 			report.TotalArtifactRatio*100)
 		return
 	}
 	fmt.Fprintf(w, "\nTotal: %s across %d task(s); %s reclaimable as artifacts (%.1f%%).\n",
-		formatBytes(report.TotalSizeBytes), report.TotalTaskCount,
+		formatBytes(report.TotalSizeBytes), report.TotalRunCount,
 		formatBytes(report.TotalArtifactSizeBytes), report.TotalArtifactRatio*100)
 }
 
@@ -1524,7 +1524,7 @@ func printDiskUsageWorkspaceTable(w io.Writer, report daemon.DiskUsageReport) {
 		displayedArtifact += ws.ArtifactSizeBytes
 		rows = append(rows, []string{
 			ws.WorkspaceShort,
-			strconv.Itoa(ws.TaskCount),
+			strconv.Itoa(ws.RunCount),
 			formatBytes(ws.SizeBytes),
 			formatBytes(ws.ArtifactSizeBytes),
 			formatRatio(ws.ArtifactRatio),
@@ -1563,28 +1563,28 @@ func printDiskUsageOtherRootsHint(w io.Writer, report daemon.DiskUsageReport, pr
 	fmt.Fprintln(w, "Other workspace roots contain task directories:")
 	for _, s := range suggestions {
 		fmt.Fprintf(w, "  %s  # %s (%d task%s)\n",
-			s.Command, s.Root, s.TaskCount, pluralS(s.TaskCount))
+			s.Command, s.Root, s.RunCount, pluralS(s.RunCount))
 	}
 	fmt.Fprintln(w, "Run 'silieco daemon disk-usage --all-profiles' for a combined total across all roots.")
 }
 
 type diskUsageProfileSuggestion struct {
-	Profile   string
-	Command   string
-	Root      string
-	TaskCount int
+	Profile  string
+	Command  string
+	Root     string
+	RunCount int
 }
 
 func diskUsageProfileSuggestions(currentProfile, currentRoot string) []diskUsageProfileSuggestion {
 	out := make([]diskUsageProfileSuggestion, 0)
 	if currentProfile != "" {
 		if root, err := daemon.ResolveWorkspacesRoot("", ""); err == nil && !samePath(root, currentRoot) {
-			if taskCount := countDiskUsageTaskDirs(root); taskCount > 0 {
+			if runCount := countDiskUsageRunDirs(root); runCount > 0 {
 				out = append(out, diskUsageProfileSuggestion{
-					Profile:   "",
-					Command:   "silieco daemon disk-usage",
-					Root:      root,
-					TaskCount: taskCount,
+					Profile:  "",
+					Command:  "silieco daemon disk-usage",
+					Root:     root,
+					RunCount: runCount,
 				})
 			}
 		}
@@ -1610,22 +1610,22 @@ func diskUsageProfileSuggestions(currentProfile, currentRoot string) []diskUsage
 		if err != nil || samePath(root, currentRoot) {
 			continue
 		}
-		taskCount := countDiskUsageTaskDirs(root)
-		if taskCount == 0 {
+		runCount := countDiskUsageRunDirs(root)
+		if runCount == 0 {
 			continue
 		}
 		out = append(out, diskUsageProfileSuggestion{
-			Profile:   profile,
-			Command:   "silieco --profile " + shellQuoteArg(profile) + " daemon disk-usage",
-			Root:      root,
-			TaskCount: taskCount,
+			Profile:  profile,
+			Command:  "silieco --profile " + shellQuoteArg(profile) + " daemon disk-usage",
+			Root:     root,
+			RunCount: runCount,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].TaskCount == out[j].TaskCount {
+		if out[i].RunCount == out[j].RunCount {
 			return out[i].Profile < out[j].Profile
 		}
-		return out[i].TaskCount > out[j].TaskCount
+		return out[i].RunCount > out[j].RunCount
 	})
 	const maxSuggestions = 5
 	if len(out) > maxSuggestions {
@@ -1649,7 +1649,7 @@ func shellQuoteArg(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-func countDiskUsageTaskDirs(root string) int {
+func countDiskUsageRunDirs(root string) int {
 	wsEntries, err := os.ReadDir(root)
 	if err != nil {
 		return 0
@@ -1659,12 +1659,12 @@ func countDiskUsageTaskDirs(root string) int {
 		if !wsEntry.IsDir() || wsEntry.Name() == ".repos" {
 			continue
 		}
-		taskEntries, err := os.ReadDir(filepath.Join(root, wsEntry.Name()))
+		runEntries, err := os.ReadDir(filepath.Join(root, wsEntry.Name()))
 		if err != nil {
 			continue
 		}
-		for _, taskEntry := range taskEntries {
-			if taskEntry.IsDir() {
+		for _, runEntry := range runEntries {
+			if runEntry.IsDir() {
 				count++
 			}
 		}

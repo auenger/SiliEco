@@ -1,7 +1,7 @@
 /**
  * Projects realtime — listing-level subscriptions. Mounted globally
- * (workspace-session-lifetime) alongside `useMyIssuesRealtime` so the
- * project list stays fresh even if the user is on chat or an issue.
+ * (workspace-session-lifetime) alongside `useMyTasksRealtime` so the
+ * project list stays fresh even if the user is on chat or a task.
  *
  * Event coverage:
  *   - project:created → upsert into the list cache. The payload carries

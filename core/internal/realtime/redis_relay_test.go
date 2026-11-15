@@ -51,7 +51,7 @@ func TestDualWriteBroadcasterFansOutLocallyBeforePublishing(t *testing.T) {
 	client := attachRealtimeTestClient(hub, ScopeWorkspace, "workspace-1")
 	publisher := &localFirstPublisher{t: t, client: client}
 	broadcaster := newDualWriteBroadcaster(hub, publisher)
-	message := []byte(`{"type":"issue:updated"}`)
+	message := []byte(`{"type":"task:updated"}`)
 
 	broadcaster.BroadcastToScope(ScopeWorkspace, "workspace-1", message)
 

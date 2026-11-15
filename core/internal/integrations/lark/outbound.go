@@ -48,14 +48,14 @@ type CardRender struct {
 
 // RenderInput is the (typed) snapshot the Renderer sees when building
 // or patching a card. Fields are populated as they become available
-// during a task lifecycle — IssueNumber is set for `/issue` flows,
+// during a task lifecycle — TaskNumber is set for `/task` flows,
 // Content is set for completed chat tasks, ErrorMessage for failed.
 type RenderInput struct {
 	Kind         CardKind
 	AgentName    string
-	IssueNumber  int32
-	IssueID      pgtype.UUID
-	TaskID       pgtype.UUID
+	TaskNumber  int32
+	TaskID      pgtype.UUID
+	RunID       pgtype.UUID
 	Content      string
 	ErrorMessage string
 }
@@ -142,13 +142,13 @@ func (defaultRenderer) Render(in RenderInput) (CardRender, error) {
 // needs. Declared as an interface so the patcher is unit-testable
 // without a real Postgres connection.
 type PatcherQueries interface {
-	GetAgentTask(ctx context.Context, id pgtype.UUID) (db.AgentTaskQueue, error)
-	TaskHasChannelIngestedMessages(ctx context.Context, taskID pgtype.UUID) (bool, error)
+	GetAgentRun(ctx context.Context, id pgtype.UUID) (db.AgentRun, error)
+	RunHasChannelIngestedMessages(ctx context.Context, runID pgtype.UUID) (bool, error)
 	GetChatSession(ctx context.Context, id pgtype.UUID) (db.ChatSession, error)
 	GetAgent(ctx context.Context, id pgtype.UUID) (db.Agent, error)
 	GetLarkInstallation(ctx context.Context, id pgtype.UUID) (Installation, error)
 	GetLarkChatSessionBindingBySession(ctx context.Context, chatSessionID pgtype.UUID) (ChatSessionBinding, error)
-	GetLarkOutboundCardByTask(ctx context.Context, taskID pgtype.UUID) (OutboundCardMessage, error)
+	GetLarkOutboundCardByRun(ctx context.Context, runID pgtype.UUID) (OutboundCardMessage, error)
 	CreateLarkOutboundCardMessage(ctx context.Context, arg CreateOutboundCardMessageParams) (OutboundCardMessage, error)
 	UpdateLarkOutboundCardStatus(ctx context.Context, arg UpdateOutboundCardStatusParams) error
 }
@@ -260,7 +260,7 @@ func (p *Patcher) SetTypingIndicatorManager(m *TypingIndicatorManager) {
 // avoids the prior "Done." overwrite regression where the no-content
 // EventTaskCompleted payload would wipe the real reply.
 func (p *Patcher) Register(bus *events.Bus) {
-	bus.Subscribe(protocol.EventTaskFailed, p.handleEvent)
+	bus.Subscribe(protocol.EventRunFailed, p.handleEvent)
 	bus.Subscribe(protocol.EventChatDone, p.handleEvent)
 }
 
@@ -273,7 +273,7 @@ func (p *Patcher) handleEvent(e events.Event) {
 	if err := p.processEvent(ctx, e); err != nil {
 		p.cfg.Logger.Warn("lark patcher: event handling failed",
 			"event_type", e.Type,
-			"task_id", e.TaskID,
+			"run_id", e.RunID,
 			"chat_session_id", e.ChatSessionID,
 			"error", err,
 		)
@@ -281,12 +281,12 @@ func (p *Patcher) handleEvent(e events.Event) {
 }
 
 func (p *Patcher) processEvent(ctx context.Context, e events.Event) error {
-	taskID, chatSessionID, ok := taskAndSessionFromEvent(e)
+	runID, chatSessionID, ok := runAndSessionFromEvent(e)
 	if !ok {
 		return nil
 	}
 	if !chatSessionID.Valid {
-		// Issue / autopilot tasks have no chat_session.
+		// Task / autopilot tasks have no chat_session.
 		return nil
 	}
 	binding, err := p.queries.GetLarkChatSessionBindingBySession(ctx, chatSessionID)
@@ -303,12 +303,12 @@ func (p *Patcher) processEvent(ctx context.Context, e events.Event) error {
 	// that originated in Lark, but their replies belong only in Silieco.
 	// Sealed channel tasks own an input batch just like direct tasks, so the
 	// discriminator is the immutable channel_ingested provenance of that
-	// batch, not chat_input_task_id presence (which #5645 originally used).
-	task, err := p.queries.GetAgentTask(ctx, taskID)
+	// batch, not chat_input_run_id presence (which #5645 originally used).
+	agentRun, err := p.queries.GetAgentRun(ctx, runID)
 	if err != nil {
-		return fmt.Errorf("load agent task: %w", err)
+		return fmt.Errorf("load agent run: %w", err)
 	}
-	deliver, err := engine.TaskInputIsChannelIngested(ctx, p.queries, task)
+	deliver, err := engine.RunInputIsChannelIngested(ctx, p.queries, agentRun)
 	if err != nil {
 		return fmt.Errorf("classify task input origin: %w", err)
 	}
@@ -345,8 +345,8 @@ func (p *Patcher) processEvent(ctx context.Context, e events.Event) error {
 	switch e.Type {
 	case protocol.EventChatDone:
 		return p.sendChatReply(ctx, creds, binding, e.Payload)
-	case protocol.EventTaskFailed:
-		return p.fail(ctx, creds, binding, taskID, agentName, e.Payload)
+	case protocol.EventRunFailed:
+		return p.fail(ctx, creds, binding, runID, agentName, e.Payload)
 	}
 	return nil
 }
@@ -494,11 +494,11 @@ func (p *Patcher) installationCredentials(inst Installation) (InstallationCreden
 // One-shot send (no patching, no DB row): if the task fails a second
 // time we'd just send a second card, which is fine — failure is
 // usually a single terminal event.
-func (p *Patcher) fail(ctx context.Context, creds InstallationCredentials, binding ChatSessionBinding, taskID pgtype.UUID, agentName string, payload any) error {
+func (p *Patcher) fail(ctx context.Context, creds InstallationCredentials, binding ChatSessionBinding, runID pgtype.UUID, agentName string, payload any) error {
 	render, err := p.cfg.Renderer.Render(RenderInput{
 		Kind:         CardKindError,
 		AgentName:    agentName,
-		TaskID:       taskID,
+		RunID:       runID,
 		ErrorMessage: errorMessageFromPayload(payload),
 	})
 	if err != nil {
@@ -516,13 +516,13 @@ func (p *Patcher) fail(ctx context.Context, creds InstallationCredentials, bindi
 }
 
 // taskAndSessionFromEvent parses the typed-ish payload broadcastTaskEvent
-// publishes — a map[string]any with `task_id` (always) and
+// publishes — a map[string]any with `run_id` (always) and
 // `chat_session_id` (chat tasks only). EventChatDone carries a
 // ChatDonePayload struct instead.
-func taskAndSessionFromEvent(e events.Event) (taskID, chatSessionID pgtype.UUID, ok bool) {
-	if e.TaskID != "" {
-		if err := taskID.Scan(e.TaskID); err != nil {
-			taskID = pgtype.UUID{}
+func runAndSessionFromEvent(e events.Event) (runID, chatSessionID pgtype.UUID, ok bool) {
+	if e.RunID != "" {
+		if err := runID.Scan(e.RunID); err != nil {
+			runID = pgtype.UUID{}
 		}
 	}
 	if e.ChatSessionID != "" {
@@ -532,9 +532,9 @@ func taskAndSessionFromEvent(e events.Event) (taskID, chatSessionID pgtype.UUID,
 	}
 	switch p := e.Payload.(type) {
 	case map[string]any:
-		if !taskID.Valid {
-			if s, _ := p["task_id"].(string); s != "" {
-				_ = taskID.Scan(s)
+		if !runID.Valid {
+			if s, _ := p["run_id"].(string); s != "" {
+				_ = runID.Scan(s)
 			}
 		}
 		if !chatSessionID.Valid {
@@ -543,14 +543,14 @@ func taskAndSessionFromEvent(e events.Event) (taskID, chatSessionID pgtype.UUID,
 			}
 		}
 	case protocol.ChatDonePayload:
-		if !taskID.Valid {
-			_ = taskID.Scan(p.TaskID)
+		if !runID.Valid {
+			_ = runID.Scan(p.RunID)
 		}
 		if !chatSessionID.Valid {
 			_ = chatSessionID.Scan(p.ChatSessionID)
 		}
 	}
-	return taskID, chatSessionID, taskID.Valid
+	return runID, chatSessionID, runID.Valid
 }
 
 func chatDoneContent(payload any) string {

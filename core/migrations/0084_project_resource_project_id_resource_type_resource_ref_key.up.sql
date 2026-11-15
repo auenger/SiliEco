@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY project_resource_project_id_resource_type_resource_ref_key ON public.project_resource (project_id, resource_type, resource_ref);

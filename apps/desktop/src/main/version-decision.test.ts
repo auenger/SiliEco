@@ -17,7 +17,7 @@ describe("decideVersionAction", () => {
       decideVersionAction(null, {
         status: "running",
         cli_version: "v1.0.0",
-        active_task_count: 0,
+        active_run_count: 0,
       }),
     ).toBe("ok");
   });
@@ -26,7 +26,7 @@ describe("decideVersionAction", () => {
     expect(
       decideVersionAction("v1.0.0", {
         status: "running",
-        active_task_count: 0,
+        active_run_count: 0,
       }),
     ).toBe("ok");
   });
@@ -36,7 +36,7 @@ describe("decideVersionAction", () => {
       decideVersionAction("v1.2.3", {
         status: "running",
         cli_version: "v1.2.3",
-        active_task_count: 5,
+        active_run_count: 5,
       }),
     ).toBe("ok");
   });
@@ -46,12 +46,12 @@ describe("decideVersionAction", () => {
       decideVersionAction("v1.2.3", {
         status: "running",
         cli_version: "v1.2.2",
-        active_task_count: 0,
+        active_run_count: 0,
       }),
     ).toBe("restart");
   });
 
-  it("treats missing active_task_count as 0 (old daemon that still reports cli_version)", () => {
+  it("treats missing active_run_count as 0 (old daemon that still reports cli_version)", () => {
     expect(
       decideVersionAction("v1.2.3", {
         status: "running",
@@ -65,7 +65,7 @@ describe("decideVersionAction", () => {
       decideVersionAction("v1.2.3", {
         status: "running",
         cli_version: "v1.2.2",
-        active_task_count: 2,
+        active_run_count: 2,
       }),
     ).toBe("defer");
   });
@@ -76,13 +76,13 @@ describe("decideVersionAction", () => {
     const base = { status: "running", cli_version: "v1.9.0" } as const;
 
     expect(
-      decideVersionAction(bundled, { ...base, active_task_count: 3 }),
+      decideVersionAction(bundled, { ...base, active_run_count: 3 }),
     ).toBe("defer");
     expect(
-      decideVersionAction(bundled, { ...base, active_task_count: 1 }),
+      decideVersionAction(bundled, { ...base, active_run_count: 1 }),
     ).toBe("defer");
     expect(
-      decideVersionAction(bundled, { ...base, active_task_count: 0 }),
+      decideVersionAction(bundled, { ...base, active_run_count: 0 }),
     ).toBe("restart");
   });
 });

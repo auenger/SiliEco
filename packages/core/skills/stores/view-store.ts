@@ -128,7 +128,7 @@ export const useSkillsViewStore = create<SkillsViewState>()(
       clearFilters: () => set({ filters: EMPTY_SKILL_FILTERS }),
     }),
     {
-      name: "silieco_skills_view",
+      name: "silieco_tr1_skills_view",
       storage: createJSONStorage(() => createWorkspaceAwareStorage(defaultStorage)),
       partialize: (state) => ({
         sortField: state.sortField,

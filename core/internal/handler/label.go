@@ -16,6 +16,7 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/featureflags"
 	"github.com/silieco-ai/silieco/core/internal/logger"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
@@ -35,7 +36,7 @@ type LabelResponse struct {
 	UpdatedAt    string `json:"updated_at"`
 }
 
-func labelToResponse(l db.IssueLabel) LabelResponse {
+func labelToResponse(l db.TaskLabel) LabelResponse {
 	return LabelResponse{
 		ID:           uuidToString(l.ID),
 		WorkspaceID:  uuidToString(l.WorkspaceID),
@@ -62,7 +63,7 @@ func labelListRowToResponse(l db.ListLabelsRow) LabelResponse {
 	}
 }
 
-func labelsToResponse(list []db.IssueLabel) []LabelResponse {
+func labelsToResponse(list []db.TaskLabel) []LabelResponse {
 	out := make([]LabelResponse, len(list))
 	for i, l := range list {
 		out[i] = labelToResponse(l)
@@ -83,7 +84,7 @@ type UpdateLabelRequest struct {
 	Color       *string `json:"color"`
 }
 
-const defaultLabelResourceType = "issue"
+const defaultLabelResourceType = "task"
 
 func parseLabelResourceType(raw string) (string, error) {
 	value := strings.TrimSpace(raw)
@@ -91,10 +92,10 @@ func parseLabelResourceType(raw string) (string, error) {
 		return defaultLabelResourceType, nil
 	}
 	switch value {
-	case "issue", "agent", "skill":
+	case "task", "agent", "skill":
 		return value, nil
 	default:
-		return "", errors.New("resource_type must be issue, agent, or skill")
+		return "", errors.New("resource_type must be task, agent, or skill")
 	}
 }
 
@@ -338,11 +339,16 @@ func (h *Handler) DeleteLabel(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
+	if err := relational.LockForDelete(r.Context(), tx, relational.DeleteLabel, idUUID, wsUUID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock deletion dependencies")
+		return
+	}
+
 	// Keep every relationship cleanup and the catalog deletion atomic. The
 	// resource-label junctions intentionally use application-level cleanup
 	// rather than database cascades.
 	for _, cleanup := range []func() error{
-		func() error { return qtx.DeleteIssueLabelAssignmentsByLabel(r.Context(), idUUID) },
+		func() error { return qtx.DeleteTaskLabelAssignmentsByLabel(r.Context(), idUUID) },
 		func() error { return qtx.DeleteAgentLabelAssignmentsByLabel(r.Context(), idUUID) },
 		func() error { return qtx.DeleteSkillLabelAssignmentsByLabel(r.Context(), idUUID) },
 	} {
@@ -374,55 +380,55 @@ func (h *Handler) DeleteLabel(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// Handlers — issue↔label attach/detach
+// Handlers — task↔label attach/detach
 // ---------------------------------------------------------------------------
 
 type AttachLabelRequest struct {
 	LabelID string `json:"label_id"`
 }
 
-// listLabelsForIssueSafe reads the attached-label list and handles the error
+// listLabelsForTaskSafe reads the attached-label list and handles the error
 // by logging + returning nil. Callers use this after a successful attach/detach
 // mutation: if the read fails, the mutation is already committed, so returning
 // nil → clients refetch via query invalidation, and we skip broadcasting an
 // empty list that would incorrectly overwrite every subscriber's optimistic
 // state.
-func (h *Handler) listLabelsForIssueSafe(r *http.Request, issueID, workspaceID pgtype.UUID) ([]db.IssueLabel, bool) {
-	labels, err := h.Queries.ListLabelsByIssue(r.Context(), db.ListLabelsByIssueParams{
-		IssueID:     issueID,
+func (h *Handler) listLabelsForTaskSafe(r *http.Request, taskID, workspaceID pgtype.UUID) ([]db.TaskLabel, bool) {
+	labels, err := h.Queries.ListLabelsByTask(r.Context(), db.ListLabelsByTaskParams{
+		TaskID:      taskID,
 		WorkspaceID: workspaceID,
 	})
 	if err != nil {
-		slog.Warn("ListLabelsByIssue failed after mutation", append(logger.RequestAttrs(r), "error", err, "issue_id", uuidToString(issueID))...)
+		slog.Warn("ListLabelsByTask failed after mutation", append(logger.RequestAttrs(r), "error", err, "task_id", uuidToString(taskID))...)
 		return nil, false
 	}
 	return labels, true
 }
 
-// ListLabelsForIssue returns the labels currently attached to an issue.
-func (h *Handler) ListLabelsForIssue(w http.ResponseWriter, r *http.Request) {
-	issueID := chi.URLParam(r, "id")
-	// Authorize via the issue — if it's not in this workspace, the caller
+// ListLabelsForTask returns the labels currently attached to an task.
+func (h *Handler) ListLabelsForTask(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
+	// Authorize via the task — if it's not in this workspace, the caller
 	// shouldn't see its labels.
-	issue, ok := h.loadIssueForUser(w, r, issueID)
+	task, ok := h.loadTaskForUser(w, r, taskID)
 	if !ok {
 		return
 	}
-	labels, err := h.Queries.ListLabelsByIssue(r.Context(), db.ListLabelsByIssueParams{
-		IssueID:     issue.ID,
-		WorkspaceID: issue.WorkspaceID,
+	labels, err := h.Queries.ListLabelsByTask(r.Context(), db.ListLabelsByTaskParams{
+		TaskID:      task.ID,
+		WorkspaceID: task.WorkspaceID,
 	})
 	if err != nil {
-		slog.Warn("ListLabelsForIssue failed", append(logger.RequestAttrs(r), "error", err)...)
+		slog.Warn("ListLabelsForTask failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to list labels")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"labels": labelsToResponse(labels)})
 }
 
-// AttachLabel attaches a label to an issue.
+// AttachLabel attaches a label to an task.
 func (h *Handler) AttachLabel(w http.ResponseWriter, r *http.Request) {
-	issueID := chi.URLParam(r, "id")
+	taskID := chi.URLParam(r, "id")
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -438,8 +444,8 @@ func (h *Handler) AttachLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Both the issue and label must belong to this workspace.
-	issue, ok := h.loadIssueForUser(w, r, issueID)
+	// Both the task and label must belong to this workspace.
+	task, ok := h.loadTaskForUser(w, r, taskID)
 	if !ok {
 		return
 	}
@@ -448,7 +454,7 @@ func (h *Handler) AttachLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	label, err := h.Queries.GetLabel(r.Context(), db.GetLabelParams{
-		ID: labelID, WorkspaceID: issue.WorkspaceID,
+		ID: labelID, WorkspaceID: task.WorkspaceID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -459,17 +465,17 @@ func (h *Handler) AttachLabel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to attach label")
 		return
 	}
-	if label.ResourceType != "issue" {
-		writeError(w, http.StatusNotFound, "issue label not found")
+	if label.ResourceType != "task" {
+		writeError(w, http.StatusNotFound, "task label not found")
 		return
 	}
 
-	if err := h.Queries.AttachLabelToIssue(r.Context(), db.AttachLabelToIssueParams{
-		IssueID:     issue.ID,
+	if err := h.Queries.AttachLabelToTask(r.Context(), db.AttachLabelToTaskParams{
+		TaskID:      task.ID,
 		LabelID:     labelID,
-		WorkspaceID: issue.WorkspaceID,
+		WorkspaceID: task.WorkspaceID,
 	}); err != nil {
-		slog.Warn("AttachLabelToIssue failed", append(logger.RequestAttrs(r), "error", err)...)
+		slog.Warn("AttachLabelToTask failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to attach label")
 		return
 	}
@@ -478,33 +484,33 @@ func (h *Handler) AttachLabel(w http.ResponseWriter, r *http.Request) {
 	// committed — return success without a labels body (clients refetch via
 	// query invalidation) and skip the broadcast so we don't overwrite every
 	// subscriber's optimistic state with an incorrect empty list.
-	labels, ok2 := h.listLabelsForIssueSafe(r, issue.ID, issue.WorkspaceID)
+	labels, ok2 := h.listLabelsForTaskSafe(r, task.ID, task.WorkspaceID)
 	if !ok2 {
 		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 	resp := labelsToResponse(labels)
-	h.publish(protocol.EventIssueLabelsChanged, uuidToString(issue.WorkspaceID), "member", userID, map[string]any{
-		"issue_id": uuidToString(issue.ID),
-		"labels":   resp,
+	h.publish(protocol.EventTaskLabelsChanged, uuidToString(task.WorkspaceID), "member", userID, map[string]any{
+		"task_id": uuidToString(task.ID),
+		"labels":  resp,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"labels": resp})
 }
 
-// DetachLabel removes a label from an issue.
+// DetachLabel removes a label from an task.
 func (h *Handler) DetachLabel(w http.ResponseWriter, r *http.Request) {
-	issueID := chi.URLParam(r, "id")
+	taskID := chi.URLParam(r, "id")
 	labelID := chi.URLParam(r, "labelId")
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	// Verify both issue and label belong to this workspace before detaching
+	// Verify both task and label belong to this workspace before detaching
 	// (mirror of AttachLabel). Without this, a crafted request with a foreign
 	// labelID would no-op and return 200 — "silent success" is worse than an
 	// explicit 404.
-	issue, ok := h.loadIssueForUser(w, r, issueID)
+	task, ok := h.loadTaskForUser(w, r, taskID)
 	if !ok {
 		return
 	}
@@ -513,7 +519,7 @@ func (h *Handler) DetachLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	label, err := h.Queries.GetLabel(r.Context(), db.GetLabelParams{
-		ID: labelUUID, WorkspaceID: issue.WorkspaceID,
+		ID: labelUUID, WorkspaceID: task.WorkspaceID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -524,30 +530,30 @@ func (h *Handler) DetachLabel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to detach label")
 		return
 	}
-	if label.ResourceType != "issue" {
-		writeError(w, http.StatusNotFound, "issue label not found")
+	if label.ResourceType != "task" {
+		writeError(w, http.StatusNotFound, "task label not found")
 		return
 	}
 
-	if err := h.Queries.DetachLabelFromIssue(r.Context(), db.DetachLabelFromIssueParams{
-		IssueID:     issue.ID,
+	if err := h.Queries.DetachLabelFromTask(r.Context(), db.DetachLabelFromTaskParams{
+		TaskID:      task.ID,
 		LabelID:     labelUUID,
-		WorkspaceID: issue.WorkspaceID,
+		WorkspaceID: task.WorkspaceID,
 	}); err != nil {
-		slog.Warn("DetachLabelFromIssue failed", append(logger.RequestAttrs(r), "error", err)...)
+		slog.Warn("DetachLabelFromTask failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to detach label")
 		return
 	}
 
-	labels, ok2 := h.listLabelsForIssueSafe(r, issue.ID, issue.WorkspaceID)
+	labels, ok2 := h.listLabelsForTaskSafe(r, task.ID, task.WorkspaceID)
 	if !ok2 {
 		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 	resp := labelsToResponse(labels)
-	h.publish(protocol.EventIssueLabelsChanged, uuidToString(issue.WorkspaceID), "member", userID, map[string]any{
-		"issue_id": uuidToString(issue.ID),
-		"labels":   resp,
+	h.publish(protocol.EventTaskLabelsChanged, uuidToString(task.WorkspaceID), "member", userID, map[string]any{
+		"task_id": uuidToString(task.ID),
+		"labels":  resp,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"labels": resp})
 }

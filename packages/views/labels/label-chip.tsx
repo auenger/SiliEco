@@ -40,14 +40,14 @@ interface LabelChipProps {
    * When true, show the full label name without truncation. Use this in
    * management/edit surfaces where users need to see or verify the exact
    * name. The default (false) truncates at 12rem to keep chips compact in
-   * the issue sidebar and future board/list card rows.
+   * the task sidebar and future board/list card rows.
    */
   fullName?: boolean;
 }
 
 /**
  * Renders a single label as a colored pill. If `onRemove` is provided, shows
- * an × button that calls it. Used in the issue-detail sidebar, the picker,
+ * an × button that calls it. Used in the task-detail sidebar, the picker,
  * and the management dialog.
  */
 export function LabelChip({ label, onRemove, className, fullName }: LabelChipProps) {

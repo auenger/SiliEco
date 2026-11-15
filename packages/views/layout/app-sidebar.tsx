@@ -33,9 +33,9 @@ import { SiliecoIcon } from "@silieco/ui/components/common/silieco-icon";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@silieco/ui/components/ui/tooltip";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@silieco/ui/components/ui/collapsible";
 import { CappedNumberFlow } from "@silieco/ui/components/ui/number-flow";
-import { StatusIcon } from "../issues/components/status-icon";
-import { useIssueDraftStore } from "@silieco/core/issues/stores/draft-store";
-import { openCreateIssueWithPreference } from "@silieco/core/issues/stores/create-mode-store";
+import { StatusIcon } from "../tasks/components/status-icon";
+import { useTaskDraftStore } from "@silieco/core/tasks/stores/draft-store";
+import { openCreateTaskWithPreference } from "@silieco/core/tasks/stores/create-mode-store";
 import {
   Sidebar,
   SidebarContent,
@@ -69,7 +69,7 @@ import { useModalStore } from "@silieco/core/modals";
 import { useConfigStore } from "@silieco/core/config";
 import { pinListOptions } from "@silieco/core/pins/queries";
 import { useDeletePin, useReorderPins } from "@silieco/core/pins/mutations";
-import { issueDetailOptions } from "@silieco/core/issues/queries";
+import { taskDetailOptions } from "@silieco/core/tasks/queries";
 import { projectDetailOptions } from "@silieco/core/projects/queries";
 import { projectListOptions } from "@silieco/core/projects/queries";
 import { workflowInstancesOptions } from "@silieco/core/workflows";
@@ -109,8 +109,8 @@ const EMPTY_INBOX_SUMMARY: Awaited<ReturnType<typeof api.getInboxUnreadSummary>>
 type NavKey =
   | "inbox"
   | "chat"
-  | "myIssues"
-  | "issues"
+  | "myTasks"
+  | "tasks"
   | "projects"
   | "resources"
   | "workflows"
@@ -127,8 +127,8 @@ type NavKey =
 type NavLabelKey =
   | "inbox"
   | "chat"
-  | "my_issues"
-  | "issues"
+  | "my_tasks"
+  | "tasks"
   | "projects"
   | "resources"
   | "workflows"
@@ -146,11 +146,11 @@ type NavLabelKey =
 const personalNav: { key: NavKey; labelKey: NavLabelKey }[] = [
   { key: "inbox", labelKey: "inbox" },
   { key: "chat", labelKey: "chat" },
-  { key: "myIssues", labelKey: "my_issues" },
+  { key: "myTasks", labelKey: "my_tasks" },
 ];
 
 const workspaceNav: { key: NavKey; labelKey: NavLabelKey }[] = [
-  { key: "issues", labelKey: "issues" },
+  { key: "tasks", labelKey: "tasks" },
   { key: "resources", labelKey: "resources" },
   { key: "workflows", labelKey: "workflows" },
   { key: "autopilots", labelKey: "autopilots" },
@@ -160,14 +160,14 @@ const workspaceNav: { key: NavKey; labelKey: NavLabelKey }[] = [
 ];
 
 function DraftDot() {
-  const hasDraft = useIssueDraftStore((s) => s.hasDraft());
+  const hasDraft = useTaskDraftStore((s) => s.hasDraft());
   if (!hasDraft) return null;
   return <span className="absolute top-0 right-0 size-1.5 rounded-full bg-brand" />;
 }
 
 /**
  * Presentational pin row. The `label` and `iconNode` are computed by the
- * parent `PinRow` from cached issue / project detail queries — keeping
+ * parent `PinRow` from cached task / project detail queries — keeping
  * this component dumb means the dnd-kit / navigation wiring lives in
  * one place and the data flow is explicit.
  */
@@ -250,7 +250,7 @@ function SortablePinItem({
 
 /**
  * Smart wrapper that resolves a pin's display data (label + status/icon)
- * from the issue / project detail query cache. Both queries are declared
+ * from the task / project detail query cache. Both queries are declared
  * unconditionally with `enabled` gates so the hook order stays stable
  * regardless of `pin.item_type`.
  *
@@ -271,33 +271,33 @@ function PinRow({
   onUnpin: () => void;
   wsId: string;
 }) {
-  const isIssue = pin.item_type === "issue";
-  const issueQuery = useQuery({
-    ...issueDetailOptions(wsId, pin.item_id),
-    enabled: isIssue,
+  const isTask = pin.item_type === "task";
+  const taskQuery = useQuery({
+    ...taskDetailOptions(wsId, pin.item_id),
+    enabled: isTask,
   });
   const projectQuery = useQuery({
     ...projectDetailOptions(wsId, pin.item_id),
-    enabled: !isIssue,
+    enabled: !isTask,
   });
 
   const triggeredRef = useRef(false);
   useEffect(() => {
-    const err = isIssue ? issueQuery.error : projectQuery.error;
+    const err = isTask ? taskQuery.error : projectQuery.error;
     if (err instanceof ApiError && err.status === 404 && !triggeredRef.current) {
       triggeredRef.current = true;
       onUnpin();
     }
-  }, [isIssue, issueQuery.error, onUnpin, projectQuery.error]);
+  }, [isTask, taskQuery.error, onUnpin, projectQuery.error]);
 
-  if (isIssue) {
-    if (issueQuery.isPending) return <PinSkeleton />;
-    if (issueQuery.isError || !issueQuery.data) return null;
-    const issue = issueQuery.data;
-    const label = issue.title;
+  if (isTask) {
+    if (taskQuery.isPending) return <PinSkeleton />;
+    if (taskQuery.isError || !taskQuery.data) return null;
+    const task = taskQuery.data;
+    const label = task.title;
     const iconNode = (
       /* Override parent [&_svg]:size-4 — pinned items need smaller icons to match sm size */
-      <StatusIcon status={issue.status} className="!size-3.5 shrink-0" />
+      <StatusIcon status={task.status} className="!size-3.5 shrink-0" />
     );
     return (
       <SortablePinItem
@@ -341,7 +341,7 @@ function PinSkeleton() {
 interface AppSidebarProps {
   /** Rendered above SidebarHeader (e.g. desktop traffic light spacer) */
   topSlot?: React.ReactNode;
-  /** Rendered in the header between workspace switcher and new-issue button (e.g. search trigger) */
+  /** Rendered in the header between workspace switcher and new-task button (e.g. search trigger) */
   searchSlot?: React.ReactNode;
   /** Extra className for SidebarHeader */
   headerClassName?: string;
@@ -420,7 +420,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const sidebarFadeStyle = useScrollFade(sidebarScrollRef, 24);
   const getPinHref = useCallback(
-    (pin: PinnedItem) => (pin.item_type === "issue" ? p.issueDetail(pin.item_id) : p.projectDetail(pin.item_id)),
+    (pin: PinnedItem) => (pin.item_type === "task" ? p.taskDetail(pin.item_id) : p.projectDetail(pin.item_id)),
     [p],
   );
 
@@ -479,7 +479,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
         ? list.find((w) => w.id === invitation.workspace_id)
         : null;
       if (joined) {
-        push(paths.workspace(joined.slug).issues());
+        push(paths.workspace(joined.slug).tasks());
       }
     },
   });
@@ -490,7 +490,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     },
   });
 
-  const createIssueShortcut = useShortcut("createIssue");
+  const createTaskShortcut = useShortcut("createTask");
   const { data: projects = [] } = useQuery({
     ...projectListOptions(wsId ?? ""),
     enabled: Boolean(wsId),
@@ -614,7 +614,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
             const isActiveSpace = space.id === wsId;
             const isOpen =
               isActiveSpace && expandedSpaceId === space.id;
-            const spaceHref = paths.workspace(space.slug).issues();
+            const spaceHref = paths.workspace(space.slug).tasks();
             return (
               <Collapsible key={space.id} open={isOpen}>
                 <div
@@ -679,16 +679,16 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                         <SidebarMenuItem>
                           <SidebarMenuButton
                             className="bg-brand/8 font-medium text-brand hover:bg-brand/12"
-                            onClick={() => openCreateIssueWithPreference()}
+                            onClick={() => openCreateTaskWithPreference()}
                           >
                             <span className="relative">
                               <SquarePen />
                               <DraftDot />
                             </span>
-                            <span>{t(($) => $.sidebar.new_issue)}</span>
-                            {createIssueShortcut ? (
+                            <span>{t(($) => $.sidebar.new_task)}</span>
+                            {createTaskShortcut ? (
                               <ShortcutKeycaps
-                                shortcut={createIssueShortcut}
+                                shortcut={createTaskShortcut}
                                 decorative
                                 className="pointer-events-none ml-auto"
                               />
@@ -873,7 +873,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                                       )}
                                     >
                                       <SquarePen className="size-3.5" />
-                                      {t(($) => $.tab.issue)}
+                                      {t(($) => $.tab.task)}
                                     </AppLink>
                                     <AppLink
                                       href={resourceHref}

@@ -11,7 +11,7 @@ import { runtimeModelsOptions } from "@silieco/core/runtimes";
 import {
   PickerItem,
   PropertyPicker,
-} from "../../../issues/components/pickers";
+} from "../../../tasks/components/pickers";
 import { SettingsRow } from "../../../settings/components/settings-layout";
 import { useT } from "../../../i18n";
 

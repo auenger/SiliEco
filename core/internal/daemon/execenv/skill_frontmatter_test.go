@@ -37,7 +37,7 @@ func TestEnsureSkillFrontmatterReSynthesizesInvalidYAML(t *testing.T) {
 	t.Parallel()
 
 	const body = "# Heading\n\nReal skill body.\n"
-	// `description: bad: value` is the exact failure mode from the issue: the
+	// `description: bad: value` is the exact failure mode from the task: the
 	// second `: ` makes YAML treat the tail as a nested mapping.
 	broken := "---\nname: keep-me\ndescription: bad: value here\n---\n\n" + body
 

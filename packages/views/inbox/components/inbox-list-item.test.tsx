@@ -3,18 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 import type { InboxItem } from "@silieco/core/types";
 import { InboxListItem } from "./inbox-list-item";
 
-vi.mock("../../issues/components", () => ({ StatusIcon: () => null }));
-vi.mock("../../issues/components/issue-agent-activity-indicator", () => ({
-  IssueAgentActivityIndicator: ({
-    issueId,
+vi.mock("../../tasks/components", () => ({ StatusIcon: () => null }));
+vi.mock("../../tasks/components/task-agent-activity-indicator", () => ({
+  TaskAgentActivityIndicator: ({
+    taskId,
     hoverCard,
   }: {
-    issueId: string;
+    taskId: string;
     hoverCard?: boolean;
   }) => (
     <span
-      data-testid="issue-agent-activity"
-      data-issue-id={issueId}
+      data-testid="task-agent-activity"
+      data-task-id={taskId}
       data-hover-card={hoverCard === false ? "false" : "true"}
     />
   ),
@@ -50,10 +50,10 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
     actor_id: "agent-1",
     type: "new_comment",
     severity: "info",
-    issue_id: "issue-1",
-    title: "Issue title",
+    task_id: "task-1",
+    title: "Task title",
     body: null,
-    issue_status: null,
+    task_status: null,
     read: false,
     archived: false,
     created_at: "2026-06-15T08:00:00Z",
@@ -105,16 +105,16 @@ describe("InboxListItem unread affordance", () => {
   });
 });
 
-describe("InboxListItem issue activity", () => {
-  it("shows issue-specific agent activity without an availability dot", () => {
+describe("InboxListItem task activity", () => {
+  it("shows task-specific agent activity without an availability dot", () => {
     const { getByTestId } = renderRow({ item: item(), view: "inbox" });
 
     expect(getByTestId("actor-avatar").getAttribute("data-show-status-dot")).toBe(
       "false",
     );
     expect(
-      getByTestId("issue-agent-activity").getAttribute("data-issue-id"),
-    ).toBe("issue-1");
+      getByTestId("task-agent-activity").getAttribute("data-task-id"),
+    ).toBe("task-1");
   });
 
   it("shows the activity badge without its hover card", () => {
@@ -124,16 +124,16 @@ describe("InboxListItem issue activity", () => {
     const { getByTestId } = renderRow({ item: item(), view: "inbox" });
 
     expect(
-      getByTestId("issue-agent-activity").getAttribute("data-hover-card"),
+      getByTestId("task-agent-activity").getAttribute("data-hover-card"),
     ).toBe("false");
   });
 
-  it("omits issue activity for a notification without an issue", () => {
+  it("omits task activity for a notification without an task", () => {
     const { queryByTestId } = renderRow({
-      item: item({ issue_id: null }),
+      item: item({ task_id: null }),
       view: "inbox",
     });
 
-    expect(queryByTestId("issue-agent-activity")).toBeNull();
+    expect(queryByTestId("task-agent-activity")).toBeNull();
   });
 });

@@ -69,7 +69,7 @@ func makeAgent(owner pgtype.UUID, allowlist ...string) db.Agent {
 // agent owner's connected apps, because the invocation-permission gate that
 // decides who may run the agent lives upstream (canInvokeAgent /
 // canCreatorInvokeAgent). BuildTaskOverlay no longer gates on the originator.
-func TestBuildTaskOverlay_FollowsOwnerRegardlessOfOriginator(t *testing.T) {
+func TestBuildRunOverlay_FollowsOwnerRegardlessOfOriginator(t *testing.T) {
 	t.Parallel()
 	sdkFake := &fakeSDK{
 		createSessResp: &sdk.CreateSessionResponse{
@@ -83,7 +83,7 @@ func TestBuildTaskOverlay_FollowsOwnerRegardlessOfOriginator(t *testing.T) {
 	agent := makeAgent(owner, "notion")
 	seedActiveConnection(t, store, owner, "notion", "ca_owner_notion")
 
-	result, err := svc.BuildTaskOverlay(context.Background(), pgtype.UUID{}, agent)
+	result, err := svc.BuildRunOverlay(context.Background(), pgtype.UUID{}, agent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestBuildTaskOverlay_FollowsOwnerRegardlessOfOriginator(t *testing.T) {
 // originator who has passed the invoke gate gets the overlay built from the
 // AGENT OWNER's connection, and never from their own. Seeding only the
 // non-owner originator's connection (owner has none) produces no overlay.
-func TestBuildTaskOverlay_UsesOwnerConnectionNotOriginator(t *testing.T) {
+func TestBuildRunOverlay_UsesOwnerConnectionNotOriginator(t *testing.T) {
 	t.Parallel()
 
 	owner := mintUUID(11)
@@ -124,7 +124,7 @@ func TestBuildTaskOverlay_UsesOwnerConnectionNotOriginator(t *testing.T) {
 		// The originator also has a matching connection; it must NOT be used.
 		seedActiveConnection(t, store, other, "notion", "ca_other_notion")
 
-		result, err := svc.BuildTaskOverlay(context.Background(), other, agent)
+		result, err := svc.BuildRunOverlay(context.Background(), other, agent)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -147,7 +147,7 @@ func TestBuildTaskOverlay_UsesOwnerConnectionNotOriginator(t *testing.T) {
 		agent := makeAgent(owner, "notion")
 		seedActiveConnection(t, store, other, "notion", "ca_other_notion")
 
-		result, err := svc.BuildTaskOverlay(context.Background(), other, agent)
+		result, err := svc.BuildRunOverlay(context.Background(), other, agent)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -165,7 +165,7 @@ func TestBuildTaskOverlay_UsesOwnerConnectionNotOriginator(t *testing.T) {
 // TestBuildTaskOverlay_EmptyAllowlistIsNoOp covers both NULL and `{}`
 // columns: until the agent owner has opted into specific toolkits, the
 // dispatch decision is OFF — no overlay, no Composio call, no token.
-func TestBuildTaskOverlay_EmptyAllowlistIsNoOp(t *testing.T) {
+func TestBuildRunOverlay_EmptyAllowlistIsNoOp(t *testing.T) {
 	t.Parallel()
 	for name, allowlist := range map[string][]string{
 		"nil-slice":   nil,
@@ -181,7 +181,7 @@ func TestBuildTaskOverlay_EmptyAllowlistIsNoOp(t *testing.T) {
 			agent := makeAgent(owner, allowlist...)
 			seedActiveConnection(t, store, owner, "notion", "ca_owner_notion")
 
-			result, err := svc.BuildTaskOverlay(context.Background(), owner, agent)
+			result, err := svc.BuildRunOverlay(context.Background(), owner, agent)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -201,7 +201,7 @@ func TestBuildTaskOverlay_EmptyAllowlistIsNoOp(t *testing.T) {
 // toolkits they have not connected (or revoked the connection for). The
 // intersection is empty, so we have nothing to mount and must not pay for
 // an empty Composio session.
-func TestBuildTaskOverlay_NoMatchingConnectionIsNoOp(t *testing.T) {
+func TestBuildRunOverlay_NoMatchingConnectionIsNoOp(t *testing.T) {
 	t.Parallel()
 	sdkFake := &fakeSDK{}
 	store := newFakeStore()
@@ -211,7 +211,7 @@ func TestBuildTaskOverlay_NoMatchingConnectionIsNoOp(t *testing.T) {
 	// Owner connected SLACK only — not in allowlist.
 	seedActiveConnection(t, store, owner, "slack", "ca_owner_slack")
 
-	result, err := svc.BuildTaskOverlay(context.Background(), owner, agent)
+	result, err := svc.BuildRunOverlay(context.Background(), owner, agent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestBuildTaskOverlay_NoMatchingConnectionIsNoOp(t *testing.T) {
 //   - the returned overlay JSON has the daemon-expected shape
 //   - connected app metadata is exactly the same intersection for prompt use
 //   - non-allowlisted active connections (slack here) do NOT leak through
-func TestBuildTaskOverlay_HappyPath_FiltersBothWays(t *testing.T) {
+func TestBuildRunOverlay_HappyPath_FiltersBothWays(t *testing.T) {
 	t.Parallel()
 	sdkFake := &fakeSDK{
 		createSessResp: &sdk.CreateSessionResponse{
@@ -253,7 +253,7 @@ func TestBuildTaskOverlay_HappyPath_FiltersBothWays(t *testing.T) {
 	seedActiveConnection(t, store, owner, "github", "ca_owner_github")
 	seedActiveConnection(t, store, owner, "slack", "ca_owner_slack")
 
-	result, err := svc.BuildTaskOverlay(context.Background(), owner, agent)
+	result, err := svc.BuildRunOverlay(context.Background(), owner, agent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestBuildTaskOverlay_HappyPath_FiltersBothWays(t *testing.T) {
 	}
 }
 
-func TestBuildTaskOverlay_CreateSessionWireContract(t *testing.T) {
+func TestBuildRunOverlay_CreateSessionWireContract(t *testing.T) {
 	t.Parallel()
 
 	postedCh := make(chan map[string]any, 1)
@@ -340,7 +340,7 @@ func TestBuildTaskOverlay_CreateSessionWireContract(t *testing.T) {
 	seedActiveConnection(t, store, owner, "github", "ca_owner_github")
 	seedActiveConnection(t, store, owner, "slack", "ca_owner_slack")
 
-	result, err := svc.BuildTaskOverlay(context.Background(), owner, agent)
+	result, err := svc.BuildRunOverlay(context.Background(), owner, agent)
 	if err != nil {
 		t.Fatalf("BuildTaskOverlay: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestBuildTaskOverlay_CreateSessionWireContract(t *testing.T) {
 // returning a 200 with an empty mcp.url must not produce a half-baked
 // overlay — every runtime sidecar generator would emit a server with an
 // empty URL, breaking the task.
-func TestBuildTaskOverlay_EmptyURL(t *testing.T) {
+func TestBuildRunOverlay_EmptyURL(t *testing.T) {
 	t.Parallel()
 	sdkFake := &fakeSDK{
 		createSessResp: &sdk.CreateSessionResponse{
@@ -398,7 +398,7 @@ func TestBuildTaskOverlay_EmptyURL(t *testing.T) {
 	agent := makeAgent(owner, "github")
 	seedActiveConnection(t, store, owner, "github", "ca_owner_github")
 
-	result, err := svc.BuildTaskOverlay(context.Background(), owner, agent)
+	result, err := svc.BuildRunOverlay(context.Background(), owner, agent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestBuildTaskOverlay_EmptyURL(t *testing.T) {
 // blip, …) must surface as an error so the caller can log it. The caller
 // (TaskService.buildRuntimeMCPOverlay) is responsible for swallowing the error
 // and proceeding with no overlay — best-effort enqueue.
-func TestBuildTaskOverlay_SDKError(t *testing.T) {
+func TestBuildRunOverlay_SDKError(t *testing.T) {
 	t.Parallel()
 	sdkFake := &fakeSDK{createSessErr: errors.New("composio: 503 backend")}
 	store := newFakeStore()
@@ -422,7 +422,7 @@ func TestBuildTaskOverlay_SDKError(t *testing.T) {
 	agent := makeAgent(owner, "slack")
 	seedActiveConnection(t, store, owner, "slack", "ca_owner_slack")
 
-	result, err := svc.BuildTaskOverlay(context.Background(), owner, agent)
+	result, err := svc.BuildRunOverlay(context.Background(), owner, agent)
 	if err == nil {
 		t.Fatalf("expected error from SDK failure, got nil")
 	}
@@ -442,7 +442,7 @@ func TestBuildTaskOverlay_SDKError(t *testing.T) {
 // uppercase / padded entries in the column. The dispatch path must still
 // match against (lowercased, trimmed) Composio connection rows so a
 // well-intentioned UI typo cannot silently disable the overlay.
-func TestBuildTaskOverlay_NormalisesAllowlistAndConnectionSlugs(t *testing.T) {
+func TestBuildRunOverlay_NormalisesAllowlistAndConnectionSlugs(t *testing.T) {
 	t.Parallel()
 	sdkFake := &fakeSDK{
 		createSessResp: &sdk.CreateSessionResponse{
@@ -458,7 +458,7 @@ func TestBuildTaskOverlay_NormalisesAllowlistAndConnectionSlugs(t *testing.T) {
 	// is what the connect flow always writes).
 	seedActiveConnection(t, store, owner, "notion", "ca_a")
 
-	result, err := svc.BuildTaskOverlay(context.Background(), owner, agent)
+	result, err := svc.BuildRunOverlay(context.Background(), owner, agent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

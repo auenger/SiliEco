@@ -14,7 +14,7 @@ export function useCreateWorkspace() {
   return useMutation({
     mutationFn: (data: { name: string; slug: string; description?: string }) =>
       api.createWorkspace(data),
-    // Seed the workspace list cache BEFORE callers navigate to /{newWs.slug}/issues.
+    // Seed the workspace list cache BEFORE callers navigate to /{newWs.slug}/tasks.
     // The destination [workspaceSlug]/layout queries by slug from this cache;
     // without seeding, it would briefly show "loading" before the background
     // invalidation completes. TanStack Query guarantees this onSuccess runs

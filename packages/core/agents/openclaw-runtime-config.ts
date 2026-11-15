@@ -1,4 +1,4 @@
-// OpenClaw-specific `runtime_config` schema (issue #3260).
+// OpenClaw-specific `runtime_config` schema (task #3260).
 //
 // Stored under `agent.runtime_config` as freeform JSONB; only meaningful for
 // agents whose runtime provider is openclaw. The daemon decodes the same

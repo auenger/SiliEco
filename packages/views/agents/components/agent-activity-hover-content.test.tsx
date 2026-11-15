@@ -2,7 +2,7 @@
 
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentTask, Issue } from "@silieco/core/types";
+import type { AgentRun, Task } from "@silieco/core/types";
 import { renderWithI18n } from "../../test/i18n";
 
 // The hover card renders one row per task and counts tasks, so its header
@@ -59,7 +59,7 @@ import {
   WorkspaceAgentActivityHoverContent,
 } from "./agent-activity-hover-content";
 
-function makeIssue(id: string, identifier: string, title: string): Issue {
+function makeTask(id: string, identifier: string, title: string): Task {
   return {
     id,
     workspace_id: "ws-1",
@@ -73,7 +73,7 @@ function makeIssue(id: string, identifier: string, title: string): Issue {
     assignee_id: null,
     creator_type: "member",
     creator_id: "user-1",
-    parent_issue_id: null,
+    parent_task_id: null,
     project_id: null,
     position: 1,
     stage: null,
@@ -86,12 +86,12 @@ function makeIssue(id: string, identifier: string, title: string): Issue {
   };
 }
 
-function makeTask(overrides: Partial<AgentTask>): AgentTask {
+function makeRun(overrides: Partial<AgentRun>): AgentRun {
   return {
     id: "task-1",
     agent_id: "agent-1",
     runtime_id: "runtime-1",
-    issue_id: "issue-1",
+    task_id: "task-1",
     status: "running",
     priority: 0,
     dispatched_at: null,
@@ -110,15 +110,15 @@ describe("AgentActivityHoverContent", () => {
   // Two agents, three running tasks (Niko runs two at once). The header must
   // count the three task rows, not the two agents.
   const threeTasksTwoAgents = [
-    makeTask({ id: "t1", agent_id: "agent-1" }),
-    makeTask({ id: "t2", agent_id: "agent-1" }),
-    makeTask({ id: "t3", agent_id: "agent-2" }),
+    makeRun({ id: "t1", agent_id: "agent-1" }),
+    makeRun({ id: "t2", agent_id: "agent-1" }),
+    makeRun({ id: "t3", agent_id: "agent-2" }),
   ];
 
-  it("counts tasks, not agents, in the header", () => {
-    renderWithI18n(<AgentActivityHoverContent tasks={threeTasksTwoAgents} />);
+  it("counts runs, not agents, in the header", () => {
+    renderWithI18n(<AgentActivityHoverContent runs={threeTasksTwoAgents} />);
 
-    expect(screen.getByText("3 tasks working")).toBeInTheDocument();
+    expect(screen.getByText("3 runs working")).toBeInTheDocument();
     // The old agent-worded copy would have read "3 agents working" here and
     // disagreed with the chip's unique-agent count.
     expect(screen.queryByText(/agents? working/)).not.toBeInTheDocument();
@@ -127,52 +127,52 @@ describe("AgentActivityHoverContent", () => {
   });
 
   it("uses the singular task copy for a single task", () => {
-    renderWithI18n(<AgentActivityHoverContent tasks={[makeTask({})]} />);
+    renderWithI18n(<AgentActivityHoverContent runs={[makeRun({})]} />);
 
-    expect(screen.getByText("1 task working")).toBeInTheDocument();
+    expect(screen.getByText("1 run working")).toBeInTheDocument();
   });
 
   it("renders the requested Chinese task copy", () => {
-    renderWithI18n(<AgentActivityHoverContent tasks={threeTasksTwoAgents} />, {
+    renderWithI18n(<AgentActivityHoverContent runs={threeTasksTwoAgents} />, {
       locale: "zh-Hans",
     });
 
-    expect(screen.getByText("3 个 task 工作中")).toBeInTheDocument();
+    expect(screen.getByText("3 个 run 工作中")).toBeInTheDocument();
   });
 });
 
 // The workspace chip says WHO is working ("N agents working"). This card
 // says WHERE: the two figures the chip does not carry, and the rows grouped
-// by issue. It stays silent about work it excludes — see the component doc.
+// by task. It stays silent about work it excludes — see the component doc.
 // SILI-4884.
 describe("WorkspaceAgentActivityHoverContent", () => {
-  it("carries the two figures the chip does not, and groups rows by issue", () => {
+  it("carries the two figures the chip does not, and groups rows by task", () => {
     renderWithI18n(
       <WorkspaceAgentActivityHoverContent
-        issues={[
-          makeIssue("i-1", "SILI-4879", "Counting logic looks wrong"),
-          makeIssue("i-2", "SILI-4881", "daemon extra work dir"),
-          makeIssue("i-3", "SILI-4883", "First PR review flow"),
+        tasks={[
+          makeTask("i-1", "SILI-4879", "Counting logic looks wrong"),
+          makeTask("i-2", "SILI-4881", "daemon extra work dir"),
+          makeTask("i-3", "SILI-4883", "First PR review flow"),
         ]}
-        tasksByIssueId={
+        runsByTaskId={
           new Map([
             [
               "i-1",
               [
-                makeTask({ id: "t1", agent_id: "agent-1", issue_id: "i-1" }),
-                makeTask({ id: "t4", agent_id: "agent-2", issue_id: "i-1" }),
+                makeRun({ id: "t1", agent_id: "agent-1", task_id: "i-1" }),
+                makeRun({ id: "t4", agent_id: "agent-2", task_id: "i-1" }),
               ],
             ],
-            ["i-2", [makeTask({ id: "t2", agent_id: "agent-1", issue_id: "i-2" })]],
-            ["i-3", [makeTask({ id: "t3", agent_id: "agent-2", issue_id: "i-3" })]],
+            ["i-2", [makeRun({ id: "t2", agent_id: "agent-1", task_id: "i-2" })]],
+            ["i-3", [makeRun({ id: "t3", agent_id: "agent-2", task_id: "i-3" })]],
           ])
         }
-        taskCount={4}
+        runCount={4}
         />,
     );
 
-    expect(screen.getByText("3 issues · 4 tasks")).toBeInTheDocument();
-    // Rows group under their issue, mirroring what clicking the chip does.
+    expect(screen.getByText("3 tasks · 4 runs")).toBeInTheDocument();
+    // Rows group under their task, mirroring what clicking the chip does.
     expect(screen.getByText("SILI-4879")).toBeInTheDocument();
     expect(screen.getByText("Counting logic looks wrong")).toBeInTheDocument();
     expect(screen.getAllByTestId("actor-avatar")).toHaveLength(4);
@@ -184,24 +184,24 @@ describe("WorkspaceAgentActivityHoverContent", () => {
     // perceived. The card only ever describes what IS counted.
     renderWithI18n(
       <WorkspaceAgentActivityHoverContent
-        issues={[makeIssue("i-1", "SILI-1", "One")]}
-        tasksByIssueId={
-          new Map([["i-1", [makeTask({ id: "t1", issue_id: "i-1" })]]])
+        tasks={[makeTask("i-1", "SILI-1", "One")]}
+        runsByTaskId={
+          new Map([["i-1", [makeRun({ id: "t1", task_id: "i-1" })]]])
         }
-        taskCount={1}
+        runCount={1}
       />,
     );
 
     expect(screen.queryByText(/not counted/)).not.toBeInTheDocument();
-    expect(screen.getByText("1 issue · 1 task")).toBeInTheDocument();
+    expect(screen.getByText("1 task · 1 run")).toBeInTheDocument();
   });
 
   it("falls back to the agent-worded empty copy when nothing is counted", () => {
     renderWithI18n(
       <WorkspaceAgentActivityHoverContent
-        issues={[]}
-        tasksByIssueId={new Map()}
-        taskCount={0}
+        tasks={[]}
+        runsByTaskId={new Map()}
+        runCount={0}
       />,
     );
 
@@ -212,16 +212,16 @@ describe("WorkspaceAgentActivityHoverContent", () => {
   it("renders the Chinese copy for the counted units", () => {
     renderWithI18n(
       <WorkspaceAgentActivityHoverContent
-        issues={[makeIssue("i-1", "SILI-1", "One")]}
-        tasksByIssueId={
-          new Map([["i-1", [makeTask({ id: "t1", issue_id: "i-1" })]]])
+        tasks={[makeTask("i-1", "SILI-1", "One")]}
+        runsByTaskId={
+          new Map([["i-1", [makeRun({ id: "t1", task_id: "i-1" })]]])
         }
-        taskCount={2}
+        runCount={2}
       />,
       { locale: "zh-Hans" },
     );
 
-    // task / issue stay lowercase English in UI strings (conventions.zh.mdx).
-    expect(screen.getByText("1 个 issue · 2 个 task")).toBeInTheDocument();
+    // task / task stay lowercase English in UI strings (conventions.zh.mdx).
+    expect(screen.getByText("1 个 task · 2 个 run")).toBeInTheDocument();
   });
 });

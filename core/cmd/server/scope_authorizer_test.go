@@ -14,23 +14,23 @@ import (
 
 // fakeScopeQuerier implements scopeAuthQuerier with in-memory maps.
 type fakeScopeQuerier struct {
-	tasks             map[[16]byte]db.AgentTaskQueue
-	issues            map[[16]byte]db.Issue
+	agentRuns         map[[16]byte]db.AgentRun
+	tasks             map[[16]byte]db.Task
 	sessions          map[[16]byte]db.ChatSession
 	groupParticipants map[[32]byte]bool
 }
 
-func (f *fakeScopeQuerier) GetAgentTask(_ context.Context, id pgtype.UUID) (db.AgentTaskQueue, error) {
-	if t, ok := f.tasks[id.Bytes]; ok {
+func (f *fakeScopeQuerier) GetAgentRun(_ context.Context, id pgtype.UUID) (db.AgentRun, error) {
+	if t, ok := f.agentRuns[id.Bytes]; ok {
 		return t, nil
 	}
-	return db.AgentTaskQueue{}, pgx.ErrNoRows
+	return db.AgentRun{}, pgx.ErrNoRows
 }
-func (f *fakeScopeQuerier) GetIssue(_ context.Context, id pgtype.UUID) (db.Issue, error) {
-	if i, ok := f.issues[id.Bytes]; ok {
+func (f *fakeScopeQuerier) GetTask(_ context.Context, id pgtype.UUID) (db.Task, error) {
+	if i, ok := f.tasks[id.Bytes]; ok {
 		return i, nil
 	}
-	return db.Issue{}, pgx.ErrNoRows
+	return db.Task{}, pgx.ErrNoRows
 }
 func (f *fakeScopeQuerier) GetChatSession(_ context.Context, id pgtype.UUID) (db.ChatSession, error) {
 	if s, ok := f.sessions[id.Bytes]; ok {
@@ -147,21 +147,21 @@ func TestScopeAuthorizer_GroupChatAllowsParticipantsOnly(t *testing.T) {
 }
 
 // TestScopeAuthorizer_ChatTaskRequiresCreator pins must-fix #2 for the
-// task-scope path of chat tasks (task.ChatSessionID set, no IssueID): only
+// task-scope path of chat tasks (task.ChatSessionID set, no TaskID): only
 // the chat session creator may subscribe to that task's stream, since
-// task:message for chat tasks contains assistant chat content.
-func TestScopeAuthorizer_ChatTaskRequiresCreator(t *testing.T) {
+// run:message for chat tasks contains assistant chat content.
+func TestScopeAuthorizer_ChatRunRequiresCreator(t *testing.T) {
 	wsStr, wsUUID := mustUUID(t)
 	creatorStr, creatorUUID := mustUUID(t)
 	otherStr, _ := mustUUID(t)
 	sessStr, sessUUID := mustUUID(t)
-	taskStr, taskUUID := mustUUID(t)
+	runStr, runUUID := mustUUID(t)
 	_ = sessStr
 
 	q := &fakeScopeQuerier{
-		tasks: map[[16]byte]db.AgentTaskQueue{
-			taskUUID.Bytes: {
-				ID:            taskUUID,
+		agentRuns: map[[16]byte]db.AgentRun{
+			runUUID.Bytes: {
+				ID:            runUUID,
 				ChatSessionID: sessUUID,
 			},
 		},
@@ -176,36 +176,36 @@ func TestScopeAuthorizer_ChatTaskRequiresCreator(t *testing.T) {
 	a := newScopeAuthorizer(q)
 	ctx := context.Background()
 
-	ok, err := a.AuthorizeScope(ctx, creatorStr, wsStr, realtime.ScopeTask, taskStr)
+	ok, err := a.AuthorizeScope(ctx, creatorStr, wsStr, realtime.ScopeRun, runStr)
 	if err != nil || !ok {
-		t.Fatalf("creator should be allowed for chat task: ok=%v err=%v", ok, err)
+		t.Fatalf("creator should be allowed for chat run: ok=%v err=%v", ok, err)
 	}
 
-	ok, err = a.AuthorizeScope(ctx, otherStr, wsStr, realtime.ScopeTask, taskStr)
+	ok, err = a.AuthorizeScope(ctx, otherStr, wsStr, realtime.ScopeRun, runStr)
 	if err != nil || ok {
-		t.Fatalf("peer must be denied for chat task: ok=%v err=%v", ok, err)
+		t.Fatalf("peer must be denied for chat run: ok=%v err=%v", ok, err)
 	}
 }
 
-// TestScopeAuthorizer_IssueTaskWorkspaceOnly verifies issue tasks remain
-// workspace-scoped (any member who can see the issue may subscribe).
-func TestScopeAuthorizer_IssueTaskWorkspaceOnly(t *testing.T) {
+// TestScopeAuthorizer_TaskRunWorkspaceOnly verifies task tasks remain
+// workspace-scoped (any member who can see the task may subscribe).
+func TestScopeAuthorizer_TaskRunWorkspaceOnly(t *testing.T) {
 	wsStr, wsUUID := mustUUID(t)
 	memberStr, _ := mustUUID(t)
 	otherWsStr, _ := mustUUID(t)
-	taskStr, taskUUID := mustUUID(t)
-	_, issueUUID := mustUUID(t)
+	runStr, runUUID := mustUUID(t)
+	_, taskUUID := mustUUID(t)
 
 	q := &fakeScopeQuerier{
-		tasks: map[[16]byte]db.AgentTaskQueue{
-			taskUUID.Bytes: {
-				ID:      taskUUID,
-				IssueID: issueUUID,
+		agentRuns: map[[16]byte]db.AgentRun{
+			runUUID.Bytes: {
+				ID:     runUUID,
+				TaskID: taskUUID,
 			},
 		},
-		issues: map[[16]byte]db.Issue{
-			issueUUID.Bytes: {
-				ID:          issueUUID,
+		tasks: map[[16]byte]db.Task{
+			taskUUID.Bytes: {
+				ID:          taskUUID,
 				WorkspaceID: wsUUID,
 			},
 		},
@@ -213,12 +213,12 @@ func TestScopeAuthorizer_IssueTaskWorkspaceOnly(t *testing.T) {
 	a := newScopeAuthorizer(q)
 	ctx := context.Background()
 
-	ok, err := a.AuthorizeScope(ctx, memberStr, wsStr, realtime.ScopeTask, taskStr)
+	ok, err := a.AuthorizeScope(ctx, memberStr, wsStr, realtime.ScopeRun, runStr)
 	if err != nil || !ok {
 		t.Fatalf("member in workspace should be allowed: ok=%v err=%v", ok, err)
 	}
 
-	ok, err = a.AuthorizeScope(ctx, memberStr, otherWsStr, realtime.ScopeTask, taskStr)
+	ok, err = a.AuthorizeScope(ctx, memberStr, otherWsStr, realtime.ScopeRun, runStr)
 	if err != nil || ok {
 		t.Fatalf("cross-workspace must be denied: ok=%v err=%v", ok, err)
 	}
@@ -230,11 +230,11 @@ func TestScopeAuthorizer_IssueTaskWorkspaceOnly(t *testing.T) {
 // so handleSubscribe reports "lookup_failed" rather than "forbidden".
 type failingScopeQuerier struct{}
 
-func (failingScopeQuerier) GetAgentTask(context.Context, pgtype.UUID) (db.AgentTaskQueue, error) {
-	return db.AgentTaskQueue{}, errors.New("connection reset by peer")
+func (failingScopeQuerier) GetAgentRun(context.Context, pgtype.UUID) (db.AgentRun, error) {
+	return db.AgentRun{}, errors.New("connection reset by peer")
 }
-func (failingScopeQuerier) GetIssue(context.Context, pgtype.UUID) (db.Issue, error) {
-	return db.Issue{}, errors.New("connection reset by peer")
+func (failingScopeQuerier) GetTask(context.Context, pgtype.UUID) (db.Task, error) {
+	return db.Task{}, errors.New("connection reset by peer")
 }
 func (failingScopeQuerier) GetChatSession(context.Context, pgtype.UUID) (db.ChatSession, error) {
 	return db.ChatSession{}, errors.New("connection reset by peer")
@@ -244,17 +244,17 @@ func (failingScopeQuerier) IsChatSessionMemberParticipant(context.Context, db.Is
 }
 
 // errOnInnerQuerier succeeds for GetAgentTask (so the task path reaches its
-// inner lookups) but fails GetIssue / GetChatSession with a non-ErrNoRows
+// inner lookups) but fails GetTask / GetChatSession with a non-ErrNoRows
 // error. This isolates the inner lookup points from the outer GetAgentTask.
 type errOnInnerQuerier struct {
-	task db.AgentTaskQueue
+	agentRun db.AgentRun
 }
 
-func (q *errOnInnerQuerier) GetAgentTask(_ context.Context, _ pgtype.UUID) (db.AgentTaskQueue, error) {
-	return q.task, nil
+func (q *errOnInnerQuerier) GetAgentRun(_ context.Context, _ pgtype.UUID) (db.AgentRun, error) {
+	return q.agentRun, nil
 }
-func (*errOnInnerQuerier) GetIssue(context.Context, pgtype.UUID) (db.Issue, error) {
-	return db.Issue{}, errors.New("connection reset by peer")
+func (*errOnInnerQuerier) GetTask(context.Context, pgtype.UUID) (db.Task, error) {
+	return db.Task{}, errors.New("connection reset by peer")
 }
 func (*errOnInnerQuerier) GetChatSession(context.Context, pgtype.UUID) (db.ChatSession, error) {
 	return db.ChatSession{}, errors.New("connection reset by peer")
@@ -270,8 +270,8 @@ func (*errOnInnerQuerier) IsChatSessionMemberParticipant(context.Context, db.IsC
 func TestScopeAuthorizer_DoesNotSwallowQueryErrors(t *testing.T) {
 	wsStr, _ := mustUUID(t)
 	userStr, _ := mustUUID(t)
-	taskStr, taskUUID := mustUUID(t)
-	_, issueUUID := mustUUID(t)
+	runStr, runUUID := mustUUID(t)
+	_, taskUUID := mustUUID(t)
 	_, sessUUID := mustUUID(t)
 	chatScopeStr, _ := mustUUID(t)
 
@@ -279,7 +279,7 @@ func TestScopeAuthorizer_DoesNotSwallowQueryErrors(t *testing.T) {
 	ctx := context.Background()
 
 	// Point 1: GetAgentTask fails on the task path.
-	if _, err := a.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeTask, taskStr); err == nil {
+	if _, err := a.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeRun, runStr); err == nil {
 		t.Fatalf("task-path GetAgentTask error must propagate, got err=nil")
 	}
 	// Point 4: GetChatSession fails on the chat path.
@@ -287,19 +287,19 @@ func TestScopeAuthorizer_DoesNotSwallowQueryErrors(t *testing.T) {
 		t.Fatalf("chat-path GetChatSession error must propagate, got err=nil")
 	}
 
-	// Point 2: GetIssue fails (task resolves to an issue task).
-	issueAuth := newScopeAuthorizer(&errOnInnerQuerier{
-		task: db.AgentTaskQueue{ID: taskUUID, IssueID: issueUUID},
+	// Point 2: GetTask fails (task resolves to an task task).
+	taskAuth := newScopeAuthorizer(&errOnInnerQuerier{
+		agentRun: db.AgentRun{ID: runUUID, TaskID: taskUUID},
 	})
-	if _, err := issueAuth.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeTask, taskStr); err == nil {
-		t.Fatalf("task-path GetIssue error must propagate, got err=nil")
+	if _, err := taskAuth.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeRun, runStr); err == nil {
+		t.Fatalf("task-path GetTask error must propagate, got err=nil")
 	}
 
 	// Point 3: GetChatSession fails on the task path (task resolves to a chat task).
-	chatTaskAuth := newScopeAuthorizer(&errOnInnerQuerier{
-		task: db.AgentTaskQueue{ID: taskUUID, ChatSessionID: sessUUID},
+	chatRunAuth := newScopeAuthorizer(&errOnInnerQuerier{
+		agentRun: db.AgentRun{ID: runUUID, ChatSessionID: sessUUID},
 	})
-	if _, err := chatTaskAuth.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeTask, taskStr); err == nil {
+	if _, err := chatRunAuth.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeRun, runStr); err == nil {
 		t.Fatalf("task-path GetChatSession error must propagate, got err=nil")
 	}
 }
@@ -311,13 +311,13 @@ func TestScopeAuthorizer_DoesNotSwallowQueryErrors(t *testing.T) {
 func TestScopeAuthorizer_MissingResourceIsPlainDenial(t *testing.T) {
 	wsStr, _ := mustUUID(t)
 	userStr, _ := mustUUID(t)
-	missingTask, _ := mustUUID(t)
+	missingRun, _ := mustUUID(t)
 	missingChat, _ := mustUUID(t)
 
 	a := newScopeAuthorizer(&fakeScopeQuerier{})
 	ctx := context.Background()
 
-	if ok, err := a.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeTask, missingTask); err != nil || ok {
+	if ok, err := a.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeRun, missingRun); err != nil || ok {
 		t.Fatalf("missing task must be a plain denial: ok=%v err=%v", ok, err)
 	}
 	if ok, err := a.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeChat, missingChat); err != nil || ok {

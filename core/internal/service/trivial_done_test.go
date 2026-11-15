@@ -19,7 +19,7 @@ func TestIsTrivialDoneOutput(t *testing.T) {
 		{"japanese", "完了。", true},
 		{"not only marker", "done, see PR", false},
 		{"not acknowledgement", "好的", false},
-		{"real answer", "I fixed the issue", false},
+		{"real answer", "I fixed the task", false},
 	}
 
 	for _, tt := range tests {

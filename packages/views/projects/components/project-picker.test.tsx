@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nProvider } from "@silieco/core/i18n/react";
 import enProjects from "../../locales/en/projects.json";
-import enIssues from "../../locales/en/issues.json";
+import enTasks from "../../locales/en/tasks.json";
 import { ProjectPicker } from "./project-picker";
 import { PillButton } from "../../common/pill-button";
 
@@ -30,7 +30,7 @@ vi.mock("./project-icon", () => ({
 // opening the picker.
 function renderPicker(props: Partial<React.ComponentProps<typeof ProjectPicker>> = {}) {
   return render(
-    <I18nProvider locale="en" resources={{ en: { projects: enProjects, issues: enIssues } }}>
+    <I18nProvider locale="en" resources={{ en: { projects: enProjects, tasks: enTasks } }}>
       <ProjectPicker
         projectId="project-1"
         onUpdate={props.onUpdate ?? vi.fn()}
@@ -68,7 +68,7 @@ describe("ProjectPicker", () => {
   });
 
   it("clears via keyboard activation when enabled", async () => {
-    // Other callers (issue/create/autopilot) rely on the clear control staying
+    // Other callers (task/create/autopilot) rely on the clear control staying
     // reachable by keyboard, not just hover. Enabling must not regress that.
     const user = userEvent.setup();
     const onUpdate = vi.fn();

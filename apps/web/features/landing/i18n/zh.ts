@@ -1824,7 +1824,7 @@ export function createZhDict(allowSignup: boolean): LandingDict {
           "Task Timeline 不再因每个 WS 事件做完整 re-render，长 Task 滚动更顺",
           "Editor 跳过对超大文本 / JSON 粘贴的解析，避免卡顿",
           "Autopilot 在 assignee runtime 离线时跳过 dispatch，避免空跑",
-          "Inbox 自动归档处于终态的 `task_failed` 行",
+          "Inbox 自动归档处于终态的 `run_failed` 行",
           "Hermes 把 agent instructions 直接随请求内联传入",
           "Timeline / Comment 改为纯客户端虚拟化，去掉服务端分页",
           "Reserved slugs 前后端共享同一份 JSON，CI 守住漂移",
@@ -1904,7 +1904,7 @@ export function createZhDict(allowSignup: boolean): LandingDict {
         ],
         improvements: [
           "Settings 的 Appearance Tab 改名为 Preferences，并把当前激活的 Tab 反映到 URL，深链可分享",
-          "长 Task 打开秒开 —— Timeline 改为基于游标的 keyset 分页，重复的 `task_completed` / `task_failed` 活动条目合并展示",
+          "长 Task 打开秒开 —— Timeline 改为基于游标的 keyset 分页，重复的 `run_completed` / `run_failed` 活动条目合并展示",
           "Runtime poll 与 heartbeat 调度按 runtime 隔离，单个忙碌 runtime 不再拖慢其他",
           "CLI 更新请求落 Redis，server 重启也不丢",
           "Runtime 用量统计窗口由 180 天收窄到 14 天，降低查询压力",
@@ -1916,7 +1916,7 @@ export function createZhDict(allowSignup: boolean): LandingDict {
         fixes: [
           "Task 在服务端被删后，daemon 主动取消正在运行的 agent，避免孤儿进程",
           "复用 execenv 时刷新陈旧的 Codex `auth.json`，修复偶发鉴权失败",
-          "`task_id` 为空时拒绝写入 `.gc_meta.json`",
+          "`run_id` 为空时拒绝写入 `.gc_meta.json`",
           "跨 ACP 后端的 session/resume 信任 agent 自报的 session id，修复串号问题",
           "OpenCode 的 skills 写到 `.opencode/skills/` 让其原生发现",
           "Daemon 对 task-not-found 的 404 语义在 server 和最终 guard 双重收紧",

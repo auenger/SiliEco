@@ -1,5 +1,5 @@
-import type { Issue, IssueMetadata, IssueReaction } from "./issue";
-import type { IssueProperty, IssuePropertyValues } from "./property";
+import type { Task, TaskMetadata, TaskReaction } from "./task";
+import type { TaskProperty, TaskPropertyValues } from "./property";
 import type { Agent } from "./agent";
 import type { InboxItem } from "./inbox";
 import type { Comment, Reaction } from "./comment";
@@ -10,9 +10,9 @@ import type { Label } from "./label";
 
 // WebSocket event types (matching Go server protocol/events.go)
 export type WSEventType =
-  | "issue:created"
-  | "issue:updated"
-  | "issue:deleted"
+  | "task:created"
+  | "task:updated"
+  | "task:deleted"
   | "comment:created"
   | "comment:updated"
   | "comment:deleted"
@@ -22,15 +22,15 @@ export type WSEventType =
   | "agent:created"
   | "agent:archived"
   | "agent:restored"
-  | "task:queued"
-  | "task:dispatch"
-  | "task:running"
-  | "task:waiting_local_directory"
-  | "task:progress"
-  | "task:completed"
-  | "task:failed"
-  | "task:message"
-  | "task:cancelled"
+  | "run:queued"
+  | "run:dispatch"
+  | "run:running"
+  | "run:waiting_local_directory"
+  | "run:progress"
+  | "run:completed"
+  | "run:failed"
+  | "run:message"
+  | "run:cancelled"
   | "inbox:new"
   | "inbox:read"
   | "inbox:archived"
@@ -52,8 +52,8 @@ export type WSEventType =
   | "activity:created"
   | "reaction:added"
   | "reaction:removed"
-  | "issue_reaction:added"
-  | "issue_reaction:removed"
+  | "task_reaction:added"
+  | "task_reaction:removed"
   | "chat:message"
   | "chat:done"
   | "chat:cancel_finalized"
@@ -74,9 +74,9 @@ export type WSEventType =
   | "label:created"
   | "label:updated"
   | "label:deleted"
-  | "issue_labels:changed"
-  | "issue_metadata:changed"
-  | "issue_properties:changed"
+  | "task_labels:changed"
+  | "task_metadata:changed"
+  | "task_properties:changed"
   | "property:created"
   | "property:updated"
   | "pin:created"
@@ -99,18 +99,18 @@ export interface WSMessage<T = unknown> {
   actor_type?: string;
 }
 
-export interface IssueCreatedPayload {
-  issue: Issue;
+export interface TaskCreatedPayload {
+  task: Task;
 }
 
-export interface IssueUpdatedPayload {
-  issue: Issue;
-  // The server stamps issue:updated with which fields actually changed
-  // (core/internal/handler/issue.go publish). assignee_changed lets the
+export interface TaskUpdatedPayload {
+  task: Task;
+  // The server stamps task:updated with which fields actually changed
+  // (core/internal/handler/task.go publish). assignee_changed lets the
   // realtime layer keep filtered myList caches in place on a non-membership
   // change instead of refetching; status_changed lets it reconcile board column
-  // counts when a status change lands on an off-screen (unloaded) issue;
-  // project_changed lets it drop a moved issue from the old project's filtered
+  // counts when a status change lands on an off-screen (unloaded) task;
+  // project_changed lets it drop a moved task from the old project's filtered
   // list (the client-side cache diff is unreliable after an optimistic local
   // move — SILI-3669 / #4548). Other change flags are present on the wire too and
   // can be surfaced here when needed.
@@ -119,27 +119,27 @@ export interface IssueUpdatedPayload {
   project_changed?: boolean;
 }
 
-export interface IssueDeletedPayload {
-  issue_id: string;
+export interface TaskDeletedPayload {
+  task_id: string;
 }
 
-export interface IssueLabelsChangedPayload {
-  issue_id: string;
+export interface TaskLabelsChangedPayload {
+  task_id: string;
   labels: Label[];
 }
 
-export interface IssueMetadataChangedPayload {
-  issue_id: string;
-  metadata: IssueMetadata;
+export interface TaskMetadataChangedPayload {
+  task_id: string;
+  metadata: TaskMetadata;
 }
 
-export interface IssuePropertiesChangedPayload {
-  issue_id: string;
-  properties: IssuePropertyValues;
+export interface TaskPropertiesChangedPayload {
+  task_id: string;
+  properties: TaskPropertyValues;
 }
 
 export interface PropertyChangedPayload {
-  property: IssueProperty;
+  property: TaskProperty;
 }
 
 export interface AgentStatusPayload {
@@ -174,7 +174,7 @@ export interface InboxArchivedPayload {
 
 export interface InboxUnarchivedPayload {
   item_id: string;
-  issue_id: string | null;
+  task_id: string | null;
   recipient_id: string;
 }
 
@@ -198,7 +198,7 @@ export interface CommentUpdatedPayload {
 
 export interface CommentDeletedPayload {
   comment_id: string;
-  issue_id: string;
+  task_id: string;
 }
 
 export interface CommentResolvedPayload {
@@ -234,26 +234,26 @@ export interface MemberRemovedPayload {
 }
 
 export interface SubscriberAddedPayload {
-  issue_id: string;
+  task_id: string;
   user_type: string;
   user_id: string;
   reason: string;
 }
 
 export interface SubscriberRemovedPayload {
-  issue_id: string;
+  task_id: string;
   user_type: string;
   user_id: string;
 }
 
 export interface ActivityCreatedPayload {
-  issue_id: string;
+  task_id: string;
   entry: TimelineEntry;
 }
 
-export interface TaskMessagePayload {
+export interface AgentRunMessagePayload {
+  run_id: string;
   task_id: string;
-  issue_id: string;
   chat_session_id?: string;
   seq: number;
   type: "text" | "thinking" | "tool_use" | "tool_result" | "error";
@@ -264,88 +264,97 @@ export interface TaskMessagePayload {
   created_at?: string;
 }
 
-export interface TaskQueuedPayload {
-  task_id: string;
+export interface RunQueuedPayload {
+  run_id: string;
   agent_id: string;
-  issue_id: string;
+  task_id: string;
   chat_session_id?: string;
   status: string;
 }
 
-export interface TaskDispatchPayload {
-  task_id: string;
+export interface RunProgressPayload {
+  run_id: string;
+  task_id?: string;
+  chat_session_id?: string;
+  summary: string;
+  step?: number;
+  total?: number;
+}
+
+export interface RunDispatchPayload {
+  run_id: string;
   agent_id: string;
-  issue_id: string;
+  task_id: string;
   runtime_id: string;
   chat_session_id?: string;
 }
 
-export interface TaskRunningPayload {
-  task_id: string;
+export interface RunRunningPayload {
+  run_id: string;
   agent_id: string;
-  issue_id: string;
+  task_id: string;
   chat_session_id?: string;
   status: string;
 }
 
-// task:waiting_local_directory fires when the daemon dequeues a task but
+// run:waiting_local_directory fires when the daemon dequeues a task but
 // can't immediately acquire the on-disk path lock — another task on this
 // daemon is already executing in the same local_directory. The optional
 // `wait_reason` mirrors the server-side hint (path / holder task id), but
 // is not yet surfaced end-to-end; the UI today only reads the status.
-export interface TaskWaitingLocalDirectoryPayload {
-  task_id: string;
+export interface RunWaitingLocalDirectoryPayload {
+  run_id: string;
   agent_id: string;
-  issue_id: string;
+  task_id: string;
   chat_session_id?: string;
   status: string;
   wait_reason?: string;
 }
 
-export interface TaskCompletedPayload {
-  task_id: string;
+export interface RunCompletedPayload {
+  run_id: string;
   agent_id: string;
-  issue_id: string;
+  task_id: string;
   chat_session_id?: string;
   status: string;
 }
 
-export interface TaskFailedPayload {
-  task_id: string;
+export interface RunFailedPayload {
+  run_id: string;
   agent_id: string;
-  issue_id: string;
+  task_id: string;
   chat_session_id?: string;
   status: string;
 }
 
-export interface TaskCancelledPayload {
-  task_id: string;
+export interface RunCancelledPayload {
+  run_id: string;
   agent_id: string;
-  issue_id: string;
+  task_id: string;
   chat_session_id?: string;
   status: string;
 }
 
 export interface ReactionAddedPayload {
   reaction: Reaction;
-  issue_id: string;
+  task_id: string;
 }
 
 export interface ReactionRemovedPayload {
   comment_id: string;
-  issue_id: string;
+  task_id: string;
   emoji: string;
   actor_type: string;
   actor_id: string;
 }
 
-export interface IssueReactionAddedPayload {
-  reaction: IssueReaction;
-  issue_id: string;
+export interface TaskReactionAddedPayload {
+  reaction: TaskReaction;
+  task_id: string;
 }
 
-export interface IssueReactionRemovedPayload {
-  issue_id: string;
+export interface TaskReactionRemovedPayload {
+  task_id: string;
   emoji: string;
   actor_type: string;
   actor_id: string;
@@ -356,17 +365,17 @@ export interface ChatMessageEventPayload {
   message_id: string;
   role: "user" | "assistant";
   content: string;
-  task_id?: string;
+  run_id?: string;
   created_at: string;
 }
 
 export interface ChatDonePayload {
   chat_session_id: string;
-  task_id: string;
+  run_id: string;
   /**
    * Server populates these from the freshly-persisted assistant ChatMessage
    * row so the WS handler can write it into the messages cache inline. Older
-   * servers (pre-#2123) only sent chat_session_id + task_id; treat every field
+   * servers (pre-#2123) only sent chat_session_id + run_id; treat every field
    * below as optional and fall back to a refetch when absent.
    */
   message_id?: string;
@@ -399,7 +408,7 @@ export interface ChatDonePayload {
 export interface ChatCancelFinalizedPayload {
   outcome: "stopped" | "restored";
   chat_session_id: string;
-  task_id: string;
+  run_id: string;
   /**
    * The user who triggered the cancelled task. Only this user's client needs
    * to refetch draft restores; treat a missing value as "not me" (fail
@@ -462,22 +471,22 @@ export interface InvitationRevokedPayload {
  * before access.
  *
  * Use via `WSEventPayload<E>` rather than indexing the map directly:
- *   const handler = (payload: WSEventPayload<"issue:created">) => { ... };
+ *   const handler = (payload: WSEventPayload<"task:created">) => { ... };
  *
  * Adding a new event: extend WSEventType first (above), then append a key
  * here. TS will compile-error every WSClient.on("new:event", …) site that
  * forgets the payload shape — that's the whole point.
  */
 export interface WSEventPayloadMap {
-  "issue:created": IssueCreatedPayload;
-  "issue:updated": IssueUpdatedPayload;
-  "issue:deleted": IssueDeletedPayload;
-  "issue_labels:changed": IssueLabelsChangedPayload;
-  "issue_properties:changed": IssuePropertiesChangedPayload;
+  "task:created": TaskCreatedPayload;
+  "task:updated": TaskUpdatedPayload;
+  "task:deleted": TaskDeletedPayload;
+  "task_labels:changed": TaskLabelsChangedPayload;
+  "task_properties:changed": TaskPropertiesChangedPayload;
   "property:created": PropertyChangedPayload;
   "property:updated": PropertyChangedPayload;
-  "issue_reaction:added": IssueReactionAddedPayload;
-  "issue_reaction:removed": IssueReactionRemovedPayload;
+  "task_reaction:added": TaskReactionAddedPayload;
+  "task_reaction:removed": TaskReactionRemovedPayload;
   "comment:created": CommentCreatedPayload;
   "comment:updated": CommentUpdatedPayload;
   "comment:deleted": CommentDeletedPayload;
@@ -489,15 +498,15 @@ export interface WSEventPayloadMap {
   "agent:created": AgentCreatedPayload;
   "agent:archived": AgentArchivedPayload;
   "agent:restored": AgentRestoredPayload;
-  "task:queued": TaskQueuedPayload;
-  "task:dispatch": TaskDispatchPayload;
-  "task:running": TaskRunningPayload;
-  "task:waiting_local_directory": TaskWaitingLocalDirectoryPayload;
-  "task:completed": TaskCompletedPayload;
-  "task:failed": TaskFailedPayload;
-  "task:message": TaskMessagePayload;
-  "task:cancelled": TaskCancelledPayload;
-  "task:progress": unknown;
+  "run:queued": RunQueuedPayload;
+  "run:dispatch": RunDispatchPayload;
+  "run:running": RunRunningPayload;
+  "run:waiting_local_directory": RunWaitingLocalDirectoryPayload;
+  "run:completed": RunCompletedPayload;
+  "run:failed": RunFailedPayload;
+  "run:message": AgentRunMessagePayload;
+  "run:cancelled": RunCancelledPayload;
+  "run:progress": RunProgressPayload;
   "inbox:new": InboxNewPayload;
   "inbox:read": InboxReadPayload;
   "inbox:archived": InboxArchivedPayload;

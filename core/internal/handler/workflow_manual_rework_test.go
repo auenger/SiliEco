@@ -45,11 +45,11 @@ func TestWorkflowManualRollbackInvalidatesHistory(t *testing.T) {
 	if first.Code != http.StatusOK {
 		t.Fatalf("first advance: %d %s", first.Code, first.Body.String())
 	}
-	var oldIssue string
-	if err := testPool.QueryRow(ctx, `INSERT INTO issue(workspace_id,project_id,title,status,priority,creator_type,creator_id,number,workflow_instance_id,workflow_stage_id) VALUES($1,$2,'Old manual review','done','none','member',$3,9904,$4,$5) RETURNING id`, testWorkspaceID, projectID, testUserID, run.ID, secondID).Scan(&oldIssue); err != nil {
+	var oldTask string
+	if err := testPool.QueryRow(ctx, `INSERT INTO task(workspace_id,project_id,title,status,priority,creator_type,creator_id,number,workflow_instance_id,workflow_stage_id) VALUES($1,$2,'Old manual review','done','none','member',$3,9904,$4,$5) RETURNING id`, testWorkspaceID, projectID, testUserID, run.ID, secondID).Scan(&oldTask); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id=$1`, oldIssue) })
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM task WHERE id=$1`, oldTask) })
 	state := workflowStateTokenForTest(t, run.ID)
 	missingReason := transition(map[string]any{"outcome": "rejected", "target_stage_id": firstID, "expected_state_token": state})
 	if missingReason.Code != http.StatusBadRequest {
@@ -70,29 +70,29 @@ func TestWorkflowManualRollbackInvalidatesHistory(t *testing.T) {
 	if replay := transition(body); replay.Code != http.StatusConflict {
 		t.Fatalf("old rollback was replayed: %d", replay.Code)
 	}
-	var recordID, issueMarker, decisionMarker, oldStatus string
+	var recordID, taskMarker, decisionMarker, oldStatus string
 	if err := testPool.QueryRow(ctx, `SELECT id FROM workflow_rework WHERE workflow_instance_id=$1 AND source_stage_id=$2 AND target_stage_id=$3 AND source_execution_id IS NULL AND source_state_token=$4 AND reason='Revise the Build evidence'`, run.ID, secondID, firstID, state).Scan(&recordID); err != nil {
 		t.Fatal(err)
 	}
-	if err := testPool.QueryRow(ctx, `SELECT workflow_invalidated_by_rework_id,status FROM issue WHERE id=$1`, oldIssue).Scan(&issueMarker, &oldStatus); err != nil {
+	if err := testPool.QueryRow(ctx, `SELECT workflow_invalidated_by_rework_id,status FROM task WHERE id=$1`, oldTask).Scan(&taskMarker, &oldStatus); err != nil {
 		t.Fatal(err)
 	}
 	if err := testPool.QueryRow(ctx, `SELECT invalidated_by_rework_id FROM workflow_gate_decision WHERE workflow_instance_id=$1 AND from_stage_id=$2 AND outcome='approved'`, run.ID, firstID).Scan(&decisionMarker); err != nil {
 		t.Fatal(err)
 	}
-	if issueMarker != recordID || decisionMarker != recordID || oldStatus != "done" {
-		t.Fatalf("manual history not retained and invalidated: %s %s %s", issueMarker, decisionMarker, oldStatus)
+	if taskMarker != recordID || decisionMarker != recordID || oldStatus != "done" {
+		t.Fatalf("manual history not retained and invalidated: %s %s %s", taskMarker, decisionMarker, oldStatus)
 	}
-	var freshIssue string
-	if err := testPool.QueryRow(ctx, `INSERT INTO issue(workspace_id,project_id,title,status,priority,creator_type,creator_id,number,workflow_instance_id,workflow_stage_id) VALUES($1,$2,'Fresh Build evidence','in_progress','none','member',$3,9905,$4,$5) RETURNING id`, testWorkspaceID, projectID, testUserID, run.ID, firstID).Scan(&freshIssue); err != nil {
+	var freshTask string
+	if err := testPool.QueryRow(ctx, `INSERT INTO task(workspace_id,project_id,title,status,priority,creator_type,creator_id,number,workflow_instance_id,workflow_stage_id) VALUES($1,$2,'Fresh Build evidence','in_progress','none','member',$3,9905,$4,$5) RETURNING id`, testWorkspaceID, projectID, testUserID, run.ID, firstID).Scan(&freshTask); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id=$1`, freshIssue) })
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM task WHERE id=$1`, freshTask) })
 	approve := map[string]any{"outcome": "approved", "expected_state_token": current.StateToken}
 	if blocked := transition(approve); blocked.Code != http.StatusConflict {
 		t.Fatalf("fresh incomplete delivery accepted: %d", blocked.Code)
 	}
-	if _, err := testPool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, freshIssue); err != nil {
+	if _, err := testPool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, freshTask); err != nil {
 		t.Fatal(err)
 	}
 	if advanced := transition(approve); advanced.Code != http.StatusOK {
@@ -142,8 +142,8 @@ func TestWorkflowManualRollbackInvalidatesHistory(t *testing.T) {
 		t.Fatalf("deleted project retained rework records: %d %v", records, err)
 	}
 	var staleMarkers int
-	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM issue WHERE id=$1 AND workflow_invalidated_by_rework_id IS NOT NULL`, oldIssue).Scan(&staleMarkers); err != nil || staleMarkers != 0 {
-		t.Fatalf("deleted Run left immutable issue pointer: %d %v", staleMarkers, err)
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM task WHERE id=$1 AND workflow_invalidated_by_rework_id IS NOT NULL`, oldTask).Scan(&staleMarkers); err != nil || staleMarkers != 0 {
+		t.Fatalf("deleted Run left immutable task pointer: %d %v", staleMarkers, err)
 	}
 
 }

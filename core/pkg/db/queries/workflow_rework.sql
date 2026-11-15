@@ -1,5 +1,5 @@
 -- name: GetWorkflowExecutionRework :one
-SELECT * FROM workflow_stage_execution WHERE workspace_id=$1 AND rework_source_execution_id=$2;
+SELECT * FROM workflow_stage_execution WHERE workflow_stage_execution.workspace_id=$1 AND rework_source_execution_id=$2;
 
 -- name: MarkWorkflowExecutionRework :one
 UPDATE workflow_stage_execution SET rework_source_execution_id=$3,rework_metadata=$4
@@ -25,33 +25,33 @@ UPDATE workflow_review_request SET status='invalidated',updated_at=now()
 WHERE workspace_id=$1 AND execution_id=$2 AND status<>'invalidated';
 
 -- name: ListWorkflowCallsForRework :many
-SELECT task.* FROM agent_task_queue task
-WHERE task.workflow_stage_execution_id=sqlc.arg(execution_id)
-OR EXISTS (SELECT 1 FROM workflow_review_request r WHERE r.id=task.workflow_review_request_id AND r.workspace_id=sqlc.arg(workspace_id) AND r.execution_id=sqlc.arg(execution_id))
-OR EXISTS (SELECT 1 FROM issue i WHERE i.id=task.issue_id AND i.workspace_id=sqlc.arg(workspace_id) AND i.workflow_stage_execution_id=sqlc.arg(execution_id))
-ORDER BY task.id FOR UPDATE;
+SELECT run.* FROM agent_run run
+WHERE run.workflow_stage_execution_id=sqlc.arg(execution_id)
+OR EXISTS (SELECT 1 FROM workflow_review_request r WHERE r.id=run.workflow_review_request_id AND r.workspace_id=sqlc.arg(workspace_id) AND r.execution_id=sqlc.arg(execution_id))
+OR EXISTS (SELECT 1 FROM task i WHERE i.id=run.task_id AND i.workspace_id=sqlc.arg(workspace_id) AND i.workflow_stage_execution_id=sqlc.arg(execution_id))
+ORDER BY run.id FOR UPDATE;
 
--- name: BindLegacyIssuesForRework :exec
-UPDATE issue i SET workflow_stage_execution_id=e.id
+-- name: BindLegacyTasksForRework :exec
+UPDATE task i SET workflow_stage_execution_id=e.id
 FROM workflow_stage_execution e
 WHERE e.workspace_id=$1 AND e.id=$2 AND i.workspace_id=e.workspace_id
 AND i.workflow_instance_id=e.workflow_instance_id AND i.workflow_stage_id=e.workflow_stage_id
 AND i.workflow_stage_execution_id IS NULL;
 
--- name: InvalidateWorkflowStageIssuesForRework :exec
--- Lock and invalidate issues before reading their calls. Retry inserts take a
--- shared issue lock, so a concurrent child is either cancelled or refused.
-UPDATE issue i SET workflow_invalidated_by_rework_id=sqlc.arg(rework_id),updated_at=now()
+-- name: InvalidateWorkflowStageTasksForRework :exec
+-- Lock and invalidate tasks before reading their calls. Retry inserts take a
+-- shared task lock, so a concurrent child is either cancelled or refused.
+UPDATE task i SET workflow_invalidated_by_rework_id=sqlc.arg(rework_id),updated_at=now()
 FROM workflow_instance_stage stage
 WHERE i.workspace_id=sqlc.arg(workspace_id) AND i.workflow_instance_id=sqlc.arg(instance_id)
 AND stage.workspace_id=i.workspace_id AND stage.workflow_instance_id=i.workflow_instance_id AND stage.id=i.workflow_stage_id
 AND stage.position >= sqlc.arg(position) AND i.workflow_invalidated_by_rework_id IS NULL;
 
 -- name: ListInvalidatedWorkflowCallsForRework :many
-SELECT task.* FROM agent_task_queue task
-JOIN issue i ON i.id=task.issue_id
+SELECT run.* FROM agent_run run
+JOIN task i ON i.id=run.task_id
 WHERE i.workspace_id=$1 AND i.workflow_instance_id=$2 AND i.workflow_invalidated_by_rework_id=$3
-ORDER BY task.id FOR UPDATE OF task;
+ORDER BY run.id FOR UPDATE OF run;
 
 -- name: InvalidateWorkflowStageDecisionsForRework :exec
 UPDATE workflow_gate_decision decision SET invalidated_by_rework_id=sqlc.arg(rework_id)
@@ -65,10 +65,10 @@ INSERT INTO workflow_rework(workspace_id,workflow_instance_id,source_stage_id,ta
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *;
 
 -- name: GetWorkflowReworkByExecution :one
-SELECT * FROM workflow_rework WHERE workspace_id=$1 AND source_execution_id=$2;
+SELECT * FROM workflow_rework WHERE workflow_rework.workspace_id=$1 AND source_execution_id=$2;
 
 -- name: ListWorkflowReworks :many
-SELECT * FROM workflow_rework WHERE workspace_id=$1 AND workflow_instance_id=$2 ORDER BY created_at,id;
+SELECT * FROM workflow_rework WHERE workflow_rework.workspace_id=$1 AND workflow_instance_id=$2 ORDER BY created_at,id;
 
 -- name: CountWorkflowStageReworks :one
-SELECT count(*) FROM workflow_rework WHERE workspace_id=$1 AND workflow_instance_id=$2 AND source_stage_id=$3;
+SELECT count(*) FROM workflow_rework WHERE workflow_rework.workspace_id=$1 AND workflow_instance_id=$2 AND source_stage_id=$3;

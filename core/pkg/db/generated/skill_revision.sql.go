@@ -54,7 +54,7 @@ func (q *Queries) CreateSkillRevision(ctx context.Context, arg CreateSkillRevisi
 }
 
 const getSkillRevisionByHash = `-- name: GetSkillRevisionByHash :one
-SELECT id, workspace_id, source_kind, source_id, revision_hash, bundle, manifest, created_by, created_at FROM skill_revision WHERE workspace_id=$1 AND source_kind=$2 AND source_id=$3 AND revision_hash=$4
+SELECT id, workspace_id, source_kind, source_id, revision_hash, bundle, manifest, created_by, created_at FROM skill_revision WHERE skill_revision.workspace_id=$1 AND source_kind=$2 AND source_id=$3 AND revision_hash=$4
 `
 
 type GetSkillRevisionByHashParams struct {
@@ -87,7 +87,7 @@ func (q *Queries) GetSkillRevisionByHash(ctx context.Context, arg GetSkillRevisi
 }
 
 const getSkillRevisionCursorInWorkspace = `-- name: GetSkillRevisionCursorInWorkspace :one
-SELECT id,source_kind,source_id,created_at FROM skill_revision WHERE workspace_id=$1 AND id=$2
+SELECT id,source_kind,source_id,created_at FROM skill_revision WHERE skill_revision.workspace_id=$1 AND id=$2
 `
 
 type GetSkillRevisionCursorInWorkspaceParams struct {
@@ -115,7 +115,7 @@ func (q *Queries) GetSkillRevisionCursorInWorkspace(ctx context.Context, arg Get
 }
 
 const getSkillRevisionInWorkspace = `-- name: GetSkillRevisionInWorkspace :one
-SELECT id, workspace_id, source_kind, source_id, revision_hash, bundle, manifest, created_by, created_at FROM skill_revision WHERE workspace_id=$1 AND id=$2
+SELECT id, workspace_id, source_kind, source_id, revision_hash, bundle, manifest, created_by, created_at FROM skill_revision WHERE skill_revision.workspace_id=$1 AND id=$2
 `
 
 type GetSkillRevisionInWorkspaceParams struct {
@@ -206,7 +206,7 @@ func (q *Queries) ListSkillRevisionSummaries(ctx context.Context, arg ListSkillR
 }
 
 const lockWorkspaceForSkillRevisionCreate = `-- name: LockWorkspaceForSkillRevisionCreate :one
-SELECT id FROM workspace WHERE id=$1 FOR KEY SHARE
+SELECT id FROM workspace WHERE workspace.id=$1 FOR KEY SHARE
 `
 
 // Shares the workspace delete/create lock protocol; no foreign key is assumed.

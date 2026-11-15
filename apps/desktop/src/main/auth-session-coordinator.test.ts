@@ -5,30 +5,30 @@ import {
 } from "./auth-session-coordinator";
 
 describe("AuthSessionCoordinator", () => {
-  it("keeps an issue window whose account matches the main window", () => {
+  it("keeps an task window whose account matches the main window", () => {
     const close = vi.fn();
     const coordinator = new AuthSessionCoordinator<string>(close);
     coordinator.reportMain("user-a");
-    coordinator.registerIssueWindow("issue-1");
-    coordinator.reportIssue("issue-1", "user-a");
+    coordinator.registerTaskWindow("task-1");
+    coordinator.reportTask("task-1", "user-a");
 
     expect(close).not.toHaveBeenCalled();
     expect(coordinator.hasActiveMainSession()).toBe(true);
-    expect(coordinator.isCurrentIssueSession("issue-1")).toBe(true);
+    expect(coordinator.isCurrentTaskSession("task-1")).toBe(true);
   });
 
-  it("closes every issue window on main logout or account switch", () => {
+  it("closes every task window on main logout or account switch", () => {
     const close = vi.fn();
     const coordinator = new AuthSessionCoordinator<string>(close);
     coordinator.reportMain("user-a");
-    coordinator.registerIssueWindow("issue-1");
-    coordinator.registerIssueWindow("issue-2");
+    coordinator.registerTaskWindow("task-1");
+    coordinator.registerTaskWindow("task-2");
 
     coordinator.reportMain("user-b");
 
     expect(close).toHaveBeenCalledTimes(2);
-    expect(close).toHaveBeenCalledWith("issue-1");
-    expect(close).toHaveBeenCalledWith("issue-2");
+    expect(close).toHaveBeenCalledWith("task-1");
+    expect(close).toHaveBeenCalledWith("task-2");
   });
 
   it("invalidates account-scoped work once per session transition", () => {
@@ -41,18 +41,18 @@ describe("AuthSessionCoordinator", () => {
     expect(coordinator.reportMain("user-b")).toBe(true);
   });
 
-  it("closes an issue renderer that reports a stale or missing session", () => {
+  it("closes an task renderer that reports a stale or missing session", () => {
     const close = vi.fn();
     const coordinator = new AuthSessionCoordinator<string>(close);
     coordinator.reportMain("user-a");
-    coordinator.registerIssueWindow("stale");
-    coordinator.registerIssueWindow("logged-out");
+    coordinator.registerTaskWindow("stale");
+    coordinator.registerTaskWindow("logged-out");
 
-    coordinator.reportIssue("stale", "user-b");
-    coordinator.reportIssue("logged-out", null);
+    coordinator.reportTask("stale", "user-b");
+    coordinator.reportTask("logged-out", null);
 
     expect(close).toHaveBeenCalledTimes(2);
-    expect(coordinator.isCurrentIssueSession("stale")).toBe(false);
+    expect(coordinator.isCurrentTaskSession("stale")).toBe(false);
   });
 });
 

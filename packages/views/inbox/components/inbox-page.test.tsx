@@ -30,7 +30,7 @@ vi.mock("@silieco/core/hooks", () => ({
 vi.mock("@silieco/core/paths", () => ({
   useWorkspacePaths: () => ({
     inbox: () => "/acme/inbox",
-    issueDetail: (id: string) => `/acme/issues/${id}`,
+    taskDetail: (id: string) => `/acme/tasks/${id}`,
   }),
 }));
 
@@ -38,8 +38,8 @@ vi.mock("@silieco/core/modals", () => ({
   useModalStore: { getState: () => ({ open: vi.fn() }) },
 }));
 
-vi.mock("@silieco/core/issues/stores/draft-store", () => ({
-  useIssueDraftStore: { getState: () => ({ setDraft: vi.fn() }) },
+vi.mock("@silieco/core/tasks/stores/draft-store", () => ({
+  useTaskDraftStore: { getState: () => ({ setDraft: vi.fn() }) },
 }));
 
 vi.mock("@silieco/core/inbox/queries", () => ({
@@ -63,8 +63,8 @@ vi.mock("@silieco/core/inbox/mutations", () => {
   };
 });
 
-vi.mock("../../issues/components", () => ({
-  IssueDetail: () => null,
+vi.mock("../../tasks/components", () => ({
+  TaskDetail: () => null,
   StatusIcon: () => null,
 }));
 
@@ -109,10 +109,10 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
     actor_id: "agent-1",
     type: "new_comment",
     severity: "info",
-    issue_id: "issue-1",
-    title: "Issue title",
+    task_id: "task-1",
+    title: "Task title",
     body: null,
-    issue_status: null,
+    task_status: null,
     read: true,
     archived: false,
     created_at: "2026-06-15T08:00:00Z",
@@ -191,41 +191,41 @@ describe("InboxPage", () => {
   });
 
   it("keeps the archived view in the URL when selecting an item there", () => {
-    // A bare `?issue=` write would silently drop the user back to the main
+    // A bare `?task=` write would silently drop the user back to the main
     // inbox on the next refresh — both pieces of state travel together.
     reset();
     searchParams = new URLSearchParams("view=archived");
     listData.archived = [
-      item({ id: "archived-1", issue_id: "issue-9", archived: true }),
+      item({ id: "archived-1", task_id: "task-9", archived: true }),
     ];
 
     render(<InboxPage />);
     fireEvent.click(screen.getByTestId("row"));
 
-    expect(replace).toHaveBeenCalledWith("/acme/inbox?view=archived&issue=issue-9");
+    expect(replace).toHaveBeenCalledWith("/acme/inbox?view=archived&task=task-9");
   });
 
-  it("writes a bare issue param when selecting in the main view", () => {
+  it("writes a bare task param when selecting in the main view", () => {
     reset();
-    listData.active = [item({ id: "active-1", issue_id: "issue-3" })];
+    listData.active = [item({ id: "active-1", task_id: "task-3" })];
 
     render(<InboxPage />);
     fireEvent.click(screen.getByTestId("row"));
 
-    expect(replace).toHaveBeenCalledWith("/acme/inbox?issue=issue-3");
+    expect(replace).toHaveBeenCalledWith("/acme/inbox?task=task-3");
   });
 
-  it("does not swallow a deep link to an issue that is not in the archive", () => {
-    // ?view=archived&issue=X with an empty archive: the drain effect and the
+  it("does not swallow a deep link to an task that is not in the archive", () => {
+    // ?view=archived&task=X with an empty archive: the drain effect and the
     // unresolved-selection fallback both want to navigate. The fallback must
     // win, or the deep link silently lands on an empty inbox instead of X.
     reset();
-    searchParams = new URLSearchParams("view=archived&issue=issue-404");
+    searchParams = new URLSearchParams("view=archived&task=task-404");
     listData.archived = [];
 
     render(<InboxPage />);
 
-    expect(replace).toHaveBeenCalledWith("/acme/issues/issue-404");
+    expect(replace).toHaveBeenCalledWith("/acme/tasks/task-404");
     expect(replace).not.toHaveBeenCalledWith("/acme/inbox");
   });
 });

@@ -25,7 +25,7 @@
     "progress": "进度",
     "lead": "负责人",
     "created": "创建时间",
-    "issues": "Task 数"
+    "tasks": "Task 数"
   },
   "status": {
     "planned": "计划中",
@@ -74,13 +74,13 @@
     "clear_date": "清除日期",
     "description_placeholder": "添加描述...",
     "description_hint": "会作为项目上下文提供给智能体，应用于该项目下的每个任务。",
-    "empty_issues_title": "还没有关联的 task",
-    "empty_issues_hint": "新建一个 task，或把已有的 task 关联到这个项目。",
-    "empty_issues_new_button": "新建 task",
-    "no_issues_yet": "目前还没有 task",
+    "empty_tasks_title": "还没有关联的 task",
+    "empty_tasks_hint": "新建一个 task，或把已有的 task 关联到这个项目。",
+    "empty_tasks_new_button": "新建 task",
+    "no_tasks_yet": "目前还没有 task",
     "toast_link_copied": "已复制链接",
     "toast_project_deleted": "已删除项目",
-    "toast_move_issue_failed": "移动 task 失败"
+    "toast_move_task_failed": "移动 task 失败"
   },
   "resources": {
     "section_header": "资源",

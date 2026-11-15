@@ -86,11 +86,11 @@ WHERE execution.workspace_id = sqlc.arg('workspace_id')
 
 -- name: LockWorkspaceForWorkflowExecution :one
 -- Match workspace deletion's FOR UPDATE barrier before taking any Run lock.
-SELECT id FROM workspace WHERE id = $1 FOR KEY SHARE;
+SELECT id FROM workspace WHERE workspace.id = $1 FOR KEY SHARE;
 
 -- name: LockProjectForWorkflowExecution :one
 -- Project deletion takes FOR UPDATE before sweeping its workflow children.
-SELECT id FROM project WHERE id = $1 AND workspace_id = $2 FOR KEY SHARE;
+SELECT id FROM project WHERE project.id = $1 AND workspace_id = $2 FOR KEY SHARE;
 
 -- name: LockWorkflowExecutionAction :one
 SELECT * FROM workflow_execution_action
@@ -98,22 +98,22 @@ WHERE workspace_id = $1 AND id = $2 AND claim_token = $3
   AND status = 'leased' AND lease_until > now()
 FOR UPDATE;
 
--- name: BindWorkflowExecutionTask :one
-UPDATE agent_task_queue AS task
+-- name: BindWorkflowExecutionRun :one
+UPDATE agent_run AS run
 SET workflow_stage_execution_id = sqlc.arg('execution_id'),
-    max_attempts = COALESCE(sqlc.narg('max_attempts')::integer, task.max_attempts)
+    max_attempts = COALESCE(sqlc.narg('max_attempts')::integer, run.max_attempts)
 FROM workflow_stage_execution AS execution
-WHERE task.id = sqlc.arg('task_id') AND execution.id = sqlc.arg('execution_id')
+WHERE run.id = sqlc.arg('run_id') AND execution.id = sqlc.arg('execution_id')
   AND execution.workspace_id = sqlc.arg('workspace_id')
-  AND task.agent_id = execution.executor_id
-  AND task.workflow_stage_execution_id IS NULL AND task.status = 'queued'
-RETURNING task.*;
+  AND run.agent_id = execution.executor_id
+  AND run.workflow_stage_execution_id IS NULL AND run.status = 'queued'
+RETURNING run.*;
 
 -- name: MarkWorkflowExecutionQueued :one
 UPDATE workflow_stage_execution
-SET main_issue_id = $3, main_task_id = $4, status = 'queued', updated_at = now()
+SET main_task_id = $3, main_run_id = $4, status = 'queued', updated_at = now()
 WHERE workspace_id = $1 AND id = $2 AND status = 'pending'
-  AND main_issue_id IS NULL AND main_task_id IS NULL
+  AND main_task_id IS NULL AND main_run_id IS NULL
 RETURNING *;
 
 -- name: BlockWorkflowStageExecution :one
@@ -128,7 +128,7 @@ SET status = 'cancelled', claim_token = NULL, lease_until = NULL, updated_at = n
 WHERE workspace_id = $1 AND id = $2 AND claim_token = $3 AND status = 'leased';
 
 -- name: GetWorkflowExecutionAction :one
-SELECT * FROM workflow_execution_action WHERE workspace_id = $1 AND id = $2;
+SELECT * FROM workflow_execution_action WHERE workflow_execution_action.workspace_id = $1 AND id = $2;
 
 -- name: ListWorkflowDispatchWorkspaces :many
 -- System worker scope discovery; each subsequent claim remains workspace-bound.
@@ -142,8 +142,8 @@ WHERE action.kind = 'dispatch' AND action.available_at <= now()
   AND execution.status = 'pending'
 ORDER BY action.workspace_id;
 
--- name: LockIssueForWorkflowMutation :one
-SELECT * FROM issue WHERE id=$1 AND workspace_id=$2 FOR UPDATE;
+-- name: LockTaskForWorkflowMutation :one
+SELECT * FROM task WHERE task.id=$1 AND workspace_id=$2 FOR UPDATE;
 
 -- name: AcceptWorkflowStageExecution :one
 UPDATE workflow_stage_execution
@@ -165,7 +165,7 @@ ORDER BY e.id LIMIT 100;
 UPDATE workflow_stage_execution
 SET status='pending', input_snapshot=$3, failure_code=NULL, failure_detail=NULL, updated_at=now()
 WHERE workspace_id=$1 AND id=$2 AND status='blocked' AND failure_code='input_unavailable'
-  AND main_issue_id IS NULL AND main_task_id IS NULL AND result_revision=0
+  AND main_task_id IS NULL AND main_run_id IS NULL AND result_revision=0
 RETURNING *;
 
 -- name: CorrectWorkflowRunInputs :one
@@ -175,12 +175,12 @@ WHERE workspace_id=sqlc.arg(workspace_id) AND id=sqlc.arg(id)
 RETURNING *;
 
 -- name: ListWorkflowRunningDeadlineCalls :many
-SELECT task.id, task.started_at, execution.config_snapshot
-FROM agent_task_queue task
-JOIN agent ON agent.id=task.agent_id
-LEFT JOIN workflow_review_request request ON request.id=task.workflow_review_request_id AND request.workspace_id=agent.workspace_id
-JOIN workflow_stage_execution execution ON execution.id=COALESCE(task.workflow_stage_execution_id,request.execution_id) AND execution.workspace_id=agent.workspace_id
-WHERE task.status='running' AND task.started_at IS NOT NULL
-  AND task.id > sqlc.arg(after_id)
+SELECT run.id, run.started_at, execution.config_snapshot
+FROM agent_run run
+JOIN agent ON agent.id=run.agent_id
+LEFT JOIN workflow_review_request request ON request.id=run.workflow_review_request_id AND request.workspace_id=agent.workspace_id
+JOIN workflow_stage_execution execution ON execution.id=COALESCE(run.workflow_stage_execution_id,request.execution_id) AND execution.workspace_id=agent.workspace_id
+WHERE run.status='running' AND run.started_at IS NOT NULL
+  AND run.id > sqlc.arg(after_id)
   AND execution.config_snapshot->'retry_policy'->'timeout_seconds' IS NOT NULL
-ORDER BY task.id LIMIT 100;
+ORDER BY run.id LIMIT 100;

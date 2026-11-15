@@ -238,7 +238,7 @@ func main() {
 	hub := realtime.NewHub()
 	go hub.Run()
 	daemonHub := daemonws.NewHub()
-	var daemonWakeup service.TaskWakeupNotifier = daemonHub
+	var daemonWakeup service.RunWakeupNotifier = daemonHub
 
 	// SILI-1138: when REDIS_URL is set, route fanout through a Redis relay so
 	// multiple API nodes can deliver each other's events. Without it the hub
@@ -407,12 +407,12 @@ func main() {
 	// Start background workers.
 	sweepCtx, sweepCancel := context.WithCancel(context.Background())
 	autopilotCtx, autopilotCancel := context.WithCancel(context.Background())
-	taskSvc := service.NewTaskService(queries, pool, hub, bus, daemonWakeup)
-	taskSvc.Analytics = analyticsClient
-	taskSvc.Metrics = businessMetrics
-	autopilotSvc := service.NewAutopilotService(queries, pool, bus, taskSvc)
+	runSvc := service.NewAgentRunService(queries, pool, hub, bus, daemonWakeup)
+	runSvc.Analytics = analyticsClient
+	runSvc.Metrics = businessMetrics
+	autopilotSvc := service.NewAutopilotService(queries, pool, bus, runSvc)
 	registerAutopilotListeners(bus, autopilotSvc)
-	workflowExecutionSvc := &service.WorkflowExecutionService{Queries: queries, TxStarter: pool, TaskService: taskSvc, Storage: h.Storage}
+	workflowExecutionSvc := &service.WorkflowExecutionService{Queries: queries, TxStarter: pool, AgentRunService: runSvc, Storage: h.Storage}
 	go workflowExecutionSvc.RunDispatchWorker(sweepCtx)
 	go workflowExecutionSvc.RunDeadlineWorker(sweepCtx)
 	go workflowExecutionSvc.RunAcceptanceWorker(sweepCtx)
@@ -434,7 +434,7 @@ func main() {
 			"configured", runtimeReconnectGrace, "minimum", minimumRuntimeReconnectGrace)
 		runtimeReconnectGrace = minimumRuntimeReconnectGrace
 	}
-	go runRuntimeSweeper(sweepCtx, pool, queries, liveness, taskSvc, bus, runtimeReconnectGrace)
+	go runRuntimeSweeper(sweepCtx, pool, queries, liveness, runSvc, bus, runtimeReconnectGrace)
 	go heartbeatScheduler.Run(sweepCtx)
 	go runAutopilotFailureMonitor(autopilotCtx, queries, bus, envFailureMonitorConfig())
 	go runDBStatsLogger(sweepCtx, pool)
@@ -467,7 +467,7 @@ func main() {
 	// SILI-2957: DB-backed execution scheduler. The scheduler turns the
 	// `sys_cron_executions` table into the distributed lease + audit
 	// log for internal periodic jobs. The first job is
-	// `rollup_task_usage_hourly`, which replaces the previously
+	// `rollup_agent_run_usage_hourly`, which replaces the previously
 	// operator-registered `pg_cron` entry (still safe to run
 	// concurrently — the SQL function holds advisory lock 4246).
 	//
@@ -479,8 +479,8 @@ func main() {
 	// logging them on the tick that fails and retrying on the next
 	// cycle, so a temporary outage does not crash the server.
 	schedulerMgr := scheduler.NewManager(pool, scheduler.Options{})
-	if err := schedulerMgr.Register(scheduler.TaskUsageHourlyJob(pool)); err != nil {
-		slog.Warn("scheduler: failed to register task_usage_hourly rollup job", "error", err)
+	if err := schedulerMgr.Register(scheduler.AgentRunUsageHourlyJob(pool)); err != nil {
+		slog.Warn("scheduler: failed to register agent_run_usage_hourly rollup job", "error", err)
 	}
 	// SILI-3551: scheduled-Autopilot dispatch runs on the same DB-backed
 	// scheduler. The job owns its plan_times via PlansForScope (each
@@ -544,7 +544,7 @@ func main() {
 	}
 
 	// Join the channel supervisor's per-installation goroutines so the
-	// lease renewer can issue a final release before process exit;
+	// lease renewer can send a final release before process exit;
 	// otherwise the next replica would have to wait the full LeaseTTL
 	// before picking up the installation on the other side of the
 	// redeploy. The wait is bounded — if a supervisor is wedged (DB

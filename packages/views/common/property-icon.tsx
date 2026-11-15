@@ -1,6 +1,6 @@
 "use client";
 
-import type { IssueProperty } from "@silieco/core/types";
+import type { TaskProperty } from "@silieco/core/types";
 import { Button } from "@silieco/ui/components/ui/button";
 import { cn } from "@silieco/ui/lib/utils";
 import {
@@ -53,7 +53,7 @@ interface PropertyIconOption {
 
 /**
  * A deliberately small Lucide catalog that starts with the same symbols used
- * by built-in issue properties. Persist stable keys rather than SVG data or
+ * by built-in task properties. Persist stable keys rather than SVG data or
  * component names so the visual implementation can evolve independently.
  */
 export const PROPERTY_ICON_OPTIONS = [
@@ -121,7 +121,7 @@ export function PropertyIcon({
   property,
   className,
 }: {
-  property?: Pick<IssueProperty, "icon"> | null;
+  property?: Pick<TaskProperty, "icon"> | null;
   className?: string;
 }) {
   if (!property?.icon) return null;

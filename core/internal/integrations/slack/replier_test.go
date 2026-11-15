@@ -125,14 +125,14 @@ func TestReply_AgentOfflineAndArchived_PostNotices(t *testing.T) {
 	}
 }
 
-func TestReply_IngestedWithIssue_Confirms(t *testing.T) {
+func TestReply_IngestedWithTask_Confirms(t *testing.T) {
 	sender := &fakeReplySender{}
 	r := newTestReplier(&fakeBindingMinter{}, sender)
 	r.Reply(context.Background(), testResolvedInstallation(t), testInboundForReply(), engine.Result{
 		Outcome:         engine.OutcomeIngested,
-		IssueID:         mustUUID(t, "55555555-5555-5555-5555-555555555555"),
-		IssueIdentifier: "SILI-42",
-		IssueTitle:      "Fix the thing",
+		TaskID:         mustUUID(t, "55555555-5555-5555-5555-555555555555"),
+		TaskIdentifier: "SILI-42",
+		TaskTitle:      "Fix the thing",
 	})
 	if sender.calls != 1 || sender.sent == nil {
 		t.Fatalf("expected one confirmation, got %d", sender.calls)
@@ -142,10 +142,10 @@ func TestReply_IngestedWithIssue_Confirms(t *testing.T) {
 	}
 }
 
-func TestReply_IngestedWithoutIssue_Silent(t *testing.T) {
+func TestReply_IngestedWithoutTask_Silent(t *testing.T) {
 	sender := &fakeReplySender{}
 	r := newTestReplier(&fakeBindingMinter{}, sender)
-	// A plain chat message (no /issue) must NOT post — the agent's own reply
+	// A plain chat message (no /task) must NOT post — the agent's own reply
 	// lands via the EventChatDone outbound subscriber.
 	r.Reply(context.Background(), testResolvedInstallation(t), testInboundForReply(), engine.Result{
 		Outcome: engine.OutcomeIngested,
@@ -164,11 +164,11 @@ func TestReply_Dropped_Silent(t *testing.T) {
 	}
 }
 
-func TestIssueCreatedText(t *testing.T) {
-	if got := issueCreatedText(engine.Result{IssueIdentifier: "SILI-7", IssueTitle: "Title"}); got != "✅ Created SILI-7 — Title" {
+func TestTaskCreatedText(t *testing.T) {
+	if got := taskCreatedText(engine.Result{TaskIdentifier: "SILI-7", TaskTitle: "Title"}); got != "✅ Created SILI-7 — Title" {
 		t.Errorf("with title = %q", got)
 	}
-	if got := issueCreatedText(engine.Result{IssueNumber: 9}); got != "✅ Created #9" {
+	if got := taskCreatedText(engine.Result{TaskNumber: 9}); got != "✅ Created #9" {
 		t.Errorf("fallback to number = %q", got)
 	}
 }

@@ -2,7 +2,7 @@
  * Cross-surface sanitize contract (SILI-4922).
  *
  * The two product-level Markdown chains — Chat (ui/markdown/Markdown.tsx) and
- * Issue/Comment (views/editor/readonly-content.tsx) — used to carry a verbatim
+ * Task/Comment (views/editor/readonly-content.tsx) — used to carry a verbatim
  * fork of the sanitize schema and urlTransform each, and had already drifted:
  * readonly whitelisted <mark>, chat did not. Both now import the single
  * canonical base from @silieco/ui/markdown.
@@ -24,8 +24,8 @@ vi.mock("@silieco/core/config", () => ({
   configStore: { getState: () => ({ cdnDomain: "" }) },
 }));
 
-vi.mock("../issues/hooks", () => ({
-  useResolveIssueIdentifier: () => null,
+vi.mock("../tasks/hooks", () => ({
+  useResolveTaskIdentifier: () => null,
 }));
 
 vi.mock("../i18n", async () => {
@@ -46,7 +46,7 @@ vi.mock("@silieco/core/api", () => ({
 
 vi.mock("@silieco/core/paths", () => ({
   useWorkspacePaths: () => ({
-    issueDetail: (id: string) => `/test/issues/${id}`,
+    taskDetail: (id: string) => `/test/tasks/${id}`,
     projectDetail: (id: string) => `/test/projects/${id}`,
   }),
   useWorkspaceSlug: () => "test",
@@ -60,8 +60,8 @@ vi.mock("../navigation", () => ({
   ),
 }));
 
-vi.mock("../issues/components/issue-mention-card", () => ({
-  IssueMentionCard: ({ issueId }: { issueId: string }) => <span>{issueId}</span>,
+vi.mock("../tasks/components/task-mention-card", () => ({
+  TaskMentionCard: ({ taskId }: { taskId: string }) => <span>{taskId}</span>,
 }));
 
 vi.mock("../projects/components/project-chip", () => ({
@@ -103,7 +103,7 @@ const SURFACES: ReadonlyArray<{
     render: (markdown) => render(<MarkdownBase>{markdown}</MarkdownBase>).container,
   },
   {
-    name: "Issue/Comment (ReadonlyContent)",
+    name: "Task/Comment (ReadonlyContent)",
     render: (markdown) => render(<ReadonlyContent content={markdown} />).container,
   },
 ];

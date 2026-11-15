@@ -503,7 +503,7 @@ func TestOpencodeProcessEventsHappyPath(t *testing.T) {
 	// Simulate a successful run: step_start → text → tool_use → text → step_finish
 	lines := strings.Join([]string{
 		`{"type":"step_start","timestamp":1000,"sessionID":"ses_happy","part":{"type":"step-start"}}`,
-		`{"type":"text","timestamp":1001,"sessionID":"ses_happy","part":{"type":"text","text":"Analyzing the issue..."}}`,
+		`{"type":"text","timestamp":1001,"sessionID":"ses_happy","part":{"type":"text","text":"Analyzing the task..."}}`,
 		`{"type":"tool_use","timestamp":1002,"sessionID":"ses_happy","part":{"tool":"bash","callID":"call_1","state":{"status":"completed","input":{"command":"ls"},"output":"file1.go\nfile2.go\n"}}}`,
 		`{"type":"text","timestamp":1003,"sessionID":"ses_happy","part":{"type":"text","text":" Done."}}`,
 		`{"type":"step_finish","timestamp":1004,"sessionID":"ses_happy","part":{"type":"step-finish"}}`,
@@ -518,8 +518,8 @@ func TestOpencodeProcessEventsHappyPath(t *testing.T) {
 	if result.sessionID != "ses_happy" {
 		t.Errorf("sessionID: got %q, want %q", result.sessionID, "ses_happy")
 	}
-	if result.output != "Analyzing the issue... Done." {
-		t.Errorf("output: got %q, want %q", result.output, "Analyzing the issue... Done.")
+	if result.output != "Analyzing the task... Done." {
+		t.Errorf("output: got %q, want %q", result.output, "Analyzing the task... Done.")
 	}
 	if result.errMsg != "" {
 		t.Errorf("errMsg: got %q, want empty", result.errMsg)
@@ -539,7 +539,7 @@ func TestOpencodeProcessEventsHappyPath(t *testing.T) {
 	if msgs[0].Type != MessageStatus || msgs[0].Status != "running" {
 		t.Errorf("msg[0]: got %+v, want status=running", msgs[0])
 	}
-	if msgs[1].Type != MessageText || msgs[1].Content != "Analyzing the issue..." {
+	if msgs[1].Type != MessageText || msgs[1].Content != "Analyzing the task..." {
 		t.Errorf("msg[1]: got %+v", msgs[1])
 	}
 	if msgs[2].Type != MessageToolUse || msgs[2].Tool != "bash" {

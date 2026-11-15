@@ -23,7 +23,7 @@ func TestDeriveSquadMemberStatus(t *testing.T) {
 		archived      bool
 		runtimeStatus pgtype.Text
 		lastSeen      pgtype.Timestamptz
-		hasActiveTask bool
+		hasActiveRun  bool
 		want          string
 	}{
 		{"active wins over offline runtime", false, offline, tsAgo(time.Hour), true, "working"},
@@ -43,7 +43,7 @@ func TestDeriveSquadMemberStatus(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := deriveSquadMemberStatus(tc.archived, tc.runtimeStatus, tc.lastSeen, tc.hasActiveTask, now)
+			got := deriveSquadMemberStatus(tc.archived, tc.runtimeStatus, tc.lastSeen, tc.hasActiveRun, now)
 			if got != tc.want {
 				t.Fatalf("deriveSquadMemberStatus = %q, want %q", got, tc.want)
 			}

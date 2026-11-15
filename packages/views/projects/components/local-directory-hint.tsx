@@ -13,7 +13,7 @@ import { useLocalDaemonStatus } from "../../platform";
 import { useT } from "../../i18n";
 
 /**
- * Banner shown at the top of the issue's Activity section when the
+ * Banner shown at the top of the task's Activity section when the
  * project is pinned to a `local_directory` resource on **this** daemon.
  * Tells the user "starting an agent here will use {label} ({path}) in-
  * place" so they notice they are not getting an isolated git worktree.

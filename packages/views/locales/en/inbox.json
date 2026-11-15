@@ -32,8 +32,8 @@
     "unarchive": "Unarchive"
   },
   "types": {
-    "issue_assigned": "Assigned",
-    "issue_subscribed": "Subscribed",
+    "task_assigned": "Assigned",
+    "task_subscribed": "Subscribed",
     "unassigned": "Unassigned",
     "assignee_changed": "Assignee changed",
     "status_changed": "Status changed",
@@ -43,8 +43,8 @@
     "new_comment": "New comment",
     "mentioned": "Mentioned",
     "review_requested": "Review requested",
-    "task_completed": "Task completed",
-    "task_failed": "Task failed",
+    "run_completed": "Task completed",
+    "run_failed": "Task failed",
     "agent_blocked": "Agent blocked",
     "agent_completed": "Agent completed",
     "reaction_added": "Reacted",

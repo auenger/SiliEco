@@ -18,7 +18,7 @@ import { create } from "zustand";
  *     workspace welcome hook creates Sili Agent on that runtime
  *     and presents starter cards.
  *   - "skip": user explicitly skipped. `runtimeId` is undefined. The hook
- *     seeds two issues (install-runtime guide + create-agent guide) and
+ *     seeds two tasks (install-runtime guide + create-agent guide) and
  *     shows them in a Modal.
  */
 export interface WelcomeSignal {
@@ -31,7 +31,7 @@ interface WelcomeStoreState {
   signal: WelcomeSignal | null;
   /**
    * True after the user has explicitly engaged with the Welcome surface —
-   * picked a starter card, opened a seeded issue, closed the Skip modal.
+   * picked a starter card, opened a seeded task, closed the Skip modal.
    * Components MUST treat `signal && !dismissed` as the render condition;
    * `dismiss()` is what removes the modal from view.
    */

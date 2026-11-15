@@ -225,7 +225,7 @@ func githubPullRequestToResponse(p db.GithubPullRequest, snapshotEnabled bool) G
 // landing (GitHub outage, revoked key) and the shown data is last-known.
 const prSnapshotStaleThreshold = 30 * time.Minute
 
-func issuePullRequestRowToResponse(p db.ListPullRequestsByIssueRow, snapshotEnabled bool) GitHubPullRequestResponse {
+func taskPullRequestRowToResponse(p db.ListPullRequestsByTaskRow, snapshotEnabled bool) GitHubPullRequestResponse {
 	snapshotAvailable := currentGitHubSnapshotAvailable(
 		snapshotEnabled, p.HeadSha, p.SnapshotHeadSha, p.SnapshotFetchedAt,
 	)
@@ -958,21 +958,21 @@ func (h *Handler) DeleteGitHubInstallation(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ── List PRs for an issue ───────────────────────────────────────────────────
+// ── List PRs for an task ───────────────────────────────────────────────────
 
-func (h *Handler) ListPullRequestsForIssue(w http.ResponseWriter, r *http.Request) {
-	issue, ok := h.loadIssueForUser(w, r, chi.URLParam(r, "id"))
+func (h *Handler) ListPullRequestsForTask(w http.ResponseWriter, r *http.Request) {
+	task, ok := h.loadTaskForUser(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
-	rows, err := h.Queries.ListPullRequestsByIssue(r.Context(), issue.ID)
+	rows, err := h.Queries.ListPullRequestsByTask(r.Context(), task.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list pull requests")
 		return
 	}
 	out := make([]GitHubPullRequestResponse, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, issuePullRequestRowToResponse(row, h.PRRefresh.Enabled()))
+		out = append(out, taskPullRequestRowToResponse(row, h.PRRefresh.Enabled()))
 		// Page-visit trigger (SILI-5265): if this card's snapshot is missing or
 		// older than the view TTL, kick an async refresh. Non-blocking — the
 		// current (possibly stale) response is returned immediately and the
@@ -989,7 +989,7 @@ func (h *Handler) ListPullRequestsForIssue(w http.ResponseWriter, r *http.Reques
 	// card list. They live in their own provider-tagged tables, so they merge
 	// in here mapped to the same response shape; the combined list is re-sorted
 	// newest-first.
-	vcsRows, err := h.Queries.ListVCSPullRequestsByIssue(r.Context(), issue.ID)
+	vcsRows, err := h.Queries.ListVCSPullRequestsByTask(r.Context(), task.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list pull requests")
 		return
@@ -1005,31 +1005,31 @@ func (h *Handler) ListPullRequestsForIssue(w http.ResponseWriter, r *http.Reques
 
 // broadcastPRSnapshotApplied is the ghsnapshot pipeline's onApplied callback:
 // once an API snapshot is written to a PR row, re-broadcast the PR so every
-// open issue detail page re-queries its PR list and picks up the fresh CI /
+// open task detail page re-queries its PR list and picks up the fresh CI /
 // mergeability state. Runs on a background pipeline goroutine.
 func (h *Handler) broadcastPRSnapshotApplied(ctx context.Context, prID pgtype.UUID) {
 	pr, err := h.Queries.GetGitHubPullRequestByID(ctx, prID)
 	if err != nil {
 		return
 	}
-	issueIDs, err := h.Queries.ListIssueIDsForPullRequest(ctx, prID)
+	taskIDs, err := h.Queries.ListTaskIDsForPullRequest(ctx, prID)
 	if err != nil {
 		return
 	}
-	linked := make([]string, 0, len(issueIDs))
-	for _, id := range issueIDs {
+	linked := make([]string, 0, len(taskIDs))
+	for _, id := range taskIDs {
 		linked = append(linked, uuidToString(id))
 	}
 	h.publish(protocol.EventPullRequestUpdated, uuidToString(pr.WorkspaceID), "system", "", map[string]any{
-		"pull_request":     githubPullRequestToResponse(pr, h.PRRefresh.Enabled()),
-		"linked_issue_ids": linked,
+		"pull_request":    githubPullRequestToResponse(pr, h.PRRefresh.Enabled()),
+		"linked_task_ids": linked,
 	})
 }
 
 // ── Webhook ─────────────────────────────────────────────────────────────────
 
 // identifierRe extracts identifiers like "SILI-1510" from text. Case-insensitive
-// because branch names are conventionally lowercase but issue prefixes are
+// because branch names are conventionally lowercase but task prefixes are
 // uppercase. Word boundary on the left prevents matching inside email-style
 // strings (e.g. "abc@SILI-1") and the digit anchor on the right rules out
 // version numbers like "v1.2-3".
@@ -1040,7 +1040,7 @@ var identifierRe = regexp.MustCompile(`(?i)\b([a-z][a-z0-9]{1,9})-(\d+)\b`)
 // optionally separated by a colon and whitespace. Matching is intentionally
 // strict on adjacency — "Fix SILI-1" closes SILI-1, but "Fix login SILI-1"
 // does not. This mirrors GitHub's own closing-keyword grammar and is the
-// gate the webhook uses to decide whether to auto-advance an issue to
+// gate the webhook uses to decide whether to auto-advance an task to
 // `done` after a PR merges. References like "Follow up in SILI-2" and bare
 // title prefixes like "SILI-1: ..." link the PR (via identifierRe) but
 // never auto-close.
@@ -1050,7 +1050,7 @@ var closingIdentifierRe = regexp.MustCompile(
 
 // HandleGitHubWebhook (POST /api/webhooks/github) is GitHub's destination for
 // every event from a connected installation. We verify HMAC signature, route
-// on X-GitHub-Event, and either upsert PR rows + auto-link to issues or
+// on X-GitHub-Event, and either upsert PR rows + auto-link to tasks or
 // remove the installation on uninstall.
 func (h *Handler) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20)) // 10 MiB cap
@@ -1276,7 +1276,7 @@ func (h *Handler) handlePullRequestEvent(ctx context.Context, body []byte) {
 	// #4855 lets one GitHub App installation bind to several workspaces. A
 	// repo's events belong to every bound workspace, so fan the delivery out:
 	// each workspace independently mirrors the PR and auto-links it against its
-	// own issues (its own prefix + github toggle). Repo scope is whatever GitHub
+	// own tasks (its own prefix + github toggle). Repo scope is whatever GitHub
 	// authorized the installation for; we deliberately don't gate on the
 	// workspace.repos registry — that list is "code the agent clones", not a
 	// webhook subscription (SILI-4343).
@@ -1383,8 +1383,8 @@ func (h *Handler) triggerPRRefreshFromCIEvent(ctx context.Context, body []byte) 
 
 // mirrorPullRequestForWorkspace mirrors a pull_request webhook into a single
 // workspace: it upserts the PR row, replays any check_suite events that
-// arrived before the PR was mirrored, auto-links referenced issues (gated by
-// the workspace's github toggles), advances issues on terminal events, and
+// arrived before the PR was mirrored, auto-links referenced tasks (gated by
+// the workspace's github toggles), advances tasks on terminal events, and
 // broadcasts the change. Invoked once per workspace bound to the delivering
 // installation.
 func (h *Handler) mirrorPullRequestForWorkspace(ctx context.Context, wsID pgtype.UUID, installationID int64, p *ghPullRequestPayload) {
@@ -1421,9 +1421,9 @@ func (h *Handler) mirrorPullRequestForWorkspace(ctx context.Context, wsID pgtype
 	workspaceID := uuidToString(wsID)
 	resp := githubPullRequestToResponse(pr, h.PRRefresh.Enabled())
 
-	// Auto-link: scan title/body/branch for issue identifiers, look them
+	// Auto-link: scan title/body/branch for task identifiers, look them
 	// up in this workspace, attach the link rows. Idempotent (ON CONFLICT
-	// upserts the close_intent flag — see LinkIssueToPullRequest) so
+	// upserts the close_intent flag — see LinkTaskToPullRequest) so
 	// re-firing the webhook doesn't duplicate.
 	//
 	// RFC SILI-2414 §4.8: the PR mirror upsert above always runs (so re-enabling
@@ -1431,7 +1431,7 @@ func (h *Handler) mirrorPullRequestForWorkspace(ctx context.Context, wsID pgtype
 	// are a "new side-effect" and must be gated by the workspace's auto-link
 	// flag (which itself short-circuits when the master `github_enabled`
 	// switch is off).
-	linkedIssueIDs := make([]string, 0)
+	linkedTaskIDs := make([]string, 0)
 	if h.workspaceAutoLinkPRsEnabled(ctx, wsID) {
 		idents := extractIdentifiers(p.PullRequest.Title, p.PullRequest.Body, p.PullRequest.Head.Ref)
 		// closingIdents is the subset of identifiers that this PR explicitly
@@ -1446,13 +1446,13 @@ func (h *Handler) mirrorPullRequestForWorkspace(ctx context.Context, wsID pgtype
 			closingIdents[c] = struct{}{}
 		}
 		// qualifyingIdents are the identifiers that genuinely tie this PR to an
-		// issue: a title prefix, a branch-name reference, or a body closing
+		// task: a title prefix, a branch-name reference, or a body closing
 		// keyword. Any identifier that is linked but NOT in this set was matched
 		// only by a bare mention in the PR body ("Related SILI-1", "Follow up in
 		// SILI-1"). Those links are still recorded (auto-link stays generous so
 		// close_intent can be tracked across edits) but are flagged
-		// reference_only and hidden from the issue's PR list — a passing mention
-		// should not surface the PR as a working PR for that issue (SILI-3739).
+		// reference_only and hidden from the task's PR list — a passing mention
+		// should not surface the PR as a working PR for that task (SILI-3739).
 		qualifyingIdents := map[string]struct{}{}
 		for _, id := range extractIdentifiers(p.PullRequest.Title, p.PullRequest.Head.Ref) {
 			qualifyingIdents[id] = struct{}{}
@@ -1465,8 +1465,8 @@ func (h *Handler) mirrorPullRequestForWorkspace(ctx context.Context, wsID pgtype
 		// a terminal event, later edit/synchronize webhooks must not rewrite
 		// the merge-time close decision.
 		preserveCloseIntent := p.Action != "closed" && (state == "merged" || state == "closed")
-		prefix := h.getIssuePrefix(ctx, wsID)
-		// reevalIssues collects each issue whose link row we just touched so
+		prefix := h.getTaskPrefix(ctx, wsID)
+		// reevalTasks collects each task whose link row we just touched so
 		// we can re-run the auto-advance gate against the persisted aggregate
 		// after every link upsert in this event. Driving the gate off
 		// persisted state (instead of "did *this* webhook declare closing
@@ -1475,9 +1475,9 @@ func (h *Handler) mirrorPullRequestForWorkspace(ctx context.Context, wsID pgtype
 		// open, then the sibling closes later — its webhook has no closing
 		// keyword, but the earlier link row carries close_intent=true, so
 		// SILI-1 still advances.
-		reevalIssues := make([]db.Issue, 0, len(idents))
+		reevalTasks := make([]db.Task, 0, len(idents))
 		for _, id := range idents {
-			issue, ok := h.lookupIssueByIdentifier(ctx, wsID, prefix, id)
+			task, ok := h.lookupTaskByIdentifier(ctx, wsID, prefix, id)
 			if !ok {
 				continue
 			}
@@ -1485,8 +1485,8 @@ func (h *Handler) mirrorPullRequestForWorkspace(ctx context.Context, wsID pgtype
 			closeIntent := declared && !preserveCloseIntent
 			_, qualifies := qualifyingIdents[id]
 			referenceOnly := !qualifies
-			if err := h.Queries.LinkIssueToPullRequest(ctx, db.LinkIssueToPullRequestParams{
-				IssueID:             issue.ID,
+			if err := h.Queries.LinkTaskToPullRequest(ctx, db.LinkTaskToPullRequestParams{
+				TaskID:              task.ID,
 				PullRequestID:       pr.ID,
 				CloseIntent:         closeIntent,
 				ReferenceOnly:       referenceOnly,
@@ -1497,49 +1497,49 @@ func (h *Handler) mirrorPullRequestForWorkspace(ctx context.Context, wsID pgtype
 				slog.Warn("github: link failed", "err", err)
 				continue
 			}
-			linkedIssueIDs = append(linkedIssueIDs, uuidToString(issue.ID))
-			reevalIssues = append(reevalIssues, issue)
+			linkedTaskIDs = append(linkedTaskIDs, uuidToString(task.ID))
+			reevalTasks = append(reevalTasks, task)
 		}
 
 		// A terminal PR event (`merged` or `closed`) may be the moment the
-		// last in-flight sibling resolves. We re-evaluate every issue we
+		// last in-flight sibling resolves. We re-evaluate every task we
 		// just linked once both the PR row and the link row are persisted,
 		// so the aggregate query sees the freshest state. We advance the
-		// issue to done when:
-		//   1. the issue isn't already terminal (`done` / `cancelled`);
+		// task to done when:
+		//   1. the task isn't already terminal (`done` / `cancelled`);
 		//   2. no linked PR is still `open` / `draft`;
 		//   3. at least one merged linked PR declared close_intent (a
 		//      "Closes/Fixes/Resolves" keyword on its link row).
 		// Rule (3) is what prevents "Follow up in SILI-2" / "Unblocks SILI-3"
 		// references from being treated the same as "Closes SILI-1", and
 		// also prevents an "all closed-without-merge" sequence from
-		// silently auto-closing the issue — if nothing carrying closing
+		// silently auto-closing the task — if nothing carrying closing
 		// intent was ever delivered, the user should decide manually.
 		if state == "merged" || state == "closed" {
-			for _, issue := range reevalIssues {
-				if issue.Status == "done" || issue.Status == "cancelled" {
+			for _, task := range reevalTasks {
+				if task.Status == "done" || task.Status == "cancelled" {
 					continue
 				}
-				// Combined across providers: an issue may also carry a still-open
+				// Combined across providers: an task may also carry a still-open
 				// self-hosted VCS PR, which must block auto-advance here just as
 				// an open GitHub PR blocks it on the VCS webhook path.
-				counts, err := h.Queries.GetIssueCombinedPullRequestCloseAggregate(ctx, issue.ID)
+				counts, err := h.Queries.GetTaskCombinedPullRequestCloseAggregate(ctx, task.ID)
 				if err != nil {
-					slog.Warn("github: count linked pr states failed", "err", err, "issue_id", uuidToString(issue.ID))
+					slog.Warn("github: count linked pr states failed", "err", err, "task_id", uuidToString(task.ID))
 					continue
 				}
 				if counts.OpenCount == 0 && counts.MergedWithCloseIntentCount > 0 {
-					h.advanceIssueToDone(ctx, issue, workspaceID)
+					h.advanceTaskToDone(ctx, task, workspaceID)
 				}
 			}
 		}
 	}
 
-	// Broadcast PR change to the workspace so any open issue detail page
+	// Broadcast PR change to the workspace so any open task detail page
 	// re-queries its PR list.
 	h.publish(protocol.EventPullRequestUpdated, workspaceID, "system", "", map[string]any{
-		"pull_request":     resp,
-		"linked_issue_ids": linkedIssueIDs,
+		"pull_request":    resp,
+		"linked_task_ids": linkedTaskIDs,
 	})
 }
 
@@ -1663,10 +1663,10 @@ func extractClosingIdentifiers(parts ...string) []string {
 	return out
 }
 
-// lookupIssueByIdentifier looks up an issue in the given workspace by its
+// lookupTaskByIdentifier looks up an task in the given workspace by its
 // "PREFIX-NUMBER" identifier. Returns the row + true if the prefix matches
 // workspaceAutoLinkPRsEnabled reports whether the workspace allows the
-// GitHub webhook to create issue ↔ PR link rows. Defaults to true so that
+// GitHub webhook to create task ↔ PR link rows. Defaults to true so that
 // workspaces predating RFC SILI-2414 keep the historical "auto-link on"
 // behavior, and short-circuits to false whenever the master GitHub switch
 // is explicitly off — mirroring the precedence used on the client side.
@@ -1691,54 +1691,54 @@ func (h *Handler) workspaceAutoLinkPRsEnabled(ctx context.Context, workspaceID p
 	return *s.GitHubAutoLinkPRsEnabled
 }
 
-// the workspace's configured prefix and the number resolves to a real issue.
-func (h *Handler) lookupIssueByIdentifier(ctx context.Context, workspaceID pgtype.UUID, prefix, identifier string) (db.Issue, bool) {
+// the workspace's configured prefix and the number resolves to a real task.
+func (h *Handler) lookupTaskByIdentifier(ctx context.Context, workspaceID pgtype.UUID, prefix, identifier string) (db.Task, bool) {
 	idx := strings.LastIndex(identifier, "-")
 	if idx < 0 {
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
 	gotPrefix, numStr := identifier[:idx], identifier[idx+1:]
 	if !strings.EqualFold(gotPrefix, prefix) {
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
 	n, err := strconv.Atoi(numStr)
 	if err != nil {
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
-	issue, err := h.Queries.GetIssueByNumber(ctx, db.GetIssueByNumberParams{
+	task, err := h.Queries.GetTaskByNumber(ctx, db.GetTaskByNumberParams{
 		WorkspaceID: workspaceID,
 		Number:      int32(n),
 	})
 	if err != nil {
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
-	return issue, true
+	return task, true
 }
 
-func (h *Handler) advanceIssueToDone(ctx context.Context, issue db.Issue, workspaceID string) {
+func (h *Handler) advanceTaskToDone(ctx context.Context, task db.Task, workspaceID string) {
 	workflowSvc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
-	updated, err := workflowSvc.UpdateIssueStatusWithWorkflowLock(ctx, issue, "done")
+	updated, err := workflowSvc.UpdateTaskStatusWithWorkflowLock(ctx, task, "done")
 	if err != nil {
-		slog.Warn("github: advance issue to done failed", "err", err)
+		slog.Warn("github: advance task to done failed", "err", err)
 		return
 	}
 
 	// Fire the platform parent-notification path on the same transition the
-	// HTTP UpdateIssue / BatchUpdateIssues paths use. A merged PR is one of
-	// the most common ways a sub-issue actually reaches `done`, and skipping
+	// HTTP UpdateTask / BatchUpdateTasks paths use. A merged PR is one of
+	// the most common ways a sub-task actually reaches `done`, and skipping
 	// it here would leave the parent silent for the dominant completion path.
 	// notifyParentOfChildDone re-checks every guard (prev != done, parent
 	// exists, parent not terminal), so calling it unconditionally is safe.
-	h.notifyParentOfChildDone(ctx, issue, updated)
+	h.notifyParentOfChildDone(ctx, task, updated)
 
-	prefix := h.getIssuePrefix(ctx, issue.WorkspaceID)
-	resp := issueToResponse(updated, prefix)
-	h.publish(protocol.EventIssueUpdated, workspaceID, "system", "", map[string]any{
-		"issue":          resp,
+	prefix := h.getTaskPrefix(ctx, task.WorkspaceID)
+	resp := taskToResponse(updated, prefix)
+	h.publish(protocol.EventTaskUpdated, workspaceID, "system", "", map[string]any{
+		"task":           resp,
 		"status_changed": true,
-		"prev_status":    issue.Status,
-		"creator_type":   issue.CreatorType,
-		"creator_id":     uuidToString(issue.CreatorID),
+		"prev_status":    task.Status,
+		"creator_type":   task.CreatorType,
+		"creator_id":     uuidToString(task.CreatorID),
 		"source":         "github_pr_merged",
 	})
 }

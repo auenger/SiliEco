@@ -29,7 +29,7 @@ The source agent is left untouched. By default the copy lands on the same
 runtime as the source; pass --runtime-id to fork it onto a different runtime.
 
 Copied by default, each overridable with the matching flag: name (suffixed
-" (copy)"), description, instructions, avatar, custom_args, max_concurrent_tasks,
+" (copy)"), description, instructions, avatar, custom_args, max_concurrent_runs,
 invocation permission (permission_mode + allow-list), assigned workspace skills,
 and — only when the target runtime is unchanged — model, thinking_level and
 service_tier.
@@ -62,7 +62,7 @@ func registerAgentCopyFlags(cmd *cobra.Command) {
 	cmd.Flags().String("thinking-level", "", "Override thinking level. Not carried across a runtime change unless set here.")
 	cmd.Flags().String("service-tier", "", "Override Codex service tier. Not carried across a runtime change unless set here.")
 	cmd.Flags().String("custom-args", "", "Override custom CLI arguments as a JSON array.")
-	cmd.Flags().Int32("max-concurrent-tasks", 6, "Override maximum concurrent tasks")
+	cmd.Flags().Int32("max-concurrent-runs", 6, "Override maximum concurrent runs")
 	cmd.Flags().String("visibility", "", "Override visibility: private or workspace (legacy; mapped to --permission-mode)")
 	cmd.Flags().String("permission-mode", "", "Override invocation permission mode: private or public_to. Authoritative over --visibility.")
 	cmd.Flags().Bool("public-to-workspace", false, "public_to: allow every workspace member to invoke the copy.")
@@ -85,13 +85,13 @@ func registerAgentCopyFlags(cmd *cobra.Command) {
 // never read back from the source — GET redacts / masks them anyway — and are
 // set only when supplied explicitly on the command line.
 func runAgentCopy(cmd *cobra.Command, args []string) error {
-	var maxConcurrentTasksOverride *int32
-	if cmd.Flags().Changed("max-concurrent-tasks") {
-		v, _ := cmd.Flags().GetInt32("max-concurrent-tasks")
-		if err := validateAgentMaxConcurrentTasksFlag(v); err != nil {
+	var maxConcurrentRunsOverride *int32
+	if cmd.Flags().Changed("max-concurrent-runs") {
+		v, _ := cmd.Flags().GetInt32("max-concurrent-runs")
+		if err := validateAgentMaxConcurrentRunsFlag(v); err != nil {
 			return err
 		}
-		maxConcurrentTasksOverride = &v
+		maxConcurrentRunsOverride = &v
 	}
 
 	client, err := newAPIClient(cmd)
@@ -170,14 +170,14 @@ func runAgentCopy(cmd *cobra.Command, args []string) error {
 		body["custom_args"] = ca
 	}
 
-	// max_concurrent_tasks: a valid source value is portable. Historical rows
+	// max_concurrent_runs: a valid source value is portable. Historical rows
 	// may predate the 1-50 invariant; omit those values so create applies its
 	// default instead of turning Duplicate into a 400. An explicit flag is
 	// validated before any API request and remains authoritative.
-	if maxConcurrentTasksOverride != nil {
-		body["max_concurrent_tasks"] = *maxConcurrentTasksOverride
-	} else if v, ok := copiedAgentMaxConcurrentTasks(src["max_concurrent_tasks"]); ok {
-		body["max_concurrent_tasks"] = v
+	if maxConcurrentRunsOverride != nil {
+		body["max_concurrent_runs"] = *maxConcurrentRunsOverride
+	} else if v, ok := copiedAgentMaxConcurrentRuns(src["max_concurrent_runs"]); ok {
+		body["max_concurrent_runs"] = v
 	}
 
 	// Runtime-specific fields (model / thinking_level / service_tier) only make
@@ -289,13 +289,13 @@ func runAgentCopy(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func copiedAgentMaxConcurrentTasks(value any) (int32, bool) {
+func copiedAgentMaxConcurrentRuns(value any) (int32, bool) {
 	number, ok := value.(float64)
 	if !ok || number != math.Trunc(number) ||
-		number < float64(agentconfig.MinMaxConcurrentTasks) ||
-		number > float64(agentconfig.MaxMaxConcurrentTasks) {
+		number < float64(agentconfig.MinMaxConcurrentRuns) ||
+		number > float64(agentconfig.MaxMaxConcurrentRuns) {
 		return 0, false
 	}
 	value32 := int32(number)
-	return value32, agentconfig.IsValidMaxConcurrentTasks(value32)
+	return value32, agentconfig.IsValidMaxConcurrentRuns(value32)
 }

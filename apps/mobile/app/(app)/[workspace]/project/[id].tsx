@@ -4,7 +4,7 @@
  *   Header card (icon + title + description, tap → edit)
  *   Properties section (Status / Priority / Lead — tap chip → picker)
  *   Resources section (read-only by default, "Add" button → resource form)
- *   Related issues (Open / Done bucketed list)
+ *   Related tasks (Open / Done bucketed list)
  *
  * Per-record realtime: `useProjectRealtime(id, onDeleted=back)` subscribes
  * to `project:updated` (full replace) and `project:deleted` (pop back).
@@ -31,13 +31,13 @@ import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { ProjectHeaderCard } from "@/components/project/project-header-card";
 import { ProjectPropertiesSection } from "@/components/project/project-properties-section";
-import { ProjectRelatedIssues } from "@/components/project/project-related-issues";
+import { ProjectRelatedTasks } from "@/components/project/project-related-tasks";
 import { ProjectResourcesSection } from "@/components/project/project-resources-section";
 import {
   projectDetailOptions,
   projectResourcesOptions,
 } from "@/data/queries/projects";
-import { issueKeys } from "@/data/queries/issue-keys";
+import { taskKeys } from "@/data/queries/task-keys";
 import { useDeleteProject } from "@/data/mutations/projects";
 import { pinListOptions } from "@/data/queries/pins";
 import { useCreatePin, useDeletePin } from "@/data/mutations/pins";
@@ -63,7 +63,7 @@ export default function ProjectDetail() {
       detail.refetch(),
       qc.invalidateQueries({ queryKey: projectResourcesOptions(wsId, id).queryKey }),
       qc.invalidateQueries({
-        queryKey: [...issueKeys.list(wsId), "byProject", id],
+        queryKey: [...taskKeys.list(wsId), "byProject", id],
       }),
     ]);
   }, [detail, qc, wsId, id]);
@@ -129,7 +129,7 @@ export default function ProjectDetail() {
   const onDelete = () => {
     Alert.alert(
       "Delete project?",
-      "This cannot be undone. Issues in this project will become unassigned from any project.",
+      "This cannot be undone. Tasks in this project will become unassigned from any project.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -230,7 +230,7 @@ export default function ProjectDetail() {
             }}
           />
           <View className="h-3" />
-          <ProjectRelatedIssues projectId={id} />
+          <ProjectRelatedTasks projectId={id} />
         </ScrollView>
       )}
     </SafeAreaView>

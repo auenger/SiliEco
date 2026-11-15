@@ -48,7 +48,7 @@ export interface TabSession {
   /**
    * Dedup identity: the pathname alone. Search/hash (filters, anchors) are
    * view state and live in `url`/`memento`, NOT in the identity — opening
-   * `/slug/issues?filter=a` while `/slug/issues?filter=b` exists focuses
+   * `/slug/tasks?filter=a` while `/slug/tasks?filter=b` exists focuses
    * the existing tab (RFC §8.2; deliberate semantic change from the old
    * exact-path dedupe).
    */
@@ -260,13 +260,13 @@ export function resourceKeyForUrl(url: string): string {
  *     pre-workspace flows rendered by the window overlay on desktop, not
  *     tab routes. The navigation adapter normally intercepts these before
  *     they reach the store; this guard catches older persisted state.
- *  2. **Malformed workspace-scoped paths** like a stray `/issues/abc` that
+ *  2. **Malformed workspace-scoped paths** like a stray `/tasks/abc` that
  *     was constructed without the workspace prefix. The router would
- *     interpret `issues` as a workspace slug → NoAccessPage.
+ *     interpret `tasks` as a workspace slug → NoAccessPage.
  *
- * Normalizes: a bare `/{slug}` (no route segment) becomes `/{slug}/issues` —
+ * Normalizes: a bare `/{slug}` (no route segment) becomes `/{slug}/tasks` —
  * the workspace's default surface. This replaces the old in-router
- * `<Navigate to="issues">` index redirect (SILI-4741 invariant 1: the router
+ * `<Navigate to="tasks">` index redirect (SILI-4741 invariant 1: the router
  * never self-navigates; URLs are normalized before they become sessions).
  *
  * Returns null for rejects (caller decides how to recover — usually by
@@ -322,7 +322,7 @@ function pinnedBoundary(tabs: TabSession[]): number {
   return i;
 }
 
-/** Default entry point for a workspace — its issues list. */
+/** Default entry point for a workspace — its tasks list. */
 function defaultPathFor(slug: string): string {
   return `/${slug}/tasks`;
 }
@@ -792,7 +792,7 @@ export const useTabStore = create<TabStore>()(
       },
     }),
     {
-      name: "silieco_tabs",
+      name: "silieco_tr1_tabs",
       version: 4,
       storage: createJSONStorage(() => createPersistStorage(defaultStorage)),
       migrate: (persistedState, version) => {

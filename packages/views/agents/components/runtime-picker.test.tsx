@@ -6,7 +6,7 @@ import type { MemberWithUser, RuntimeDevice } from "@silieco/core/types";
 import { I18nProvider } from "@silieco/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
 import enAgents from "../../locales/en/agents.json";
-import enIssues from "../../locales/en/issues.json";
+import enTasks from "../../locales/en/tasks.json";
 
 // ActorAvatar pulls workspace context this unit test doesn't provide.
 vi.mock("../../common/actor-avatar", () => ({
@@ -21,7 +21,7 @@ vi.mock("../../runtimes/components/provider-logo", () => ({
 import { RuntimePicker, isRuntimeUsableForUser } from "./runtime-picker";
 
 const TEST_RESOURCES = {
-  en: { common: enCommon, agents: enAgents, issues: enIssues },
+  en: { common: enCommon, agents: enAgents, tasks: enTasks },
 };
 
 const ME = "user-me";

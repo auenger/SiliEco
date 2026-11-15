@@ -119,8 +119,8 @@ func TestParseSkillFrontmatter(t *testing.T) {
 			wantDesc: `{"a":1,"b":2}`,
 		},
 		{
-			// Reproduction for issue #3495: Chinese block scalar.
-			name: "issue 3495 chinese literal block scalar",
+			// Reproduction for task #3495: Chinese block scalar.
+			name: "task 3495 chinese literal block scalar",
 			content: "---\n" +
 				"name: requirements-workshop\n" +
 				"description: |\n" +

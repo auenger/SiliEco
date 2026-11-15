@@ -487,7 +487,7 @@ func TestCreateWorktree(t *testing.T) {
 		RepoURL:     sourceRepo,
 		WorkDir:     workDir,
 		AgentName:   "Code Reviewer",
-		TaskID:      "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		RunID:       "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)
@@ -531,7 +531,7 @@ func TestCreateWorktreeWithIsolatedGitMetadata(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir,
 		AgentName:           "Linux Codex",
-		TaskID:              "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		RunID:               "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		IsolatedGitMetadata: true,
 	})
 	if err != nil {
@@ -593,7 +593,7 @@ func TestCreateWorktreeReusesIsolatedGitMetadata(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir,
 		AgentName:           "Linux Codex",
-		TaskID:              "11111111-1111-1111-1111-111111111111",
+		RunID:               "11111111-1111-1111-1111-111111111111",
 		IsolatedGitMetadata: true,
 	})
 	if err != nil {
@@ -615,7 +615,7 @@ func TestCreateWorktreeReusesIsolatedGitMetadata(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir,
 		AgentName:           "Linux Codex",
-		TaskID:              "22222222-2222-2222-2222-222222222222",
+		RunID:               "22222222-2222-2222-2222-222222222222",
 		IsolatedGitMetadata: true,
 	})
 	if err != nil {
@@ -663,7 +663,7 @@ func TestCreateWorktreeMigratesLinkedWorktreeToIsolatedMetadata(t *testing.T) {
 		RepoURL:     sourceRepo,
 		WorkDir:     workDir,
 		AgentName:   "Linux Codex",
-		TaskID:      "11111111-1111-1111-1111-111111111111",
+		RunID:       "11111111-1111-1111-1111-111111111111",
 	})
 	if err != nil {
 		t.Fatalf("linked CreateWorktree failed: %v", err)
@@ -677,7 +677,7 @@ func TestCreateWorktreeMigratesLinkedWorktreeToIsolatedMetadata(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir,
 		AgentName:           "Linux Codex",
-		TaskID:              "22222222-2222-2222-2222-222222222222",
+		RunID:               "22222222-2222-2222-2222-222222222222",
 		IsolatedGitMetadata: true,
 	})
 	if err != nil {
@@ -716,7 +716,7 @@ func TestCreateWorktreeExcludesOpenCodeSkills(t *testing.T) {
 		RepoURL:     sourceRepo,
 		WorkDir:     workDir,
 		AgentName:   "OpenCode",
-		TaskID:      "opencode-exclude-test",
+		RunID:       "opencode-exclude-test",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)
@@ -754,7 +754,7 @@ func TestCreateWorktreeExcludesCodebuddySidecars(t *testing.T) {
 		RepoURL:     sourceRepo,
 		WorkDir:     workDir,
 		AgentName:   "CodeBuddy",
-		TaskID:      "codebuddy-exclude-test",
+		RunID:       "codebuddy-exclude-test",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)
@@ -797,7 +797,7 @@ func TestCreateWorktreeNotCached(t *testing.T) {
 		RepoURL:     "https://github.com/org/nonexistent",
 		WorkDir:     t.TempDir(),
 		AgentName:   "Agent",
-		TaskID:      "test-task-id",
+		RunID:       "test-task-id",
 	})
 	if err == nil {
 		t.Fatal("expected error for uncached repo")
@@ -834,7 +834,7 @@ func TestCreateWorktreeWithRequestedBranchRef(t *testing.T) {
 		WorkDir:     t.TempDir(),
 		Ref:         "review-branch",
 		AgentName:   "Reviewer",
-		TaskID:      "review-task-id",
+		RunID:       "review-task-id",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)
@@ -865,7 +865,7 @@ func TestCreateWorktreeWithRequestedCommitRef(t *testing.T) {
 		WorkDir:     t.TempDir(),
 		Ref:         firstCommit,
 		AgentName:   "Reviewer",
-		TaskID:      "commit-task-id",
+		RunID:       "commit-task-id",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)
@@ -897,7 +897,7 @@ func TestCreateWorktreeWithRequestedTagRef(t *testing.T) {
 		WorkDir:     t.TempDir(),
 		Ref:         "v1",
 		AgentName:   "Reviewer",
-		TaskID:      "tag-task-id",
+		RunID:       "tag-task-id",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)
@@ -922,7 +922,7 @@ func TestCreateWorktreeWithUnknownRequestedRef(t *testing.T) {
 		WorkDir:     t.TempDir(),
 		Ref:         "missing-ref",
 		AgentName:   "Reviewer",
-		TaskID:      "missing-ref-task-id",
+		RunID:       "missing-ref-task-id",
 	})
 	if err == nil {
 		t.Fatal("expected unknown ref error")
@@ -1009,7 +1009,7 @@ func TestCreateWorktreeFetchesDespiteAgentBranchOnRemote(t *testing.T) {
 		RepoURL:     sourceRepo,
 		WorkDir:     workDir1,
 		AgentName:   "agent",
-		TaskID:      "t1111111-0000-0000-0000-000000000000",
+		RunID:       "t1111111-0000-0000-0000-000000000000",
 	})
 	if err != nil {
 		t.Fatalf("first CreateWorktree failed: %v", err)
@@ -1042,7 +1042,7 @@ func TestCreateWorktreeFetchesDespiteAgentBranchOnRemote(t *testing.T) {
 		RepoURL:     sourceRepo,
 		WorkDir:     workDir2,
 		AgentName:   "agent",
-		TaskID:      "t2222222-0000-0000-0000-000000000000",
+		RunID:       "t2222222-0000-0000-0000-000000000000",
 	})
 	if err != nil {
 		t.Fatalf("second CreateWorktree failed: %v", err)
@@ -1152,7 +1152,7 @@ func TestCreateWorktreePathCollisionDoesNotLeakBranch(t *testing.T) {
 		RepoURL:     sourceRepo,
 		WorkDir:     workDir,
 		AgentName:   "agent",
-		TaskID:      "t1111111-0000-0000-0000-000000000000",
+		RunID:       "t1111111-0000-0000-0000-000000000000",
 	})
 	if err == nil {
 		t.Fatal("expected CreateWorktree to fail when path exists as non-worktree")
@@ -1371,7 +1371,7 @@ func TestCreateWorktreeInstallsCoAuthoredByHook(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir,
 		AgentName:           "Test Agent",
-		TaskID:              "a1b2c3d4-0000-0000-0000-000000000000",
+		RunID:               "a1b2c3d4-0000-0000-0000-000000000000",
 		CoAuthoredByEnabled: true,
 	})
 	if err != nil {
@@ -1415,7 +1415,7 @@ func TestCoAuthoredByHookIdempotent(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir,
 		AgentName:           "Test Agent",
-		TaskID:              "b2c3d4e5-0000-0000-0000-000000000000",
+		RunID:               "b2c3d4e5-0000-0000-0000-000000000000",
 		CoAuthoredByEnabled: true,
 	})
 	if err != nil {
@@ -1467,7 +1467,7 @@ func TestCreateWorktreeRemovesCoAuthoredByHookWhenDisabled(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir1,
 		AgentName:           "Test Agent",
-		TaskID:              "11111111-0000-0000-0000-000000000000",
+		RunID:               "11111111-0000-0000-0000-000000000000",
 		CoAuthoredByEnabled: true,
 	}); err != nil {
 		t.Fatalf("CreateWorktree (enabled) failed: %v", err)
@@ -1488,7 +1488,7 @@ func TestCreateWorktreeRemovesCoAuthoredByHookWhenDisabled(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir2,
 		AgentName:           "Test Agent",
-		TaskID:              "22222222-0000-0000-0000-000000000000",
+		RunID:               "22222222-0000-0000-0000-000000000000",
 		CoAuthoredByEnabled: false,
 	})
 	if err != nil {
@@ -1575,7 +1575,7 @@ git interpret-trailers --in-place --trailer "$TRAILER" "$COMMIT_MSG_FILE"
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir,
 		AgentName:           "Test Agent",
-		TaskID:              "44444444-0000-0000-0000-000000000000",
+		RunID:               "44444444-0000-0000-0000-000000000000",
 		CoAuthoredByEnabled: false,
 	})
 	if err != nil {
@@ -1632,7 +1632,7 @@ func TestRemoveCoAuthoredByHookPreservesUserHook(t *testing.T) {
 		RepoURL:             sourceRepo,
 		WorkDir:             workDir,
 		AgentName:           "Test Agent",
-		TaskID:              "33333333-0000-0000-0000-000000000000",
+		RunID:               "33333333-0000-0000-0000-000000000000",
 		CoAuthoredByEnabled: false,
 	}); err != nil {
 		t.Fatalf("CreateWorktree (disabled) failed: %v", err)

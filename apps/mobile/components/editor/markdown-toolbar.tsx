@@ -1,5 +1,5 @@
 /**
- * Shared keyboard-bar toolbar for any markdown body input (issue
+ * Shared keyboard-bar toolbar for any markdown body input (task
  * description, comment, agent prompt). Linear-mobile range of buttons:
  *
  *   @  ·  list  ·  checkbox  ·  code  ·  quote  ·  image  ·  file

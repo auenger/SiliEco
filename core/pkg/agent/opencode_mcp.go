@@ -71,7 +71,7 @@ type opencodeMCPOAuth struct {
 // value. For now, MCP is the only consumer.
 //
 // Why env-var injection vs writing <workdir>/opencode.json: the task workdir
-// is reused across turns for the same (agent, issue), and the agent itself
+// is reused across turns for the same (agent, task), and the agent itself
 // (or the user) may have written model / tools / permission settings into
 // <workdir>/opencode.json. Writing or removing that file as part of the
 // mcp_config lifecycle would silently overwrite their state. The env-var

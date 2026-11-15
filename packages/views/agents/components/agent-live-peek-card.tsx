@@ -8,11 +8,11 @@ import { useWorkspacePaths } from "@silieco/core/paths";
 import { agentListOptions } from "@silieco/core/workspace/queries";
 import { resolvePublicFileUrl } from "@silieco/core/workspace/avatar-url";
 import {
-  agentTaskSnapshotOptions,
+  agentRunSnapshotOptions,
   useAgentPresenceDetail,
 } from "@silieco/core/agents";
-import { issueDetailOptions } from "@silieco/core/issues";
-import type { AgentTask } from "@silieco/core/types";
+import { taskDetailOptions } from "@silieco/core/tasks";
+import type { AgentRun } from "@silieco/core/types";
 import { AlertTriangle } from "lucide-react";
 import { AppLink } from "../../navigation";
 import { useT, useTimeAgo } from "../../i18n";
@@ -23,7 +23,7 @@ interface AgentLivePeekCardProps {
 }
 
 // Live "peek" card for an agent avatar — shows the three live signals the
-// squad members tab cares about (workload, current issue, last activity).
+// squad members tab cares about (workload, current task, last activity).
 // Companion to AgentProfileCard, which surfaces static identity (description,
 // runtime, skills, owner). Keeping them separate avoids polluting the 23+
 // existing AgentProfileCard call sites with live-only concerns.
@@ -34,7 +34,7 @@ export function AgentLivePeekCard({ agentId }: AgentLivePeekCardProps) {
   const { data: agents = [], isLoading: agentsLoading } = useQuery(
     agentListOptions(wsId),
   );
-  const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
+  const { data: snapshot = [] } = useQuery(agentRunSnapshotOptions(wsId));
   const presence = useAgentPresenceDetail(wsId, agentId);
 
   const agent = agents.find((a) => a.id === agentId);
@@ -59,12 +59,12 @@ export function AgentLivePeekCard({ agentId }: AgentLivePeekCardProps) {
     );
   }
 
-  const agentTasks = snapshot.filter((t) => t.agent_id === agentId);
-  const runningTask = agentTasks.find(
-    (t) => t.status === "running" && !!t.issue_id,
+  const agentRuns = snapshot.filter((t) => t.agent_id === agentId);
+  const runningTask = agentRuns.find(
+    (t) => t.status === "running" && !!t.task_id,
   );
-  const currentIssueId = runningTask?.issue_id ?? null;
-  const lastTerminal = pickLatestTerminal(agentTasks);
+  const currentTaskId = runningTask?.task_id ?? null;
+  const lastTerminal = pickLatestTerminal(agentRuns);
 
   const initials = agent.name
     .split(" ")
@@ -123,15 +123,15 @@ export function AgentLivePeekCard({ agentId }: AgentLivePeekCardProps) {
 
       {/* Meta rows. */}
       <div className="flex flex-col gap-1.5 text-caption">
-        <CurrentIssueRow
+        <CurrentTaskRow
           wsId={wsId}
-          issueId={currentIssueId}
-          label={t(($) => $.live_peek.current_issue_label)}
-          emptyLabel={t(($) => $.live_peek.no_current_issue)}
-          issueHref={(id) => p.issueDetail(id)}
+          taskId={currentTaskId}
+          label={t(($) => $.live_peek.current_task_label)}
+          emptyLabel={t(($) => $.live_peek.no_current_task)}
+          taskHref={(id) => p.taskDetail(id)}
         />
         <LastActivityRow
-          task={lastTerminal}
+          run={lastTerminal}
           label={t(($) => $.live_peek.last_activity_label)}
           emptyLabel={t(($) => $.live_peek.no_recent_activity)}
           failedLabel={t(($) => $.live_peek.failed_indicator)}
@@ -148,9 +148,9 @@ export function AgentLivePeekCard({ agentId }: AgentLivePeekCardProps) {
 // filter exactly: cancelled never reaches this card, and treating it as a
 // terminal outcome here would let an aborted attempt mask the agent's last
 // real result if the endpoint ever started returning it.
-function pickLatestTerminal(tasks: readonly AgentTask[]): AgentTask | null {
-  let best: AgentTask | null = null;
-  for (const t of tasks) {
+function pickLatestTerminal(runs: readonly AgentRun[]): AgentRun | null {
+  let best: AgentRun | null = null;
+  for (const t of runs) {
     if (t.status !== "completed" && t.status !== "failed") {
       continue;
     }
@@ -162,39 +162,39 @@ function pickLatestTerminal(tasks: readonly AgentTask[]): AgentTask | null {
   return best;
 }
 
-function CurrentIssueRow({
+function CurrentTaskRow({
   wsId,
-  issueId,
+  taskId,
   label,
   emptyLabel,
-  issueHref,
+  taskHref,
 }: {
   wsId: string;
-  issueId: string | null;
+  taskId: string | null;
   label: string;
   emptyLabel: string;
-  issueHref: (id: string) => string;
+  taskHref: (id: string) => string;
 }) {
-  // Lazy issue detail — only enabled while the card is mounted AND we have
-  // a running issue id. snapshot already gives us the id; this hook just
+  // Lazy task detail — only enabled while the card is mounted AND we have
+  // a running task id. snapshot already gives us the id; this hook just
   // resolves the human identifier (SILI-123) + title.
-  const { data: issue } = useQuery({
-    ...issueDetailOptions(wsId, issueId ?? ""),
-    enabled: !!issueId,
+  const { data: task } = useQuery({
+    ...taskDetailOptions(wsId, taskId ?? ""),
+    enabled: !!taskId,
   });
 
   return (
     <div className="flex items-center gap-1.5">
       <span className="w-16 shrink-0 text-muted-foreground">{label}</span>
-      {issueId ? (
-        issue ? (
+      {taskId ? (
+        task ? (
           <AppLink
-            href={issueHref(issueId)}
+            href={taskHref(taskId)}
             className="min-w-0 truncate text-brand hover:underline"
-            title={`${issue.identifier} ${issue.title}`}
+            title={`${task.identifier} ${task.title}`}
           >
-            <span className="mr-1 font-mono text-micro">{issue.identifier}</span>
-            <span>{issue.title}</span>
+            <span className="mr-1 font-mono text-micro">{task.identifier}</span>
+            <span>{task.title}</span>
           </AppLink>
         ) : (
           <Skeleton className="h-3 w-24" />
@@ -207,12 +207,12 @@ function CurrentIssueRow({
 }
 
 function LastActivityRow({
-  task,
+  run,
   label,
   emptyLabel,
   failedLabel,
 }: {
-  task: AgentTask | null;
+  run: AgentRun | null;
   label: string;
   emptyLabel: string;
   failedLabel: string;
@@ -221,10 +221,10 @@ function LastActivityRow({
   return (
     <div className="flex items-center gap-1.5">
       <span className="w-16 shrink-0 text-muted-foreground">{label}</span>
-      {task && task.completed_at ? (
+      {run && run.completed_at ? (
         <span className="inline-flex min-w-0 items-center gap-1 truncate">
-          <span className="truncate">{timeAgo(task.completed_at)}</span>
-          {task.status === "failed" && (
+          <span className="truncate">{timeAgo(run.completed_at)}</span>
+          {run.status === "failed" && (
             // Failed terminal state shows here only — workload above stays a
             // clean "what's on the plate now" reading (working/queued/idle),
             // matching the project's deliberate split between current and

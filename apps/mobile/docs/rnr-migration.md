@@ -102,8 +102,8 @@ This tier is where the biggest payoff lives (Lesson 6 in CLAUDE.md catalogues th
 
 | Current sheet | Replacement | Why |
 |---|---|---|
-| `components/issue/comment-action-sheet.tsx` | `ActionSheetIOS.showActionSheetWithOptions` | One-of-N action menu — exactly what ActionSheetIOS is for. Recommended Phase 3 starter (visible deletion, no styling questions). |
-| `components/issue/pickers/due-date-picker-sheet.tsx` | `@react-native-community/datetimepicker` inline picker | Date selection — native API already installed |
+| `components/task/comment-action-sheet.tsx` | `ActionSheetIOS.showActionSheetWithOptions` | One-of-N action menu — exactly what ActionSheetIOS is for. Recommended Phase 3 starter (visible deletion, no styling questions). |
+| `components/task/pickers/due-date-picker-sheet.tsx` | `@react-native-community/datetimepicker` inline picker | Date selection — native API already installed |
 
 **B.2 — replaced by formSheet routes (done)**
 
@@ -123,18 +123,18 @@ paths above. No follow-up needed.
 
 | Current sheet | Why this one stays as a Dialog |
 |---|---|
-| `components/issue/issue-filter-sheet.tsx` | Multiple controls in one sheet (filter form), not a list select |
-| `components/issue/runs-sheet.tsx` | Run history with rows + actions, not a one-of-N |
+| `components/task/task-filter-sheet.tsx` | Multiple controls in one sheet (filter form), not a list select |
+| `components/task/runs-sheet.tsx` | Run history with rows + actions, not a one-of-N |
 | `components/chat/session-sheet.tsx` | TBD — re-inspect when reached; may belong in B.2 |
 | `components/chat/agent-picker-sheet.tsx` | Likely B.2 (`Select`) — re-inspect |
 | `components/project/add-resource-sheet.tsx` | TBD — depends on whether it's single-select or a mini form |
 
 **B.4 — RNR doesn't ship**
 
-Empty. The only entry — `components/issue/emoji-picker-sheet.tsx` — was
+Empty. The only entry — `components/task/emoji-picker-sheet.tsx` — was
 resolved by adopting `rn-emoji-keyboard` and migrating the comment
 reaction flow to a formSheet route at
-`app/(app)/[workspace]/issue/[id]/comment/[commentId]/emoji-picker.tsx`.
+`app/(app)/[workspace]/task/[id]/comment/[commentId]/emoji-picker.tsx`.
 Mobile now ships the full emoji set behind the "More reactions" overflow
 in the per-comment actions sheet, matching web parity.
 

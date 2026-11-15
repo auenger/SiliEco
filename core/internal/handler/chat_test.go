@@ -91,20 +91,20 @@ func TestSendChatMessage_LinksAttachments(t *testing.T) {
 	if sendResp.MessageID == "" {
 		t.Fatal("expected non-empty message_id in send response")
 	}
-	if sendResp.TaskID == "" {
-		t.Fatal("expected non-empty task_id in send response")
+	if sendResp.RunID == "" {
+		t.Fatal("expected non-empty run_id in send response")
 	}
 
-	var messageTaskID string
+	var messageRunID string
 	if err := testPool.QueryRow(
 		context.Background(),
-		`SELECT COALESCE(task_id::text, '') FROM chat_message WHERE id = $1`,
+		`SELECT COALESCE(run_id::text, '') FROM chat_message WHERE id = $1`,
 		sendResp.MessageID,
-	).Scan(&messageTaskID); err != nil {
+	).Scan(&messageRunID); err != nil {
 		t.Fatalf("query chat message task id: %v", err)
 	}
-	if messageTaskID != sendResp.TaskID {
-		t.Fatalf("chat message task_id mismatch: want %s, got %s", sendResp.TaskID, messageTaskID)
+	if messageRunID != sendResp.RunID {
+		t.Fatalf("chat message run_id mismatch: want %s, got %s", sendResp.RunID, messageRunID)
 	}
 
 	// 3. Verify the attachment row now points at the new message.

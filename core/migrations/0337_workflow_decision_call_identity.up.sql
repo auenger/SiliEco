@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY workflow_decision_call_identity ON public.workflow_gate_decision USING btree (workspace_id, execution_id, basis_hash, review_step, review_run_id) NULLS NOT DISTINCT WHERE (execution_id IS NOT NULL);

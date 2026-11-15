@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@silieco/ui/components/ui/button";
 import { Input } from "@silieco/ui/components/ui/input";
-import { PropertyPicker } from "../../../issues/components/pickers";
+import { PropertyPicker } from "../../../tasks/components/pickers";
 import { CHIP_CLASS } from "./chip";
 import { useT } from "../../../i18n";
 

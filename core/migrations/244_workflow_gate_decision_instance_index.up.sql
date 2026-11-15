@@ -1,1 +1,0 @@
-CREATE INDEX CONCURRENTLY workflow_gate_decision_instance_index ON workflow_gate_decision (workflow_instance_id, created_at DESC);

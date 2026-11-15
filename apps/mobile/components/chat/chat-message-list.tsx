@@ -46,11 +46,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import type {
   ChatMessage,
-  ChatPendingTask,
-  TaskMessagePayload,
+  ChatPendingRun,
+  AgentRunMessagePayload,
 } from "@silieco/core/types";
 import type { AgentAvailability } from "@silieco/core/agents";
-import { taskMessagesOptions } from "@/data/queries/chat";
+import { runMessagesOptions } from "@/data/queries/chat";
 import { Text } from "@/components/ui/text";
 import { Markdown } from "@/lib/markdown";
 import { failureReasonLabel } from "@/lib/failure-reason-label";
@@ -63,7 +63,7 @@ import { ChatTimeline } from "./chat-timeline";
 // Reuse the comment thread's standalone attachment list — same design web
 // reuses in chat (AttachmentList). Renders any bound attachment not already
 // referenced inline in the message content, with same-file dedup.
-import { CommentAttachmentList } from "@/components/issue/comment-attachment-list";
+import { CommentAttachmentList } from "@/components/task/comment-attachment-list";
 import { StatusPill } from "./status-pill";
 import {
   Collapsible,
@@ -82,14 +82,14 @@ interface Props {
    *  (or focuses the composer with the text) — empty state stays neutral
    *  about send vs. preview. */
   onPickPrompt: (text: string) => void;
-  /** Server-authoritative pending-task snapshot for the active session.
+  /** Server-authoritative pending-run snapshot for the active session.
    *  Used to render the live timeline + status line as the last item in
    *  the message stream, mirroring web's
    *  `packages/views/chat/components/chat-message-list.tsx` placement. */
-  pendingTask?: ChatPendingTask | null;
-  /** Live timeline rows for the in-flight task. Already fetched by the
+  pendingRun?: ChatPendingRun | null;
+  /** Live timeline rows for the in-flight run. Already fetched by the
    *  parent so this list doesn't have to manage its own subscription. */
-  liveTaskMessages?: TaskMessagePayload[];
+  liveRunMessages?: AgentRunMessagePayload[];
   /** Resolved availability — drives the StatusPill's "Offline" /
    *  "Reconnecting" stages. Pass `undefined` while loading. */
   availability?: AgentAvailability;
@@ -101,8 +101,8 @@ export function ChatMessageList({
   hasSessions,
   agentName,
   onPickPrompt,
-  pendingTask,
-  liveTaskMessages,
+  pendingRun,
+  liveRunMessages,
   availability,
 }: Props) {
   // Top-level selection subscription gates the outer "tap-outside-to-dismiss"
@@ -134,15 +134,15 @@ export function ChatMessageList({
   // message lands. Once chat:done writes the assistant row, AssistantRow's
   // own timeline (read from the same cache entry) owns the render — no
   // double-rendering.
-  const pendingTaskId = pendingTask?.task_id ?? null;
+  const pendingRunId = pendingRun?.run_id ?? null;
   const pendingAlreadyPersisted =
-    !!pendingTaskId &&
+    !!pendingRunId &&
     messages.some(
-      (m) => m.role === "assistant" && m.task_id === pendingTaskId,
+      (m) => m.role === "assistant" && m.run_id === pendingRunId,
     );
-  const showLiveSection = !!pendingTaskId && !pendingAlreadyPersisted;
+  const showLiveSection = !!pendingRunId && !pendingAlreadyPersisted;
   const showLiveTimeline =
-    showLiveSection && (liveTaskMessages?.length ?? 0) > 0;
+    showLiveSection && (liveRunMessages?.length ?? 0) > 0;
 
   return (
     // Outer Pressable owns the "tap anywhere outside the selected bubble
@@ -178,11 +178,11 @@ export function ChatMessageList({
         showLiveSection ? (
           <View style={{ paddingTop: 12 }} className="gap-2">
             {showLiveTimeline ? (
-              <ChatTimeline items={liveTaskMessages ?? []} isStreaming />
+              <ChatTimeline items={liveRunMessages ?? []} isStreaming />
             ) : null}
             <StatusPill
-              pendingTask={pendingTask}
-              taskMessages={liveTaskMessages}
+              pendingRun={pendingRun}
+              runMessages={liveRunMessages}
               availability={availability}
             />
           </View>
@@ -248,7 +248,7 @@ function MessageRow({ message }: { message: ChatMessage }) {
 
   if (isUser) {
     // User bubble: same Markdown pipeline as assistant — `@mention`
-    // serialisation `[SILI-1](mention://issue/<id>)`, inline links, and
+    // serialisation `[SILI-1](mention://task/<id>)`, inline links, and
     // inline code resolve identically to web's
     // `packages/views/chat/components/chat-message-list.tsx` user branch.
     // Width is capped at 80% so the bubble keeps the iMessage-style
@@ -301,7 +301,7 @@ function MessageRow({ message }: { message: ChatMessage }) {
 /**
  * Persisted assistant message. Renders:
  *
- *   - Process-steps fold (from `task-messages` cache; same cache fed by
+ *   - Process-steps fold (from `run-messages` cache; same cache fed by
  *     the live timeline above, so completed runs keep their trace).
  *   - Markdown content (the model's final answer).
  *   - "Replied in Ns" caption when `elapsed_ms` is stamped.
@@ -321,13 +321,13 @@ function AssistantRow({
   isSelecting: boolean;
   longPress: ReturnType<typeof useChatMessageLongPress>;
 }) {
-  // Read the cached timeline if any. `enabled` (in taskMessagesOptions) is
-  // gated on isTaskMessageTaskId — optimistic id prefixes never fetch, so
+  // Read the cached timeline if any. `enabled` (in runMessagesOptions) is
+  // gated on isRunMessageRunId — optimistic id prefixes never fetch, so
   // freshly-sent messages don't spam the API while waiting for the real
-  // task_id to land. Cached cells (after live timeline finished) return
+  // run_id to land. Cached cells (after live timeline finished) return
   // synchronously with no network roundtrip.
   const { data: timeline = [] } = useQuery(
-    taskMessagesOptions(message.task_id),
+    runMessagesOptions(message.run_id),
   );
   // no_response (SILI-4351, mirrors packages/views AssistantMessage): the agent
   // completed this turn without text. Keep the tool timeline and show a notice
@@ -375,7 +375,7 @@ function AssistantRow({
 }
 
 // Persistent caption rendered under the assistant bubble / failure bubble
-// once the server has written `elapsed_ms`. Server computes once at task
+// once the server has written `elapsed_ms`. Server computes once at run
 // completion, so this caption is identical across reloads and clients.
 function ElapsedCaption({
   variant,

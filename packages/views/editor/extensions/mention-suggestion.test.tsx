@@ -2,9 +2,9 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { createRef, type ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { workspaceKeys } from "@silieco/core/workspace/queries";
-import { issueKeys, PAGINATED_STATUSES } from "@silieco/core/issues/queries";
+import { taskKeys, PAGINATED_STATUSES } from "@silieco/core/tasks/queries";
 import { I18nProvider } from "@silieco/core/i18n/react";
-import type { IssueStatus, ListIssuesCache } from "@silieco/core/types";
+import type { TaskStatus, ListTasksCache } from "@silieco/core/types";
 import type { QueryClient } from "@tanstack/react-query";
 import enCommon from "../../locales/en/common.json";
 import enAuth from "../../locales/en/auth.json";
@@ -29,13 +29,13 @@ vi.mock("@silieco/core/platform", () => ({
 }));
 
 // Mock the API so we control search responses + observe calls.
-const searchIssuesMock = vi.fn();
+const searchTasksMock = vi.fn();
 const searchProjectsMock = vi.fn();
 const listFileResourcesMock = vi.fn();
 vi.mock("@silieco/core/api", () => ({
   api: {
-    get searchIssues() {
-      return searchIssuesMock;
+    get searchTasks() {
+      return searchTasksMock;
     },
     get searchProjects() {
       return searchProjectsMock;
@@ -79,11 +79,11 @@ function fakeQc(data: {
     name: string;
     archived_at: string | null;
   }>;
-  issues?: Array<{ id: string; identifier: string; title: string; status: string }>;
+  tasks?: Array<{ id: string; identifier: string; title: string; status: string }>;
 }): QueryClient {
   const map = new Map<string, unknown>();
   map.set(JSON.stringify(workspaceKeys.members("ws-1")), data.members ?? []);
-  // SILI-3963: the mention filter runs through canAssignAgentToIssue, which
+  // SILI-3963: the mention filter runs through canAssignAgentToTask, which
   // reads permission_mode + invocation_targets (not the legacy `visibility`).
   // Fixtures still express intent via `visibility`, so derive the permission
   // fields from it here (public_to + workspace target for "workspace";
@@ -100,14 +100,14 @@ function fakeQc(data: {
   }));
   map.set(JSON.stringify(workspaceKeys.agents("ws-1")), agentsWithPermissions);
   map.set(JSON.stringify(workspaceKeys.squads("ws-1")), data.squads ?? []);
-  const byStatus: ListIssuesCache["byStatus"] = {};
+  const byStatus: ListTasksCache["byStatus"] = {};
   for (const status of PAGINATED_STATUSES) {
-    const bucket = (data.issues ?? []).filter((i) => i.status === status);
-    byStatus[status as IssueStatus] = { issues: bucket as never, total: bucket.length };
+    const bucket = (data.tasks ?? []).filter((i) => i.status === status);
+    byStatus[status as TaskStatus] = { tasks: bucket as never, total: bucket.length };
   }
   map.set(
-    JSON.stringify(issueKeys.list("ws-1")),
-    { byStatus } satisfies ListIssuesCache,
+    JSON.stringify(taskKeys.list("ws-1")),
+    { byStatus } satisfies ListTasksCache,
   );
   return {
     getQueryData: (key: readonly unknown[]) => map.get(JSON.stringify(key)),
@@ -135,7 +135,7 @@ function itemArgs(query: string) {
 
 describe("createMentionSuggestion", () => {
   beforeEach(() => {
-    searchIssuesMock.mockReset();
+    searchTasksMock.mockReset();
     searchProjectsMock.mockReset();
     listFileResourcesMock.mockReset();
     listFileResourcesMock.mockResolvedValue({ files: [], total: 0 });
@@ -144,7 +144,7 @@ describe("createMentionSuggestion", () => {
 
   it("keeps the mention query active across spaces for multi-word search", () => {
     const qc = fakeQc({
-      issues: [
+      tasks: [
         {
           id: "i-login",
           identifier: "SILI-1",
@@ -157,7 +157,7 @@ describe("createMentionSuggestion", () => {
 
     expect(config.allowSpaces).toBe(true);
     expect(config.items!(itemArgs("login redirect"))).toEqual([
-      expect.objectContaining({ id: "i-login", type: "issue" }),
+      expect.objectContaining({ id: "i-login", type: "task" }),
     ]);
   });
 
@@ -175,7 +175,7 @@ describe("createMentionSuggestion", () => {
       ],
     });
     // A pending fetch — would block the result if items() awaited it.
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs("a"));
@@ -187,9 +187,9 @@ describe("createMentionSuggestion", () => {
     expect(items.some((i) => i.type === "agent" && i.label === "Aegis")).toBe(true);
   });
 
-  it("loads server issue matches into the popup when the list cache misses", async () => {
-    searchIssuesMock.mockResolvedValue({
-      issues: [
+  it("loads server task matches into the popup when the list cache misses", async () => {
+    searchTasksMock.mockResolvedValue({
+      tasks: [
         {
           id: "i-1007",
           identifier: "SILI-1007",
@@ -208,7 +208,7 @@ describe("createMentionSuggestion", () => {
       expect(screen.getByText("SILI-1007")).toBeInTheDocument();
     });
     expect(screen.getByText("多 Agent 协作探索")).toBeInTheDocument();
-    expect(searchIssuesMock).toHaveBeenCalledWith(
+    expect(searchTasksMock).toHaveBeenCalledWith(
       expect.objectContaining({
         q: "协作",
         limit: 20,
@@ -217,8 +217,8 @@ describe("createMentionSuggestion", () => {
     );
   });
 
-  it("loads server issue and project matches when project search is enabled", async () => {
-    searchIssuesMock.mockResolvedValue({ issues: [], total: 0 });
+  it("loads server task and project matches when project search is enabled", async () => {
+    searchTasksMock.mockResolvedValue({ tasks: [], total: 0 });
     searchProjectsMock.mockResolvedValue({
       projects: [
         {
@@ -241,14 +241,14 @@ describe("createMentionSuggestion", () => {
     await waitFor(() => {
       expect(screen.getByText("Roadmap")).toBeInTheDocument();
     });
-    expect(searchIssuesMock).toHaveBeenCalledWith(expect.objectContaining({ q: "road", limit: 8 }));
+    expect(searchTasksMock).toHaveBeenCalledWith(expect.objectContaining({ q: "road", limit: 8 }));
     expect(searchProjectsMock).toHaveBeenCalledWith(expect.objectContaining({ q: "road", limit: 8 }));
   });
 
-  it("does not call searchIssues for an empty query", () => {
+  it("does not call searchTasks for an empty query", () => {
     render(<I18nWrapper><MentionList items={[]} query="" command={vi.fn()} /></I18nWrapper>);
 
-    expect(searchIssuesMock).not.toHaveBeenCalled();
+    expect(searchTasksMock).not.toHaveBeenCalled();
     expect(searchProjectsMock).not.toHaveBeenCalled();
   });
 
@@ -262,7 +262,7 @@ describe("createMentionSuggestion", () => {
         download_url: "/api/attachments/file-1/download",
         markdown_url: "http://localhost:8080/api/attachments/file-1/download",
         source_project_title: "Website",
-        source_issue_title: "Landing page",
+        source_task_title: "Landing page",
       }],
       total: 1,
     });
@@ -305,8 +305,8 @@ describe("createMentionSuggestion", () => {
     const command = vi.fn<(item: MentionItem) => void>();
     const ref = createRef<MentionListRef>();
     const items: MentionItem[] = [
-      { id: "i-1", label: "SILI-1", type: "issue" },
-      { id: "i-2", label: "SILI-2", type: "issue" },
+      { id: "i-1", label: "SILI-1", type: "task" },
+      { id: "i-2", label: "SILI-2", type: "task" },
     ];
 
     render(
@@ -329,7 +329,7 @@ describe("createMentionSuggestion", () => {
   it("does not accept on Shift+Tab or modifier+Tab", () => {
     const command = vi.fn<(item: MentionItem) => void>();
     const ref = createRef<MentionListRef>();
-    const items: MentionItem[] = [{ id: "i-1", label: "SILI-1", type: "issue" }];
+    const items: MentionItem[] = [{ id: "i-1", label: "SILI-1", type: "task" }];
 
     render(
       <I18nWrapper>
@@ -358,20 +358,20 @@ describe("createMentionSuggestion", () => {
   });
 
   // SILI-3607: groupItems() re-buckets the list (current → recent → search →
-  // users → issues), so an item that sits LATER in the data array can render
+  // users → tasks), so an item that sits LATER in the data array can render
   // NEAR THE TOP. Selection must follow the rendered order — otherwise the
   // highlighted row and the committed item drift apart and you mention the
-  // neighbour of who you picked. (Issue rows are used because they render
+  // neighbour of who you picked. (Task rows are used because they render
   // without workspace/avatar context; the bug is type-agnostic.)
   it("commits the highlighted row, not its neighbour, when groups reorder the list", () => {
     const command = vi.fn<(item: MentionItem) => void>();
     const ref = createRef<MentionListRef>();
 
-    // Data order is [SILI-2 (issues bucket), SILI-1 (search bucket)], but
+    // Data order is [SILI-2 (tasks bucket), SILI-1 (search bucket)], but
     // groupItems hoists the search row, so the RENDERED order is [SILI-1, SILI-2].
     const items: MentionItem[] = [
-      { id: "i-plain", label: "SILI-2", type: "issue" },
-      { id: "i-search", label: "SILI-1", type: "issue", group: "search" },
+      { id: "i-plain", label: "SILI-2", type: "task" },
+      { id: "i-search", label: "SILI-1", type: "task", group: "search" },
     ];
 
     render(
@@ -390,7 +390,7 @@ describe("createMentionSuggestion", () => {
       });
 
     // First rendered row is the hoisted search result. Enter commits it, not
-    // the issue that sits first in the data array.
+    // the task that sits first in the data array.
     expect(highlightedLabel()).toBe("SILI-1");
     press("Enter");
     expect(command).toHaveBeenCalledTimes(1);
@@ -439,7 +439,7 @@ describe("createMentionSuggestion", () => {
         },
       ],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs("a"));
@@ -470,7 +470,7 @@ describe("createMentionSuggestion", () => {
         },
       ],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs("a"));
@@ -479,35 +479,35 @@ describe("createMentionSuggestion", () => {
     expect(items.some((i) => i.type === "agent" && i.label === "Atlas")).toBe(false);
   });
 
-  it("includes cached issues in the synchronous response", () => {
+  it("includes cached tasks in the synchronous response", () => {
     const qc = fakeQc({
-      issues: [
+      tasks: [
         { id: "i1", identifier: "SILI-1", title: "Login bug", status: "todo" },
         { id: "i2", identifier: "SILI-2", title: "Other", status: "done" },
       ],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs("bug"));
 
     const items = result as MentionItem[];
-    expect(items.some((i) => i.type === "issue" && i.id === "i1")).toBe(true);
+    expect(items.some((i) => i.type === "task" && i.id === "i1")).toBe(true);
   });
 
   it("does not inject current/recent chat context into the normal @ results", () => {
     const qc = fakeQc({
       members: [{ user_id: "u1", name: "Alice", role: "member" }],
-      issues: [{ id: "i1", identifier: "SILI-1", title: "Login bug", status: "todo" }],
+      tasks: [{ id: "i1", identifier: "SILI-1", title: "Login bug", status: "todo" }],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs("")) as MentionItem[];
 
     expect(result.some((item) => item.group === "current" || item.group === "recent")).toBe(false);
     expect(result.map((item) => `${item.type}:${item.id}`)).toContain("member:u1");
-    expect(result.map((item) => `${item.type}:${item.id}`)).toContain("issue:i1");
+    expect(result.map((item) => `${item.type}:${item.id}`)).toContain("task:i1");
   });
 
 
@@ -515,20 +515,20 @@ describe("createMentionSuggestion", () => {
     const qc = fakeQc({
       members: [{ user_id: "u1", name: "Alice", role: "member" }],
       agents: [{ id: "a1", name: "Aegis", archived_at: null, visibility: "workspace", owner_id: null }],
-      issues: [{ id: "i-cache", identifier: "SILI-9", title: "Cached", status: "todo" }],
+      tasks: [{ id: "i-cache", identifier: "SILI-9", title: "Cached", status: "todo" }],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc, {
       mode: "context",
       getContextItems: () => [
-        { id: "i1", label: "SILI-1", type: "issue", description: "Alpha issue", status: "todo", group: "current" },
+        { id: "i1", label: "SILI-1", type: "task", description: "Alpha task", status: "todo", group: "current" },
         { id: "p1", label: "Roadmap", type: "project", description: "Q3", group: "recent" },
       ],
     });
     const result = config.items!(itemArgs("")) as MentionItem[];
 
-    expect(result.map((item) => `${item.type}:${item.id}`)).toEqual(["issue:i1", "project:p1"]);
+    expect(result.map((item) => `${item.type}:${item.id}`)).toEqual(["task:i1", "project:p1"]);
     expect(result.some((item) => item.type === "member" || item.type === "agent")).toBe(false);
   });
 
@@ -536,20 +536,20 @@ describe("createMentionSuggestion", () => {
     const qc = fakeQc({
       members: [{ user_id: "u1", name: "Alice", role: "member" }],
       agents: [{ id: "a1", name: "Aegis", archived_at: null, visibility: "workspace", owner_id: null }],
-      issues: [{ id: "i-cache", identifier: "SILI-9", title: "Cached", status: "todo" }],
+      tasks: [{ id: "i-cache", identifier: "SILI-9", title: "Cached", status: "todo" }],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc, {
       mode: "context",
       getContextItems: () => [
-        { id: "i1", label: "SILI-1", type: "issue", description: "Alpha issue", status: "todo", group: "current" },
+        { id: "i1", label: "SILI-1", type: "task", description: "Alpha task", status: "todo", group: "current" },
         { id: "p1", label: "Roadmap", type: "project", description: "Q3", group: "recent" },
       ],
     });
     const result = config.items!(itemArgs("a")) as MentionItem[];
 
-    expect(result.map((item) => `${item.type}:${item.id}`).slice(0, 2)).toEqual(["issue:i1", "project:p1"]);
+    expect(result.map((item) => `${item.type}:${item.id}`).slice(0, 2)).toEqual(["task:i1", "project:p1"]);
     expect(result.some((item) => item.type === "member" && item.label === "Alice")).toBe(true);
     expect(result.some((item) => item.type === "agent" && item.label === "Aegis")).toBe(true);
   });
@@ -559,7 +559,7 @@ describe("createMentionSuggestion", () => {
       <I18nWrapper>
         <MentionList
           items={[
-            { id: "i1", label: "SILI-1", type: "issue", description: "Login bug", group: "current" },
+            { id: "i1", label: "SILI-1", type: "task", description: "Login bug", group: "current" },
             { id: "p1", label: "Roadmap", type: "project", description: "Q3", group: "recent" },
           ]}
           query=""
@@ -583,7 +583,7 @@ describe("createMentionSuggestion", () => {
         { id: "s3", name: "Archived Squad", archived_at: "2026-01-01T00:00:00Z" },
       ],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs(""));
@@ -600,7 +600,7 @@ describe("createMentionSuggestion", () => {
       members: [{ user_id: "u1", name: "Alice", role: "member" }],
       // squads not provided — simulates cache miss
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs(""));
@@ -616,7 +616,7 @@ describe("createMentionSuggestion", () => {
         { user_id: "u2", name: "李云龙", role: "member" },
       ],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs("liyunlong"));
@@ -634,7 +634,7 @@ describe("createMentionSuggestion", () => {
         { user_id: "u3", name: "张大彪", role: "member" },
       ],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs("lyl"));
@@ -651,7 +651,7 @@ describe("createMentionSuggestion", () => {
         { id: "a1", name: "魏和尚", archived_at: null, visibility: "workspace", owner_id: null },
       ],
     });
-    searchIssuesMock.mockReturnValue(new Promise(() => {}));
+    searchTasksMock.mockReturnValue(new Promise(() => {}));
 
     const config = createMentionSuggestion(qc);
     const result = config.items!(itemArgs("whs"));

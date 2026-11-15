@@ -17,7 +17,7 @@ vi.mock("@silieco/core/workflows",()=>({
 }));
 
 const run={id:"r",workspace_id:"ws",revision:1,status:"active",archived_at:null,current_stage_id:"s",stages:[{id:"s",execution_mode:"agent",gate:{type:"human",decider:"u"}}]} as unknown as WorkflowInstance;
-const basis=(hash:string)=>({execution_id:"e",result_revision:1,basis_hash:hash,issues:[{id:"i",title:"Validated delivery",status:"done",updated_at:"now"}],calls:[{id:"c",issue_id:"i",agent_id:"a",status:"completed"}]});
+const basis=(hash:string)=>({execution_id:"e",result_revision:1,basis_hash:hash,tasks:[{id:"i",title:"Validated delivery",status:"done",updated_at:"now"}],calls:[{id:"c",task_id:"i",agent_id:"a",status:"completed"}]});
 
 function setup(instance=run){
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});

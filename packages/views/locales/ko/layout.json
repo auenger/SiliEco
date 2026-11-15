@@ -2,8 +2,8 @@
   "nav": {
     "inbox": "인박스",
     "chat": "채팅",
-    "my_issues": "내 Task",
-    "issues": "Task",
+    "my_tasks": "내 Task",
+    "tasks": "Task",
     "projects": "프로젝트",
     "resources": "리소스",
     "workflows": "워크플로",
@@ -16,7 +16,7 @@
     "settings": "설정"
   },
   "tab": {
-    "issue": "Task",
+    "task": "Task",
     "project": "프로젝트",
     "autopilot": "오토파일럿",
     "agent": "에이전트",
@@ -47,8 +47,8 @@
     "invitation_join": "참가",
     "invitation_decline": "거절",
     "log_out": "로그아웃",
-    "new_issue": "새 Task",
-    "new_issue_shortcut": "C",
+    "new_task": "새 Task",
+    "new_task_shortcut": "C",
     "pinned_label": "고정됨",
     "workspace_group": "워크스페이스",
     "configure_group": "설정",

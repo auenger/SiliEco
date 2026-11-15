@@ -13,10 +13,10 @@ const execution = {id:"execution",stage_id:"stage",status:"awaiting_review",resu
 function view(instance=run) {return <I18nProvider locale="en" resources={{en:{workflows:enWorkflows}}}><AgentReviewRecoveryControl instance={instance} execution={execution}/></I18nProvider>;}
 function setup() {const result=render(view());fireEvent.click(screen.getByRole("button",{name:"Recover review"}));return result;}
 function confirm() {fireEvent.change(screen.getByRole("textbox"),{target:{value:"Connection restored"}});fireEvent.click(screen.getByRole("checkbox"));}
-beforeEach(()=>{state.recover.mockReset();state.recover.mockResolvedValue({task_id:"new"});state.data={execution_id:"execution",phase:"failed",request_id:"request",reviewer_id:"agent",result_revision:2,basis_hash:"a".repeat(64),call:{id:"failed",status:"failed",failure_reason:"agent_error.provider_network",attempt:3,max_attempts:3},can_recover:true,recovery_attempts:3,retry_at:null};});
+beforeEach(()=>{state.recover.mockReset();state.recover.mockResolvedValue({run_id:"new"});state.data={execution_id:"execution",phase:"failed",request_id:"request",reviewer_id:"agent",result_revision:2,basis_hash:"a".repeat(64),call:{id:"failed",status:"failed",failure_reason:"agent_error.provider_network",attempt:3,max_attempts:3},can_recover:true,recovery_attempts:3,retry_at:null};});
 it("requires a reason and confirmation before recovering the reviewed call",async()=>{
  setup();expect(screen.getByRole("dialog")).toHaveClass("sm:max-w-2xl");expect(screen.getByRole("button",{name:"Start review again"})).toBeDisabled();confirm();fireEvent.click(screen.getByRole("button",{name:"Start review again"}));
- await waitFor(()=>expect(state.recover).toHaveBeenCalledExactlyOnceWith({instanceId:"run",executionId:"execution",requestId:"request",data:{failed_task_id:"failed",expected_result_revision:2,expected_basis_hash:"a".repeat(64),reason:"Connection restored"}}));
+ await waitFor(()=>expect(state.recover).toHaveBeenCalledExactlyOnceWith({instanceId:"run",executionId:"execution",requestId:"request",data:{failed_run_id:"failed",expected_result_revision:2,expected_basis_hash:"a".repeat(64),reason:"Connection restored"}}));
  await waitFor(()=>expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 });
 it("locks a reviewed snapshot when a new call arrives",()=>{

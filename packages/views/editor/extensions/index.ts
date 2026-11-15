@@ -41,9 +41,9 @@ import { escapeMarkdownLabel } from "../utils/escape-markdown-label";
 import { BaseMentionExtension } from "./mention-extension";
 import { createMentionSuggestion, type MentionItem } from "./mention-suggestion";
 import {
-  createIssueIdentifierAutolinkExtension,
-  type IssueIdentifierResolver,
-} from "./issue-identifier-autolink";
+  createTaskIdentifierAutolinkExtension,
+  type TaskIdentifierResolver,
+} from "./task-identifier-autolink";
 import { SlashCommandExtension } from "./slash-command-extension";
 import { createSlashCommandSuggestion, createBuiltinCommandSuggestion } from "./slash-command-suggestion";
 import { SuggestionTriggerArmingExtension } from "./suggestion-trigger-arming";
@@ -173,17 +173,17 @@ export interface EditorExtensionsOptions {
   /**
    * Which `/` menu to attach when enableSlashCommands is true:
    * - "skill" (default) — the chat picker listing the active agent's skills.
-   * - "command" — the fixed built-in command menu (issue comments), e.g. /note.
+   * - "command" — the fixed built-in command menu (task comments), e.g. /note.
    */
   slashCommandMode?: "skill" | "command";
   /**
-   * Resolver for Linear-style bare issue-identifier autolinking. When present
+   * Resolver for Linear-style bare task-identifier autolinking. When present
    * (and mentions are enabled), typing a boundary after `SILI-123` or pasting
-   * text with identifiers resolves them and swaps in real issue mentions. A
+   * text with identifiers resolves them and swaps in real task mentions. A
    * ref so the editor is created once while the resolver reads live workspace
    * context; the setup layer owns React Query + workspace access.
    */
-  resolveIssueIdentifierRef?: RefObject<IssueIdentifierResolver | undefined>;
+  resolveTaskIdentifierRef?: RefObject<TaskIdentifierResolver | undefined>;
 }
 
 export function createEditorExtensions(
@@ -261,13 +261,13 @@ export function createEditorExtensions(
             }) }
           : {}),
     }),
-    // Linear-style bare identifier → issue mention. Attached only when a
+    // Linear-style bare identifier → task mention. Attached only when a
     // resolver is provided AND mention creation is enabled (an editor that
     // suppresses new mentions should not synthesise them from identifiers).
-    ...(!options.disableMentions && options.resolveIssueIdentifierRef
+    ...(!options.disableMentions && options.resolveTaskIdentifierRef
       ? [
-          createIssueIdentifierAutolinkExtension({
-            resolveRef: options.resolveIssueIdentifierRef,
+          createTaskIdentifierAutolinkExtension({
+            resolveRef: options.resolveTaskIdentifierRef,
           }),
         ]
       : []),

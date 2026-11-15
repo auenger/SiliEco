@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { inboxKeys } from "./queries";
-import type { InboxItem, IssueStatus } from "../types";
+import type { InboxItem, TaskStatus } from "../types";
 
 export function onInboxNew(
   qc: QueryClient,
@@ -10,53 +10,53 @@ export function onInboxNew(
   // Use invalidateQueries instead of setQueryData — triggers a refetch that
   // reliably notifies all observers. The inbox list is small so this is cheap.
   //
-  // Both lists: a new notification on an ARCHIVED issue puts that issue back in
+  // Both lists: a new notification on an ARCHIVED task puts that task back in
   // the main inbox, which means it must also leave the archived list. The
-  // server owns that split (ListArchivedInboxItems excludes issues with an
+  // server owns that split (ListArchivedInboxItems excludes tasks with an
   // active row), so refetching both is what keeps them mutually exclusive.
   qc.invalidateQueries({ queryKey: inboxKeys.all(wsId) });
 }
 
-export function patchInboxIssueStatus(
+export function patchInboxTaskStatus(
   qc: QueryClient,
   wsId: string,
-  issueId: string,
-  status: IssueStatus,
+  taskId: string,
+  status: TaskStatus,
 ) {
   const patch = (old: InboxItem[] | undefined) =>
-    old?.map((i) => (i.issue_id === issueId ? { ...i, issue_status: status } : i));
+    old?.map((i) => (i.task_id === taskId ? { ...i, task_status: status } : i));
   qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), patch);
   // Archived rows render the same status icon, so they need the same patch.
   qc.setQueryData<InboxItem[]>(inboxKeys.archived(wsId), patch);
 }
 
-export function onInboxIssueStatusChanged(
+export function onInboxTaskStatusChanged(
   qc: QueryClient,
   wsId: string,
-  issueId: string,
-  status: IssueStatus,
+  taskId: string,
+  status: TaskStatus,
 ) {
-  patchInboxIssueStatus(qc, wsId, issueId, status);
+  patchInboxTaskStatus(qc, wsId, taskId, status);
 }
 
-// Mirrors the DB-level ON DELETE CASCADE on inbox_item.issue_id: when an issue
+// Mirrors the DB-level ON DELETE CASCADE on inbox_item.task_id: when an task
 // is deleted, all inbox items that referenced it are gone server-side, so drop
 // them from the cache too — from the archived list as well, which holds rows
-// for the same issues.
-export function onInboxIssueDeleted(
+// for the same tasks.
+export function onInboxTaskDeleted(
   qc: QueryClient,
   wsId: string,
-  issueId: string,
+  taskId: string,
 ) {
   const drop = (old: InboxItem[] | undefined) =>
-    old?.filter((i) => i.issue_id !== issueId);
+    old?.filter((i) => i.task_id !== taskId);
   qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), drop);
   qc.setQueryData<InboxItem[]>(inboxKeys.archived(wsId), drop);
 }
 
 // Refresh both the main and archived lists. Every inbox event can move an item
 // across that boundary (archive, unarchive, or a new notification reviving an
-// archived issue), and the split is decided server-side, so the two are always
+// archived task), and the split is decided server-side, so the two are always
 // invalidated together.
 export function onInboxInvalidate(qc: QueryClient, wsId: string) {
   qc.invalidateQueries({ queryKey: inboxKeys.all(wsId) });

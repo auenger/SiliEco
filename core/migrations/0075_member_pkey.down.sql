@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.member_pkey;

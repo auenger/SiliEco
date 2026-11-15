@@ -6,20 +6,20 @@ import (
 	"testing"
 )
 
-// TestPrepareManagedIssueEnvWritesProvenance verifies Prepare drops the
-// reuse-eligibility marker for a normal (non-local) issue env, carrying the
-// owning workspace/issue/agent. This is the artifact shouldReusePriorWorkdir
+// TestPrepareManagedTaskEnvWritesProvenance verifies Prepare drops the
+// reuse-eligibility marker for a normal (non-local) task env, carrying the
+// owning workspace/task/agent. This is the artifact shouldReusePriorWorkdir
 // keys off so a follow-up claimed before .gc_meta.json is written can still
 // prove the workdir is a safe reuse target (SILI-4886).
-func TestPrepareManagedIssueEnvWritesProvenance(t *testing.T) {
+func TestPrepareManagedTaskEnvWritesProvenance(t *testing.T) {
 	root := t.TempDir()
 	env, err := Prepare(PrepareParams{
 		WorkspacesRoot: root,
 		WorkspaceID:    "ws-prov-001",
-		TaskID:         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+		RunID:          "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
 		AgentName:      "Prov Agent",
-		Task: TaskContextForEnv{
-			IssueID: "issue-prov-1",
+		AgentRun: RunContextForEnv{
+			TaskID:  "task-prov-1",
 			AgentID: "agent-prov-1",
 		},
 	}, testLogger())
@@ -35,7 +35,7 @@ func TestPrepareManagedIssueEnvWritesProvenance(t *testing.T) {
 	if prov.ManagedBy != ManagedEnvProvenanceManagedBy {
 		t.Fatalf("managed_by = %q, want %q", prov.ManagedBy, ManagedEnvProvenanceManagedBy)
 	}
-	if prov.WorkspaceID != "ws-prov-001" || prov.IssueID != "issue-prov-1" || prov.AgentID != "agent-prov-1" {
+	if prov.WorkspaceID != "ws-prov-001" || prov.TaskID != "task-prov-1" || prov.AgentID != "agent-prov-1" {
 		t.Fatalf("provenance owner mismatch: %+v", prov)
 	}
 }
@@ -50,11 +50,11 @@ func TestPrepareLocalDirectoryWritesNoProvenance(t *testing.T) {
 	env, err := Prepare(PrepareParams{
 		WorkspacesRoot: root,
 		WorkspaceID:    "ws-prov-local",
-		TaskID:         "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+		RunID:          "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
 		AgentName:      "Local Agent",
 		LocalWorkDir:   localDir,
-		Task: TaskContextForEnv{
-			IssueID: "issue-prov-local",
+		AgentRun: RunContextForEnv{
+			TaskID:  "task-prov-local",
 			AgentID: "agent-prov-local",
 		},
 	}, testLogger())
@@ -73,15 +73,15 @@ func TestPrepareLocalDirectoryWritesNoProvenance(t *testing.T) {
 }
 
 // TestPrepareManagedChatEnvWritesProvenance confirms chat reuse has the same
-// ownership proof as issue reuse while remaining scoped to its conversation.
+// ownership proof as task reuse while remaining scoped to its conversation.
 func TestPrepareManagedChatEnvWritesProvenance(t *testing.T) {
 	root := t.TempDir()
 	env, err := Prepare(PrepareParams{
 		WorkspacesRoot: root,
 		WorkspaceID:    "ws-prov-chat",
-		TaskID:         "cccccccc-dddd-eeee-ffff-000000000000",
+		RunID:          "cccccccc-dddd-eeee-ffff-000000000000",
 		AgentName:      "Chat Agent",
-		Task: TaskContextForEnv{
+		AgentRun: RunContextForEnv{
 			ChatSessionID: "chat-1",
 			AgentID:       "agent-chat",
 		},
@@ -95,7 +95,7 @@ func TestPrepareManagedChatEnvWritesProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read chat managed env provenance: %v", err)
 	}
-	if prov.WorkspaceID != "ws-prov-chat" || prov.ChatSessionID != "chat-1" || prov.AgentID != "agent-chat" || prov.IssueID != "" {
+	if prov.WorkspaceID != "ws-prov-chat" || prov.ChatSessionID != "chat-1" || prov.AgentID != "agent-chat" || prov.TaskID != "" {
 		t.Fatalf("chat provenance owner mismatch: %+v", prov)
 	}
 }

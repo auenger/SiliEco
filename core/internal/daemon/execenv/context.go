@@ -16,16 +16,16 @@ import (
 // TaskContextMarkerRelPath is a non-secret marker the daemon writes under the
 // task workdir. The CLI uses it as a fallback daemon-task signal when a child
 // sandbox strips all SILIECO_* env vars before invoking `silieco`.
-const TaskContextMarkerRelPath = ".silieco/daemon_task_context.json"
+const RunContextMarkerRelPath = ".silieco/daemon_task_context.json"
 
 // TaskContextMarkerManagedBy is the marker discriminator the CLI checks before
 // treating TaskContextMarkerRelPath as daemon-owned.
-const TaskContextMarkerManagedBy = "silieco-daemon-task"
+const RunContextMarkerManagedBy = "silieco-daemon-task"
 
-type taskContextMarkerFile struct {
+type runContextMarkerFile struct {
 	ManagedBy     string `json:"managed_by"`
 	AgentID       string `json:"agent_id,omitempty"`
-	IssueID       string `json:"issue_id,omitempty"`
+	TaskID        string `json:"task_id,omitempty"`
 	ChatSessionID string `json:"chat_session_id,omitempty"`
 }
 
@@ -54,11 +54,11 @@ func EnsureWorkspacesRootMarker(workspacesRoot string) error {
 	if strings.TrimSpace(workspacesRoot) == "" {
 		return errors.New("execenv: workspaces root is required")
 	}
-	path := filepath.Join(workspacesRoot, TaskContextMarkerRelPath)
+	path := filepath.Join(workspacesRoot, RunContextMarkerRelPath)
 	if existing, err := os.ReadFile(path); err == nil {
-		var marker taskContextMarkerFile
+		var marker runContextMarkerFile
 		if json.Unmarshal(existing, &marker) == nil {
-			if marker.ManagedBy == TaskContextMarkerManagedBy {
+			if marker.ManagedBy == RunContextMarkerManagedBy {
 				return nil
 			}
 			// Parseable but owned by something else: never clobber it.
@@ -71,7 +71,7 @@ func EnsureWorkspacesRootMarker(workspacesRoot string) error {
 		// can safely overwrite; surface it. Callers degrade non-fatally.
 		return fmt.Errorf("read workspaces root marker %s: %w", path, err)
 	}
-	payload := taskContextMarkerFile{ManagedBy: TaskContextMarkerManagedBy}
+	payload := runContextMarkerFile{ManagedBy: RunContextMarkerManagedBy}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal workspaces root marker: %w", err)
@@ -117,7 +117,7 @@ func writeWorkspacesRootMarkerAtomic(path string, data []byte) error {
 	return nil
 }
 
-// writeContextFiles renders and writes .agent_context/issue_context.md and
+// writeContextFiles renders and writes .agent_context/task_context.md and
 // skills into the appropriate provider-native location.
 //
 // Claude:      skills → {workDir}/.claude/skills/{name}/SKILL.md  (native discovery)
@@ -142,8 +142,8 @@ func writeWorkspacesRootMarkerAtomic(path string, data []byte) error {
 // state for local_directory tasks. Callers that don't need cleanup —
 // cloud-mode tasks whose envRoot is wiped wholesale by the GC loop — may
 // pass nil to skip the bookkeeping entirely.
-func writeContextFiles(workDir, provider string, ctx TaskContextForEnv, manifest *sidecarManifest) error {
-	if err := writeTaskContextMarker(workDir, ctx, manifest); err != nil {
+func writeContextFiles(workDir, provider string, ctx RunContextForEnv, manifest *sidecarManifest) error {
+	if err := writeRunContextMarker(workDir, ctx, manifest); err != nil {
 		return err
 	}
 
@@ -152,11 +152,11 @@ func writeContextFiles(workDir, provider string, ctx TaskContextForEnv, manifest
 		return fmt.Errorf("create .agent_context dir: %w", err)
 	}
 
-	content := renderIssueContext(provider, ctx)
-	path := filepath.Join(contextDir, "issue_context.md")
+	content := renderTaskContext(provider, ctx)
+	path := filepath.Join(contextDir, "task_context.md")
 	if err := recordWriteFile(path, []byte(content), 0o644, manifest); err != nil {
 		// A pre-existing path means the user already owns
-		// .agent_context/issue_context.md — either they created it
+		// .agent_context/task_context.md — either they created it
 		// themselves or it survived from a crashed prior run we can't
 		// safely distinguish from intentional content. Refusing the
 		// write is the correct call: the runtime brief (CLAUDE.md /
@@ -164,7 +164,7 @@ func writeContextFiles(workDir, provider string, ctx TaskContextForEnv, manifest
 		// would, so the agent runs fine without the sidecar copy.
 		// Anything else is a real failure.
 		if !errors.Is(err, errPathPreExists) {
-			return fmt.Errorf("write issue_context.md: %w", err)
+			return fmt.Errorf("write task_context.md: %w", err)
 		}
 	}
 
@@ -199,33 +199,33 @@ func writeContextFiles(workDir, provider string, ctx TaskContextForEnv, manifest
 	return nil
 }
 
-func writeTaskContextMarker(workDir string, ctx TaskContextForEnv, manifest *sidecarManifest) error {
-	dir := filepath.Dir(filepath.Join(workDir, TaskContextMarkerRelPath))
+func writeRunContextMarker(workDir string, ctx RunContextForEnv, manifest *sidecarManifest) error {
+	dir := filepath.Dir(filepath.Join(workDir, RunContextMarkerRelPath))
 	if err := recordMkdirAll(dir, 0o755, manifest); err != nil {
 		return fmt.Errorf("create .silieco dir: %w", err)
 	}
 	// The sidecar manifest removes this marker on normal local_directory
 	// cleanup. If a crash leaves it behind, the CLI intentionally treats it
 	// as daemon context and fails closed instead of using a user PAT.
-	payload := taskContextMarkerFile{
-		ManagedBy:     TaskContextMarkerManagedBy,
+	payload := runContextMarkerFile{
+		ManagedBy:     RunContextMarkerManagedBy,
 		AgentID:       ctx.AgentID,
-		IssueID:       ctx.IssueID,
+		TaskID:        ctx.TaskID,
 		ChatSessionID: ctx.ChatSessionID,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal task context marker: %w", err)
 	}
-	if err := recordWriteFile(filepath.Join(workDir, TaskContextMarkerRelPath), data, 0o644, manifest); err != nil {
+	if err := recordWriteFile(filepath.Join(workDir, RunContextMarkerRelPath), data, 0o644, manifest); err != nil {
 		if errors.Is(err, errPathPreExists) {
-			path := filepath.Join(workDir, TaskContextMarkerRelPath)
+			path := filepath.Join(workDir, RunContextMarkerRelPath)
 			existing, readErr := os.ReadFile(path)
 			if readErr != nil {
 				return fmt.Errorf("read existing task context marker: %w", readErr)
 			}
-			var marker taskContextMarkerFile
-			if json.Unmarshal(existing, &marker) != nil || marker.ManagedBy != TaskContextMarkerManagedBy {
+			var marker runContextMarkerFile
+			if json.Unmarshal(existing, &marker) != nil || marker.ManagedBy != RunContextMarkerManagedBy {
 				return fmt.Errorf("write task context marker: %w", err)
 			}
 			if writeErr := os.WriteFile(path, data, 0o644); writeErr != nil {
@@ -280,7 +280,7 @@ func (p ProjectResourceForEnv) MarshalJSON() ([]byte, error) {
 // manifest, when non-nil, is populated with the .silieco/project chain
 // of created directories and the resources.json file so CleanupSidecars
 // can undo them on local_directory teardown.
-func writeProjectResources(workDir string, ctx TaskContextForEnv, manifest *sidecarManifest) error {
+func writeProjectResources(workDir string, ctx RunContextForEnv, manifest *sidecarManifest) error {
 	if ctx.ProjectID == "" && len(ctx.ProjectResources) == 0 {
 		return nil
 	}
@@ -605,7 +605,7 @@ func sanitizeSkillName(name string) string {
 //
 // When a Silieco skill's natural slug collides with a user-installed
 // skill at the same path, we allocate a collision-free sibling slug
-// (e.g. `issue-review-silieco`) and write there instead. Provider-native
+// (e.g. `task-review-silieco`) and write there instead. Provider-native
 // discovery still picks it up because every subdir under skillsDir is a
 // distinct skill; the user's original directory stays bit-for-bit
 // intact. Without this fallback writeSkillFiles would have to either
@@ -667,8 +667,8 @@ func writeSkillFiles(skillsDir string, skills []SkillContextForEnv, manifest *si
 	return nil
 }
 
-// renderIssueContext builds the markdown content for issue_context.md.
-func renderIssueContext(provider string, ctx TaskContextForEnv) string {
+// renderTaskContext builds the markdown content for task_context.md.
+func renderTaskContext(provider string, ctx RunContextForEnv) string {
 	if ctx.AutopilotRunID != "" {
 		return renderAutopilotContext(ctx)
 	}
@@ -679,7 +679,7 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 	var b strings.Builder
 
 	b.WriteString("# Task Assignment\n\n")
-	fmt.Fprintf(&b, "**Issue ID:** %s\n\n", ctx.IssueID)
+	fmt.Fprintf(&b, "**Task ID:** %s\n\n", ctx.TaskID)
 
 	if ctx.TriggerCommentID != "" {
 		b.WriteString("**Trigger:** Comment Reply\n")
@@ -692,7 +692,7 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 	// this run. Distinct from a comment — there is no thread to reply to.
 	if ctx.HandoffNote != "" {
 		b.WriteString("## Handoff Note\n\n")
-		b.WriteString("The person who assigned this issue left this instruction for the run. Treat it as scope guidance and follow it before doing anything broader:\n\n")
+		b.WriteString("The person who assigned this task left this instruction for the run. Treat it as scope guidance and follow it before doing anything broader:\n\n")
 		fmt.Fprintf(&b, "> %s\n\n", ctx.HandoffNote)
 	}
 	if ctx.WorkflowStageName != "" {
@@ -737,7 +737,7 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 	}
 
 	b.WriteString("## Quick Start\n\n")
-	fmt.Fprintf(&b, "Run `silieco issue get %s --output json` to fetch the full issue details.\n\n", ctx.IssueID)
+	fmt.Fprintf(&b, "Run `silieco task get %s --output json` to fetch the full task details.\n\n", ctx.TaskID)
 
 	skills := modelVisibleSkills(ctx.AgentSkills)
 	if len(skills) > 0 {
@@ -752,11 +752,11 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 	return b.String()
 }
 
-// renderQuickCreateContext renders issue_context.md for quick-create tasks.
+// renderQuickCreateContext renders task_context.md for quick-create tasks.
 // This file carries only task data (user input, skills). Behavioral rules
 // and guardrails live in AGENTS.md (runtime config) and the per-turn prompt
 // to avoid redundancy and conflicting instructions.
-func renderQuickCreateContext(ctx TaskContextForEnv) string {
+func renderQuickCreateContext(ctx RunContextForEnv) string {
 	var b strings.Builder
 	b.WriteString("# Quick Create\n\n")
 	b.WriteString("**Trigger:** Quick-create modal\n\n")
@@ -775,7 +775,7 @@ func renderQuickCreateContext(ctx TaskContextForEnv) string {
 	return b.String()
 }
 
-func renderAutopilotContext(ctx TaskContextForEnv) string {
+func renderAutopilotContext(ctx RunContextForEnv) string {
 	var b strings.Builder
 
 	b.WriteString("# Autopilot Run\n\n")
@@ -794,7 +794,7 @@ func renderAutopilotContext(ctx TaskContextForEnv) string {
 	}
 
 	b.WriteString("## Quick Start\n\n")
-	b.WriteString("This is a run-only autopilot task with no assigned issue. Do not run `silieco issue get` unless the autopilot instructions explicitly ask you to create or update an issue.\n\n")
+	b.WriteString("This is a run-only autopilot task with no assigned task. Do not run `silieco task get` unless the autopilot instructions explicitly ask you to create or update an task.\n\n")
 	if ctx.AutopilotID != "" {
 		fmt.Fprintf(&b, "Run `silieco autopilot get %s --output json` if you need the full autopilot configuration.\n\n", ctx.AutopilotID)
 	}

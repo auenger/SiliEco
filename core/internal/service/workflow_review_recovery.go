@@ -18,17 +18,17 @@ import (
 const ManualReviewRecoveryAttempts int32 = 3
 
 type RecoverWorkflowAgentReviewParams struct {
-	WorkspaceID, InstanceID, ExecutionID, RequestID, FailedTaskID, ActorID pgtype.UUID
-	ExpectedResultRevision                                                 int32
-	ExpectedBasisHash                                                      string
-	Reason                                                                 string
+	WorkspaceID, InstanceID, ExecutionID, RequestID, FailedRunID, ActorID pgtype.UUID
+	ExpectedResultRevision                                                int32
+	ExpectedBasisHash                                                     string
+	Reason                                                                string
 }
 
 // RecoverAgentReview permits the Run initiator to recover a failed reviewer
 // after automatic recovery is unavailable. It never reuses an old decision.
 func (s *WorkflowExecutionService) RecoverAgentReview(ctx context.Context, p RecoverWorkflowAgentReviewParams) (db.WorkflowReviewRecovery, error) {
 	empty := db.WorkflowReviewRecovery{}
-	if s.TaskService == nil || !p.ActorID.Valid || !p.FailedTaskID.Valid || p.ExpectedResultRevision < 1 || len(p.ExpectedBasisHash) != 64 || strings.TrimSpace(p.Reason) == "" || len(p.Reason) > 4000 {
+	if s.AgentRunService == nil || !p.ActorID.Valid || !p.FailedRunID.Valid || p.ExpectedResultRevision < 1 || len(p.ExpectedBasisHash) != 64 || strings.TrimSpace(p.Reason) == "" || len(p.Reason) > 4000 {
 		return empty, ErrWorkflowExecutionConflict
 	}
 	if _, err := hex.DecodeString(p.ExpectedBasisHash); err != nil {
@@ -48,7 +48,7 @@ func (s *WorkflowExecutionService) RecoverAgentReview(ctx context.Context, p Rec
 	if run.CreatedBy != p.ActorID {
 		return empty, ErrWorkflowReviewAccess
 	}
-	prior, priorErr := s.Queries.GetWorkflowReviewRecoveryByFailedCall(ctx, db.GetWorkflowReviewRecoveryByFailedCallParams{WorkspaceID: p.WorkspaceID, FailedTaskID: p.FailedTaskID})
+	prior, priorErr := s.Queries.GetWorkflowReviewRecoveryByFailedCall(ctx, db.GetWorkflowReviewRecoveryByFailedCallParams{WorkspaceID: p.WorkspaceID, FailedRunID: p.FailedRunID})
 	if priorErr != nil && !errors.Is(priorErr, pgx.ErrNoRows) {
 		return empty, priorErr
 	}
@@ -62,11 +62,11 @@ func (s *WorkflowExecutionService) RecoverAgentReview(ctx context.Context, p Rec
 		if reviewer.ArchivedAt.Valid || !reviewer.RuntimeID.Valid {
 			return empty, ErrWorkflowReviewAccess
 		}
-		parent, err := s.Queries.GetAgentTask(ctx, p.FailedTaskID)
+		parent, err := s.Queries.GetAgentRun(ctx, p.FailedRunID)
 		if err != nil {
 			return empty, err
 		}
-		if parent.WorkflowReviewRequestID != p.RequestID || (parent.Status != "failed" && parent.Status != "completed") || observed.TaskID != parent.ID {
+		if parent.WorkflowReviewRequestID != p.RequestID || (parent.Status != "failed" && parent.Status != "completed") || observed.RunID != parent.ID {
 			return empty, ErrWorkflowExecutionConflict
 		}
 		allowed, checkErr := reviewCallCanRecover(ctx, s.Queries, observed, parent)
@@ -76,7 +76,7 @@ func (s *WorkflowExecutionService) RecoverAgentReview(ctx context.Context, p Rec
 		if !allowed {
 			return empty, ErrWorkflowExecutionConflict
 		}
-		overlay = s.TaskService.buildRuntimeMCPOverlay(ctx, parent.OriginatorUserID, reviewer)
+		overlay = s.AgentRunService.buildRuntimeMCPOverlay(ctx, parent.OriginatorUserID, reviewer)
 	}
 	tx, err := s.TxStarter.Begin(ctx)
 	if err != nil {
@@ -94,7 +94,7 @@ func (s *WorkflowExecutionService) RecoverAgentReview(ctx context.Context, p Rec
 	if _, err := q.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{WorkspaceID: p.WorkspaceID, UserID: p.ActorID}); err != nil {
 		return empty, ErrWorkflowReviewAccess
 	}
-	prior, priorErr = q.GetWorkflowReviewRecoveryByFailedCall(ctx, db.GetWorkflowReviewRecoveryByFailedCallParams{WorkspaceID: p.WorkspaceID, FailedTaskID: p.FailedTaskID})
+	prior, priorErr = q.GetWorkflowReviewRecoveryByFailedCall(ctx, db.GetWorkflowReviewRecoveryByFailedCallParams{WorkspaceID: p.WorkspaceID, FailedRunID: p.FailedRunID})
 	if priorErr == nil {
 		if prior.WorkflowInstanceID != p.InstanceID || prior.ExecutionID != p.ExecutionID || prior.RequestID != p.RequestID || prior.ResultRevision != p.ExpectedResultRevision || prior.BasisHash != p.ExpectedBasisHash || prior.ActorID != p.ActorID || prior.Reason != p.Reason {
 			return empty, ErrWorkflowExecutionConflict
@@ -111,10 +111,10 @@ func (s *WorkflowExecutionService) RecoverAgentReview(ctx context.Context, p Rec
 	if err != nil {
 		return empty, err
 	}
-	if request.ID != p.RequestID || request.TaskID != p.FailedTaskID || request.ResultRevision != p.ExpectedResultRevision || request.BasisHash != p.ExpectedBasisHash || (request.Status != "queued" && request.Status != "decided") {
+	if request.ID != p.RequestID || request.RunID != p.FailedRunID || request.ResultRevision != p.ExpectedResultRevision || request.BasisHash != p.ExpectedBasisHash || (request.Status != "queued" && request.Status != "decided") {
 		return empty, ErrWorkflowExecutionConflict
 	}
-	parent, err := q.GetWorkflowResultTask(ctx, db.GetWorkflowResultTaskParams{WorkspaceID: p.WorkspaceID, ID: p.FailedTaskID})
+	parent, err := q.GetWorkflowResultRun(ctx, db.GetWorkflowResultRunParams{WorkspaceID: p.WorkspaceID, ID: p.FailedRunID})
 	if err != nil {
 		return empty, err
 	}
@@ -134,52 +134,52 @@ func (s *WorkflowExecutionService) RecoverAgentReview(ctx context.Context, p Rec
 	}
 	// A scheduled automatic retry must finish instead of racing a manual one.
 	// Rebinding a moved reviewer runtime requires this explicit recovery path.
-	automaticCeiling, _, policyErr := taskRetrySettings(ctx, q, parent, parent.FailureReason.String)
+	automaticCeiling, _, policyErr := runRetrySettings(ctx, q, parent, parent.FailureReason.String)
 	if policyErr != nil {
 		return empty, policyErr
 	}
 	if automaticReviewRetryAvailable(parent, currentReviewer.RuntimeID, automaticCeiling) {
 		return empty, ErrWorkflowExecutionConflict
 	}
-	if err := q.DeleteTaskTokensByTask(ctx, parent.ID); err != nil {
+	if err := q.DeleteAgentRunTokensByRun(ctx, parent.ID); err != nil {
 		return empty, err
 	}
 	ceiling := parent.Attempt + ManualReviewRecoveryAttempts
-	child, err := q.RetryWorkflowReviewCall(ctx, db.RetryWorkflowReviewCallParams{WorkspaceID: p.WorkspaceID, RequestID: p.RequestID, ParentTaskID: p.FailedTaskID, RuntimeID: currentReviewer.RuntimeID, MaxAttempts: ceiling, RuntimeMcpOverlay: overlay.Overlay, RuntimeConnectedApps: overlay.ConnectedApps})
+	child, err := q.RetryWorkflowReviewCall(ctx, db.RetryWorkflowReviewCallParams{WorkspaceID: p.WorkspaceID, RequestID: p.RequestID, ParentRunID: p.FailedRunID, RuntimeID: currentReviewer.RuntimeID, MaxAttempts: ceiling, RuntimeMcpOverlay: overlay.Overlay, RuntimeConnectedApps: overlay.ConnectedApps})
 	if err != nil {
 		return empty, err
 	}
-	recovery, err := q.CreateWorkflowReviewRecovery(ctx, db.CreateWorkflowReviewRecoveryParams{WorkspaceID: p.WorkspaceID, WorkflowInstanceID: p.InstanceID, ExecutionID: p.ExecutionID, RequestID: p.RequestID, FailedTaskID: p.FailedTaskID, NewTaskID: child.ID, ResultRevision: p.ExpectedResultRevision, BasisHash: p.ExpectedBasisHash, ActorID: p.ActorID, Reason: p.Reason, AllowedAttempts: ManualReviewRecoveryAttempts, MaxAttempts: ceiling})
+	recovery, err := q.CreateWorkflowReviewRecovery(ctx, db.CreateWorkflowReviewRecoveryParams{WorkspaceID: p.WorkspaceID, WorkflowInstanceID: p.InstanceID, ExecutionID: p.ExecutionID, RequestID: p.RequestID, FailedRunID: p.FailedRunID, NewRunID: child.ID, ResultRevision: p.ExpectedResultRevision, BasisHash: p.ExpectedBasisHash, ActorID: p.ActorID, Reason: p.Reason, AllowedAttempts: ManualReviewRecoveryAttempts, MaxAttempts: ceiling})
 	if err != nil {
 		return empty, err
 	}
-	task, err := q.GetAgentTask(ctx, child.ID)
+	agentRun, err := q.GetAgentRun(ctx, child.ID)
 	if err != nil {
 		return empty, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return empty, err
 	}
-	s.TaskService.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
-	s.TaskService.NotifyTaskEnqueued(ctx, task)
+	s.AgentRunService.broadcastRunEvent(ctx, protocol.EventRunQueued, agentRun)
+	s.AgentRunService.NotifyRunEnqueued(ctx, agentRun)
 	s.publishAcceptedWorkflow(p.WorkspaceID, p.InstanceID)
 	return recovery, nil
 }
 
-func automaticReviewRetryAvailable(task db.AgentTaskQueue, runtimeID pgtype.UUID, ceiling int32) bool {
-	return runtimeID.Valid && task.Status == "failed" && task.RuntimeID == runtimeID && retryableReasons[task.FailureReason.String] && task.Attempt < ceiling
+func automaticReviewRetryAvailable(agentRun db.AgentRun, runtimeID pgtype.UUID, ceiling int32) bool {
+	return runtimeID.Valid && agentRun.Status == "failed" && agentRun.RuntimeID == runtimeID && retryableReasons[agentRun.FailureReason.String] && agentRun.Attempt < ceiling
 }
 
 // Process completion without a review decision is an incomplete review. Its
 // historical task status remains completed when an explicit recovery is created.
-func reviewCallCanRecover(ctx context.Context, q *db.Queries, request db.WorkflowReviewRequest, task db.AgentTaskQueue) (bool, error) {
-	if task.Status == "failed" {
+func reviewCallCanRecover(ctx context.Context, q *db.Queries, request db.WorkflowReviewRequest, agentRun db.AgentRun) (bool, error) {
+	if agentRun.Status == "failed" {
 		return true, nil
 	}
-	if task.Status != "completed" {
+	if agentRun.Status != "completed" {
 		return false, nil
 	}
-	_, err := q.GetWorkflowAgentDecisionByBasis(ctx, db.GetWorkflowAgentDecisionByBasisParams{WorkspaceID: request.WorkspaceID, ExecutionID: request.ExecutionID, BasisHash: pgtype.Text{String: request.BasisHash, Valid: true}, ReviewTaskID: task.ID})
+	_, err := q.GetWorkflowAgentDecisionByBasis(ctx, db.GetWorkflowAgentDecisionByBasisParams{WorkspaceID: request.WorkspaceID, ExecutionID: request.ExecutionID, BasisHash: pgtype.Text{String: request.BasisHash, Valid: true}, ReviewRunID: agentRun.ID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return true, nil
 	}

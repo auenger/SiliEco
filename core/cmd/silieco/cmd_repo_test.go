@@ -211,7 +211,7 @@ func TestRunRepoCheckoutForwardsManagedCheckoutMode(t *testing.T) {
 	t.Setenv("SILIECO_DAEMON_PORT", strings.TrimPrefix(srv.URL, "http://127.0.0.1:"))
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 	t.Setenv("SILIECO_AGENT_NAME", "Test Agent")
-	t.Setenv("SILIECO_TASK_ID", "task-1")
+	t.Setenv("SILIECO_RUN_ID", "task-1")
 	t.Setenv("SILIECO_TOKEN", "mat_task-1")
 	t.Setenv("SILIECO_REPO_CHECKOUT_MODE", "isolated")
 
@@ -233,7 +233,7 @@ func TestRunRepoCheckoutForwardsManagedCheckoutMode(t *testing.T) {
 	}
 }
 
-func TestRunRepoCheckoutRequiresTaskToken(t *testing.T) {
+func TestRunRepoCheckoutRequiresAgentRunToken(t *testing.T) {
 	t.Setenv("SILIECO_DAEMON_PORT", "1")
 	t.Setenv("SILIECO_TOKEN", "")
 

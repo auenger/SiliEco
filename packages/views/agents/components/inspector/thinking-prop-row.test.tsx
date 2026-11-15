@@ -16,10 +16,10 @@ import type {
 import { I18nProvider } from "@silieco/core/i18n/react";
 import enCommon from "../../../locales/en/common.json";
 import enAgents from "../../../locales/en/agents.json";
-import enIssues from "../../../locales/en/issues.json";
+import enTasks from "../../../locales/en/tasks.json";
 
 const TEST_RESOURCES = {
-  en: { common: enCommon, agents: enAgents, issues: enIssues },
+  en: { common: enCommon, agents: enAgents, tasks: enTasks },
 };
 
 const mockInitiateListModels = vi.hoisted(() => vi.fn());

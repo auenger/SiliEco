@@ -28,7 +28,7 @@ func setupDirectChatSession(t *testing.T, ctx context.Context, title string) (ag
 
 // sendDirectChat drives the transactional direct-send service path and returns
 // the owning task id. The user message is created inside the same transaction
-// with task_id = the new task, and the task owns its own input batch.
+// with run_id = the new task, and the task owns its own input batch.
 func sendDirectChat(t *testing.T, ctx context.Context, agentID, sessionID, content string) string {
 	t.Helper()
 	sess, err := testHandler.Queries.GetChatSession(ctx, parseUUID(sessionID))
@@ -39,26 +39,26 @@ func sendDirectChat(t *testing.T, ctx context.Context, agentID, sessionID, conte
 	if err != nil {
 		t.Fatalf("load agent: %v", err)
 	}
-	res, err := testHandler.TaskService.SendDirectChatMessage(ctx, sess, ag, parseUUID(testUserID), content, nil, "member", parseUUID(testUserID))
+	res, err := testHandler.AgentRunService.SendDirectChatMessage(ctx, sess, ag, parseUUID(testUserID), content, nil, "member", parseUUID(testUserID))
 	if err != nil {
 		t.Fatalf("SendDirectChatMessage: %v", err)
 	}
-	return uuidToString(res.Task.ID)
+	return uuidToString(res.AgentRun.ID)
 }
 
-func markTaskRunning(t *testing.T, ctx context.Context, taskID string) {
+func markRunRunning(t *testing.T, ctx context.Context, runID string) {
 	t.Helper()
 	if _, err := testPool.Exec(ctx, `
-		UPDATE agent_task_queue SET status = 'running', started_at = now(), dispatched_at = now()
+		UPDATE agent_run SET status = 'running', started_at = now(), dispatched_at = now()
 		WHERE id = $1
-	`, taskID); err != nil {
+	`, runID); err != nil {
 		t.Fatalf("mark task running: %v", err)
 	}
 }
 
 func completeResult(t *testing.T, output string) []byte {
 	t.Helper()
-	b, err := json.Marshal(TaskCompleteRequest{Output: output})
+	b, err := json.Marshal(RunCompleteRequest{Output: output})
 	if err != nil {
 		t.Fatalf("marshal complete result: %v", err)
 	}
@@ -70,7 +70,7 @@ func completeResult(t *testing.T, output string) []byte {
 // U1→T1 and U2→T2 are both queued, T1's claim must deliver ONLY U1 (never
 // "U1\n\nU2" the way the trailing-message selector would), and after T1
 // completes, T2 delivers ONLY U2.
-func TestDirectChat_TaskOwnsItsOwnInputBatch(t *testing.T) {
+func TestDirectChat_RunOwnsItsOwnInputBatch(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -81,10 +81,10 @@ func TestDirectChat_TaskOwnsItsOwnInputBatch(t *testing.T) {
 	t2 := sendDirectChat(t, ctx, agentID, sessionID, "还有青岛")
 
 	// Both tasks own their own input batch.
-	assertTaskInputOwner(t, ctx, t1, t1)
-	assertTaskInputOwner(t, ctx, t2, t2)
+	assertRunInputOwner(t, ctx, t1, t1)
+	assertRunInputOwner(t, ctx, t2, t2)
 
-	claimed := claimTaskForRuntimeGuard(t, runtimeID, daemonID)
+	claimed := claimRunForRuntimeGuard(t, runtimeID, daemonID)
 	if claimed.ChatMessage != "看上海天气" {
 		t.Fatalf("first claim must deliver ONLY its owned message; got %q", claimed.ChatMessage)
 	}
@@ -93,11 +93,11 @@ func TestDirectChat_TaskOwnsItsOwnInputBatch(t *testing.T) {
 	// then the next claim must deliver only the other message rather than a
 	// coalesced pair. The claim leaves T1 dispatched; move it to running so the
 	// completion CAS (WHERE status='running') applies.
-	markTaskRunning(t, ctx, t1)
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(t1), completeResult(t, "上海晴"), "", "", false, ""); err != nil {
-		t.Fatalf("complete first task: %v", err)
+	markRunRunning(t, ctx, t1)
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(t1), completeResult(t, "上海晴"), "", "", false, ""); err != nil {
+		t.Fatalf("complete first run: %v", err)
 	}
-	claimed2 := claimTaskForRuntimeGuard(t, runtimeID, daemonID)
+	claimed2 := claimRunForRuntimeGuard(t, runtimeID, daemonID)
 	if claimed2.ChatMessage != "还有青岛" {
 		t.Fatalf("second claim must deliver ONLY the second owned message; got %q", claimed2.ChatMessage)
 	}
@@ -106,7 +106,7 @@ func TestDirectChat_TaskOwnsItsOwnInputBatch(t *testing.T) {
 // TestDirectChat_RunningTaskDoesNotAbsorbNewMessage pins the acceptance case:
 // while T1 is running, a message sent from another surface lands on T2 and is
 // never folded into T1's already-sealed input batch.
-func TestDirectChat_RunningTaskDoesNotAbsorbNewMessage(t *testing.T) {
+func TestDirectChat_RunningRunDoesNotAbsorbNewMessage(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -114,7 +114,7 @@ func TestDirectChat_RunningTaskDoesNotAbsorbNewMessage(t *testing.T) {
 	agentID, sessionID, _, _ := setupDirectChatSession(t, ctx, "no-absorb chat")
 
 	t1 := sendDirectChat(t, ctx, agentID, sessionID, "first")
-	markTaskRunning(t, ctx, t1)
+	markRunRunning(t, ctx, t1)
 	// A second message arrives mid-run and gets its own task.
 	t2 := sendDirectChat(t, ctx, agentID, sessionID, "second")
 	if t1 == t2 {
@@ -142,18 +142,18 @@ func TestDirectChat_RunningTaskDoesNotAbsorbNewMessage(t *testing.T) {
 // visible, terminal no_response outcome — exactly one assistant row with
 // message_kind='no_response' and a non-empty fallback body, task completed, and
 // no auto-retry.
-func TestCompleteTask_ChatEmptyOutputWritesNoResponse(t *testing.T) {
+func TestCompleteRun_ChatEmptyOutputWritesNoResponse(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	agentID, sessionID, _, _ := setupDirectChatSession(t, ctx, "no-response chat")
-	taskID := sendDirectChat(t, ctx, agentID, sessionID, "do a tool-only thing")
-	markTaskRunning(t, ctx, taskID)
+	runID := sendDirectChat(t, ctx, agentID, sessionID, "do a tool-only thing")
+	markRunRunning(t, ctx, runID)
 
 	// Whitespace-only output trims to empty → no_response.
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(taskID), completeResult(t, "   "), "", "", false, ""); err != nil {
-		t.Fatalf("complete task: %v", err)
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(runID), completeResult(t, "   "), "", "", false, ""); err != nil {
+		t.Fatalf("complete run: %v", err)
 	}
 
 	rows := assistantRows(t, ctx, sessionID)
@@ -166,23 +166,23 @@ func TestCompleteTask_ChatEmptyOutputWritesNoResponse(t *testing.T) {
 	if rows[0].Content == "" {
 		t.Fatal("no_response row must carry a non-empty fallback body for old clients")
 	}
-	assertTaskStatus(t, ctx, taskID, "completed")
-	assertNoRetryChild(t, ctx, taskID)
+	assertRunStatus(t, ctx, runID, "completed")
+	assertNoRetryChild(t, ctx, runID)
 }
 
 // TestCompleteTask_ChatNonEmptyOutputWritesMessage: a normal reply becomes a
 // single ordinary assistant message.
-func TestCompleteTask_ChatNonEmptyOutputWritesMessage(t *testing.T) {
+func TestCompleteRun_ChatNonEmptyOutputWritesMessage(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	agentID, sessionID, _, _ := setupDirectChatSession(t, ctx, "reply chat")
-	taskID := sendDirectChat(t, ctx, agentID, sessionID, "hello")
-	markTaskRunning(t, ctx, taskID)
+	runID := sendDirectChat(t, ctx, agentID, sessionID, "hello")
+	markRunRunning(t, ctx, runID)
 
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(taskID), completeResult(t, "hi there"), "sess-1", "/tmp/wd", false, ""); err != nil {
-		t.Fatalf("complete task: %v", err)
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(runID), completeResult(t, "hi there"), "sess-1", "/tmp/wd", false, ""); err != nil {
+		t.Fatalf("complete run: %v", err)
 	}
 	rows := assistantRows(t, ctx, sessionID)
 	if len(rows) != 1 {
@@ -198,21 +198,21 @@ func TestCompleteTask_ChatNonEmptyOutputWritesMessage(t *testing.T) {
 
 // TestCompleteTask_ChatCallbackIdempotent: a replayed completion callback must
 // not write a second assistant outcome.
-func TestCompleteTask_ChatCallbackIdempotent(t *testing.T) {
+func TestCompleteRun_ChatCallbackIdempotent(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	agentID, sessionID, _, _ := setupDirectChatSession(t, ctx, "idempotent chat")
-	taskID := sendDirectChat(t, ctx, agentID, sessionID, "hey")
-	markTaskRunning(t, ctx, taskID)
+	runID := sendDirectChat(t, ctx, agentID, sessionID, "hey")
+	markRunRunning(t, ctx, runID)
 
 	res := completeResult(t, "reply")
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(taskID), res, "", "", false, ""); err != nil {
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(runID), res, "", "", false, ""); err != nil {
 		t.Fatalf("first complete: %v", err)
 	}
 	// Replay: the status CAS fails, so this is an idempotent no-op success.
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(taskID), res, "", "", false, ""); err != nil {
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(runID), res, "", "", false, ""); err != nil {
 		t.Fatalf("replayed complete must be idempotent success, got %v", err)
 	}
 	if rows := assistantRows(t, ctx, sessionID); len(rows) != 1 {
@@ -224,26 +224,26 @@ func TestCompleteTask_ChatCallbackIdempotent(t *testing.T) {
 // task-owned direct task creates a retry child that reuses the SAME input owner
 // (so it reads the same user messages) and is queued at a bumped priority so it
 // is claimed ahead of fresh chat tasks.
-func TestFailTask_ChatRetryInheritsInputOwnerAndPriority(t *testing.T) {
+func TestFailRun_ChatRetryInheritsInputOwnerAndPriority(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	agentID, sessionID, _, _ := setupDirectChatSession(t, ctx, "retry chat")
 	rootID := sendDirectChat(t, ctx, agentID, sessionID, "root question")
-	markTaskRunning(t, ctx, rootID)
+	markRunRunning(t, ctx, rootID)
 
-	if _, err := testHandler.TaskService.FailTask(ctx, parseUUID(rootID), "runtime went away", "", "", "runtime_offline", false, ""); err != nil {
-		t.Fatalf("fail task: %v", err)
+	if _, err := testHandler.AgentRunService.FailRun(ctx, parseUUID(rootID), "runtime went away", "", "", "runtime_offline", false, ""); err != nil {
+		t.Fatalf("fail run: %v", err)
 	}
 
 	var childID, childOwner string
 	var childPriority, childAttempt int
 	var childStatus string
 	if err := testPool.QueryRow(ctx, `
-		SELECT id, chat_input_task_id, priority, status, attempt
-		FROM agent_task_queue
-		WHERE parent_task_id = $1
+		SELECT id, chat_input_run_id, priority, status, attempt
+		FROM agent_run
+		WHERE parent_run_id = $1
 	`, rootID).Scan(&childID, &childOwner, &childPriority, &childStatus, &childAttempt); err != nil {
 		t.Fatalf("expected a retry child, got: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestFailTask_ChatRetryInheritsInputOwnerAndPriority(t *testing.T) {
 	}
 	// The root direct task starts at attempt 1, so its first retry is attempt 2.
 	var rootAttempt int
-	if err := testPool.QueryRow(ctx, `SELECT attempt FROM agent_task_queue WHERE id = $1`, rootID).Scan(&rootAttempt); err != nil {
+	if err := testPool.QueryRow(ctx, `SELECT attempt FROM agent_run WHERE id = $1`, rootID).Scan(&rootAttempt); err != nil {
 		t.Fatalf("read root attempt: %v", err)
 	}
 	if childAttempt != rootAttempt+1 {
@@ -300,32 +300,32 @@ func assistantRows(t *testing.T, ctx context.Context, sessionID string) []db.Cha
 	return out
 }
 
-func assertTaskInputOwner(t *testing.T, ctx context.Context, taskID, wantOwner string) {
+func assertRunInputOwner(t *testing.T, ctx context.Context, runID, wantOwner string) {
 	t.Helper()
 	var owner string
-	if err := testPool.QueryRow(ctx, `SELECT chat_input_task_id FROM agent_task_queue WHERE id = $1`, taskID).Scan(&owner); err != nil {
-		t.Fatalf("read chat_input_task_id: %v", err)
+	if err := testPool.QueryRow(ctx, `SELECT chat_input_run_id FROM agent_run WHERE id = $1`, runID).Scan(&owner); err != nil {
+		t.Fatalf("read chat_input_run_id: %v", err)
 	}
 	if owner != wantOwner {
-		t.Fatalf("task %s input owner = %s, want %s", taskID, owner, wantOwner)
+		t.Fatalf("task %s input owner = %s, want %s", runID, owner, wantOwner)
 	}
 }
 
-func assertTaskStatus(t *testing.T, ctx context.Context, taskID, want string) {
+func assertRunStatus(t *testing.T, ctx context.Context, runID, want string) {
 	t.Helper()
 	var status string
-	if err := testPool.QueryRow(ctx, `SELECT status FROM agent_task_queue WHERE id = $1`, taskID).Scan(&status); err != nil {
+	if err := testPool.QueryRow(ctx, `SELECT status FROM agent_run WHERE id = $1`, runID).Scan(&status); err != nil {
 		t.Fatalf("read task status: %v", err)
 	}
 	if status != want {
-		t.Fatalf("task %s status = %q, want %q", taskID, status, want)
+		t.Fatalf("task %s status = %q, want %q", runID, status, want)
 	}
 }
 
-func assertNoRetryChild(t *testing.T, ctx context.Context, taskID string) {
+func assertNoRetryChild(t *testing.T, ctx context.Context, runID string) {
 	t.Helper()
 	var n int
-	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE parent_task_id = $1`, taskID).Scan(&n); err != nil {
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE parent_run_id = $1`, runID).Scan(&n); err != nil {
 		t.Fatalf("count retry children: %v", err)
 	}
 	if n != 0 {
@@ -333,57 +333,57 @@ func assertNoRetryChild(t *testing.T, ctx context.Context, taskID string) {
 	}
 }
 
-// insertChannelChatTask creates a running chat task with chat_input_task_id NULL
+// insertChannelChatTask creates a running chat task with chat_input_run_id NULL
 // — the legacy/channel (Slack/Lark) shape — directly, bypassing the task-owned
 // direct-send path.
-func insertChannelChatTask(t *testing.T, ctx context.Context, agentID, runtimeID, sessionID string) string {
+func insertChannelChatRun(t *testing.T, ctx context.Context, agentID, runtimeID, sessionID string) string {
 	t.Helper()
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, chat_session_id, status, priority, started_at, dispatched_at)
+		INSERT INTO agent_run (agent_id, runtime_id, chat_session_id, status, priority, started_at, dispatched_at)
 		VALUES ($1, $2, $3, 'running', 2, now(), now())
 		RETURNING id
-	`, agentID, runtimeID, sessionID).Scan(&taskID); err != nil {
-		t.Fatalf("setup: create channel chat task: %v", err)
+	`, agentID, runtimeID, sessionID).Scan(&runID); err != nil {
+		t.Fatalf("setup: create channel chat run: %v", err)
 	}
-	return taskID
+	return runID
 }
 
 // insertSealedChannelChatTask creates a running channel-shaped chat task the
 // way EnqueueChatTask now does: the task owns its input batch
-// (chat_input_task_id = id) and the sealed user message carries the immutable
+// (chat_input_run_id = id) and the sealed user message carries the immutable
 // channel_ingested stamp.
-func insertSealedChannelChatTask(t *testing.T, ctx context.Context, agentID, runtimeID, sessionID, content string) string {
+func insertSealedChannelChatRun(t *testing.T, ctx context.Context, agentID, runtimeID, sessionID, content string) string {
 	t.Helper()
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, chat_session_id, status, priority, started_at, dispatched_at)
+		INSERT INTO agent_run (agent_id, runtime_id, chat_session_id, status, priority, started_at, dispatched_at)
 		VALUES ($1, $2, $3, 'running', 2, now(), now())
 		RETURNING id
-	`, agentID, runtimeID, sessionID).Scan(&taskID); err != nil {
-		t.Fatalf("setup: create sealed channel chat task: %v", err)
+	`, agentID, runtimeID, sessionID).Scan(&runID); err != nil {
+		t.Fatalf("setup: create sealed channel chat run: %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `
-		UPDATE agent_task_queue SET chat_input_task_id = id WHERE id = $1
-	`, taskID); err != nil {
+		UPDATE agent_run SET chat_input_run_id = id WHERE id = $1
+	`, runID); err != nil {
 		t.Fatalf("setup: set input owner: %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO chat_message (chat_session_id, role, content, task_id, channel_ingested)
+		INSERT INTO chat_message (chat_session_id, role, content, run_id, channel_ingested)
 		VALUES ($1, 'user', $2, $3, TRUE)
-	`, sessionID, content, taskID); err != nil {
+	`, sessionID, content, runID); err != nil {
 		t.Fatalf("setup: seal channel user message: %v", err)
 	}
-	return taskID
+	return runID
 }
 
 // TestCompleteTask_ChannelEmptyOutputWritesNoRow pins the SILI-4351 review fix
-// for the LEGACY channel shape (chat_input_task_id NULL): an empty completion
+// for the LEGACY channel shape (chat_input_run_id NULL): an empty completion
 // must NOT write an assistant row — so chat:done carries empty content and the
 // Slack/Lark outbound keeps silently dropping it. The no_response fallback
 // body must never reach an external channel. A non-empty channel completion
 // still writes an ordinary message.
-func TestCompleteTask_ChannelEmptyOutputWritesNoRow(t *testing.T) {
+func TestCompleteRun_ChannelEmptyOutputWritesNoRow(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -391,8 +391,8 @@ func TestCompleteTask_ChannelEmptyOutputWritesNoRow(t *testing.T) {
 	agentID, sessionID, runtimeID, _ := setupDirectChatSession(t, ctx, "channel-like chat")
 
 	// Empty output → no row at all.
-	emptyTask := insertChannelChatTask(t, ctx, agentID, runtimeID, sessionID)
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(emptyTask), completeResult(t, "   "), "", "", false, ""); err != nil {
+	emptyRun := insertChannelChatRun(t, ctx, agentID, runtimeID, sessionID)
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(emptyRun), completeResult(t, "   "), "", "", false, ""); err != nil {
 		t.Fatalf("complete channel task (empty): %v", err)
 	}
 	if rows := assistantRows(t, ctx, sessionID); len(rows) != 0 {
@@ -400,8 +400,8 @@ func TestCompleteTask_ChannelEmptyOutputWritesNoRow(t *testing.T) {
 	}
 
 	// Non-empty output → one ordinary message (kind 'message', not no_response).
-	textTask := insertChannelChatTask(t, ctx, agentID, runtimeID, sessionID)
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(textTask), completeResult(t, "channel reply"), "", "", false, ""); err != nil {
+	textRun := insertChannelChatRun(t, ctx, agentID, runtimeID, sessionID)
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(textRun), completeResult(t, "channel reply"), "", "", false, ""); err != nil {
 		t.Fatalf("complete channel task (text): %v", err)
 	}
 	rows := assistantRows(t, ctx, sessionID)
@@ -415,19 +415,19 @@ func TestCompleteTask_ChannelEmptyOutputWritesNoRow(t *testing.T) {
 
 // TestCompleteTask_SealedChannelEmptyOutputWritesNoRow pins the silent-drop
 // contract for the NEW channel shape: sealed channel tasks own their input
-// batch (chat_input_task_id = id), so the discriminator is the immutable
+// batch (chat_input_run_id = id), so the discriminator is the immutable
 // channel_ingested stamp, not a NULL owner. An empty completion must write no
 // assistant row — the outbound patcher forwards any non-empty content
 // verbatim, so a no_response fallback row would be pushed to Feishu/Slack.
-func TestCompleteTask_SealedChannelEmptyOutputWritesNoRow(t *testing.T) {
+func TestCompleteRun_SealedChannelEmptyOutputWritesNoRow(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	agentID, sessionID, runtimeID, _ := setupDirectChatSession(t, ctx, "sealed channel chat")
 
-	emptyTask := insertSealedChannelChatTask(t, ctx, agentID, runtimeID, sessionID, "[Image]")
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(emptyTask), completeResult(t, "   "), "", "", false, ""); err != nil {
+	emptyRun := insertSealedChannelChatRun(t, ctx, agentID, runtimeID, sessionID, "[Image]")
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(emptyRun), completeResult(t, "   "), "", "", false, ""); err != nil {
 		t.Fatalf("complete sealed channel task (empty): %v", err)
 	}
 	if rows := assistantRows(t, ctx, sessionID); len(rows) != 0 {
@@ -435,8 +435,8 @@ func TestCompleteTask_SealedChannelEmptyOutputWritesNoRow(t *testing.T) {
 	}
 
 	// Non-empty output still writes one ordinary message.
-	textTask := insertSealedChannelChatTask(t, ctx, agentID, runtimeID, sessionID, "hello")
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(textTask), completeResult(t, "sealed channel reply"), "", "", false, ""); err != nil {
+	textRun := insertSealedChannelChatRun(t, ctx, agentID, runtimeID, sessionID, "hello")
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(textRun), completeResult(t, "sealed channel reply"), "", "", false, ""); err != nil {
 		t.Fatalf("complete sealed channel task (text): %v", err)
 	}
 	rows := assistantRows(t, ctx, sessionID)
@@ -446,28 +446,28 @@ func TestCompleteTask_SealedChannelEmptyOutputWritesNoRow(t *testing.T) {
 }
 
 // TestCompleteTask_SealedChannelRetryEmptyOutputWritesNoRow: an auto-retry
-// clone inherits its parent's chat_input_task_id while the sealed messages
+// clone inherits its parent's chat_input_run_id while the sealed messages
 // stay tagged with the parent's id. The provenance check must follow the
 // inherited owner — keying it off the retry's own id would misread the task
 // as direct and push the no_response fallback to the external channel.
-func TestCompleteTask_SealedChannelRetryEmptyOutputWritesNoRow(t *testing.T) {
+func TestCompleteRun_SealedChannelRetryEmptyOutputWritesNoRow(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	agentID, sessionID, runtimeID, _ := setupDirectChatSession(t, ctx, "sealed channel retry chat")
 
-	parentTask := insertSealedChannelChatTask(t, ctx, agentID, runtimeID, sessionID, "[Video]")
-	var retryTask string
+	parentRun := insertSealedChannelChatRun(t, ctx, agentID, runtimeID, sessionID, "[Video]")
+	var retryRun string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, chat_session_id, status, priority, started_at, dispatched_at, parent_task_id, retry_of_task_id, chat_input_task_id)
+		INSERT INTO agent_run (agent_id, runtime_id, chat_session_id, status, priority, started_at, dispatched_at, parent_run_id, retry_of_run_id, chat_input_run_id)
 		VALUES ($1, $2, $3, 'running', 2, now(), now(), $4, $4, $4)
 		RETURNING id
-	`, agentID, runtimeID, sessionID, parentTask).Scan(&retryTask); err != nil {
+	`, agentID, runtimeID, sessionID, parentRun).Scan(&retryRun); err != nil {
 		t.Fatalf("setup: create retry clone: %v", err)
 	}
 
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(retryTask), completeResult(t, ""), "", "", false, ""); err != nil {
+	if _, err := testHandler.AgentRunService.CompleteRun(ctx, parseUUID(retryRun), completeResult(t, ""), "", "", false, ""); err != nil {
 		t.Fatalf("complete sealed channel retry (empty): %v", err)
 	}
 	if rows := assistantRows(t, ctx, sessionID); len(rows) != 0 {

@@ -98,7 +98,7 @@ type LarkOutcomeReplier struct {
 }
 
 // OutcomeReplierConfig wires the production replier. AppURL is the Silieco web
-// app host the user clicks into to redeem the binding token or open an issue
+// app host the user clicks into to redeem the binding token or open an task
 // (e.g. https://silieco.example). It comes from SILIECO_APP_URL and is
 // intentionally separate from SILIECO_PUBLIC_URL, which is the backend/API
 // public URL used for webhook and daemon-facing endpoints. Empty means the
@@ -182,20 +182,20 @@ func (r *LarkOutcomeReplier) Reply(ctx context.Context, inst Installation, msg I
 		}
 	case OutcomeIngested:
 		// The agent's chat reply itself goes through the Patcher (text
-		// message on ChatDone). But /issue does NOT block on the
+		// message on ChatDone). But /task does NOT block on the
 		// agent — the user expects an immediate "Created [SILI-42]"
-		// confirmation as soon as the issue row commits, separate
+		// confirmation as soon as the task row commits, separate
 		// from whatever the agent eventually replies. Without this,
-		// the user types `/issue fix login bug` and just sees the
+		// the user types `/task fix login bug` and just sees the
 		// agent's eventual response, with no clear signal that the
-		// command itself was understood. Gate on IssueID.Valid so a
-		// plain chat message (no /issue) stays silent here.
-		if res.IssueID.Valid {
-			if err := r.sendIssueCreated(ctx, inst, msg, res); err != nil {
-				r.log.Warn("lark outcome replier: issue-created confirmation failed",
+		// command itself was understood. Gate on TaskID.Valid so a
+		// plain chat message (no /task) stays silent here.
+		if res.TaskID.Valid {
+			if err := r.sendTaskCreated(ctx, inst, msg, res); err != nil {
+				r.log.Warn("lark outcome replier: task-created confirmation failed",
 					"installation_id", uuidString(inst.ID),
 					"chat_id", string(msg.ChatID),
-					"issue_id", uuidString(res.IssueID),
+					"task_id", uuidString(res.TaskID),
 					"err", err.Error(),
 				)
 			}
@@ -228,14 +228,14 @@ func (r *LarkOutcomeReplier) sendBindingPrompt(ctx context.Context, inst Install
 	})
 }
 
-// sendIssueCreated posts the "Created [SILI-42] <title>" confirmation
+// sendTaskCreated posts the "Created [SILI-42] <title>" confirmation
 // as a plain text message. We deliberately send text rather than an
 // interactive card so the confirmation flows inline with the rest of
 // the Lark conversation — consistent with how chat replies render
 // after SILI-2671's plain-text refactor. The link to Silieco is
 // included on its own line so Lark's auto-linker turns it into a
 // tappable URL.
-func (r *LarkOutcomeReplier) sendIssueCreated(ctx context.Context, inst Installation, msg InboundMessage, res DispatchResult) error {
+func (r *LarkOutcomeReplier) sendTaskCreated(ctx context.Context, inst Installation, msg InboundMessage, res DispatchResult) error {
 	if msg.ChatID == "" {
 		return errors.New("missing chat_id")
 	}
@@ -243,13 +243,13 @@ func (r *LarkOutcomeReplier) sendIssueCreated(ctx context.Context, inst Installa
 	if err != nil {
 		return err
 	}
-	text := issueCreatedText(res, r.appURL)
+	text := taskCreatedText(res, r.appURL)
 	// Share the Patcher's classified fallback: a thread reply that
 	// fails because the topic cannot receive it (recalled trigger,
 	// topics disabled, aggregated message) falls back to a chat-level
 	// send so the confirmation is not lost; transport/5xx/rate-limit
 	// failures stay failures rather than leaking into the group chat.
-	return sendWithThreadFallback(r.log, "send issue-created text", inboundReplyTarget(msg), func(t ReplyTarget) error {
+	return sendWithThreadFallback(r.log, "send task-created text", inboundReplyTarget(msg), func(t ReplyTarget) error {
 		_, err := r.client.SendTextMessage(ctx, SendTextParams{
 			InstallationID: creds,
 			ChatID:         msg.ChatID,
@@ -274,16 +274,16 @@ func inboundReplyTarget(msg InboundMessage) ReplyTarget {
 }
 
 // issueCreatedText composes the user-facing confirmation. Identifier
-// always wins over a bare number — DispatchResult.IssueIdentifier
+// always wins over a bare number — DispatchResult.TaskIdentifier
 // already encodes the workspace prefix when available. AppURL is optional:
 // when empty (self-host operators who haven't configured SILIECO_APP_URL) the
-// message still confirms the issue, just without a deep link the user can tap.
-func issueCreatedText(res DispatchResult, appURL string) string {
-	identifier := res.IssueIdentifier
+// message still confirms the task, just without a deep link the user can tap.
+func taskCreatedText(res DispatchResult, appURL string) string {
+	identifier := res.TaskIdentifier
 	if identifier == "" {
-		identifier = fmt.Sprintf("#%d", res.IssueNumber)
+		identifier = fmt.Sprintf("#%d", res.TaskNumber)
 	}
-	title := strings.TrimSpace(res.IssueTitle)
+	title := strings.TrimSpace(res.TaskTitle)
 	var line string
 	if title == "" {
 		line = fmt.Sprintf("Created %s", identifier)
@@ -293,7 +293,7 @@ func issueCreatedText(res DispatchResult, appURL string) string {
 	if appURL == "" {
 		return line
 	}
-	return line + "\n" + strings.TrimRight(appURL, "/") + "/issues/" + identifier
+	return line + "\n" + strings.TrimRight(appURL, "/") + "/tasks/" + identifier
 }
 
 func (r *LarkOutcomeReplier) sendChatNotice(ctx context.Context, inst Installation, msg InboundMessage, body string) error {
@@ -312,7 +312,7 @@ func (r *LarkOutcomeReplier) sendChatNotice(ctx context.Context, inst Installati
 	if err != nil {
 		return fmt.Errorf("render notice card: %w", err)
 	}
-	// Same classified fallback as sendIssueCreated: only thread-reply
+	// Same classified fallback as sendTaskCreated: only thread-reply
 	// failures that mean the topic cannot receive the message fall back
 	// to a chat-level send; ambiguous/transport failures stay failures.
 	return sendWithThreadFallback(r.log, "send notice card", inboundReplyTarget(msg), func(t ReplyTarget) error {

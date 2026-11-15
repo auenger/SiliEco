@@ -44,13 +44,13 @@ func filledSnapshot(now time.Time) *samplerSnapshot {
 	snap.activeUsers[windowFiveMinutes] = 7
 	snap.activeWorkspaces[windowFiveMinutes] = 3
 
-	snap.taskQueued["chat"] = 5
-	snap.taskQueued["issue"] = 2
+	snap.runQueued["chat"] = 5
+	snap.runQueued["task"] = 2
 
-	snap.taskRunning[taskRunningKey{source: "chat", runtimeMode: "cloud"}] = 3
-	snap.taskRunning[taskRunningKey{source: "issue", runtimeMode: "local"}] = 1
+	snap.runRunning[runRunningKey{source: "chat", runtimeMode: "cloud"}] = 3
+	snap.runRunning[runRunningKey{source: "task", runtimeMode: "local"}] = 1
 
-	snap.taskStuck["issue"] = 1
+	snap.runStuck["task"] = 1
 
 	snap.runtimeOnline[runtimeOnlineKey{runtimeMode: "local", provider: "claude"}] = 4
 	snap.runtimeOnline[runtimeOnlineKey{runtimeMode: "cloud", provider: "kiro"}] = 2
@@ -107,14 +107,14 @@ func TestBusinessSamplerCollectorEmitsExpectedMetrics(t *testing.T) {
 	wantSubstrings := []string{
 		`silieco_active_users{window="5m"} 7`,
 		`silieco_active_workspaces{window="5m"} 3`,
-		`silieco_agent_task_queued{source="chat"} 5`,
-		`silieco_agent_task_queued{source="issue"} 2`,
+		`silieco_agent_rund{source="chat"} 5`,
+		`silieco_agent_rund{source="task"} 2`,
 		// Zero series for sources that didn't appear in the snapshot.
-		`silieco_agent_task_queued{source="autopilot"} 0`,
-		`silieco_agent_task_queued{source="other"} 0`,
-		`silieco_agent_task_running{runtime_mode="cloud",source="chat"} 3`,
-		`silieco_agent_task_running{runtime_mode="local",source="issue"} 1`,
-		`silieco_agent_task_stuck_total{source="issue"} 1`,
+		`silieco_agent_rund{source="autopilot"} 0`,
+		`silieco_agent_rund{source="other"} 0`,
+		`silieco_agent_run_running{runtime_mode="cloud",source="chat"} 3`,
+		`silieco_agent_run_running{runtime_mode="local",source="task"} 1`,
+		`silieco_agent_run_stuck_total{source="task"} 1`,
 		`silieco_runtime_online{provider="claude",runtime_mode="local"} 4`,
 		`silieco_runtime_online{provider="kiro",runtime_mode="cloud"} 2`,
 		`silieco_runtime_heartbeat_age_seconds_count{runtime_mode="local"} 3`,
@@ -208,7 +208,7 @@ func TestBusinessSamplerCollectorBoundedCardinality(t *testing.T) {
 		// pre-normalizing here exactly the way refreshFromDB would.
 		snap := newSamplerSnapshot(refreshAt)
 		for i := 0; i < 50; i++ {
-			snap.taskQueued[NormalizeTaskSource("provider-from-user-input-"+string(rune('A'+i%26)))] += 1
+			snap.runQueued[NormalizeRunSource("provider-from-user-input-"+string(rune('A'+i%26)))] += 1
 		}
 		for i := 0; i < 50; i++ {
 			snap.runtimeOnline[runtimeOnlineKey{
@@ -223,12 +223,12 @@ func TestBusinessSamplerCollectorBoundedCardinality(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(c.Collectors()...)
 
-	if got := testutil.CollectAndCount(c, "silieco_agent_task_queued"); got != len(knownSourceLabels()) {
-		t.Fatalf("agent_task_queued series = %d, want %d", got, len(knownSourceLabels()))
+	if got := testutil.CollectAndCount(c, "silieco_agent_rund"); got != len(knownSourceLabels()) {
+		t.Fatalf("agent_rund series = %d, want %d", got, len(knownSourceLabels()))
 	}
 	expectedRunning := len(knownSourceLabels()) * len(knownRuntimeModeLabels())
-	if got := testutil.CollectAndCount(c, "silieco_agent_task_running"); got != expectedRunning {
-		t.Fatalf("agent_task_running series = %d, want %d", got, expectedRunning)
+	if got := testutil.CollectAndCount(c, "silieco_agent_run_running"); got != expectedRunning {
+		t.Fatalf("agent_run_running series = %d, want %d", got, expectedRunning)
 	}
 	if got := testutil.CollectAndCount(c, "silieco_runtime_online"); got != 1 {
 		t.Fatalf("runtime_online series = %d, want 1 (collapsed by normalizers)", got)
@@ -248,7 +248,7 @@ func TestBusinessSamplerCollectorDisabledWithoutOptions(t *testing.T) {
 	body := rec.Body.String()
 	for _, forbidden := range []string{
 		"silieco_active_users",
-		"silieco_agent_task_queued",
+		"silieco_agent_rund",
 		"silieco_runtime_online",
 		"silieco_business_sampler_query_seconds",
 	} {

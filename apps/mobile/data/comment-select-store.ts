@@ -1,6 +1,6 @@
 /**
  * Per-comment text-selection mode. When the user taps "Select Text" in the
- * comment's long-press action sheet (`components/issue/comment-context-
+ * comment's long-press action sheet (`components/task/comment-context-
  * menu.tsx` → `useCommentLongPress`), the targeted comment id is parked
  * here. `CommentBody` reads this store and, when matched, (a) drops the
  * `Pressable.onLongPress` handler so the long-press gesture no longer
@@ -16,8 +16,8 @@
  *     via a global store than to thread callbacks through every parent.
  *
  * Lifecycle: cleared when (a) the user taps the floating Done pill,
- * (b) the timeline scrolls, or (c) the issue-detail screen unmounts —
- * so each fresh navigation into an issue starts with no comment selected.
+ * (b) the timeline scrolls, or (c) the task-detail screen unmounts —
+ * so each fresh navigation into a task starts with no comment selected.
  */
 import { create } from "zustand";
 

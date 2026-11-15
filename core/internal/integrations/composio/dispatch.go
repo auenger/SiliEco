@@ -37,7 +37,7 @@ type composioMCPServer struct {
 }
 
 // mcpOverlayPayload is the per-task overlay JSON written to
-// agent_task_queue.runtime_mcp_overlay and read by the daemon claim handler
+// agent_run.runtime_mcp_overlay and read by the daemon claim handler
 // at task dispatch.
 //
 // Shape is deliberately a subset of agent.mcp_config (Claude-style
@@ -83,7 +83,7 @@ type mcpOverlayPayload struct {
 // CreateSession is called with the owner as the session user, and with BOTH
 // the `toolkits.enable` allowlist filter and `connected_accounts` pinning so
 // the session is narrowed to (owner allowlist ∩ owner active connections).
-func (s *Service) BuildTaskOverlay(ctx context.Context, originatorUserID pgtype.UUID, agent db.Agent) (runtimeapps.MCPOverlayResult, error) {
+func (s *Service) BuildRunOverlay(ctx context.Context, originatorUserID pgtype.UUID, agent db.Agent) (runtimeapps.MCPOverlayResult, error) {
 	// Gate 1: the overlay is the agent OWNER's connected-apps view. Without an
 	// owner there is nothing to project.
 	if !agent.OwnerID.Valid {

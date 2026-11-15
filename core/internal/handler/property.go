@@ -23,8 +23,8 @@ import (
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
-// Custom issue properties (SILI-4463): workspace-level typed property
-// definitions plus a per-issue value bag.
+// Custom task properties (SILI-4463): workspace-level typed property
+// definitions plus a per-task value bag.
 //
 // Contract highlights (decided on SILI-4463):
 //   - Definitions are managed by human owner/admin members only. Agent actors
@@ -32,7 +32,7 @@ import (
 //     sprawl becomes something agents can mass-produce.
 //   - Values are writable by every member and agent; validation is typed per
 //     definition, and errors enumerate legal values so agents can self-correct.
-//   - Value writes are single-key atomic (mirror of issue metadata): two
+//   - Value writes are single-key atomic (mirror of task metadata): two
 //     agents writing different properties never clobber each other.
 //   - Definitions archive instead of delete; archived definitions reject new
 //     values but keep existing ones resolvable.
@@ -50,7 +50,7 @@ var validPropertyTypes = []string{"text", "number", "select", "multi_select", "d
 
 // Property icons use stable catalog keys that the Web client maps to Lucide
 // glyphs. Keeping this allowlist at the API boundary prevents arbitrary text
-// (including emoji) from leaking into every issue surface that renders icons.
+// (including emoji) from leaking into every task surface that renders icons.
 var validPropertyIcons = map[string]struct{}{
 	"circle-dot": {}, "signal-high": {}, "user-round": {}, "folder-kanban": {},
 	"calendar-days": {}, "tag": {}, "milestone": {}, "flag": {}, "bookmark": {},
@@ -67,7 +67,7 @@ var validPropertyIcons = map[string]struct{}{
 var errClientRejected = errors.New("client rejected")
 
 // reservedPropertyNames blocks definitions that would collide with built-in
-// issue fields ("system properties"). Comparison happens on the normalized
+// task fields ("system properties"). Comparison happens on the normalized
 // form: lowercased, spaces collapsed to underscores — so "Due Date", "due
 // date", and "due_date" are all rejected.
 var reservedPropertyNames = map[string]struct{}{
@@ -118,7 +118,7 @@ func parsePropertyConfig(raw []byte) PropertyConfig {
 	return cfg
 }
 
-func propertyToResponse(p db.IssueProperty, usageCount int64) PropertyResponse {
+func propertyToResponse(p db.TaskProperty, usageCount int64) PropertyResponse {
 	resp := PropertyResponse{
 		ID:          uuidToString(p.ID),
 		WorkspaceID: uuidToString(p.WorkspaceID),
@@ -140,8 +140,8 @@ func propertyToResponse(p db.IssueProperty, usageCount int64) PropertyResponse {
 	return resp
 }
 
-func propertyListRowToResponse(row db.ListIssuePropertiesRow) PropertyResponse {
-	return propertyToResponse(db.IssueProperty{
+func propertyListRowToResponse(row db.ListTaskPropertiesRow) PropertyResponse {
+	return propertyToResponse(db.TaskProperty{
 		ID:          row.ID,
 		WorkspaceID: row.WorkspaceID,
 		Name:        row.Name,
@@ -194,7 +194,7 @@ func validatePropertyName(raw string) (string, error) {
 		return "", fmt.Errorf("name must be %d characters or fewer", maxPropertyNameLen)
 	}
 	if _, reserved := reservedPropertyNames[normalizePropertyName(name)]; reserved {
-		return "", fmt.Errorf("%q is reserved for a built-in issue field", name)
+		return "", fmt.Errorf("%q is reserved for a built-in task field", name)
 	}
 	return name, nil
 }
@@ -234,7 +234,7 @@ func propertyTypeHasOptions(t string) bool {
 // validatePropertyConfig canonicalizes the config for storage. Select-type
 // properties require 1..50 options; each option gets a stable server-assigned
 // UUID if the caller didn't provide one (values reference option IDs, so
-// option renames never touch issue rows). Non-select types must not carry
+// option renames never touch task rows). Non-select types must not carry
 // options and are stored as {}.
 func validatePropertyConfig(propType string, cfg *PropertyConfig) ([]byte, error) {
 	if !propertyTypeHasOptions(propType) {
@@ -300,7 +300,7 @@ func selectOptionsHint(cfg PropertyConfig) string {
 // validatePropertyValue checks a raw JSON value against the definition's type
 // and returns the canonical JSON to store. Error strings enumerate the legal
 // values where possible — agents consume these directly to self-correct.
-func validatePropertyValue(def db.IssueProperty, raw json.RawMessage) ([]byte, error) {
+func validatePropertyValue(def db.TaskProperty, raw json.RawMessage) ([]byte, error) {
 	if len(raw) == 0 {
 		return nil, errors.New("value is required")
 	}
@@ -413,9 +413,9 @@ func removedOptionIDs(existingConfig, nextConfig []byte) []string {
 }
 
 // describeOptionsInUse renders the 409 body for in-use option removal, e.g.
-// `cannot remove options still in use: "Critical" (3 issues); clear or
+// `cannot remove options still in use: "Critical" (3 tasks); clear or
 // change those values first`.
-func describeOptionsInUse(existingConfig []byte, rows []db.CountIssuesUsingPropertyOptionsRow) string {
+func describeOptionsInUse(existingConfig []byte, rows []db.CountTasksUsingPropertyOptionsRow) string {
 	names := make(map[string]string)
 	for _, opt := range parsePropertyConfig(existingConfig).Options {
 		names[opt.ID] = opt.Name
@@ -426,14 +426,14 @@ func describeOptionsInUse(existingConfig []byte, rows []db.CountIssuesUsingPrope
 		if name == "" {
 			name = row.OptionID
 		}
-		parts[i] = fmt.Sprintf("%q (%d issues)", name, row.UsageCount)
+		parts[i] = fmt.Sprintf("%q (%d tasks)", name, row.UsageCount)
 	}
 	sort.Strings(parts)
 	return "cannot remove options still in use: " + strings.Join(parts, ", ") + "; clear or change those values first"
 }
 
-// parseIssueProperties mirrors parseIssueMetadata for the properties bag.
-func parseIssueProperties(raw []byte) map[string]any {
+// parseTaskProperties mirrors parseTaskMetadata for the properties bag.
+func parseTaskProperties(raw []byte) map[string]any {
 	if len(raw) == 0 {
 		return map[string]any{}
 	}
@@ -476,12 +476,12 @@ func (h *Handler) ListProperties(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	includeArchived := r.URL.Query().Get("include_archived") == "true"
-	rows, err := h.Queries.ListIssueProperties(r.Context(), db.ListIssuePropertiesParams{
+	rows, err := h.Queries.ListTaskProperties(r.Context(), db.ListTaskPropertiesParams{
 		WorkspaceID:     wsUUID,
 		IncludeArchived: includeArchived,
 	})
 	if err != nil {
-		slog.Warn("ListIssueProperties failed", append(logger.RequestAttrs(r), "error", err)...)
+		slog.Warn("ListTaskProperties failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to list properties")
 		return
 	}
@@ -502,13 +502,13 @@ func (h *Handler) GetProperty(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	property, err := h.Queries.GetIssueProperty(r.Context(), db.GetIssuePropertyParams{ID: idUUID, WorkspaceID: wsUUID})
+	property, err := h.Queries.GetTaskProperty(r.Context(), db.GetTaskPropertyParams{ID: idUUID, WorkspaceID: wsUUID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "property not found")
 			return
 		}
-		slog.Warn("GetIssueProperty failed", append(logger.RequestAttrs(r), "error", err)...)
+		slog.Warn("GetTaskProperty failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to get property")
 		return
 	}
@@ -553,10 +553,10 @@ func (h *Handler) CreateProperty(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var property db.IssueProperty
+	var property db.TaskProperty
 	var capErr error
 	err = h.withPropertyLock(r, []string{"props:" + workspaceID}, func(q *db.Queries) error {
-		active, err := q.CountActiveIssueProperties(r.Context(), wsUUID)
+		active, err := q.CountActiveTaskProperties(r.Context(), wsUUID)
 		if err != nil {
 			return err
 		}
@@ -564,7 +564,7 @@ func (h *Handler) CreateProperty(w http.ResponseWriter, r *http.Request) {
 			capErr = fmt.Errorf("a workspace cannot have more than %d active properties; archive unused ones first", maxActivePropertiesPerWorkspace)
 			return capErr
 		}
-		property, err = q.CreateIssueProperty(r.Context(), db.CreateIssuePropertyParams{
+		property, err = q.CreateTaskProperty(r.Context(), db.CreateTaskPropertyParams{
 			WorkspaceID: wsUUID,
 			Name:        name,
 			Type:        req.Type,
@@ -583,7 +583,7 @@ func (h *Handler) CreateProperty(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "a property with that name already exists")
 			return
 		}
-		slog.Warn("CreateIssueProperty failed", append(logger.RequestAttrs(r), "error", err)...)
+		slog.Warn("CreateTaskProperty failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to create property")
 		return
 	}
@@ -617,7 +617,7 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 	// cannot race a value that would reference a removed option (TOCTOU,
 	// clean-room review F1); the workspace lock makes the unarchive cap
 	// check atomic against creates (F5).
-	var property db.IssueProperty
+	var property db.TaskProperty
 	var httpStatus int
 	var httpMsg string
 	fail := func(status int, msg string) error {
@@ -625,7 +625,7 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 		return errClientRejected
 	}
 	err := h.withPropertyLock(r, []string{"props:" + workspaceID, "prop:" + uuidToString(idUUID)}, func(q *db.Queries) error {
-		existing, err := q.GetIssueProperty(r.Context(), db.GetIssuePropertyParams{ID: idUUID, WorkspaceID: wsUUID})
+		existing, err := q.GetTaskProperty(r.Context(), db.GetTaskPropertyParams{ID: idUUID, WorkspaceID: wsUUID})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return fail(http.StatusNotFound, "property not found")
@@ -633,7 +633,7 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		params := db.UpdateIssuePropertyParams{ID: idUUID, WorkspaceID: wsUUID}
+		params := db.UpdateTaskPropertyParams{ID: idUUID, WorkspaceID: wsUUID}
 		if req.Name != nil {
 			name, err := validatePropertyName(*req.Name)
 			if err != nil {
@@ -660,7 +660,7 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 				return fail(http.StatusBadRequest, err.Error())
 			}
 			if removed := removedOptionIDs(existing.Config, configJSON); len(removed) > 0 {
-				rows, err := q.CountIssuesUsingPropertyOptions(r.Context(), db.CountIssuesUsingPropertyOptionsParams{
+				rows, err := q.CountTasksUsingPropertyOptions(r.Context(), db.CountTasksUsingPropertyOptionsParams{
 					OptionIds:   removed,
 					WorkspaceID: wsUUID,
 					PropertyKey: uuidToString(existing.ID),
@@ -679,7 +679,7 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 			if *req.Archived {
 				params.ArchivedAt = pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
 			} else if existing.ArchivedAt.Valid {
-				active, err := q.CountActiveIssueProperties(r.Context(), wsUUID)
+				active, err := q.CountActiveTaskProperties(r.Context(), wsUUID)
 				if err != nil {
 					return err
 				}
@@ -689,7 +689,7 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		property, err = q.UpdateIssueProperty(r.Context(), params)
+		property, err = q.UpdateTaskProperty(r.Context(), params)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return fail(http.StatusNotFound, "property not found")
@@ -716,26 +716,26 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// Issue value handlers
+// Task value handlers
 // ---------------------------------------------------------------------------
 
-type SetIssuePropertyRequest struct {
+type SetTaskPropertyRequest struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func (h *Handler) SetIssueProperty(w http.ResponseWriter, r *http.Request) {
-	issueID := chi.URLParam(r, "id")
+func (h *Handler) SetTaskProperty(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
 	propertyID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "propertyId"), "property id")
 	if !ok {
 		return
 	}
-	var req SetIssuePropertyRequest
+	var req SetTaskPropertyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	issue, ok := h.loadIssueForUser(w, r, issueID)
+	task, ok := h.loadTaskForUser(w, r, taskID)
 	if !ok {
 		return
 	}
@@ -748,7 +748,7 @@ func (h *Handler) SetIssueProperty(w http.ResponseWriter, r *http.Request) {
 	// updates: the value written is guaranteed to reference the definition
 	// state that a concurrent config edit's usage census will see (TOCTOU,
 	// clean-room review F1).
-	var updated db.Issue
+	var updated db.Task
 	var httpStatus int
 	var httpMsg string
 	fail := func(status int, msg string) error {
@@ -756,7 +756,7 @@ func (h *Handler) SetIssueProperty(w http.ResponseWriter, r *http.Request) {
 		return errClientRejected
 	}
 	err := h.withPropertyLock(r, []string{"prop:" + uuidToString(propertyID)}, func(q *db.Queries) error {
-		def, err := q.GetIssueProperty(r.Context(), db.GetIssuePropertyParams{ID: propertyID, WorkspaceID: issue.WorkspaceID})
+		def, err := q.GetTaskProperty(r.Context(), db.GetTaskPropertyParams{ID: propertyID, WorkspaceID: task.WorkspaceID})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return fail(http.StatusNotFound, "property not found")
@@ -770,15 +770,15 @@ func (h *Handler) SetIssueProperty(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return fail(http.StatusBadRequest, err.Error())
 		}
-		updated, err = q.SetIssuePropertyValue(r.Context(), db.SetIssuePropertyValueParams{
-			ID:          issue.ID,
-			WorkspaceID: issue.WorkspaceID,
+		updated, err = q.SetTaskPropertyValue(r.Context(), db.SetTaskPropertyValueParams{
+			ID:          task.ID,
+			WorkspaceID: task.WorkspaceID,
 			Key:         uuidToString(def.ID),
 			Value:       value,
 		})
 		if err != nil {
 			if isCheckViolation(err) {
-				return fail(http.StatusBadRequest, "issue properties exceed the 16KB size limit")
+				return fail(http.StatusBadRequest, "task properties exceed the 16KB size limit")
 			}
 			return err
 		}
@@ -789,29 +789,29 @@ func (h *Handler) SetIssueProperty(w http.ResponseWriter, r *http.Request) {
 			writeError(w, httpStatus, httpMsg)
 			return
 		}
-		slog.Warn("SetIssueProperty failed", append(logger.RequestAttrs(r), "error", err, "issue_id", issueID)...)
+		slog.Warn("SetTaskProperty failed", append(logger.RequestAttrs(r), "error", err, "task_id", taskID)...)
 		writeError(w, http.StatusInternalServerError, "failed to set property")
 		return
 	}
 
 	workspaceID := uuidToString(updated.WorkspaceID)
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
-	properties := parseIssueProperties(updated.Properties)
-	h.publish(protocol.EventIssuePropertiesChanged, workspaceID, actorType, actorID, map[string]any{
-		"issue_id":   uuidToString(updated.ID),
+	properties := parseTaskProperties(updated.Properties)
+	h.publish(protocol.EventTaskPropertiesChanged, workspaceID, actorType, actorID, map[string]any{
+		"task_id":    uuidToString(updated.ID),
 		"properties": properties,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"properties": properties})
 }
 
-func (h *Handler) DeleteIssueProperty(w http.ResponseWriter, r *http.Request) {
-	issueID := chi.URLParam(r, "id")
+func (h *Handler) DeleteTaskProperty(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
 	propertyID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "propertyId"), "property id")
 	if !ok {
 		return
 	}
 
-	issue, ok := h.loadIssueForUser(w, r, issueID)
+	task, ok := h.loadTaskForUser(w, r, taskID)
 	if !ok {
 		return
 	}
@@ -823,32 +823,32 @@ func (h *Handler) DeleteIssueProperty(w http.ResponseWriter, r *http.Request) {
 	// Deleting a value is allowed even for archived definitions — cleanup
 	// must never be blocked. Unknown property ids only need to belong to the
 	// workspace; `properties - key` is a no-op when the key is absent.
-	if _, err := h.Queries.GetIssueProperty(r.Context(), db.GetIssuePropertyParams{ID: propertyID, WorkspaceID: issue.WorkspaceID}); err != nil {
+	if _, err := h.Queries.GetTaskProperty(r.Context(), db.GetTaskPropertyParams{ID: propertyID, WorkspaceID: task.WorkspaceID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "property not found")
 			return
 		}
-		slog.Warn("GetIssueProperty in DeleteIssueProperty failed", append(logger.RequestAttrs(r), "error", err)...)
+		slog.Warn("GetTaskProperty in DeleteTaskProperty failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to unset property")
 		return
 	}
 
-	updated, err := h.Queries.DeleteIssuePropertyValue(r.Context(), db.DeleteIssuePropertyValueParams{
-		ID:          issue.ID,
-		WorkspaceID: issue.WorkspaceID,
+	updated, err := h.Queries.DeleteTaskPropertyValue(r.Context(), db.DeleteTaskPropertyValueParams{
+		ID:          task.ID,
+		WorkspaceID: task.WorkspaceID,
 		Key:         uuidToString(propertyID),
 	})
 	if err != nil {
-		slog.Warn("DeleteIssuePropertyValue failed", append(logger.RequestAttrs(r), "error", err, "issue_id", issueID)...)
+		slog.Warn("DeleteTaskPropertyValue failed", append(logger.RequestAttrs(r), "error", err, "task_id", taskID)...)
 		writeError(w, http.StatusInternalServerError, "failed to unset property")
 		return
 	}
 
 	workspaceID := uuidToString(updated.WorkspaceID)
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
-	properties := parseIssueProperties(updated.Properties)
-	h.publish(protocol.EventIssuePropertiesChanged, workspaceID, actorType, actorID, map[string]any{
-		"issue_id":   uuidToString(updated.ID),
+	properties := parseTaskProperties(updated.Properties)
+	h.publish(protocol.EventTaskPropertiesChanged, workspaceID, actorType, actorID, map[string]any{
+		"task_id":    uuidToString(updated.ID),
 		"properties": properties,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"properties": properties})
@@ -1005,7 +1005,7 @@ func (h *Handler) propertySortExpr(r *http.Request, workspaceID string, sortValu
 	var defUUID pgtype.UUID
 	copy(defUUID.Bytes[:], parsedID[:])
 	defUUID.Valid = true
-	def, dbErr := h.Queries.GetIssueProperty(r.Context(), db.GetIssuePropertyParams{ID: defUUID, WorkspaceID: wsUUID})
+	def, dbErr := h.Queries.GetTaskProperty(r.Context(), db.GetTaskPropertyParams{ID: defUUID, WorkspaceID: wsUUID})
 	if dbErr != nil {
 		if errors.Is(dbErr, pgx.ErrNoRows) {
 			return "", true, nil // stale sort → position order

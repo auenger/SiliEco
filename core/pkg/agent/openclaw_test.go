@@ -1083,7 +1083,7 @@ func TestBuildOpenclawArgsFiltersBlockedCustomArgs(t *testing.T) {
 	}
 }
 
-// ── Mode matrix (issue #3260) ──
+// ── Mode matrix (task #3260) ──
 //
 // `openclaw agent` runs through the Gateway by default; `--local` is the
 // embedded-mode escape hatch. Silieco historically hard-coded `--local` so

@@ -112,7 +112,7 @@ func assertSnapshotEqual(t *testing.T, label string, want, got workdirSnapshot) 
 // injects the runtime brief, then runs the matching cleanups. Tests use this
 // to assert byte-exact reversibility without booting the full Prepare/Reuse
 // pipeline (which would need a WorkspacesRoot, GC plumbing, etc.).
-func runPrepareLikeCycle(t *testing.T, workDir, envRoot, provider string, ctx TaskContextForEnv) {
+func runPrepareLikeCycle(t *testing.T, workDir, envRoot, provider string, ctx RunContextForEnv) {
 	t.Helper()
 	manifest := &sidecarManifest{}
 	if err := writeContextFiles(workDir, provider, ctx, manifest); err != nil {
@@ -159,7 +159,7 @@ var allFileBasedProviders = []string{
 }
 
 // TestPrepareThenCleanupSidecarsRoundTripEmptyWorkdir is the headline
-// invariant the issue (SILI-2784) calls out: a user repo that contained
+// invariant the task (SILI-2784) calls out: a user repo that contained
 // nothing related to Silieco before a task ran must contain nothing
 // related to Silieco after the task finishes — no .agent_context/,
 // no .claude/skills/, no .silieco/, no stub directories. The test
@@ -176,12 +176,12 @@ func TestPrepareThenCleanupSidecarsRoundTripEmptyWorkdir(t *testing.T) {
 			envRoot := t.TempDir()
 			before := snapshot(t, workDir)
 
-			ctx := TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			ctx := RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 				AgentSkills: []SkillContextForEnv{
 					{
-						Name:        "Issue Review",
-						Description: "Review GH issues",
+						Name:        "Task Review",
+						Description: "Review GH tasks",
 						Content:     "Steps to review",
 						Files: []SkillFileContextForEnv{
 							{Path: "templates/checklist.md", Content: "- [ ] check"},
@@ -205,7 +205,7 @@ func TestPrepareThenCleanupSidecarsRoundTripEmptyWorkdir(t *testing.T) {
 }
 
 // TestPrepareThenCleanupSidecarsPreservesUserSkillSibling pins the
-// non-destructive contract from the issue: if the user already keeps a
+// non-destructive contract from the task: if the user already keeps a
 // hand-authored skill under the same parent directory we use, Cleanup
 // must leave it bit-for-bit intact. The user-skill payload is laid down
 // BEFORE Prepare runs and snapshotted; after Cleanup the user's skill
@@ -255,10 +255,10 @@ func TestPrepareThenCleanupSidecarsPreservesUserSkillSibling(t *testing.T) {
 
 			before := snapshot(t, workDir)
 
-			ctx := TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			ctx := RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 				AgentSkills: []SkillContextForEnv{
-					{Name: "Issue Review", Content: "ours"},
+					{Name: "Task Review", Content: "ours"},
 				},
 			}
 			runPrepareLikeCycle(t, workDir, envRoot, tc.provider, ctx)
@@ -319,10 +319,10 @@ func TestPrepareThenCleanupSidecarsPreservesUnrelatedUserFiles(t *testing.T) {
 
 			before := snapshot(t, workDir)
 
-			ctx := TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			ctx := RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 				AgentSkills: []SkillContextForEnv{
-					{Name: "Issue Review", Content: "ours"},
+					{Name: "Task Review", Content: "ours"},
 				},
 			}
 			runPrepareLikeCycle(t, workDir, envRoot, tc.provider, ctx)
@@ -334,7 +334,7 @@ func TestPrepareThenCleanupSidecarsPreservesUnrelatedUserFiles(t *testing.T) {
 }
 
 // TestPrepareThenCleanupSidecarsRepeatedCycles guards against the
-// failure mode the issue describes most explicitly — every run
+// failure mode the task describes most explicitly — every run
 // accumulates one more directory layer than the last. Running the cycle
 // twice in a row must leave the workdir in the same state as running it
 // once (which is the seed state), with the manifest correctly
@@ -349,10 +349,10 @@ func TestPrepareThenCleanupSidecarsRepeatedCycles(t *testing.T) {
 			envRoot := t.TempDir()
 			before := snapshot(t, workDir)
 
-			ctx := TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			ctx := RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 				AgentSkills: []SkillContextForEnv{
-					{Name: "Issue Review", Content: "ours"},
+					{Name: "Task Review", Content: "ours"},
 				},
 			}
 			for i := 0; i < 3; i++ {
@@ -377,8 +377,8 @@ func TestPrepareThenCleanupSidecarsWithProjectResources(t *testing.T) {
 			envRoot := t.TempDir()
 			before := snapshot(t, workDir)
 
-			ctx := TaskContextForEnv{
-				IssueID:      "11111111-2222-3333-4444-555555555555",
+			ctx := RunContextForEnv{
+				TaskID:       "11111111-2222-3333-4444-555555555555",
 				ProjectID:    "proj-1",
 				ProjectTitle: "Demo project",
 				ProjectResources: []ProjectResourceForEnv{
@@ -584,7 +584,7 @@ func TestSidecarManifestRoundTripJSON(t *testing.T) {
 	t.Parallel()
 	envRoot := t.TempDir()
 	original := &sidecarManifest{
-		Files: []string{"/x/.agent_context/issue_context.md"},
+		Files: []string{"/x/.agent_context/task_context.md"},
 		Dirs:  []string{"/x/.agent_context"},
 	}
 	if err := writeSidecarManifest(envRoot, original); err != nil {
@@ -594,7 +594,7 @@ func TestSidecarManifestRoundTripJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	for _, want := range []string{"files", "dirs", "issue_context.md", ".agent_context"} {
+	for _, want := range []string{"files", "dirs", "task_context.md", ".agent_context"} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("manifest JSON missing %q\n got: %s", want, string(raw))
 		}
@@ -604,11 +604,11 @@ func TestSidecarManifestRoundTripJSON(t *testing.T) {
 // sameSlugSkillProviderCases lists every file-based provider that
 // writes per-skill subdirectories under workDir, paired with the
 // natural skill path (relative to workDir) that a user-installed
-// skill named "issue-review" would occupy. The same-slug collision
+// skill named "task-review" would occupy. The same-slug collision
 // matrix below replays the user-skill-already-present scenario per
 // provider and asserts byte-exact round-trip — including that the
 // user's SKILL.md bytes survive the task untouched and our
-// collision-free sibling (which lives under .../issue-review-silieco/)
+// collision-free sibling (which lives under .../task-review-silieco/)
 // is fully cleaned up.
 //
 // Codex skills live under codex-home (not workdir), so the per-skill
@@ -618,24 +618,24 @@ var sameSlugSkillProviderCases = []struct {
 	provider string
 	skillDir string // relative path under workDir for the colliding slug
 }{
-	{"claude", filepath.Join(".claude", "skills", "issue-review")},
-	{"codebuddy", filepath.Join(".codebuddy", "skills", "issue-review")},
-	{"copilot", filepath.Join(".github", "skills", "issue-review")},
-	{"opencode", filepath.Join(".opencode", "skills", "issue-review")},
-	{"openclaw", filepath.Join("skills", "issue-review")},
-	{"pi", filepath.Join(".pi", "skills", "issue-review")},
-	{"cursor", filepath.Join(".cursor", "skills", "issue-review")},
-	{"kimi", filepath.Join(".kimi", "skills", "issue-review")},
-	{"kiro", filepath.Join(".kiro", "skills", "issue-review")},
-	{"antigravity", filepath.Join(".agents", "skills", "issue-review")},
-	{"qwen", filepath.Join(".qwen", "skills", "issue-review")},
-	{"hermes", filepath.Join(".agent_context", "skills", "issue-review")},
+	{"claude", filepath.Join(".claude", "skills", "task-review")},
+	{"codebuddy", filepath.Join(".codebuddy", "skills", "task-review")},
+	{"copilot", filepath.Join(".github", "skills", "task-review")},
+	{"opencode", filepath.Join(".opencode", "skills", "task-review")},
+	{"openclaw", filepath.Join("skills", "task-review")},
+	{"pi", filepath.Join(".pi", "skills", "task-review")},
+	{"cursor", filepath.Join(".cursor", "skills", "task-review")},
+	{"kimi", filepath.Join(".kimi", "skills", "task-review")},
+	{"kiro", filepath.Join(".kiro", "skills", "task-review")},
+	{"antigravity", filepath.Join(".agents", "skills", "task-review")},
+	{"qwen", filepath.Join(".qwen", "skills", "task-review")},
+	{"hermes", filepath.Join(".agent_context", "skills", "task-review")},
 }
 
 // TestPrepareThenCleanupSidecarsSameSlugCollisionPerProvider is the
 // must-fix byte-exact matrix the PR #3444 review required: per
 // provider, seed a user skill at the exact slug Silieco would use
-// (`.claude/skills/issue-review/SKILL.md` etc.), run the full
+// (`.claude/skills/task-review/SKILL.md` etc.), run the full
 // Prepare → Inject → Cleanup cycle with a Silieco skill of the same
 // name, and assert the workdir snapshot is byte-identical to the
 // seed. The user's SKILL.md must not be touched, and the Silieco
@@ -654,7 +654,7 @@ func TestPrepareThenCleanupSidecarsSameSlugCollisionPerProvider(t *testing.T) {
 			if err := os.MkdirAll(userSkillDir, 0o755); err != nil {
 				t.Fatalf("seed user skill dir: %v", err)
 			}
-			userBody := "---\nname: issue-review\ndescription: user-authored\n---\n\nUser owns this slug.\n"
+			userBody := "---\nname: task-review\ndescription: user-authored\n---\n\nUser owns this slug.\n"
 			userSkillFile := filepath.Join(userSkillDir, "SKILL.md")
 			if err := os.WriteFile(userSkillFile, []byte(userBody), 0o644); err != nil {
 				t.Fatalf("seed user SKILL.md: %v", err)
@@ -669,13 +669,13 @@ func TestPrepareThenCleanupSidecarsSameSlugCollisionPerProvider(t *testing.T) {
 
 			before := snapshot(t, workDir)
 
-			ctx := TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			ctx := RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 				AgentSkills: []SkillContextForEnv{
 					{
-						Name:        "Issue Review",
+						Name:        "Task Review",
 						Description: "Silieco's version",
-						Content:     "---\nname: issue-review\n---\n\nSilieco skill content.\n",
+						Content:     "---\nname: task-review\n---\n\nSilieco skill content.\n",
 						Files: []SkillFileContextForEnv{
 							{Path: "templates/checklist.md", Content: "- [ ] check"},
 						},
@@ -707,15 +707,15 @@ func TestPrepareThenCleanupSidecarsSameSlugCollisionPerProvider(t *testing.T) {
 	}
 }
 
-// TestPrepareThenCleanupSidecarsIssueContextCollisionPerProvider is
-// the matching byte-exact matrix for `.agent_context/issue_context.md`
+// TestPrepareThenCleanupSidecarsTaskContextCollisionPerProvider is
+// the matching byte-exact matrix for `.agent_context/task_context.md`
 // — a Silieco-only namespace file. If the user already has a file at
 // that path, the writer must refuse to overwrite it (the runtime
 // brief carries the same facts anyway) and CleanupSidecars must
 // leave the user's file alone. This covers EVERY file-based provider
 // (including Codex, whose skills don't live in workdir but whose
 // .agent_context/ write goes through the same path).
-func TestPrepareThenCleanupSidecarsIssueContextCollisionPerProvider(t *testing.T) {
+func TestPrepareThenCleanupSidecarsTaskContextCollisionPerProvider(t *testing.T) {
 	t.Parallel()
 	for _, provider := range allFileBasedProviders {
 		provider := provider
@@ -727,16 +727,16 @@ func TestPrepareThenCleanupSidecarsIssueContextCollisionPerProvider(t *testing.T
 			if err := os.MkdirAll(filepath.Join(workDir, ".agent_context"), 0o755); err != nil {
 				t.Fatalf("seed dir: %v", err)
 			}
-			userBody := "# user-authored issue_context.md\n\nDo not touch.\n"
-			userPath := filepath.Join(workDir, ".agent_context", "issue_context.md")
+			userBody := "# user-authored task_context.md\n\nDo not touch.\n"
+			userPath := filepath.Join(workDir, ".agent_context", "task_context.md")
 			if err := os.WriteFile(userPath, []byte(userBody), 0o644); err != nil {
 				t.Fatalf("seed user file: %v", err)
 			}
 
 			before := snapshot(t, workDir)
 
-			ctx := TaskContextForEnv{
-				IssueID: "11111111-2222-3333-4444-555555555555",
+			ctx := RunContextForEnv{
+				TaskID: "11111111-2222-3333-4444-555555555555",
 			}
 			runPrepareLikeCycle(t, workDir, envRoot, provider, ctx)
 
@@ -745,10 +745,10 @@ func TestPrepareThenCleanupSidecarsIssueContextCollisionPerProvider(t *testing.T
 
 			got, err := os.ReadFile(userPath)
 			if err != nil {
-				t.Fatalf("user issue_context.md went missing: %v", err)
+				t.Fatalf("user task_context.md went missing: %v", err)
 			}
 			if string(got) != userBody {
-				t.Errorf("user issue_context.md mutated\n want: %q\n  got: %q", userBody, string(got))
+				t.Errorf("user task_context.md mutated\n want: %q\n  got: %q", userBody, string(got))
 			}
 		})
 	}
@@ -779,8 +779,8 @@ func TestPrepareThenCleanupSidecarsProjectResourcesCollisionPerProvider(t *testi
 
 			before := snapshot(t, workDir)
 
-			ctx := TaskContextForEnv{
-				IssueID:      "11111111-2222-3333-4444-555555555555",
+			ctx := RunContextForEnv{
+				TaskID:       "11111111-2222-3333-4444-555555555555",
 				ProjectID:    "proj-1",
 				ProjectTitle: "Demo",
 				ProjectResources: []ProjectResourceForEnv{
@@ -818,52 +818,52 @@ func TestAllocateCollisionFreeSkillDir(t *testing.T) {
 	parent := t.TempDir()
 
 	// 1) No collision → use the base slug as-is.
-	slug, dir, err := allocateCollisionFreeSkillDir(parent, "issue-review")
+	slug, dir, err := allocateCollisionFreeSkillDir(parent, "task-review")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if slug != "issue-review" {
+	if slug != "task-review" {
 		t.Errorf("first allocation should use base slug; got %q", slug)
 	}
-	if dir != filepath.Join(parent, "issue-review") {
+	if dir != filepath.Join(parent, "task-review") {
 		t.Errorf("first allocation path = %q, want under parent", dir)
 	}
 
 	// 2) Pre-existing user dir at the base slug → bump to `-silieco`.
-	if err := os.MkdirAll(filepath.Join(parent, "issue-review"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(parent, "task-review"), 0o755); err != nil {
 		t.Fatalf("seed user dir: %v", err)
 	}
-	slug, dir, err = allocateCollisionFreeSkillDir(parent, "issue-review")
+	slug, dir, err = allocateCollisionFreeSkillDir(parent, "task-review")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if slug != "issue-review-silieco" {
+	if slug != "task-review-silieco" {
 		t.Errorf("second allocation should bump to `-silieco`; got %q", slug)
 	}
-	if dir != filepath.Join(parent, "issue-review-silieco") {
+	if dir != filepath.Join(parent, "task-review-silieco") {
 		t.Errorf("second allocation path = %q, want under parent", dir)
 	}
 
 	// 3) Pre-existing collision at the bumped slug too → bump again.
-	if err := os.MkdirAll(filepath.Join(parent, "issue-review-silieco"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(parent, "task-review-silieco"), 0o755); err != nil {
 		t.Fatalf("seed bumped dir: %v", err)
 	}
-	slug, dir, err = allocateCollisionFreeSkillDir(parent, "issue-review")
+	slug, dir, err = allocateCollisionFreeSkillDir(parent, "task-review")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if slug != "issue-review-silieco-2" {
+	if slug != "task-review-silieco-2" {
 		t.Errorf("third allocation should be `-silieco-2`; got %q", slug)
 	}
-	if dir != filepath.Join(parent, "issue-review-silieco-2") {
+	if dir != filepath.Join(parent, "task-review-silieco-2") {
 		t.Errorf("third allocation path = %q, want under parent", dir)
 	}
 }
 
 // TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation is
 // the end-to-end coverage for the collision-free sibling: a user has
-// `.claude/skills/issue-review/SKILL.md`, the task ships an
-// `Issue Review` skill, the Silieco sibling must land at a different
+// `.claude/skills/task-review/SKILL.md`, the task ships an
+// `Task Review` skill, the Silieco sibling must land at a different
 // slug (so the agent still sees it), AND Cleanup must remove the
 // Silieco sibling entirely without touching the user's.
 func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.T) {
@@ -871,7 +871,7 @@ func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.
 	workDir := t.TempDir()
 	envRoot := t.TempDir()
 
-	userDir := filepath.Join(workDir, ".claude", "skills", "issue-review")
+	userDir := filepath.Join(workDir, ".claude", "skills", "task-review")
 	if err := os.MkdirAll(userDir, 0o755); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -885,16 +885,16 @@ func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.
 	// landed at a NEW path under the same parent, AND the user's
 	// path is untouched.
 	manifest := &sidecarManifest{}
-	if err := writeContextFiles(workDir, "claude", TaskContextForEnv{
-		IssueID: "11111111-2222-3333-4444-555555555555",
+	if err := writeContextFiles(workDir, "claude", RunContextForEnv{
+		TaskID: "11111111-2222-3333-4444-555555555555",
 		AgentSkills: []SkillContextForEnv{
-			{Name: "Issue Review", Content: "Silieco's version\n"},
+			{Name: "Task Review", Content: "Silieco's version\n"},
 		},
 	}, manifest); err != nil {
 		t.Fatalf("writeContextFiles: %v", err)
 	}
 
-	siliecoDir := filepath.Join(workDir, ".claude", "skills", "issue-review-silieco")
+	siliecoDir := filepath.Join(workDir, ".claude", "skills", "task-review-silieco")
 	if _, err := os.Stat(filepath.Join(siliecoDir, "SKILL.md")); err != nil {
 		t.Errorf("Silieco sibling skill should exist at %s: %v", siliecoDir, err)
 	}

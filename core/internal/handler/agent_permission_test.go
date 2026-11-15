@@ -104,7 +104,7 @@ func TestMigrationBackfill_VisibilityToPermission(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, permission_mode, max_concurrent_tasks, owner_id
+			runtime_id, visibility, permission_mode, max_concurrent_runs, owner_id
 		)
 		VALUES ($1, 'backfill-legacy-workspace-agent', '', 'cloud', '{}'::jsonb,
 		        $2, 'workspace', 'private', 1, $3)
@@ -185,15 +185,15 @@ func TestCanInvokeAgent_PublicToMemberWhitelist(t *testing.T) {
 
 	assignAs := func(actorID string) int {
 		rec := httptest.NewRecorder()
-		testHandler.CreateIssue(rec, newRequestAs(actorID, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		testHandler.CreateTask(rec, newRequestAs(actorID, "POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 			"title":         "assign to member-scoped agent",
 			"status":        "todo",
 			"assignee_type": "agent",
 			"assignee_id":   agent.ID,
 		}))
 		t.Cleanup(func() {
-			testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE agent_id = $1`, agent.ID)
-			testPool.Exec(context.Background(), `DELETE FROM issue WHERE workspace_id = $1 AND title = 'assign to member-scoped agent'`, testWorkspaceID)
+			testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE agent_id = $1`, agent.ID)
+			testPool.Exec(context.Background(), `DELETE FROM task WHERE workspace_id = $1 AND title = 'assign to member-scoped agent'`, testWorkspaceID)
 		})
 		return rec.Code
 	}
@@ -546,7 +546,7 @@ func TestRevokeMember_InvocationTargetCleanupIsWorkspaceScoped(t *testing.T) {
 	testPool.Exec(ctx, `DELETE FROM workspace WHERE slug = 'xws-b-perm-test'`)
 	var wsB string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO workspace (name, slug, description, issue_prefix)
+		INSERT INTO workspace (name, slug, description, task_prefix)
 		VALUES ('XWS B', 'xws-b-perm-test', '', 'XWB')
 		RETURNING id
 	`).Scan(&wsB); err != nil {
@@ -574,7 +574,7 @@ func TestRevokeMember_InvocationTargetCleanupIsWorkspaceScoped(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, permission_mode, max_concurrent_tasks, owner_id
+			runtime_id, visibility, permission_mode, max_concurrent_runs, owner_id
 		)
 		VALUES ($1, 'xws-agent-b', '', 'cloud', '{}'::jsonb, $2, 'private', 'public_to', 1, $3)
 		RETURNING id

@@ -126,6 +126,6 @@ describe("CreateWorkspaceModal", () => {
     await user.click(screen.getByRole("button", { name: "Create workspace" }));
 
     expect(onClose).toHaveBeenCalled();
-    expect(mockPush).toHaveBeenCalledWith("/my-team/issues");
+    expect(mockPush).toHaveBeenCalledWith("/my-team/tasks");
   });
 });

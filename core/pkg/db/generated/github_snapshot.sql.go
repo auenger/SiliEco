@@ -23,7 +23,7 @@ func (q *Queries) DeleteGitHubPRCheckRuns(ctx context.Context, prID pgtype.UUID)
 }
 
 const getGitHubPullRequestByID = `-- name: GetGitHubPullRequestByID :one
-SELECT id, workspace_id, installation_id, repo_owner, repo_name, pr_number, title, state, html_url, branch, author_login, author_avatar_url, merged_at, closed_at, pr_created_at, pr_updated_at, created_at, updated_at, head_sha, mergeable_state, additions, deletions, changed_files, api_mergeable, api_merge_state_status, checks_rollup_state, snapshot_head_sha, snapshot_fetched_at FROM github_pull_request WHERE id = $1
+SELECT id, workspace_id, installation_id, repo_owner, repo_name, pr_number, title, state, html_url, branch, author_login, author_avatar_url, merged_at, closed_at, pr_created_at, pr_updated_at, created_at, updated_at, head_sha, mergeable_state, additions, deletions, changed_files, api_mergeable, api_merge_state_status, checks_rollup_state, snapshot_head_sha, snapshot_fetched_at FROM github_pull_request WHERE github_pull_request.id = $1
 `
 
 func (q *Queries) GetGitHubPullRequestByID(ctx context.Context, id pgtype.UUID) (GithubPullRequest, error) {

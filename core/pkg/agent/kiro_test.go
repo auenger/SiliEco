@@ -114,7 +114,7 @@ done
 `
 }
 
-func TestKiroBackendSetModelFailureFailsTask(t *testing.T) {
+func TestKiroBackendSetModelFailureFailsRun(t *testing.T) {
 	t.Parallel()
 
 	fakePath := filepath.Join(t.TempDir(), "kiro-cli")
@@ -313,7 +313,7 @@ func TestKiroBackendDoesNotCompleteAfterFailedGoalComplete(t *testing.T) {
 	}
 }
 
-func fakeKiroACPIssueCommentCloseErrorScript() string {
+func fakeKiroACPTaskCommentCloseErrorScript() string {
 	return `#!/bin/sh
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
@@ -325,7 +325,7 @@ while IFS= read -r line; do
       printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_comment_done"}}\n' "$id"
       ;;
     *'"method":"session/prompt"'*)
-      printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_comment_done","update":{"type":"ToolCall","toolCallId":"tc-comment","name":"Shell","status":"pending","parameters":{"command":"silieco issue comment add issue-1 --content-file ./reply.md"}}}}\n'
+      printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_comment_done","update":{"type":"ToolCall","toolCallId":"tc-comment","name":"Shell","status":"pending","parameters":{"command":"silieco task comment add task-1 --content-file ./reply.md"}}}}\n'
       printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_comment_done","update":{"type":"ToolCallUpdate","toolCallId":"tc-comment","status":"completed","name":"Shell","output":"created comment"}}}\n'
       printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"Internal error","data":"Kiro failed to generate a response"}}\n' "$id"
       exit 0
@@ -339,7 +339,7 @@ func TestKiroBackendTreatsCommentAddCloseErrorAsCompleted(t *testing.T) {
 	t.Parallel()
 
 	fakePath := filepath.Join(t.TempDir(), "kiro-cli")
-	writeTestExecutable(t, fakePath, []byte(fakeKiroACPIssueCommentCloseErrorScript()))
+	writeTestExecutable(t, fakePath, []byte(fakeKiroACPTaskCommentCloseErrorScript()))
 
 	backend, err := New("kiro", Config{ExecutablePath: fakePath, Logger: slog.Default()})
 	if err != nil {
@@ -371,7 +371,7 @@ func TestKiroBackendTreatsCommentAddCloseErrorAsCompleted(t *testing.T) {
 			t.Fatal("result channel closed without a value")
 		}
 		if result.Status != "completed" {
-			t.Fatalf("expected status=completed after issue comment close error, got %q (error=%q, messages=%+v)", result.Status, result.Error, messages)
+			t.Fatalf("expected status=completed after task comment close error, got %q (error=%q, messages=%+v)", result.Status, result.Error, messages)
 		}
 		if result.Error != "" {
 			t.Fatalf("expected close-handshake error to be suppressed, got %q", result.Error)
@@ -384,40 +384,40 @@ func TestKiroBackendTreatsCommentAddCloseErrorAsCompleted(t *testing.T) {
 	}
 }
 
-func TestKiroIssueCommentAddCommand(t *testing.T) {
+func TestKiroTaskCommentAddCommand(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		command string
 		want    bool
 	}{
-		{"silieco issue comment add issue-1 --content-file ./reply.md", true},
-		{"./silieco issue comment add issue-1 --content-file ./reply.md", true},
-		{"/usr/local/bin/silieco issue comment add issue-1 --content-file ./reply.md", true},
-		{"SILIECO_TOKEN=x silieco issue comment add issue-1 --content-file ./reply.md", true},
-		{"FOO=1 BAR=2 ./silieco issue comment add issue-1", true},
-		{`sh -c "silieco issue comment add issue-1 --content-file ./reply.md"`, true},
-		{`bash -c 'silieco issue comment add issue-1'`, true},
-		{`/bin/sh -c "silieco issue comment add issue-1"`, true},
-		{"silieco issue get issue-1", false},
-		{"echo silieco issue comment add issue-1", false},
-		{`sh -c "echo silieco issue comment add issue-1"`, false},
+		{"silieco task comment add task-1 --content-file ./reply.md", true},
+		{"./silieco task comment add task-1 --content-file ./reply.md", true},
+		{"/usr/local/bin/silieco task comment add task-1 --content-file ./reply.md", true},
+		{"SILIECO_TOKEN=x silieco task comment add task-1 --content-file ./reply.md", true},
+		{"FOO=1 BAR=2 ./silieco task comment add task-1", true},
+		{`sh -c "silieco task comment add task-1 --content-file ./reply.md"`, true},
+		{`bash -c 'silieco task comment add task-1'`, true},
+		{`/bin/sh -c "silieco task comment add task-1"`, true},
+		{"silieco task get task-1", false},
+		{"echo silieco task comment add task-1", false},
+		{`sh -c "echo silieco task comment add task-1"`, false},
 		{"FOO=bar", false},
 		{"", false},
 	}
 	for _, tt := range tests {
-		if got := isKiroIssueCommentAddCommand(tt.command); got != tt.want {
-			t.Errorf("isKiroIssueCommentAddCommand(%q) = %v, want %v", tt.command, got, tt.want)
+		if got := isKiroTaskCommentAddCommand(tt.command); got != tt.want {
+			t.Errorf("isKiroTaskCommentAddCommand(%q) = %v, want %v", tt.command, got, tt.want)
 		}
 	}
 }
 
-// TestKiroIssueCommentAddToolIgnoresToolTitle pins the #5509 decoupling:
-// `silieco issue comment add` must be recognized from its command payload
+// TestKiroTaskCommentAddToolIgnoresToolTitle pins the #5509 decoupling:
+// `silieco task comment add` must be recognized from its command payload
 // regardless of the tool's normalized name. The GPT-5.6 Sol adapter can title
 // the shell tool something that doesn't fold into "terminal", and the old
 // msg.Tool=="terminal" gate silently dropped those.
-func TestKiroIssueCommentAddToolIgnoresToolTitle(t *testing.T) {
+func TestKiroTaskCommentAddToolIgnoresToolTitle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -435,17 +435,17 @@ func TestKiroIssueCommentAddToolIgnoresToolTitle(t *testing.T) {
 		msg := Message{
 			Type:  MessageToolUse,
 			Tool:  tt.tool,
-			Input: map[string]any{"command": "silieco issue comment add issue-1 --content-file ./reply.md"},
+			Input: map[string]any{"command": "silieco task comment add task-1 --content-file ./reply.md"},
 		}
-		if got := isKiroIssueCommentAddTool(msg); got != tt.want {
-			t.Errorf("%s: isKiroIssueCommentAddTool(tool=%q) = %v, want %v", tt.name, tt.tool, got, tt.want)
+		if got := isKiroTaskCommentAddTool(msg); got != tt.want {
+			t.Errorf("%s: isKiroTaskCommentAddTool(tool=%q) = %v, want %v", tt.name, tt.tool, got, tt.want)
 		}
 	}
 
 	// A non-comment-add command must still be rejected regardless of title.
 	notComment := Message{Type: MessageToolUse, Tool: "terminal", Input: map[string]any{"command": "ls -la"}}
-	if isKiroIssueCommentAddTool(notComment) {
-		t.Errorf("isKiroIssueCommentAddTool should reject a non-comment-add command")
+	if isKiroTaskCommentAddTool(notComment) {
+		t.Errorf("isKiroTaskCommentAddTool should reject a non-comment-add command")
 	}
 }
 
@@ -529,7 +529,7 @@ func TestKiroBackendDoesNotCompleteRunningCommentAddWithoutResult(t *testing.T) 
 
 	result := runKiroCloseErrorScript(t, fakeKiroACPRunningToolCloseErrorScript(
 		"execute_bash",
-		"silieco issue comment add issue-1 --content-file ./reply.md",
+		"silieco task comment add task-1 --content-file ./reply.md",
 	))
 	if result.Status != "failed" {
 		t.Fatalf("expected status=failed for a result-less running comment-add, got %q (error=%q)", result.Status, result.Error)
@@ -589,7 +589,7 @@ func TestKiroBackendTreatsCompletedCommentAddWithNonTerminalTitleAsCompleted(t *
 
 	result := runKiroCloseErrorScript(t, fakeKiroACPCompletedToolCloseErrorScript(
 		"execute_bash",
-		"silieco issue comment add issue-1 --content-file ./reply.md",
+		"silieco task comment add task-1 --content-file ./reply.md",
 	))
 	if result.Status != "completed" {
 		t.Fatalf("expected status=completed for a completed comment-add + close error, got %q (error=%q)", result.Status, result.Error)
@@ -636,7 +636,7 @@ done
 }
 
 // TestKiroBackendPreservesCompletionOnRealGPT56SolFrames is the end-to-end
-// #5509 regression against the real captured wire shape: a `silieco issue
+// #5509 regression against the real captured wire shape: a `silieco task
 // comment add` run through GPT-5.6 Sol's shell tool (title "Running: ...",
 // object rawOutput) that completes, then hits the -32603 close handshake, must
 // stay completed. This fails without BOTH the object-rawOutput parse fix in
@@ -645,7 +645,7 @@ func TestKiroBackendPreservesCompletionOnRealGPT56SolFrames(t *testing.T) {
 	t.Parallel()
 
 	result := runKiroCloseErrorScript(t, fakeKiroACPRealGPT56SolCloseErrorScript(
-		"silieco issue comment add issue-1 --content-file ./reply.md",
+		"silieco task comment add task-1 --content-file ./reply.md",
 	))
 	if result.Status != "completed" {
 		t.Fatalf("expected status=completed for the real GPT-5.6 Sol frame shape, got %q (error=%q)", result.Status, result.Error)
@@ -671,9 +671,9 @@ while IFS= read -r line; do
       printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_two"}}\n' "$id"
       ;;
     *'"method":"session/prompt"'*)
-      printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_two","update":{"type":"ToolCall","toolCallId":"tc-1","name":"terminal","status":"pending","parameters":{"command":"silieco issue comment add issue-1 --content-file ./progress.md"}}}}\n'
+      printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_two","update":{"type":"ToolCall","toolCallId":"tc-1","name":"terminal","status":"pending","parameters":{"command":"silieco task comment add task-1 --content-file ./progress.md"}}}}\n'
       printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_two","update":{"type":"ToolCallUpdate","toolCallId":"tc-1","status":"` + firstStatus + `","name":"terminal","output":"first"}}}\n'
-      printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_two","update":{"type":"ToolCall","toolCallId":"tc-2","name":"terminal","status":"pending","parameters":{"command":"silieco issue comment add issue-1 --content-file ./final.md"}}}}\n'
+      printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_two","update":{"type":"ToolCall","toolCallId":"tc-2","name":"terminal","status":"pending","parameters":{"command":"silieco task comment add task-1 --content-file ./final.md"}}}}\n'
       printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_two","update":{"type":"ToolCallUpdate","toolCallId":"tc-2","status":"` + secondStatus + `","name":"terminal","output":"second"}}}\n'
       ` + closeErrorFrame + `
       exit 0
@@ -728,7 +728,7 @@ while IFS= read -r line; do
       printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_failed"}}\n' "$id"
       ;;
     *'"method":"session/prompt"'*)
-      printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_failed","update":{"type":"ToolCall","toolCallId":"tc-fail","name":"execute_bash","status":"pending","parameters":{"command":"silieco issue comment add issue-1 --content-file ./reply.md"}}}}\n'
+      printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_failed","update":{"type":"ToolCall","toolCallId":"tc-fail","name":"execute_bash","status":"pending","parameters":{"command":"silieco task comment add task-1 --content-file ./reply.md"}}}}\n'
       printf '{"jsonrpc":"2.0","method":"session/notification","params":{"sessionId":"ses_failed","update":{"type":"ToolCallUpdate","toolCallId":"tc-fail","status":"failed","name":"execute_bash","output":"exit status 1"}}}\n'
       ` + closeErrorFrame + `
       exit 0

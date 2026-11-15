@@ -355,7 +355,7 @@
   "rework": {
     "invalidated": "因返工失效",
     "invalidated_tasks": "返工失效的历史工作",
-    "invalidated_tasks_hint": "保留旧记录供追溯，这些 issue 不再计入当前阶段的完成条件。",
+    "invalidated_tasks_hint": "保留旧记录供追溯，这些 task 不再计入当前阶段的完成条件。",
     "open": "返工",
     "title": "阶段返工",
     "description": "选择重新开始的阶段。该阶段及后续阶段的已有交付将不再视为已验收。",

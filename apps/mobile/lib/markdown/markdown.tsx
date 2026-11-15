@@ -13,7 +13,7 @@
  *     ratio + tap-to-lightbox dispatch.
  *
  * Why hybrid instead of pure enriched: enriched does not let us inject
- * React for any leaf node (issues #54, #232 — maintainer: "no custom
+ * React for any leaf node (tasks #54, #232 — maintainer: "no custom
  * renderers, by design"), which would permanently lock out syntax
  * highlighting and tap-to-lightbox. The maintainer themselves
  * recommends this split in #246: "split them out and render with
@@ -52,8 +52,8 @@ import { MarkdownImage } from "./markdown-image";
 interface Props {
   content: string;
   /**
-   * Attachments scoped to the same record this content belongs to (issue,
-   * comment's parent issue, chat message). Used to resolve `mc://file/<id>`
+   * Attachments scoped to the same record this content belongs to (task,
+   * comment's parent task, chat message). Used to resolve `mc://file/<id>`
    * image URIs to a real HTTPS `download_url` — without it, iOS image loader
    * doesn't understand the mc: scheme and the image fails to load.
    */
@@ -68,7 +68,7 @@ interface Props {
    * appears on top of the action sheet (Element X PR #1584 documents the
    * identical bug in a Matrix client).
    *
-   * Default is `true` for reader surfaces (issue description, chat message
+   * Default is `true` for reader surfaces (task description, chat message
    * bodies) where users expect to be able to select and copy text natively.
    */
   selectable?: boolean;
@@ -141,7 +141,7 @@ export function Markdown({
       // (depending on iOS version). Handle every shape inline and ALWAYS
       // return without falling through to Linking.
       //
-      //   mention://issue/<uuid>   → navigate to that issue detail
+      //   mention://task/<uuid>   → navigate to that task detail
       //   mention://member/<uuid>  → no-op (no member profile screen yet)
       //   mention://agent/<uuid>   → no-op (no agent profile screen yet)
       //   mention://squad/<uuid>   → no-op (no squad profile screen yet)
@@ -153,8 +153,8 @@ export function Markdown({
         if (slash < 0) return;
         const type = rest.slice(0, slash);
         const id = rest.slice(slash + 1);
-        if (type === "issue" && id && wsSlug) {
-          router.push(`/${wsSlug}/issue/${id}`);
+        if (type === "task" && id && wsSlug) {
+          router.push(`/${wsSlug}/task/${id}`);
         }
         return;
       }

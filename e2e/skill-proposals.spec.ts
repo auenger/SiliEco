@@ -10,7 +10,7 @@ test("member submits an improvement proposal without publishing the skill", asyn
     const baseline = await api.createSkillRevisionFixture(skillId, "# Baseline instructions");
     const candidate = await api.createSkillRevisionFixture(skillId, "# Candidate with verification step");
     const token = api.getToken(); if (!token) throw new Error("Missing login");
-    await page.addInitScript((token) => {localStorage.setItem("silieco_token", token);localStorage.setItem("silieco:chat:isOpen", "false");}, token);
+    await page.addInitScript((token) => {localStorage.setItem("silieco_tr1_token", token);localStorage.setItem("silieco:tr1:chat:isOpen", "false");}, token);
     await page.setViewportSize({width: 1440, height: 1000});
     await page.goto(`/${api.getWorkspaceSlug()}/skills/${skillId}?view=proposals`, {waitUntil: "domcontentloaded"});
     await page.getByRole("tab", {name: "Improvement proposals", exact: true}).click();

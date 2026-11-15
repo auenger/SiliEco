@@ -14,8 +14,8 @@ import {
 import { Button } from "@silieco/ui/components/ui/button";
 import { Textarea } from "@silieco/ui/components/ui/textarea";
 import { Spinner } from "@silieco/ui/components/ui/spinner";
-import type { IssueAssigneeType, UpdateIssueRequest } from "@silieco/core/types";
-import { useUpdateIssue, useBatchUpdateIssues } from "@silieco/core/issues/mutations";
+import type { TaskAssigneeType, UpdateTaskRequest } from "@silieco/core/types";
+import { useUpdateTask, useBatchUpdateTasks } from "@silieco/core/tasks/mutations";
 import { isRevisionConflictError } from "@silieco/core/revisions";
 import { useActorName } from "@silieco/core/workspace/hooks";
 import { useWorkspaceId } from "@silieco/core/hooks";
@@ -44,29 +44,29 @@ function boldName(text: string): ReactNode {
 }
 
 interface RunConfirmData {
-  issueIds?: string[];
-  // Assign is the only mode: agent/squad assignment is the sole issue write that
+  taskIds?: string[];
+  // Assign is the only mode: agent/squad assignment is the sole task write that
   // needs the pre-trigger confirmation. Batch status changes apply directly now
   // (SILI-4155), so there is no "status" mode.
   mode?: "assign";
-  assigneeType?: IssueAssigneeType;
+  assigneeType?: TaskAssigneeType;
   assigneeId?: string;
   assigneeName?: string;
 }
 
 /**
- * Assignment confirmation for issues that may start agent runs.
+ * Assignment confirmation for tasks that may start agent runs.
  *
  * The rule is "dialog = you are confirming an assignment", NOT "you are
  * confirming N runs" (SILI-5010). It therefore does no pre-flight prediction:
  * opening it fires no request, so the note box and buttons are usable on the
- * first frame. Previously it called POST /api/issues/preview-trigger on open
+ * first frame. Previously it called POST /api/tasks/preview-trigger on open
  * and blocked the whole dialog behind a "检查中…" spinner; because that query is
- * keyed per issue id with staleTime 0, every new issue was a guaranteed cache
+ * keyed per task id with staleTime 0, every new task was a guaranteed cache
  * miss and the wait was unavoidable.
  *
  * Completion is silent: the assignee change and any run it starts surface
- * through the issue's normal assignee / run-status updates, so the confirm adds
+ * through the task's normal assignee / run-status updates, so the confirm adds
  * no result toast. Whether a run starts stays the server's existing decision at
  * write time. Dismissing the dialog (X / Esc / click-outside) cancels without
  * any write. Shared by single assign (1 id) and batch assign (N ids).
@@ -81,7 +81,7 @@ export function RunConfirmModal({
   const { t } = useT("modals");
   const { getActorName } = useActorName();
   const d = (data ?? {}) as RunConfirmData;
-  const issueIds = d.issueIds ?? [];
+  const taskIds = d.taskIds ?? [];
 
   const [note, setNote] = useState("");
   // Which footer action is in flight, so only the clicked button shows a
@@ -90,8 +90,8 @@ export function RunConfirmModal({
   const [pendingAction, setPendingAction] = useState<"go" | "suppress" | null>(null);
   const submitting = pendingAction !== null;
 
-  const updateIssue = useUpdateIssue();
-  const batchUpdate = useBatchUpdateIssues();
+  const updateTask = useUpdateTask();
+  const batchUpdate = useBatchUpdateTasks();
 
   // Handoff-support verdict, resolved entirely from warm client caches
   // (useWorkspacePresencePrefetch keeps agents / squads / runtimes hot), so the
@@ -127,22 +127,22 @@ export function RunConfirmModal({
   // the assignment proceed (SILI-3375 §6.3).
   const noteDisabled = localHandoff === false;
 
-  const applyTo = (extra: Partial<UpdateIssueRequest>) => {
-    const base: UpdateIssueRequest = {
+  const applyTo = (extra: Partial<UpdateTaskRequest>) => {
+    const base: UpdateTaskRequest = {
       assignee_type: d.assigneeType ?? null,
       assignee_id: d.assigneeId ?? null,
     };
     return { ...base, ...extra };
   };
 
-  // The copy names whoever the issue is handed to; for a squad that is the
+  // The copy names whoever the task is handed to; for a squad that is the
   // squad itself, since its leader deciding who works is an internal detail.
   const assigneeName =
     d.assigneeName ??
     getActorName(d.assigneeType === "squad" ? "squad" : "agent", d.assigneeId ?? "");
 
   const submit = async (suppressRun: boolean) => {
-    if (issueIds.length === 0 || submitting) return;
+    if (taskIds.length === 0 || submitting) return;
     setPendingAction(suppressRun ? "suppress" : "go");
     const payload = applyTo({
       ...(suppressRun ? { suppress_run: true } : {}),
@@ -150,13 +150,13 @@ export function RunConfirmModal({
     });
     try {
       // Completion is silent, exactly as before: the assignee and any run show
-      // up through the issue's normal assignee / run-status updates, so there is
+      // up through the task's normal assignee / run-status updates, so there is
       // no result toast to add here. Whether a run started is the server's
       // existing decision at write time, not something this dialog reports.
-      if (issueIds.length === 1) {
-        await updateIssue.mutateAsync({ id: issueIds[0]!, ...payload });
+      if (taskIds.length === 1) {
+        await updateTask.mutateAsync({ id: taskIds[0]!, ...payload });
       } else {
-        await batchUpdate.mutateAsync({ ids: issueIds, updates: payload });
+        await batchUpdate.mutateAsync({ ids: taskIds, updates: payload });
       }
       onClose();
     } catch (err) {
@@ -170,10 +170,10 @@ export function RunConfirmModal({
   // States the action, not a prediction: the assignment is certain, the run is
   // conditional, so the copy names no run count.
   const headline: ReactNode = boldName(
-    issueIds.length > 1
+    taskIds.length > 1
       ? t(($) => $.run_confirm.assign_batch, {
           name: `${NAME_FENCE}${assigneeName}${NAME_FENCE}`,
-          count: issueIds.length,
+          count: taskIds.length,
         })
       : t(($) => $.run_confirm.assign_single, {
           name: `${NAME_FENCE}${assigneeName}${NAME_FENCE}`,

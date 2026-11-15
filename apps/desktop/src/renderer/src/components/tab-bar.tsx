@@ -42,7 +42,7 @@ import {
   useTabPresentation,
   ResourceLeadingVisual,
 } from "@silieco/views/layout";
-import { parseIssueWindowPath } from "../../../shared/issue-window";
+import { parseTaskWindowPath } from "../../../shared/task-window";
 
 const TAB_SCROLL_FADE_SIZE = 24;
 const TAB_ENTRY_EASE = [0.22, 1, 0.36, 1] as const;
@@ -171,7 +171,7 @@ function SortableTabItem({
   const closeOtherTabs = useTabStore((s) => s.closeOtherTabs);
   const togglePin = useTabStore((s) => s.togglePin);
   const updateTab = useTabStore((s) => s.updateTab);
-  const issueWindowPath = parseIssueWindowPath(tab.url);
+  const taskWindowPath = parseTaskWindowPath(tab.url);
 
   // The tab's leading visual and title are derived live from its URL and the
   // query cache — a resource's own icon/status/avatar and its real title,
@@ -199,7 +199,7 @@ function SortableTabItem({
   } = useSortable({ id: tab.id });
 
   // Pin is a secondary interaction state, not an identity: a pinned tab keeps
-  // its resource visual (a project's icon, an issue's status, an actor's
+  // its resource visual (a project's icon, an task's status, an actor's
   // avatar) rather than collapsing to a Pin glyph. Pinned-ness is conveyed by
   // position, the suppressed close button, and the hover Pin/Unpin action.
   const style = {
@@ -229,9 +229,9 @@ function SortableTabItem({
   };
 
   const handleOpenAsWindow = () => {
-    if (!issueWindowPath) return;
-    void window.desktopAPI.openIssueWindow({
-      path: issueWindowPath.path,
+    if (!taskWindowPath) return;
+    void window.desktopAPI.openTaskWindow({
+      path: taskWindowPath.path,
       title,
     });
   };
@@ -361,7 +361,7 @@ function SortableTabItem({
         <ContextMenu>
           <ContextMenuTrigger render={tabButton} />
           <ContextMenuContent>
-            {issueWindowPath && (
+            {taskWindowPath && (
               <>
                 <ContextMenuItem onClick={handleOpenAsWindow}>
                   <AppWindow />
@@ -489,7 +489,7 @@ function NewTabButton() {
     // per workspace, so there is no cross-workspace ambiguity to resolve.
     const activeSlug = useTabStore.getState().activeWorkspaceSlug;
     if (!activeSlug) return;
-    const path = paths.workspace(activeSlug).issues();
+    const path = paths.workspace(activeSlug).tasks();
     const tabId = addTab(path, "Tasks");
     if (tabId) setActiveTab(tabId);
   };

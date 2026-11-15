@@ -45,11 +45,11 @@ export const EMPTY_PROJECT_FILTERS: ProjectListFilters = {
 
 // Hideable table columns. Name + status are the always-visible core (status
 // is the project's defining lifecycle field), so they're not in this set.
-export type ProjectColumnKey = "priority" | "progress" | "lead" | "issues" | "created";
+export type ProjectColumnKey = "priority" | "progress" | "lead" | "tasks" | "created";
 
-/** Issues count is opt-in; the rest show by default (matching the prior
+/** Tasks count is opt-in; the rest show by default (matching the prior
  *  compact table). */
-export const PROJECT_DEFAULT_HIDDEN_COLUMNS: ProjectColumnKey[] = ["issues"];
+export const PROJECT_DEFAULT_HIDDEN_COLUMNS: ProjectColumnKey[] = ["tasks"];
 
 export interface ProjectViewState {
   viewMode: ProjectViewMode;
@@ -115,7 +115,7 @@ export const useProjectViewStore = create<ProjectViewState>()(
       clearFilters: () => set({ filters: EMPTY_PROJECT_FILTERS }),
     }),
     {
-      name: "silieco_projects_view",
+      name: "silieco_tr1_projects_view",
       storage: createJSONStorage(() => createWorkspaceAwareStorage(defaultStorage)),
       partialize: (state) => ({
         viewMode: state.viewMode,

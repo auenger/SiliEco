@@ -39,7 +39,7 @@ func (h *Handler) ReworkWorkflowExecution(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	svc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter, TaskService: h.TaskService}
+	svc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter, AgentRunService: h.AgentRunService}
 	result, err := svc.ReworkExecution(r.Context(), service.ReworkWorkflowExecutionParams{WorkspaceID: wsID, InstanceID: runID, SourceExecutionID: sourceID, TargetStageID: targetID, ActorID: actorID, ExpectedRevision: request.ExpectedRevision, Reason: request.Reason})
 	if err != nil {
 		writeWorkflowReviewError(w, err)

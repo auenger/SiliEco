@@ -30,7 +30,7 @@
     "archived": "보관됨"
   },
   "execution_mode": {
-    "create_issue": "Task 생성",
+    "create_task": "Task 생성",
     "run_only": "실행만"
   },
   "relative_date": {
@@ -122,7 +122,7 @@
     "owner_note": "작성자와 워크스페이스 관리자는 항상 접근할 수 있습니다."
   },
   "run_status": {
-    "issue_created": "Task 생성됨",
+    "task_created": "Task 생성됨",
     "running": "실행 중",
     "skipped": "건너뜀",
     "completed": "완료됨",
@@ -135,7 +135,7 @@
     "api": "API"
   },
   "run": {
-    "issue_linked": "Task 연결됨",
+    "task_linked": "Task 연결됨",
     "view_log": "실행 로그 보기",
     "skipped_group": {
       "label": "건너뜀",
@@ -307,7 +307,7 @@
     "event_filter_hint": "이 이벤트와 일치하는 Webhook만 처리합니다. 비워 두면 모두 허용합니다.",
     "schedule_disabled_reason": "이 오토파일럿에는 여러 일정이 있습니다. 상세 페이지에서 수정하세요.",
     "output_modes": {
-      "create_issue": {
+      "create_task": {
         "label": "Task 생성",
         "description": "실행할 때마다 추적 가능한 Task를 만듭니다"
       },

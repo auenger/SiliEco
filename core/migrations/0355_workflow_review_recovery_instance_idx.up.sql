@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY workflow_review_recovery_instance_idx ON public.workflow_review_recovery USING btree (workspace_id, workflow_instance_id);

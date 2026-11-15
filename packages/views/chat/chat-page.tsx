@@ -45,7 +45,7 @@ import { CreateGroupChatDialog } from "./components/create-group-chat-dialog";
  * Starting a chat is where the agent is chosen: the header ⊕ opens an agent
  * picker (see NewChatButton), so the compose box no longer needs its own
  * agent selector. Unlike the FAB, this page passes no `contextItems` to
- * `ChatInput`, so its `@` mentions fall back to manual search (issue-comment
+ * `ChatInput`, so its `@` mentions fall back to manual search (task-comment
  * style).
  */
 export function ChatPage() {
@@ -158,7 +158,7 @@ export function ChatPage() {
     // Removing a project stays in the current conversation. Choosing a
     // project for an existing conversation starts a clean session, and mobile
     // must remain in the compose pane after activeSessionId is cleared.
-    if (!c.currentSession || projectId !== null) setComposingNew(true);
+    if (!c.currentSession || (projectId !== null && !c.isGroupSession)) setComposingNew(true);
   };
 
   // URL → new chat: `?agent=<id>` is the deep link used by "DM" entry points
@@ -297,7 +297,7 @@ export function ChatPage() {
         <ChatMessageList
           key={c.activeSessionId}
           messages={c.messages}
-          pendingTask={c.pendingTask}
+          pendingRun={c.pendingRun}
           availability={c.availability}
           firstItemIndex={c.firstItemIndex}
           hasOlderMessages={c.hasOlderMessages}
@@ -305,6 +305,7 @@ export function ChatPage() {
           onLoadOlderMessages={() => void c.fetchOlderMessages()}
           groupMode={c.isGroupSession}
           currentUserId={c.user?.id}
+          agentId={c.activeAgent?.id}
           members={groupParticipantMembers}
           agents={groupParticipantAgents}
         />
@@ -336,7 +337,7 @@ export function ChatPage() {
         onRestoreDraftApplied={c.handleRestoreDraftApplied}
         uploadEnabled={c.uploadEnabled}
         onStop={c.handleStop}
-        isRunning={!c.isGroupSession && !!c.pendingTaskId}
+        isRunning={!c.isGroupSession && !!c.pendingRunId}
         disabled={c.isSessionArchived || c.isAgentArchived}
         noAgent={c.noAgent}
         agentArchived={c.isAgentArchived}

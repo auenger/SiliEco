@@ -41,7 +41,7 @@ func (f *fakeSlashQueries) GetMemberByUserAndWorkspace(_ context.Context, _ db.G
 // fakeQuickCreate records the last EnqueueQuickCreateTask call so tests can
 // assert the prompt is passed through verbatim and attributed correctly.
 type fakeQuickCreate struct {
-	task  db.AgentTaskQueue
+	agentRun  db.AgentRun
 	err   error
 	calls int
 
@@ -52,14 +52,14 @@ type fakeQuickCreate struct {
 	prompt      string
 }
 
-func (f *fakeQuickCreate) EnqueueQuickCreateTask(_ context.Context, workspaceID, requesterID, agentID, squadID pgtype.UUID, prompt, _, _ string, _, _, _, _ pgtype.UUID, _ []pgtype.UUID) (db.AgentTaskQueue, error) {
+func (f *fakeQuickCreate) EnqueueQuickCreateRun(_ context.Context, workspaceID, requesterID, agentID, squadID pgtype.UUID, prompt, _, _ string, _, _, _, _ pgtype.UUID, _ []pgtype.UUID) (db.AgentRun, error) {
 	f.calls++
 	f.workspaceID = workspaceID
 	f.requesterID = requesterID
 	f.agentID = agentID
 	f.squadID = squadID
 	f.prompt = prompt
-	return f.task, f.err
+	return f.agentRun, f.err
 }
 
 func slashTestUUID(b byte) pgtype.UUID {
@@ -73,12 +73,12 @@ func slashTestUUID(b byte) pgtype.UUID {
 
 // newTestSlashProcessor builds a processor over fakes and returns it plus a
 // pointer to the last ephemeral reply text and the reply count.
-func newTestSlashProcessor(q slashQueries, tasks quickCreateEnqueuer, binding bindingMinter) (*SlashCommandProcessor, *string, *int) {
+func newTestSlashProcessor(q slashQueries, agentRuns quickCreateEnqueuer, binding bindingMinter) (*SlashCommandProcessor, *string, *int) {
 	captured := new(string)
 	count := new(int)
 	p := &SlashCommandProcessor{
 		q:           q,
-		tasks:       tasks,
+		agentRuns:       agentRuns,
 		binding:     binding,
 		appURL:      "https://app.example",
 		bindingPath: "/slack/bind",
@@ -103,7 +103,7 @@ func activeSlashInstallation() db.ChannelInstallation {
 	}
 }
 
-func issueSlashCmd() slack.SlashCommand {
+func taskSlashCmd() slack.SlashCommand {
 	return slack.SlashCommand{
 		Command:     "/task",
 		Text:        "Fix login",
@@ -122,13 +122,13 @@ func TestSlashHandle_EnqueuesQuickCreateAndAcks(t *testing.T) {
 		inst:    activeSlashInstallation(),
 		binding: db.ChannelUserBinding{SiliecoUserID: slashTestUUID(9)},
 	}
-	tasks := &fakeQuickCreate{}
-	p, captured, count := newTestSlashProcessor(q, tasks, &fakeBindingMinter{})
+	agentRuns := &fakeQuickCreate{}
+	p, captured, count := newTestSlashProcessor(q, agentRuns, &fakeBindingMinter{})
 
-	p.Handle(context.Background(), issueSlashCmd())
+	p.Handle(context.Background(), taskSlashCmd())
 
-	if tasks.calls != 1 {
-		t.Fatalf("expected 1 quick-create enqueue, got %d", tasks.calls)
+	if agentRuns.calls != 1 {
+		t.Fatalf("expected 1 quick-create enqueue, got %d", agentRuns.calls)
 	}
 	if *count != 1 {
 		t.Fatalf("expected 1 ephemeral reply, got %d", *count)
@@ -139,19 +139,19 @@ func TestSlashHandle_EnqueuesQuickCreateAndAcks(t *testing.T) {
 	if q.gotAppID != "A1" {
 		t.Errorf("installation lookup used app id %q, want A1", q.gotAppID)
 	}
-	if tasks.prompt != "Fix login" {
-		t.Errorf("quick-create prompt = %q, want Fix login", tasks.prompt)
+	if agentRuns.prompt != "Fix login" {
+		t.Errorf("quick-create prompt = %q, want Fix login", agentRuns.prompt)
 	}
-	if tasks.workspaceID != slashTestUUID(2) {
+	if agentRuns.workspaceID != slashTestUUID(2) {
 		t.Errorf("quick-create workspace is not the installation workspace")
 	}
-	if tasks.agentID != slashTestUUID(3) {
+	if agentRuns.agentID != slashTestUUID(3) {
 		t.Errorf("quick-create not dispatched to the installation agent")
 	}
-	if tasks.requesterID != slashTestUUID(9) {
+	if agentRuns.requesterID != slashTestUUID(9) {
 		t.Errorf("quick-create requester is not the bound member")
 	}
-	if tasks.squadID.Valid {
+	if agentRuns.squadID.Valid {
 		t.Errorf("slash-command quick-create must not carry a squad id")
 	}
 }
@@ -161,29 +161,29 @@ func TestSlashHandle_MultilinePromptPassedThrough(t *testing.T) {
 		inst:    activeSlashInstallation(),
 		binding: db.ChannelUserBinding{SiliecoUserID: slashTestUUID(9)},
 	}
-	tasks := &fakeQuickCreate{}
-	p, _, _ := newTestSlashProcessor(q, tasks, &fakeBindingMinter{})
+	agentRuns := &fakeQuickCreate{}
+	p, _, _ := newTestSlashProcessor(q, agentRuns, &fakeBindingMinter{})
 
-	cmd := issueSlashCmd()
+	cmd := taskSlashCmd()
 	cmd.Text = "  Title\nline one\nline two  "
 	p.Handle(context.Background(), cmd)
 
 	// The whole (trimmed) natural-language text is the prompt — no title/body
-	// split; the agent authors the well-formed issue from it.
-	if tasks.prompt != "Title\nline one\nline two" {
-		t.Errorf("prompt = %q, want the full trimmed text", tasks.prompt)
+	// split; the agent authors the well-formed task from it.
+	if agentRuns.prompt != "Title\nline one\nline two" {
+		t.Errorf("prompt = %q, want the full trimmed text", agentRuns.prompt)
 	}
 }
 
 func TestSlashHandle_EmptyPromptIsUsage(t *testing.T) {
-	tasks := &fakeQuickCreate{}
-	p, captured, count := newTestSlashProcessor(&fakeSlashQueries{inst: activeSlashInstallation()}, tasks, &fakeBindingMinter{})
+	agentRuns := &fakeQuickCreate{}
+	p, captured, count := newTestSlashProcessor(&fakeSlashQueries{inst: activeSlashInstallation()}, agentRuns, &fakeBindingMinter{})
 
-	cmd := issueSlashCmd()
+	cmd := taskSlashCmd()
 	cmd.Text = "   "
 	p.Handle(context.Background(), cmd)
 
-	if tasks.calls != 0 {
+	if agentRuns.calls != 0 {
 		t.Fatalf("empty prompt must not enqueue a task")
 	}
 	if *count != 1 || *captured != slashUsageText {
@@ -193,13 +193,13 @@ func TestSlashHandle_EmptyPromptIsUsage(t *testing.T) {
 
 func TestSlashHandle_UnboundUserGetsLink(t *testing.T) {
 	q := &fakeSlashQueries{inst: activeSlashInstallation(), bindErr: pgx.ErrNoRows}
-	tasks := &fakeQuickCreate{}
+	agentRuns := &fakeQuickCreate{}
 	bind := &fakeBindingMinter{raw: "TOKEN123"}
-	p, captured, _ := newTestSlashProcessor(q, tasks, bind)
+	p, captured, _ := newTestSlashProcessor(q, agentRuns, bind)
 
-	p.Handle(context.Background(), issueSlashCmd())
+	p.Handle(context.Background(), taskSlashCmd())
 
-	if tasks.calls != 0 {
+	if agentRuns.calls != 0 {
 		t.Fatalf("unbound user must not enqueue a task")
 	}
 	if bind.calls != 1 {
@@ -216,12 +216,12 @@ func TestSlashHandle_NonMemberDropped(t *testing.T) {
 		binding:   db.ChannelUserBinding{SiliecoUserID: slashTestUUID(9)},
 		memberErr: pgx.ErrNoRows,
 	}
-	tasks := &fakeQuickCreate{}
-	p, captured, _ := newTestSlashProcessor(q, tasks, &fakeBindingMinter{})
+	agentRuns := &fakeQuickCreate{}
+	p, captured, _ := newTestSlashProcessor(q, agentRuns, &fakeBindingMinter{})
 
-	p.Handle(context.Background(), issueSlashCmd())
+	p.Handle(context.Background(), taskSlashCmd())
 
-	if tasks.calls != 0 {
+	if agentRuns.calls != 0 {
 		t.Fatalf("non-member must not enqueue a task")
 	}
 	if *captured != slashNotMemberText {
@@ -232,26 +232,26 @@ func TestSlashHandle_NonMemberDropped(t *testing.T) {
 func TestSlashHandle_InactiveInstallation(t *testing.T) {
 	inst := activeSlashInstallation()
 	inst.Status = "revoked"
-	tasks := &fakeQuickCreate{}
-	p, captured, _ := newTestSlashProcessor(&fakeSlashQueries{inst: inst}, tasks, &fakeBindingMinter{})
+	agentRuns := &fakeQuickCreate{}
+	p, captured, _ := newTestSlashProcessor(&fakeSlashQueries{inst: inst}, agentRuns, &fakeBindingMinter{})
 
-	p.Handle(context.Background(), issueSlashCmd())
+	p.Handle(context.Background(), taskSlashCmd())
 
-	if tasks.calls != 0 || *captured != slashDisabledText {
-		t.Fatalf("inactive install: calls=%d reply=%q", tasks.calls, *captured)
+	if agentRuns.calls != 0 || *captured != slashDisabledText {
+		t.Fatalf("inactive install: calls=%d reply=%q", agentRuns.calls, *captured)
 	}
 }
 
 func TestSlashHandle_TeamMismatchTreatedAsDisconnected(t *testing.T) {
-	tasks := &fakeQuickCreate{}
-	p, captured, _ := newTestSlashProcessor(&fakeSlashQueries{inst: activeSlashInstallation()}, tasks, &fakeBindingMinter{})
+	agentRuns := &fakeQuickCreate{}
+	p, captured, _ := newTestSlashProcessor(&fakeSlashQueries{inst: activeSlashInstallation()}, agentRuns, &fakeBindingMinter{})
 
-	cmd := issueSlashCmd()
+	cmd := taskSlashCmd()
 	cmd.TeamID = "T2" // config team is T1
 	p.Handle(context.Background(), cmd)
 
-	if tasks.calls != 0 || *captured != slashDisabledText {
-		t.Fatalf("team mismatch: calls=%d reply=%q", tasks.calls, *captured)
+	if agentRuns.calls != 0 || *captured != slashDisabledText {
+		t.Fatalf("team mismatch: calls=%d reply=%q", agentRuns.calls, *captured)
 	}
 }
 
@@ -260,13 +260,13 @@ func TestSlashHandle_EnqueueFailureIsInternalError(t *testing.T) {
 		inst:    activeSlashInstallation(),
 		binding: db.ChannelUserBinding{SiliecoUserID: slashTestUUID(9)},
 	}
-	tasks := &fakeQuickCreate{err: errors.New("agent has no runtime")}
-	p, captured, _ := newTestSlashProcessor(q, tasks, &fakeBindingMinter{})
+	agentRuns := &fakeQuickCreate{err: errors.New("agent has no runtime")}
+	p, captured, _ := newTestSlashProcessor(q, agentRuns, &fakeBindingMinter{})
 
-	p.Handle(context.Background(), issueSlashCmd())
+	p.Handle(context.Background(), taskSlashCmd())
 
-	if tasks.calls != 1 {
-		t.Fatalf("expected the enqueue to be attempted once, got %d", tasks.calls)
+	if agentRuns.calls != 1 {
+		t.Fatalf("expected the enqueue to be attempted once, got %d", agentRuns.calls)
 	}
 	if *captured != slashInternalErrorText {
 		t.Fatalf("expected internal-error reply, got %q", *captured)
@@ -274,14 +274,14 @@ func TestSlashHandle_EnqueueFailureIsInternalError(t *testing.T) {
 }
 
 func TestSlashHandle_IgnoresOtherCommands(t *testing.T) {
-	tasks := &fakeQuickCreate{}
-	p, _, count := newTestSlashProcessor(&fakeSlashQueries{inst: activeSlashInstallation()}, tasks, &fakeBindingMinter{})
+	agentRuns := &fakeQuickCreate{}
+	p, _, count := newTestSlashProcessor(&fakeSlashQueries{inst: activeSlashInstallation()}, agentRuns, &fakeBindingMinter{})
 
-	cmd := issueSlashCmd()
+	cmd := taskSlashCmd()
 	cmd.Command = "/other"
 	p.Handle(context.Background(), cmd)
 
-	if tasks.calls != 0 || *count != 0 {
-		t.Fatalf("non-/issue command must be ignored: calls=%d replies=%d", tasks.calls, *count)
+	if agentRuns.calls != 0 || *count != 0 {
+		t.Fatalf("non-/task command must be ignored: calls=%d replies=%d", agentRuns.calls, *count)
 	}
 }

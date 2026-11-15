@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/silieco-ai/silieco/core/pkg/protocol"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -51,7 +52,7 @@ type APIClient struct {
 	WorkspaceID string
 	Token       string
 	AgentID     string // When set, requests are attributed to this agent instead of the user.
-	TaskID      string // When set, sent as X-Task-ID for agent-task validation.
+	RunID       string // When set, sent as X-Run-ID for agent-task validation.
 	HTTPClient  *http.Client
 
 	// Identity overrides. Empty values fall back to the package-level
@@ -177,6 +178,7 @@ func NewAPIClient(baseURL, workspaceID, token string) *APIClient {
 const clientCapabilities = "stable_attachment_urls"
 
 func (c *APIClient) setHeaders(req *http.Request) {
+	req.Header.Set(protocol.GenerationHeader, protocol.Generation)
 	req.Header.Set("X-Client-Capabilities", clientCapabilities)
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
@@ -187,8 +189,8 @@ func (c *APIClient) setHeaders(req *http.Request) {
 	if c.AgentID != "" {
 		req.Header.Set("X-Agent-ID", c.AgentID)
 	}
-	if c.TaskID != "" {
-		req.Header.Set("X-Task-ID", c.TaskID)
+	if c.RunID != "" {
+		req.Header.Set("X-Run-ID", c.RunID)
 	}
 
 	platform := c.Platform
@@ -433,7 +435,7 @@ type AttachmentResponse struct {
 
 // UploadFile uploads a file via multipart form to /api/upload-file.
 // It returns the attachment ID from the server response.
-func (c *APIClient) UploadFile(ctx context.Context, fileData []byte, filename string, issueID string) (string, error) {
+func (c *APIClient) UploadFile(ctx context.Context, fileData []byte, filename string, taskID string) (string, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
@@ -445,9 +447,9 @@ func (c *APIClient) UploadFile(ctx context.Context, fileData []byte, filename st
 		return "", fmt.Errorf("write file data: %w", err)
 	}
 
-	if issueID != "" {
-		if err := writer.WriteField("issue_id", issueID); err != nil {
-			return "", fmt.Errorf("write issue_id field: %w", err)
+	if taskID != "" {
+		if err := writer.WriteField("task_id", taskID); err != nil {
+			return "", fmt.Errorf("write task_id field: %w", err)
 		}
 	}
 
@@ -486,10 +488,10 @@ func (c *APIClient) UploadFile(ctx context.Context, fileData []byte, filename st
 }
 
 // UploadChatAttachment uploads a file via multipart form to /api/upload-file
-// tagged with a chat task (task_id). The server binds the row to the assistant
+// tagged with a chat task (run_id). The server binds the row to the assistant
 // reply that task produces on completion. Returns the full AttachmentResponse
 // (id + markdown_url) so the agent can embed the image inline in its reply.
-func (c *APIClient) UploadChatAttachment(ctx context.Context, fileData []byte, filename, taskID string) (AttachmentResponse, error) {
+func (c *APIClient) UploadChatAttachment(ctx context.Context, fileData []byte, filename, runID string) (AttachmentResponse, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
@@ -500,9 +502,9 @@ func (c *APIClient) UploadChatAttachment(ctx context.Context, fileData []byte, f
 	if _, err := part.Write(fileData); err != nil {
 		return AttachmentResponse{}, fmt.Errorf("write file data: %w", err)
 	}
-	if taskID != "" {
-		if err := writer.WriteField("task_id", taskID); err != nil {
-			return AttachmentResponse{}, fmt.Errorf("write task_id field: %w", err)
+	if runID != "" {
+		if err := writer.WriteField("run_id", runID); err != nil {
+			return AttachmentResponse{}, fmt.Errorf("write run_id field: %w", err)
 		}
 	}
 	if err := writer.Close(); err != nil {
@@ -549,7 +551,7 @@ func (c *APIClient) UploadChatAttachment(ctx context.Context, fileData []byte, f
 }
 
 // UploadFileWithURL uploads a file via multipart form to /api/upload-file
-// without associating it with an issue or comment. It decodes the full
+// without associating it with an task or comment. It decodes the full
 // AttachmentResponse and returns the attachment ID and URL.
 func (c *APIClient) UploadFileWithURL(ctx context.Context, fileData []byte, filename string) (string, string, error) {
 	var body bytes.Buffer

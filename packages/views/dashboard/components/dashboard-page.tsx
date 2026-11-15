@@ -40,12 +40,12 @@ import {
   DailyCostChart,
   DailyTokensChart,
   DailyTimeChart,
-  DailyTasksChart,
+  DailyRunsChart,
   DailyErrorsChart,
   WeeklyCostChart,
   WeeklyTokensChart,
   WeeklyTimeChart,
-  WeeklyTasksChart,
+  WeeklyRunsChart,
   WeeklyErrorsChart,
   FAILURE_CLASS_COLOR,
   formatRate,
@@ -65,13 +65,13 @@ import {
   aggregateAgentTokens,
   aggregateDailyCost,
   aggregateDailyErrors,
-  aggregateDailyTasks,
+  aggregateDailyRuns,
   aggregateDailyTime,
   aggregateDailyTokens,
   aggregateFailureClasses,
   aggregateFailureReasons,
   aggregateWeeklyErrors,
-  aggregateWeeklyTasks,
+  aggregateWeeklyRuns,
   aggregateWeeklyTime,
   bucketUnknownAgentRows,
   anonymizeUnresolvedAgentRows,
@@ -368,8 +368,8 @@ export function DashboardPage() {
     () => aggregateDailyTime(runTimeDailyInWindow),
     [runTimeDailyInWindow],
   );
-  const dailyTasks = useMemo(
-    () => aggregateDailyTasks(runTimeDailyInWindow),
+  const dailyRuns = useMemo(
+    () => aggregateDailyRuns(runTimeDailyInWindow),
     [runTimeDailyInWindow],
   );
   const dailyErrors = useMemo(
@@ -439,8 +439,8 @@ export function DashboardPage() {
     () => aggregateWeeklyTime(runTimeDailyRows, viewTZ, weekCount),
     [runTimeDailyRows, viewTZ, weekCount],
   );
-  const weeklyTasks = useMemo(
-    () => aggregateWeeklyTasks(runTimeDailyRows, viewTZ, weekCount),
+  const weeklyRuns = useMemo(
+    () => aggregateWeeklyRuns(runTimeDailyRows, viewTZ, weekCount),
     [runTimeDailyRows, viewTZ, weekCount],
   );
   const weeklyErrors = useMemo(
@@ -459,7 +459,7 @@ export function DashboardPage() {
     let failedCount = 0;
     for (const r of runTimeRows) {
       totalSeconds += r.total_seconds;
-      taskCount += r.task_count;
+      taskCount += r.run_count;
       failedCount += r.failed_count;
     }
     return { totalSeconds, taskCount, failedCount };
@@ -615,12 +615,12 @@ export function DashboardPage() {
                 dailyCost={dailyCost}
                 dailyTokens={dailyTokens}
                 dailyTime={dailyTime}
-                dailyTasks={dailyTasks}
+                dailyRuns={dailyRuns}
                 dailyErrors={dailyErrors}
                 weeklyCost={weeklyCost}
                 weeklyTokens={weeklyTokens}
                 weeklyTime={weeklyTime}
-                weeklyTasks={weeklyTasks}
+                weeklyRuns={weeklyRuns}
                 weeklyErrors={weeklyErrors}
                 lessThanMinuteLabel={t(($) => $.duration.less_than_minute)}
               />
@@ -722,12 +722,12 @@ function TrendBlock({
   dailyCost,
   dailyTokens,
   dailyTime,
-  dailyTasks,
+  dailyRuns,
   dailyErrors,
   weeklyCost,
   weeklyTokens,
   weeklyTime,
-  weeklyTasks,
+  weeklyRuns,
   weeklyErrors,
   lessThanMinuteLabel,
 }: {
@@ -735,12 +735,12 @@ function TrendBlock({
   dailyCost: ReturnType<typeof aggregateDailyCost>;
   dailyTokens: ReturnType<typeof aggregateDailyTokens>;
   dailyTime: ReturnType<typeof aggregateDailyTime>;
-  dailyTasks: ReturnType<typeof aggregateDailyTasks>;
+  dailyRuns: ReturnType<typeof aggregateDailyRuns>;
   dailyErrors: ReturnType<typeof aggregateDailyErrors>;
   weeklyCost: ReturnType<typeof aggregateByWeek>["weeklyCostStack"];
   weeklyTokens: ReturnType<typeof aggregateByWeek>["weeklyTokens"];
   weeklyTime: ReturnType<typeof aggregateWeeklyTime>;
-  weeklyTasks: ReturnType<typeof aggregateWeeklyTasks>;
+  weeklyRuns: ReturnType<typeof aggregateWeeklyRuns>;
   weeklyErrors: ReturnType<typeof aggregateWeeklyErrors>;
   lessThanMinuteLabel: string;
 }) {
@@ -753,7 +753,7 @@ function TrendBlock({
   const costData = dim === "weekly" ? weeklyCost : dailyCost;
   const tokensData = dim === "weekly" ? weeklyTokens : dailyTokens;
   const timeData = dim === "weekly" ? weeklyTime : dailyTime;
-  const tasksData = dim === "weekly" ? weeklyTasks : dailyTasks;
+  const tasksData = dim === "weekly" ? weeklyRuns : dailyRuns;
   const errorsData = dim === "weekly" ? weeklyErrors : dailyErrors;
 
   const totalCost = costData.reduce((sum, d) => sum + d.total, 0);
@@ -841,7 +841,7 @@ function TrendBlock({
               formatTooltip={(s) => formatDuration(s, lessThanMinuteLabel)}
             />
           ) : metric === "tasks" ? (
-            <WeeklyTasksChart data={weeklyTasks} />
+            <WeeklyRunsChart data={weeklyRuns} />
           ) : (
             <WeeklyErrorsChart data={weeklyErrors} />
           )
@@ -856,7 +856,7 @@ function TrendBlock({
             formatTooltip={(s) => formatDuration(s, lessThanMinuteLabel)}
           />
         ) : metric === "tasks" ? (
-          <DailyTasksChart data={dailyTasks} />
+          <DailyRunsChart data={dailyRuns} />
         ) : (
           <DailyErrorsChart data={dailyErrors} />
         )}
@@ -1136,7 +1136,7 @@ function ClassComposition({
 /**
  * Raw `failure_reason` values behind the class summary. Unlocalised on
  * purpose: they are the backend's wire enum, and an operator pasting one into
- * a log search or an issue needs the exact string.
+ * a log search or an task needs the exact string.
  *
  * Two columns on wide viewports — the list runs to ~20 rows at its longest,
  * and the card now has the full page width to spend on it.
@@ -1219,7 +1219,7 @@ function AgentFailureItem({
   // The row links into the agent's Overview, whose ActivityTab lists recent
   // runs with each failure's reason — the drill-down from "this agent is the
   // problem" to the actual failed runs. NOT the Work tab: that one lists the
-  // issues assigned to the agent, which is a different question entirely.
+  // tasks assigned to the agent, which is a different question entirely.
   //
   // An agent with no resolvable name is either hard-deleted or private to
   // someone else; either way there is no page to open and no name to show,

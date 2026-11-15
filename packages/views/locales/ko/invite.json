@@ -48,6 +48,8 @@
     "row_workspace_fallback": "워크스페이스",
     "row_inviter_fallback": "누군가",
     "row_invited_admin": "{{inviter}}님이 관리자로 초대했습니다",
-    "row_invited_member": "{{inviter}}님이 멤버로 초대했습니다"
+    "row_invited_member": "{{inviter}}님이 멤버로 초대했습니다",
+    "back_workspaces": "워크스페이스로 돌아가기",
+    "wait_hint": "초대를 기다리거나 언제든 워크스페이스를 만들 수 있습니다."
   }
 }

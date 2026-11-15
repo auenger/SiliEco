@@ -16,7 +16,7 @@ import (
 // real client helpers against a fake server and asserts the error they return
 // flows correctly through the top-level FormatError / ExitCodeFor. This is the
 // coverage the unit tests were missing: it proves that the actual command
-// paths (issue update -> PutJSON, comment list -> GetJSONWithHeaders, project
+// paths (task update -> PutJSON, comment list -> GetJSONWithHeaders, project
 // delete -> DeleteJSON, agent update -> PatchJSON, upload, download) all get
 // the friendly copy and the tiered exit code, not the old raw string + exit 1.
 func TestHelperStatusErrorsAreClassified(t *testing.T) {
@@ -28,20 +28,20 @@ func TestHelperStatusErrorsAreClassified(t *testing.T) {
 		name string
 		call func(c *APIClient, ctx context.Context) error
 	}{
-		{"GetJSON (issue get)", func(c *APIClient, ctx context.Context) error {
+		{"GetJSON (task get)", func(c *APIClient, ctx context.Context) error {
 			var out map[string]any
-			return c.GetJSON(ctx, "/api/issues/abc", &out)
+			return c.GetJSON(ctx, "/api/tasks/abc", &out)
 		}},
 		{"GetJSONWithHeaders (comment list)", func(c *APIClient, ctx context.Context) error {
 			var out []any
-			_, err := c.GetJSONWithHeaders(ctx, "/api/issues/abc/comments", &out)
+			_, err := c.GetJSONWithHeaders(ctx, "/api/tasks/abc/comments", &out)
 			return err
 		}},
-		{"PostJSON (issue create)", func(c *APIClient, ctx context.Context) error {
-			return c.PostJSON(ctx, "/api/issues", map[string]any{"title": "t"}, nil)
+		{"PostJSON (task create)", func(c *APIClient, ctx context.Context) error {
+			return c.PostJSON(ctx, "/api/tasks", map[string]any{"title": "t"}, nil)
 		}},
-		{"PutJSON (issue update)", func(c *APIClient, ctx context.Context) error {
-			return c.PutJSON(ctx, "/api/issues/abc", map[string]any{"title": "t"}, nil)
+		{"PutJSON (task update)", func(c *APIClient, ctx context.Context) error {
+			return c.PutJSON(ctx, "/api/tasks/abc", map[string]any{"title": "t"}, nil)
 		}},
 		{"PatchJSON (agent update)", func(c *APIClient, ctx context.Context) error {
 			return c.PatchJSON(ctx, "/api/agents/abc", map[string]any{"name": "n"}, nil)
@@ -52,7 +52,7 @@ func TestHelperStatusErrorsAreClassified(t *testing.T) {
 		{"DeleteJSONWithBody (squad member remove)", func(c *APIClient, ctx context.Context) error {
 			return c.DeleteJSONWithBody(ctx, "/api/squads/abc/members", map[string]any{"member_id": "x"})
 		}},
-		{"UploadFile (issue attachment)", func(c *APIClient, ctx context.Context) error {
+		{"UploadFile (task attachment)", func(c *APIClient, ctx context.Context) error {
 			_, err := c.UploadFile(ctx, []byte("x"), "x.txt", "abc")
 			return err
 		}},

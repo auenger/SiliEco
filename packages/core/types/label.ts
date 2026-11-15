@@ -1,11 +1,11 @@
 /**
- * Issue labels — workspace-scoped, applied as many-to-many to issues.
+ * Task labels — workspace-scoped, applied as many-to-many to tasks.
  *
  * Labels are lightweight metadata (name + color) distinct from projects:
  * projects group related work, labels are cross-cutting tags (bug, feature,
  * performance, …). Colors are normalized to lowercase `#RRGGBB`.
  */
-export type LabelResourceType = "issue" | "agent" | "skill";
+export type LabelResourceType = "task" | "agent" | "skill";
 
 export interface Label {
   id: string;
@@ -38,8 +38,8 @@ export interface ListLabelsResponse {
   total: number;
 }
 
-export interface IssueLabelsResponse {
+export interface TaskLabelsResponse {
   labels: Label[];
 }
 
-export type ResourceLabelsResponse = IssueLabelsResponse;
+export type ResourceLabelsResponse = TaskLabelsResponse;

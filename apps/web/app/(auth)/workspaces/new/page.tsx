@@ -23,15 +23,13 @@ export default function Page() {
 
   if (isLoading || !user) return null;
 
-  // Back goes to the root path — the workspace layout redirects from
-  // there to the user's default workspace. Only show Back when there's
-  // somewhere to go back to (user already has at least one workspace).
+  // Users without membership can return to the invitation waiting page.
   const onBack =
-    wsList.length > 0 ? () => router.push(paths.root()) : undefined;
+    () => router.push(wsList.length > 0 ? paths.root() : paths.workspaces());
 
   return (
     <NewWorkspacePage
-      onSuccess={(ws) => router.push(paths.workspace(ws.slug).issues())}
+      onSuccess={(ws) => router.push(paths.workspace(ws.slug).tasks())}
       onBack={onBack}
     />
   );

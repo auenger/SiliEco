@@ -13,10 +13,10 @@ import (
 // TestCreateComment_SquadMentionStampsSquadIDOnLeaderTask locks the enqueue
 // side of the SILI-3730 fix: when a comment @mentions a squad, the leader task
 // it enqueues must carry squad_id on the task row, so the daemon claim handler
-// can locate the squad and inject the briefing (keyed off is_leader_task +
-// squad_id, not issue assignee). The issue here is NOT assigned to the squad —
-// exactly the comment-mention path that the old issue-assignee gate missed.
-func TestCreateComment_SquadMentionStampsSquadIDOnLeaderTask(t *testing.T) {
+// can locate the squad and inject the briefing (keyed off is_leader_run +
+// squad_id, not task assignee). The task here is NOT assigned to the squad —
+// exactly the comment-mention path that the old task-assignee gate missed.
+func TestCreateComment_SquadMentionStampsSquadIDOnLeaderRun(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -39,48 +39,48 @@ func TestCreateComment_SquadMentionStampsSquadIDOnLeaderTask(t *testing.T) {
 	}
 	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM squad WHERE id = $1`, squadID) })
 
-	// Issue assigned to nobody (definitely not the squad) — the leader task is
+	// Task assigned to nobody (definitely not the squad) — the leader task is
 	// produced purely by the @squad comment mention.
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, creator_type, creator_id, title)
+		INSERT INTO task (workspace_id, creator_type, creator_id, title)
 		VALUES ($1, 'member', $2, 'squad_id stamp test')
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
-		testPool.Exec(context.Background(), `DELETE FROM comment WHERE issue_id = $1`, issueID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM comment WHERE task_id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	w := httptest.NewRecorder()
-	r := newRequest("POST", "/api/issues/"+issueID+"/comments", map[string]any{
+	r := newRequest("POST", "/api/tasks/"+taskID+"/comments", map[string]any{
 		"content": "[@Squad](mention://squad/" + squadID + ") please handle this",
 	})
-	r = withURLParam(r, "id", issueID)
+	r = withURLParam(r, "id", taskID)
 	testHandler.CreateComment(w, r)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateComment: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// The leader task must be queued AND carry squad_id = squadID, with
-	// is_leader_task = true.
+	// is_leader_run = true.
 	var gotSquadID string
 	var isLeader bool
 	if err := testPool.QueryRow(ctx, `
-		SELECT squad_id::text, is_leader_task
-		FROM agent_task_queue
-		WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'
-	`, issueID, leaderID).Scan(&gotSquadID, &isLeader); err != nil {
-		t.Fatalf("load leader task: %v", err)
+		SELECT squad_id::text, is_leader_run
+		FROM agent_run
+		WHERE task_id = $1 AND agent_id = $2 AND status = 'queued'
+	`, taskID, leaderID).Scan(&gotSquadID, &isLeader); err != nil {
+		t.Fatalf("load leader run: %v", err)
 	}
 	if gotSquadID != squadID {
 		t.Fatalf("leader task squad_id = %q, want %q", gotSquadID, squadID)
 	}
 	if !isLeader {
-		t.Fatalf("leader task is_leader_task = false, want true")
+		t.Fatalf("leader task is_leader_run = false, want true")
 	}
 }
 
@@ -88,16 +88,16 @@ func TestCreateComment_SquadMentionStampsSquadIDOnLeaderTask(t *testing.T) {
 // SILI-3730 fix: a retried leader task must inherit squad_id from its parent so
 // the squad-leader briefing keeps being injected across retries. Parallels
 // TestCreateRetryTask_InheritsIsLeaderTask.
-func TestCreateRetryTask_InheritsSquadID(t *testing.T) {
+func TestCreateRetryRun_InheritsSquadID(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fx := newSquadCommentTriggerFixture(t)
-	issueID := uuidToString(fx.Issue.ID)
+	taskID := uuidToString(fx.Task.ID)
 
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
 	})
 
 	var runtimeID string
@@ -107,24 +107,24 @@ func TestCreateRetryTask_InheritsSquadID(t *testing.T) {
 
 	var parentID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, attempt, max_attempts, is_leader_task, squad_id)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, attempt, max_attempts, is_leader_run, squad_id)
 		VALUES ($1, $2, $3, 'failed', 1, 3, TRUE, $4)
 		RETURNING id
-	`, fx.LeaderID, runtimeID, issueID, fx.SquadID).Scan(&parentID); err != nil {
-		t.Fatalf("seed parent task: %v", err)
+	`, fx.LeaderID, runtimeID, taskID, fx.SquadID).Scan(&parentID); err != nil {
+		t.Fatalf("seed parent run: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1 OR parent_task_id = $1`, parentID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1 OR parent_run_id = $1`, parentID)
 	})
 
-	child, err := testHandler.Queries.CreateRetryTask(ctx, db.CreateRetryTaskParams{ID: util.MustParseUUID(parentID)})
+	child, err := testHandler.Queries.CreateRetryRun(ctx, db.CreateRetryRunParams{ID: util.MustParseUUID(parentID)})
 	if err != nil {
 		t.Fatalf("CreateRetryTask: %v", err)
 	}
 	if !child.SquadID.Valid || util.UUIDToString(child.SquadID) != fx.SquadID {
 		t.Fatalf("child.SquadID = %v (valid=%v), want %s", util.UUIDToString(child.SquadID), child.SquadID.Valid, fx.SquadID)
 	}
-	if !child.IsLeaderTask {
+	if !child.IsLeaderRun {
 		t.Fatalf("child.IsLeaderTask = false, want true (provenance must survive retry)")
 	}
 }

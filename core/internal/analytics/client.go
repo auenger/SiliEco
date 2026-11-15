@@ -31,7 +31,7 @@ type Event struct {
 	DistinctID string
 
 	// WorkspaceID scopes the event to a workspace. Required when the event is
-	// about a workspace-level action (workspace_created, issue_executed, ...).
+	// about a workspace-level action (workspace_created, task_executed, ...).
 	// Empty is allowed for pre-workspace events (signup).
 	WorkspaceID string
 

@@ -61,7 +61,7 @@ func (q *Queries) CreateWorkspaceMCPServer(ctx context.Context, arg CreateWorksp
 }
 
 const deleteAgentMCPAssignments = `-- name: DeleteAgentMCPAssignments :exec
-DELETE FROM agent_mcp_server WHERE agent_id = $1
+DELETE FROM agent_mcp_server WHERE agent_mcp_server.agent_id = $1
 `
 
 func (q *Queries) DeleteAgentMCPAssignments(ctx context.Context, agentID pgtype.UUID) error {
@@ -231,19 +231,19 @@ func (q *Queries) ListWorkspaceMCPServers(ctx context.Context, workspaceID pgtyp
 	return items, nil
 }
 
-const setTaskExecutionManifest = `-- name: SetTaskExecutionManifest :exec
-UPDATE agent_task_queue
+const setRunExecutionManifest = `-- name: SetRunExecutionManifest :exec
+UPDATE agent_run
 SET execution_manifest = $2
 WHERE id = $1 AND execution_manifest IS NULL
 `
 
-type SetTaskExecutionManifestParams struct {
+type SetRunExecutionManifestParams struct {
 	ID                pgtype.UUID `json:"id"`
 	ExecutionManifest []byte      `json:"execution_manifest"`
 }
 
-func (q *Queries) SetTaskExecutionManifest(ctx context.Context, arg SetTaskExecutionManifestParams) error {
-	_, err := q.db.Exec(ctx, setTaskExecutionManifest, arg.ID, arg.ExecutionManifest)
+func (q *Queries) SetRunExecutionManifest(ctx context.Context, arg SetRunExecutionManifestParams) error {
+	_, err := q.db.Exec(ctx, setRunExecutionManifest, arg.ID, arg.ExecutionManifest)
 	return err
 }
 

@@ -36,7 +36,7 @@ import { RuntimeConfigTab } from "./tabs/runtime-config-tab";
 import { AgentDetailInspector } from "./agent-detail-inspector";
 import { AgentAccessSettings } from "./agent-access-settings";
 import { AgentOverviewSummary } from "./agent-overview-summary";
-import { ActorIssuesPanel } from "../../common/actor-issues-panel";
+import { ActorTasksPanel } from "../../common/actor-tasks-panel";
 import { useT } from "../../i18n";
 import { useNavigation } from "../../navigation";
 
@@ -131,7 +131,7 @@ interface AgentOverviewPaneProps {
 
 /**
  * Agent workbench organised around user intent instead of backend fields.
- * Overview answers "what is happening now?", Work owns the issue surface,
+ * Overview answers "what is happening now?", Work owns the task surface,
  * Capabilities describes what the agent can do, and Settings describes how
  * it runs. The lower-level editors stay intact so the reorganisation does not
  * alter persistence or permission semantics.
@@ -358,7 +358,7 @@ export function AgentOverviewPane({
 
         {effectiveView === "work" && (
           <div className="flex min-h-[620px] flex-col">
-            <ActorIssuesPanel actorType="agent" actorId={agent.id} />
+            <ActorTasksPanel actorType="agent" actorId={agent.id} />
           </div>
         )}
 

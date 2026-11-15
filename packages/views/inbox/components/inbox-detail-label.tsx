@@ -1,10 +1,10 @@
 "use client";
 
-import { STATUS_CONFIG, PRIORITY_CONFIG } from "@silieco/core/issues/config";
-import { formatDateOnly } from "@silieco/core/issues/date";
+import { STATUS_CONFIG, PRIORITY_CONFIG } from "@silieco/core/tasks/config";
+import { formatDateOnly } from "@silieco/core/tasks/date";
 import { useActorName } from "@silieco/core/workspace/hooks";
-import { StatusIcon, PriorityIcon } from "../../issues/components";
-import type { InboxItem, InboxItemType, IssueStatus, IssuePriority } from "@silieco/core/types";
+import { StatusIcon, PriorityIcon } from "../../tasks/components";
+import type { InboxItem, InboxItemType, TaskStatus, TaskPriority } from "@silieco/core/types";
 import { getQuickCreateOutcomeDetail } from "./inbox-display";
 import { useT } from "../../i18n";
 
@@ -14,8 +14,8 @@ import { useT } from "../../i18n";
 export function useTypeLabels(): Record<InboxItemType, string> {
   const { t } = useT("inbox");
   return {
-    issue_assigned: t(($) => $.types.issue_assigned),
-    issue_subscribed: t(($) => $.types.issue_subscribed),
+    task_assigned: t(($) => $.types.task_assigned),
+    task_subscribed: t(($) => $.types.task_subscribed),
     unassigned: t(($) => $.types.unassigned),
     assignee_changed: t(($) => $.types.assignee_changed),
     status_changed: t(($) => $.types.status_changed),
@@ -25,8 +25,8 @@ export function useTypeLabels(): Record<InboxItemType, string> {
     new_comment: t(($) => $.types.new_comment),
     mentioned: t(($) => $.types.mentioned),
     review_requested: t(($) => $.types.review_requested),
-    task_completed: t(($) => $.types.task_completed),
-    task_failed: t(($) => $.types.task_failed),
+    run_completed: t(($) => $.types.run_completed),
+    run_failed: t(($) => $.types.run_failed),
     agent_blocked: t(($) => $.types.agent_blocked),
     agent_completed: t(($) => $.types.agent_completed),
     reaction_added: t(($) => $.types.reaction_added),
@@ -37,7 +37,7 @@ export function useTypeLabels(): Record<InboxItemType, string> {
 }
 
 // start_date / due_date are calendar days — format timezone-safely so the day
-// never shifts with the viewer's offset (see @silieco/core/issues/date).
+// never shifts with the viewer's offset (see @silieco/core/tasks/date).
 function shortDate(dateStr: string): string {
   return formatDateOnly(dateStr, { month: "short", day: "numeric" }, "en-US");
 }
@@ -51,27 +51,27 @@ export function InboxDetailLabel({ item }: { item: InboxItem }) {
   switch (item.type) {
     case "status_changed": {
       if (!details.to) return <span>{typeLabels[item.type]}</span>;
-      const label = STATUS_CONFIG[details.to as IssueStatus]?.label ?? details.to;
+      const label = STATUS_CONFIG[details.to as TaskStatus]?.label ?? details.to;
       return (
         <span className="inline-flex items-center gap-1">
           {t(($) => $.labels.set_status_to)}
-          <StatusIcon status={details.to as IssueStatus} className="h-3 w-3" />
+          <StatusIcon status={details.to as TaskStatus} className="h-3 w-3" />
           {label}
         </span>
       );
     }
     case "priority_changed": {
       if (!details.to) return <span>{typeLabels[item.type]}</span>;
-      const label = PRIORITY_CONFIG[details.to as IssuePriority]?.label ?? details.to;
+      const label = PRIORITY_CONFIG[details.to as TaskPriority]?.label ?? details.to;
       return (
         <span className="inline-flex items-center gap-1">
           {t(($) => $.labels.set_priority_to)}
-          <PriorityIcon priority={details.to as IssuePriority} className="h-3 w-3" />
+          <PriorityIcon priority={details.to as TaskPriority} className="h-3 w-3" />
           {label}
         </span>
       );
     }
-    case "issue_assigned": {
+    case "task_assigned": {
       if (details.new_assignee_id) {
         return <span>{t(($) => $.labels.assigned_to, { name: getActorName(details.new_assignee_type ?? "member", details.new_assignee_id) })}</span>;
       }

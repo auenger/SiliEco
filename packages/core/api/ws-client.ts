@@ -1,3 +1,4 @@
+import { PROTOCOL_GENERATION } from "../constants/protocol";
 import type { WSMessage, WSEventType } from "../types/events";
 import { type Logger, noopLogger } from "../logger";
 
@@ -73,6 +74,7 @@ export class WSClient {
   connect() {
     this.badFrameLogged = false;
     const url = new URL(this.baseUrl);
+    url.searchParams.set("protocol_generation", PROTOCOL_GENERATION);
     // Token is never sent as a URL query parameter — it would be logged by
     // proxies, CDNs, and browser history.  In cookie mode the HttpOnly cookie
     // is sent automatically with the upgrade request.  In token mode the token
@@ -91,7 +93,7 @@ export class WSClient {
     this.ws.onopen = () => {
       if (!this.cookieAuth && this.token) {
         this.ws!.send(
-          JSON.stringify({ type: "auth", payload: { token: this.token } }),
+          JSON.stringify({ type: "auth", payload: { token: this.token, protocol_generation: PROTOCOL_GENERATION } }),
         );
         return;
       }

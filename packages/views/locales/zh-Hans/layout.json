@@ -2,8 +2,8 @@
   "nav": {
     "inbox": "收件箱",
     "chat": "聊天",
-    "my_issues": "我的 task",
-    "issues": "Tasks",
+    "my_tasks": "我的 task",
+    "tasks": "Tasks",
     "projects": "项目",
     "resources": "资源",
     "workflows": "工作流",
@@ -16,7 +16,7 @@
     "settings": "设置"
   },
   "tab": {
-    "issue": "Task",
+    "task": "Task",
     "project": "项目",
     "autopilot": "自动化",
     "agent": "智能体",
@@ -47,8 +47,8 @@
     "invitation_join": "加入",
     "invitation_decline": "拒绝",
     "log_out": "退出登录",
-    "new_issue": "新建 task",
-    "new_issue_shortcut": "C",
+    "new_task": "新建 task",
+    "new_task_shortcut": "C",
     "pinned_label": "固定",
     "workspace_group": "工作区",
     "configure_group": "配置",

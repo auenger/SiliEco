@@ -11,13 +11,13 @@ import {
 import type { Workspace } from "@silieco/core/types";
 
 /**
- * While the workspace list is in flight the CTA points at `/issues`, which the
+ * While the workspace list is in flight the CTA points at `/tasks`, which the
  * proxy rewrites to the last workspace. That keeps the button working during
  * hydration without hiding or disabling it (which would flicker). A visitor
  * with no workspace history lands back on the landing page in that window and
  * can click again once the list resolves.
  */
-const LOADING_FALLBACK_HREF = "/issues";
+const LOADING_FALLBACK_HREF = "/tasks";
 
 export function resolveDashboardCtaHref({
   isAuthenticated,

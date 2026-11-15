@@ -33,7 +33,7 @@ const ZOOM_MAX = 4.5;
  *
  * Why we don't rely on the menu's `zoomIn` / `zoomOut` roles: on macOS the
  * default `Cmd+-` accelerator does not fire reliably across keyboard
- * layouts (issue SILI-2354 — Cmd+= zooms in but Cmd+- doesn't undo it).
+ * layouts (task SILI-2354 — Cmd+= zooms in but Cmd+- doesn't undo it).
  * Handling the shortcuts here gives identical behavior on every platform
  * and every layout.
  */

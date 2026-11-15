@@ -112,7 +112,7 @@ function makeTemplate(runtimeId: string): Agent {
     permission_mode: "private",
     invocation_targets: [],
     status: "idle",
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     model: "",
     owner_id: ME,
     skills: [],

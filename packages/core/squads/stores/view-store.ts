@@ -126,7 +126,7 @@ export const useSquadsViewStore = create<SquadsViewState>()(
       clearFilters: () => set({ filters: EMPTY_SQUAD_FILTERS }),
     }),
     {
-      name: "silieco_squads_view",
+      name: "silieco_tr1_squads_view",
       storage: createJSONStorage(() =>
         createWorkspaceAwareStorage(defaultStorage),
       ),

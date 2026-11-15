@@ -7,7 +7,7 @@
  * anywhere on the row triggers the picker.
  *
  * Lead supports both member and agent (Project.lead_type), resolved via
- * useActorLookup so it shares the same lookup with my-issues + issue detail.
+ * useActorLookup so it shares the same lookup with my-tasks + task detail.
  */
 import { Pressable, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";

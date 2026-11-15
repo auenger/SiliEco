@@ -43,8 +43,8 @@ async function loginCapturingUser(page: Page): Promise<SetupResult> {
   const token = api.getToken();
   if (!token) throw new Error("login did not return a token");
   await page.addInitScript((t) => {
-    localStorage.setItem("silieco_token", t);
-    localStorage.setItem("silieco:chat:isOpen", "false");
+    localStorage.setItem("silieco_tr1_token", t);
+    localStorage.setItem("silieco:tr1:chat:isOpen", "false");
   }, token);
   return { slug: workspace.slug, userId };
 }
@@ -63,7 +63,7 @@ function mockAgent(ownerId: string, workspaceId: string) {
     custom_args: [],
     visibility: "workspace",
     status: "idle",
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     model: "",
     owner_id: ownerId,
     skills: [],

@@ -12,9 +12,9 @@ import (
 // squadOperatingProtocolHeader is the hard-coded system-level briefing
 // prepended to every squad-leader claim. It explains the leader's coordinator
 // role, the @mention dispatch mechanism, and the stop-after-dispatch contract.
-// Responsibility 6 (parent issue status) is appended separately by
+// Responsibility 6 (parent task status) is appended separately by
 // squadOperatingProtocolFor — it is the only part that varies by whether this
-// squad actually owns the issue.
+// squad actually owns the task.
 //
 // Keep this text English-only (matches existing agent-harness conventions)
 // and keep the mention syntax exactly aligned with util.MentionRe — the
@@ -32,18 +32,18 @@ defeats the entire purpose of the squad and is a protocol violation.
 
 Your responsibilities, in order:
 
-1. **Read the issue** (title, description, latest comments, acceptance
+1. **Read the task** (title, description, latest comments, acceptance
    criteria) and decide which squad member is best suited to do the work.
    Match the task to each member's listed **skills** and role in the Squad
    Roster below — prefer the member whose skills cover the work.
-2. **Delegate by @mention.** Post a single comment on this issue that
+2. **Delegate by @mention.** Post a single comment on this task that
    @mentions the chosen member(s) and tells them what to do.
    - **Be terse.** Every Silieco agent already has full context of the
-     issue (title, description, all prior comments, attachments) and
+     task (title, description, all prior comments, attachments) and
      the surrounding workspace. Do NOT restate or summarise the
-     issue body, prior discussion, or known facts in your delegation
+     task body, prior discussion, or known facts in your delegation
      comment — they read it themselves.
-   - Say only what cannot be inferred from the issue: who you're
+   - Say only what cannot be inferred from the task: who you're
      picking, why them (one short clause), and any *additional*
      constraints, hints, or sequencing you want them to follow.
      Two or three sentences is usually plenty.
@@ -51,57 +51,57 @@ Your responsibilities, in order:
      typing a plain "@name" will not trigger anyone.
 3. **Record your evaluation.** After every trigger — whether you delegated,
    decided no action is needed, or encountered an error — record it:
-   ` + "`" + `silieco squad activity <issue-id> <outcome> --reason "<short reason>"` + "`" + `
+   ` + "`" + `silieco squad activity <task-id> <outcome> --reason "<short reason>"` + "`" + `
    Outcome values: ` + "`" + `action` + "`" + ` (you delegated or acted),
    ` + "`" + `no_action` + "`" + ` (you evaluated and decided nothing is needed),
    ` + "`" + `failed` + "`" + ` (you hit an error).
    This is mandatory on every turn — it records your decision in the
-   issue timeline so humans can see you evaluated the trigger.
+   task timeline so humans can see you evaluated the trigger.
 4. **Stop after dispatching.** Once your delegation comment is posted
    and evaluation recorded, end your turn. Do not continue working,
    do not write code, do not open files. You will be re-triggered
    automatically when:
    - a delegated member posts an update or asks you a question;
-   - a delegated member finishes and the issue moves forward;
-   - someone @mentions you again on this issue.
+   - a delegated member finishes and the task moves forward;
+   - someone @mentions you again on this task.
 5. **Re-evaluate on each trigger.** When you wake up again, read the new
    activity and decide whether to delegate the next step, escalate to
    the human reporter, or close the loop. If no action is needed
    (e.g. a member posted a progress update that requires no response),
    record ` + "`" + `no_action` + "`" + ` and exit silently.`
 
-// squadParentStatusOwned is responsibility 6 for the case where the issue this
+// squadParentStatusOwned is responsibility 6 for the case where the task this
 // leader was woken on is assigned to THIS squad. Only then does the leader own
 // the parent's status arc.
 //
 // The "even when no comment asked you to" clause is load-bearing: the comment
 // workflow's default rule is "do not change status unless the comment asks",
 // and a member's delivery comment never asks. Without an explicit standing
-// grant here, the @mention-dispatch squad shape (no child issues, so no
+// grant here, the @mention-dispatch squad shape (no child tasks, so no
 // child-done system comment carrying an explicit ask) would leave the parent
 // stuck in in_progress forever. The comment workflow defers to this section by
 // name — keep the heading text in sync with writeWorkflowComment.
-const squadParentStatusOwned = `6. **Own the parent issue status.** This issue is assigned to your squad,
+const squadParentStatusOwned = `6. **Own the parent task status.** This task is assigned to your squad,
    so its status is yours to manage (unless Agent Identity forbids status
    changes). On the first assignment turn, move the parent to
    ` + "`" + `in_progress` + "`" + ` and keep it there while members work — a successful
    dispatch is not completion. On later turns, do not flip status for
    routine progress updates. When you confirm the overall goal is met, run
-   ` + "`" + `silieco issue status <issue-id> in_review` + "`" + ` — this responsibility is
+   ` + "`" + `silieco task status <task-id> in_review` + "`" + ` — this responsibility is
    itself the standing instruction that authorizes that change, so do it even
    when no comment asked you to. Leave ` + "`" + `done` + "`" + ` to a human reviewer or
    existing integrations (for example a PR with close intent that merges).`
 
 // squadParentStatusNotOwned is responsibility 6 for every other leader path:
-// an @squad mention on an issue owned by someone else (SILI-3724), and
-// quick-create, where no issue exists yet on this turn. Granting status
+// an @squad mention on an task owned by someone else (SILI-3724), and
+// quick-create, where no task exists yet on this turn. Granting status
 // ownership there would let a squad that was merely pulled in to answer a
-// question push another assignee's in-flight issue to in_review.
-const squadParentStatusNotOwned = `6. **Do NOT change this issue's status.** This issue is not assigned to your
+// question push another assignee's in-flight task to in_review.
+const squadParentStatusNotOwned = `6. **Do NOT change this task's status.** This task is not assigned to your
    squad — you were pulled in by an @mention (or this is a quick-create turn,
-   where the issue does not exist yet). Its status belongs to its own
+   where the task does not exist yet). Its status belongs to its own
    assignee. Answer, delegate, or escalate as usual, but never run
-   ` + "`" + `silieco issue status` + "`" + ` on it, no matter how complete the work looks
+   ` + "`" + `silieco task status` + "`" + ` on it, no matter how complete the work looks
    to you.`
 
 const squadOperatingProtocolHardRules = `Hard rules:
@@ -109,8 +109,8 @@ const squadOperatingProtocolHardRules = `Hard rules:
   ` + "`" + `[@Name](mention://<type>/<UUID>)` + "`" + ` exactly as shown in the Squad
   Roster. A plain "@name" or bare name does NOT trigger the agent —
   if you skip the mention link, the task is never delivered and the
-  issue stalls. This is non-negotiable: no mention link = no delegation.
-- Do NOT restate the issue body or prior comments in your delegation —
+  task stalls. This is non-negotiable: no mention link = no delegation.
+- Do NOT restate the task body or prior comments in your delegation —
   the assignee already has them. Repeating context is noise that
   buries the actual instruction.
 - Do NOT do the implementation work yourself unless the squad has no
@@ -121,23 +121,23 @@ const squadOperatingProtocolHardRules = `Hard rules:
 - One delegation comment per turn is enough. Avoid spamming multiple
   near-identical comments.
 - If the squad has no member capable of the task, post a comment
-  explaining the gap (and @mention the issue's reporter if possible)
+  explaining the gap (and @mention the task's reporter if possible)
   rather than silently doing the work.
 - ALWAYS call ` + "`" + `silieco squad activity` + "`" + ` before ending your turn —
   even when the outcome is no_action.
-- A child issue you create with ` + "`" + `--status todo` + "`" + ` and an agent assignee
+- A child task you create with ` + "`" + `--status todo` + "`" + ` and an agent assignee
   already fires that agent automatically — the assignment IS the trigger.
-  If you also @mention the same agent on this parent issue for the same
+  If you also @mention the same agent on this parent task for the same
   work, the agent runs twice in parallel (once from the mention, once
   from the assignment). Pick exactly one path: either delegate by
-  @mention on this issue, or create a ` + "`" + `todo` + "`" + ` child issue assigned to
+  @mention on this task, or create a ` + "`" + `todo` + "`" + ` child task assigned to
   them. Never both for the same work.`
 
 // squadOperatingProtocolFor assembles the protocol, selecting the parent-status
-// responsibility that matches this leader's actual authority over the issue.
-func squadOperatingProtocolFor(ownsIssueStatus bool) string {
+// responsibility that matches this leader's actual authority over the task.
+func squadOperatingProtocolFor(ownsTaskStatus bool) string {
 	status := squadParentStatusNotOwned
-	if ownsIssueStatus {
+	if ownsTaskStatus {
 		status = squadParentStatusOwned
 	}
 	return squadOperatingProtocolHeader + "\n" + status + "\n\n" + squadOperatingProtocolHardRules
@@ -145,7 +145,7 @@ func squadOperatingProtocolFor(ownsIssueStatus bool) string {
 
 // buildSquadLeaderBriefing composes the full system briefing appended to a
 // squad leader's Instructions when it claims a task on a squad-assigned
-// issue. The returned string contains three sections:
+// task. The returned string contains three sections:
 //
 //  1. Squad Operating Protocol (constant, system-level rules).
 //  2. Squad Roster (data — leader self-row + members with literal
@@ -153,17 +153,17 @@ func squadOperatingProtocolFor(ownsIssueStatus bool) string {
 //  3. Squad Instructions (user-defined `squad.instructions`, omitted when
 //     empty so we don't leave a dangling heading).
 //
-// ownsIssueStatus must be true only when the issue this task is bound to is
+// ownsTaskStatus must be true only when the task this task is bound to is
 // assigned to this very squad. The briefing is injected on every leader path,
-// including ones where the squad is a guest on someone else's issue, so this
+// including ones where the squad is a guest on someone else's task, so this
 // flag is what keeps status authority from leaking along with the roster.
 //
 // Archived agent members are skipped — there's no point asking the leader
 // to delegate to a retired agent. Members whose underlying record can't be
 // loaded (deleted user/agent races, FK weirdness) are also skipped silently.
-func buildSquadLeaderBriefing(ctx context.Context, q *db.Queries, squad db.Squad, ownsIssueStatus bool) string {
+func buildSquadLeaderBriefing(ctx context.Context, q *db.Queries, squad db.Squad, ownsTaskStatus bool) string {
 	var sb strings.Builder
-	sb.WriteString(squadOperatingProtocolFor(ownsIssueStatus))
+	sb.WriteString(squadOperatingProtocolFor(ownsTaskStatus))
 	sb.WriteString("\n\n")
 	sb.WriteString(buildSquadRoster(ctx, q, squad))
 

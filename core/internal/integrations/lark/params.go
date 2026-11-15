@@ -127,7 +127,7 @@ type CreateOutboundCardMessageParams struct {
 	ChannelChatID        string
 	ChannelCardMessageID string
 	Status               string
-	TaskID               pgtype.UUID
+	RunID               pgtype.UUID
 }
 
 // UpdateOutboundCardStatusParams transitions an outbound card's status.

@@ -23,14 +23,14 @@ func TestCreateComment_StripsNullBytesInsteadOf500(t *testing.T) {
 		t.Skip("database not available")
 	}
 
-	issueID := createTestIssue(t, "null-byte comment fixture (GH #5388)", "todo", "medium")
-	t.Cleanup(func() { deleteTestIssue(t, issueID) })
+	taskID := createTestTask(t, "null-byte comment fixture (GH #5388)", "todo", "medium")
+	t.Cleanup(func() { deleteTestTask(t, taskID) })
 
 	w := httptest.NewRecorder()
-	r := newRequest("POST", "/api/issues/"+issueID+"/comments", map[string]any{
+	r := newRequest("POST", "/api/tasks/"+taskID+"/comments", map[string]any{
 		"content": "diagnosis body\x00 with a stray NUL byte",
 	})
-	r = withURLParam(r, "id", issueID)
+	r = withURLParam(r, "id", taskID)
 
 	testHandler.CreateComment(w, r)
 	if w.Code != http.StatusCreated {
@@ -64,9 +64,9 @@ func TestCommentTriggers_NullByteHiddenMention_PreviewMatchesEnqueue(t *testing.
 		t.Skip("database not available")
 	}
 
-	issueID := createCommentTriggerPreviewIssue(t, "NUL-hidden mention parity (GH #5388 review)", "", "")
-	// Distinct agents for create vs edit: a single (issue, agent) pair allows
-	// only one pending task (idx_one_pending_task_per_issue_agent), which would
+	taskID := createCommentTriggerPreviewTask(t, "NUL-hidden mention parity (GH #5388 review)", "", "")
+	// Distinct agents for create vs edit: a single (task, agent) pair allows
+	// only one pending task (idx_one_pending_run_per_task_agent), which would
 	// mask the second enqueue.
 	createTarget := createHandlerTestAgent(t, "Preview NUL Parity Create", nil)
 	editTarget := createHandlerTestAgent(t, "Preview NUL Parity Edit", nil)
@@ -90,19 +90,19 @@ func TestCommentTriggers_NullByteHiddenMention_PreviewMatchesEnqueue(t *testing.
 	if n := len(util.ParseMentions(createContent)); n != 0 {
 		t.Fatalf("precondition: raw NUL content should not parse as a mention, got %d", n)
 	}
-	preview := previewCommentTriggersForTest(t, issueID, map[string]any{"content": createContent})
+	preview := previewCommentTriggersForTest(t, taskID, map[string]any{"content": createContent})
 	if ids := previewAgentIDs(preview); len(ids) != 1 || !ids[createTarget] {
 		t.Fatalf("create preview targets = %v, want exactly {%s}", ids, createTarget)
 	}
-	postCommentForTriggerPreviewTest(t, issueID, map[string]any{"content": createContent})
-	if got := countQueuedCommentTriggerTasks(t, issueID, createTarget); got != 1 {
+	postCommentForTriggerPreviewTest(t, taskID, map[string]any{"content": createContent})
+	if got := countQueuedCommentTriggerRuns(t, taskID, createTarget); got != 1 {
 		t.Fatalf("create enqueued %d tasks for the mentioned agent, want 1 (parity with preview)", got)
 	}
 
 	// --- edit path ---
 	editContent := mentionWithHiddenNull(editTarget)
-	plainID := postCommentForTriggerPreviewTest(t, issueID, map[string]any{"content": "no mentions here yet"})
-	editPreview := previewCommentTriggersForTest(t, issueID, map[string]any{
+	plainID := postCommentForTriggerPreviewTest(t, taskID, map[string]any{"content": "no mentions here yet"})
+	editPreview := previewCommentTriggersForTest(t, taskID, map[string]any{
 		"content":            editContent,
 		"editing_comment_id": plainID,
 	})
@@ -110,7 +110,7 @@ func TestCommentTriggers_NullByteHiddenMention_PreviewMatchesEnqueue(t *testing.
 		t.Fatalf("edit preview targets = %v, want exactly {%s}", ids, editTarget)
 	}
 	updateCommentForTriggerPreviewTest(t, plainID, map[string]any{"content": editContent})
-	if got := countQueuedCommentTriggerTasks(t, issueID, editTarget); got != 1 {
+	if got := countQueuedCommentTriggerRuns(t, taskID, editTarget); got != 1 {
 		t.Fatalf("edit enqueued %d tasks for the mentioned agent, want 1 (parity with preview)", got)
 	}
 }

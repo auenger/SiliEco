@@ -9,7 +9,7 @@ vi.mock("@silieco/core/chat", () => ({ useChatStore: { getState: () => chat } })
 const draft = {name:"SOP",description:"",stages:[{id:"one",name:"One",description:"",input:"",output:"Before"}]};
 const apply = vi.fn();
 beforeEach(() => { apply.mockClear(); attachWorkflowEditor({id:"editor",wsId:"ws",portalId:"target",read:()=>draft,selection:()=>"one",apply,snapshot:()=>vi.fn()}); });
-function view(content: string) { return <I18nProvider locale="en" resources={{en:{workflows:en}}}><WorkflowChatReplyAction wsId="ws" sessionId="session" taskId="task" pending={false} prompt={workflowDesignerPrompt("Edit",draft)} content={content}/></I18nProvider>; }
+function view(content: string) { return <I18nProvider locale="en" resources={{en:{workflows:en}}}><WorkflowChatReplyAction wsId="ws" sessionId="session" runId="task" pending={false} prompt={workflowDesignerPrompt("Edit",draft)} content={content}/></I18nProvider>; }
 it("fills a saved fenced reply into the bound editor", () => {
   const updated={...draft,stages:[{...draft.stages[0]!,output:"After"}]};
   render(view('<sop_draft>\n```json\n'+JSON.stringify(updated)+'\n```\n</sop_draft>'));

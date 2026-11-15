@@ -2,8 +2,8 @@
  * Mobile chat mutations — create session, delete session, mark session read.
  *
  * Send-message is NOT a mutation: the chat screen runs a hand-written
- * optimistic burst (seed messages cache → seed pendingTask cache → flip
- * activeSession → POST → patch with real task_id) that doesn't map cleanly
+ * optimistic burst (seed messages cache → seed pendingRun cache → flip
+ * activeSession → POST → patch with real run_id) that doesn't map cleanly
  * onto useMutation. See the chat tab screen for the send path.
  *
  * Mirrors the optimistic-update + rollback + onSettled-invalidate pattern
@@ -55,7 +55,7 @@ export function useDeleteChatSession() {
       qc.invalidateQueries({ queryKey: chatKeys.sessions(wsId) });
       // Detail-side caches the screen may still hold for this id.
       qc.removeQueries({ queryKey: chatKeys.messages(id) });
-      qc.removeQueries({ queryKey: chatKeys.pendingTask(id) });
+      qc.removeQueries({ queryKey: chatKeys.pendingRun(id) });
     },
   });
 }

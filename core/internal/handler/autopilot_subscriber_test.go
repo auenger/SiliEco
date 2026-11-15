@@ -64,7 +64,7 @@ func TestCreateAutopilotPersistsMemberSubscribers(t *testing.T) {
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
 		"title":          "Subscriber template autopilot",
 		"assignee_id":    agentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 		"subscribers": []map[string]any{
 			{"user_type": "member", "user_id": testUserID},
 		},
@@ -112,7 +112,7 @@ func TestCreateAutopilotRejectsNonMemberSubscriberType(t *testing.T) {
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
 		"title":          "Bad subscriber type",
 		"assignee_id":    agentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 		"subscribers": []map[string]any{
 			{"user_type": "agent", "user_id": agentID},
 		},
@@ -136,7 +136,7 @@ func TestCreateAutopilotRejectsForeignSubscriber(t *testing.T) {
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
 		"title":          "Foreign subscriber",
 		"assignee_id":    agentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 		"subscribers": []map[string]any{
 			{"user_type": "member", "user_id": "00000000-0000-0000-0000-000000000000"},
 		},
@@ -162,7 +162,7 @@ func TestCreateAutopilotRollsBackWhenSubscriberInsertFails(t *testing.T) {
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
 		"title":          title,
 		"assignee_id":    agentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 		"subscribers": []map[string]any{
 			{"user_type": "member", "user_id": testUserID},
 		},
@@ -206,7 +206,7 @@ func TestUpdateAutopilotFullReplaceSubscribers(t *testing.T) {
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
 		"title":          "Replace subscribers autopilot",
 		"assignee_id":    agentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 		"subscribers": []map[string]any{
 			{"user_type": "member", "user_id": testUserID},
 		},
@@ -268,7 +268,7 @@ func TestUpdateAutopilotRollsBackWhenSubscriberInsertFails(t *testing.T) {
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
 		"title":          originalTitle,
 		"assignee_id":    agentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 		"subscribers": []map[string]any{
 			{"user_type": "member", "user_id": testUserID},
 		},
@@ -336,7 +336,7 @@ func TestUpdateAutopilotPreservesSubscribersWhenOmitted(t *testing.T) {
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
 		"title":          "Preserve subscribers autopilot",
 		"assignee_id":    agentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 		"subscribers": []map[string]any{
 			{"user_type": "member", "user_id": testUserID},
 		},
@@ -371,20 +371,20 @@ func TestUpdateAutopilotPreservesSubscribersWhenOmitted(t *testing.T) {
 	}
 }
 
-// TestAutopilotDispatchFansOutSubscribersToIssue is the integration check
+// TestAutopilotDispatchFansOutSubscribersToTask is the integration check
 // for the dispatch path: an autopilot with a default subscriber list must
-// auto-subscribe each entry to the issue it spawns, with reason='autopilot'.
-// Belt-and-braces: also confirms that the creator-of-the-issue (the assignee
-// agent — see TestAutopilotCreatedIssueCreatorIsAssigneeAgent) gets a row
+// auto-subscribe each entry to the task it spawns, with reason='autopilot'.
+// Belt-and-braces: also confirms that the creator-of-the-task (the assignee
+// agent — see TestAutopilotCreatedTaskCreatorIsAssigneeAgent) gets a row
 // with reason='creator', and the two reasons don't fight (PK is one row per
-// (issue, user_type, user_id), so the first one wins on conflict).
-func TestAutopilotDispatchFansOutSubscribersToIssue(t *testing.T) {
+// (task, user_type, user_id), so the first one wins on conflict).
+func TestAutopilotDispatchFansOutSubscribersToTask(t *testing.T) {
 	ctx := context.Background()
 	title := fmt.Sprintf("Autopilot subscriber fanout %d", time.Now().UnixNano())
-	var autopilotID, issueID string
+	var autopilotID, taskID string
 	defer func() {
-		if issueID != "" {
-			testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID)
+		if taskID != "" {
+			testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID)
 		}
 		if autopilotID != "" {
 			testPool.Exec(ctx, `DELETE FROM autopilot WHERE id = $1`, autopilotID)
@@ -398,10 +398,10 @@ func TestAutopilotDispatchFansOutSubscribersToIssue(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
-		"title":                "Subscriber fanout autopilot",
-		"assignee_id":          agentID,
-		"execution_mode":       "create_issue",
-		"issue_title_template": title,
+		"title":               "Subscriber fanout autopilot",
+		"assignee_id":         agentID,
+		"execution_mode":      "create_task",
+		"task_title_template": title,
 		"subscribers": []map[string]any{
 			{"user_type": "member", "user_id": testUserID},
 		},
@@ -425,17 +425,17 @@ func TestAutopilotDispatchFansOutSubscribersToIssue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DispatchAutopilot: %v", err)
 	}
-	if run == nil || !run.IssueID.Valid {
-		t.Fatalf("dispatch run = %+v, want linked issue", run)
+	if run == nil || !run.TaskID.Valid {
+		t.Fatalf("dispatch run = %+v, want linked task", run)
 	}
-	issueID = uuidToString(run.IssueID)
+	taskID = uuidToString(run.TaskID)
 
 	var subscriberReason string
 	if err := testPool.QueryRow(ctx, `
 		SELECT reason
-		FROM issue_subscriber
-		WHERE issue_id = $1 AND user_type = 'member' AND user_id = $2
-	`, issueID, testUserID).Scan(&subscriberReason); err != nil {
+		FROM task_subscriber
+		WHERE task_id = $1 AND user_type = 'member' AND user_id = $2
+	`, taskID, testUserID).Scan(&subscriberReason); err != nil {
 		t.Fatalf("query autopilot-fanned subscriber: %v", err)
 	}
 	if subscriberReason != "autopilot" {
@@ -445,19 +445,19 @@ func TestAutopilotDispatchFansOutSubscribersToIssue(t *testing.T) {
 
 // TestAutopilotDispatchNotifiesSubscribersOnCreate locks in the OQ3 promise
 // from the RFC ("reason='autopilot' 与 reason='manual' 一致，订阅事件全收"):
-// when an autopilot creates an issue, each template subscriber must land in
-// the recipient's inbox with type='issue_subscribed' pointing at the new
-// issue. Without this, subscribers would only see comment/status updates
+// when an autopilot creates an task, each template subscriber must land in
+// the recipient's inbox with type='task_subscribed' pointing at the new
+// task. Without this, subscribers would only see comment/status updates
 // after the fact and miss the creation event itself — flagged in PR #3060
 // review by the Emacs agent.
 func TestAutopilotDispatchNotifiesSubscribersOnCreate(t *testing.T) {
 	ctx := context.Background()
 	title := fmt.Sprintf("Autopilot subscriber inbox %d", time.Now().UnixNano())
-	var autopilotID, issueID string
+	var autopilotID, taskID string
 	defer func() {
-		if issueID != "" {
-			testPool.Exec(ctx, `DELETE FROM inbox_item WHERE issue_id = $1`, issueID)
-			testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID)
+		if taskID != "" {
+			testPool.Exec(ctx, `DELETE FROM inbox_item WHERE task_id = $1`, taskID)
+			testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID)
 		}
 		if autopilotID != "" {
 			testPool.Exec(ctx, `DELETE FROM autopilot WHERE id = $1`, autopilotID)
@@ -471,10 +471,10 @@ func TestAutopilotDispatchNotifiesSubscribersOnCreate(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
-		"title":                "Subscriber inbox autopilot",
-		"assignee_id":          agentID,
-		"execution_mode":       "create_issue",
-		"issue_title_template": title,
+		"title":               "Subscriber inbox autopilot",
+		"assignee_id":         agentID,
+		"execution_mode":      "create_task",
+		"task_title_template": title,
 		"subscribers": []map[string]any{
 			{"user_type": "member", "user_id": testUserID},
 		},
@@ -498,17 +498,17 @@ func TestAutopilotDispatchNotifiesSubscribersOnCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DispatchAutopilot: %v", err)
 	}
-	if run == nil || !run.IssueID.Valid {
-		t.Fatalf("dispatch run = %+v, want linked issue", run)
+	if run == nil || !run.TaskID.Valid {
+		t.Fatalf("dispatch run = %+v, want linked task", run)
 	}
-	issueID = uuidToString(run.IssueID)
+	taskID = uuidToString(run.TaskID)
 
 	var inboxCount int
 	var inboxType, inboxTitle string
 	if err := testPool.QueryRow(ctx, `
 		SELECT count(*) FROM inbox_item
-		WHERE issue_id = $1 AND recipient_id = $2 AND type = 'issue_subscribed'
-	`, issueID, testUserID).Scan(&inboxCount); err != nil {
+		WHERE task_id = $1 AND recipient_id = $2 AND type = 'task_subscribed'
+	`, taskID, testUserID).Scan(&inboxCount); err != nil {
 		t.Fatalf("count inbox rows: %v", err)
 	}
 	if inboxCount != 1 {
@@ -517,32 +517,32 @@ func TestAutopilotDispatchNotifiesSubscribersOnCreate(t *testing.T) {
 
 	if err := testPool.QueryRow(ctx, `
 		SELECT type, title FROM inbox_item
-		WHERE issue_id = $1 AND recipient_id = $2 AND type = 'issue_subscribed'
-	`, issueID, testUserID).Scan(&inboxType, &inboxTitle); err != nil {
+		WHERE task_id = $1 AND recipient_id = $2 AND type = 'task_subscribed'
+	`, taskID, testUserID).Scan(&inboxType, &inboxTitle); err != nil {
 		t.Fatalf("load inbox row: %v", err)
 	}
-	if inboxType != "issue_subscribed" {
-		t.Fatalf("inbox type = %q, want issue_subscribed", inboxType)
+	if inboxType != "task_subscribed" {
+		t.Fatalf("inbox type = %q, want task_subscribed", inboxType)
 	}
 	if inboxTitle != title {
-		t.Fatalf("inbox title = %q, want %q (issue title)", inboxTitle, title)
+		t.Fatalf("inbox title = %q, want %q (task title)", inboxTitle, title)
 	}
 }
 
 // TestAutopilotDispatchSkipsInboxWhenNoSubscribers asserts the no-op path:
 // an autopilot with an empty subscriber template must NOT create any inbox
 // rows on dispatch — otherwise we'd be paging the workspace on every quiet
-// autopilot run. The corresponding issue_subscriber rows are also expected
+// autopilot run. The corresponding task_subscriber rows are also expected
 // to be absent (other-reason rows like creator/assignee are filtered out by
-// the WHERE type = 'issue_subscribed' clause).
+// the WHERE type = 'task_subscribed' clause).
 func TestAutopilotDispatchSkipsInboxWhenNoSubscribers(t *testing.T) {
 	ctx := context.Background()
 	title := fmt.Sprintf("Autopilot no-subscriber inbox %d", time.Now().UnixNano())
-	var autopilotID, issueID string
+	var autopilotID, taskID string
 	defer func() {
-		if issueID != "" {
-			testPool.Exec(ctx, `DELETE FROM inbox_item WHERE issue_id = $1`, issueID)
-			testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID)
+		if taskID != "" {
+			testPool.Exec(ctx, `DELETE FROM inbox_item WHERE task_id = $1`, taskID)
+			testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID)
 		}
 		if autopilotID != "" {
 			testPool.Exec(ctx, `DELETE FROM autopilot WHERE id = $1`, autopilotID)
@@ -556,10 +556,10 @@ func TestAutopilotDispatchSkipsInboxWhenNoSubscribers(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
-		"title":                "No-subscriber autopilot",
-		"assignee_id":          agentID,
-		"execution_mode":       "create_issue",
-		"issue_title_template": title,
+		"title":               "No-subscriber autopilot",
+		"assignee_id":         agentID,
+		"execution_mode":      "create_task",
+		"task_title_template": title,
 	})
 	testHandler.CreateAutopilot(w, req)
 	if w.Code != http.StatusCreated {
@@ -580,20 +580,20 @@ func TestAutopilotDispatchSkipsInboxWhenNoSubscribers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DispatchAutopilot: %v", err)
 	}
-	if run == nil || !run.IssueID.Valid {
-		t.Fatalf("dispatch run = %+v, want linked issue", run)
+	if run == nil || !run.TaskID.Valid {
+		t.Fatalf("dispatch run = %+v, want linked task", run)
 	}
-	issueID = uuidToString(run.IssueID)
+	taskID = uuidToString(run.TaskID)
 
 	var inboxCount int
 	if err := testPool.QueryRow(ctx, `
 		SELECT count(*) FROM inbox_item
-		WHERE issue_id = $1 AND type = 'issue_subscribed'
-	`, issueID).Scan(&inboxCount); err != nil {
+		WHERE task_id = $1 AND type = 'task_subscribed'
+	`, taskID).Scan(&inboxCount); err != nil {
 		t.Fatalf("count inbox rows: %v", err)
 	}
 	if inboxCount != 0 {
-		t.Fatalf("issue_subscribed inbox rows = %d, want 0 (no subscribers)", inboxCount)
+		t.Fatalf("task_subscribed inbox rows = %d, want 0 (no subscribers)", inboxCount)
 	}
 }
 
@@ -604,10 +604,10 @@ func TestAutopilotDispatchSkipsInboxWhenNoSubscribers(t *testing.T) {
 func TestDeleteAutopilotArchivesAndPreservesHistory(t *testing.T) {
 	ctx := context.Background()
 	var autopilotID string
-	var taskID string
+	var runID string
 	defer func() {
-		if taskID != "" {
-			testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+		if runID != "" {
+			testPool.Exec(ctx, `DELETE FROM agent_run WHERE id = $1`, runID)
 		}
 		if autopilotID != "" {
 			testPool.Exec(ctx, `DELETE FROM autopilot_subscriber WHERE autopilot_id = $1`, autopilotID)
@@ -628,7 +628,7 @@ func TestDeleteAutopilotArchivesAndPreservesHistory(t *testing.T) {
 	req := newRequest("POST", "/api/autopilots?workspace_id="+testWorkspaceID, map[string]any{
 		"title":          "Delete-with-subscribers autopilot",
 		"assignee_id":    agentID,
-		"execution_mode": "create_issue",
+		"execution_mode": "create_task",
 		"subscribers": []map[string]any{
 			{"user_type": "member", "user_id": testUserID},
 		},
@@ -651,22 +651,22 @@ func TestDeleteAutopilotArchivesAndPreservesHistory(t *testing.T) {
 		t.Fatalf("subscriber rows before delete = %d, want 1", before)
 	}
 
-	var runID string
+	var autopilotRunID string
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO autopilot_run (autopilot_id, source, status)
 		VALUES ($1, 'manual', 'completed')
 		RETURNING id
-	`, autopilotID).Scan(&runID); err != nil {
+	`, autopilotID).Scan(&autopilotRunID); err != nil {
 		t.Fatalf("create run: %v", err)
 	}
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (
+		INSERT INTO agent_run (
 			agent_id, runtime_id, status, priority, autopilot_run_id
 		)
 		VALUES ($1, $2, 'completed', 0, $3)
 		RETURNING id
-	`, agentID, runtimeID, runID).Scan(&taskID); err != nil {
-		t.Fatalf("create linked task: %v", err)
+	`, agentID, runtimeID, autopilotRunID).Scan(&runID); err != nil {
+		t.Fatalf("create linked run: %v", err)
 	}
 
 	w = httptest.NewRecorder()
@@ -694,18 +694,18 @@ func TestDeleteAutopilotArchivesAndPreservesHistory(t *testing.T) {
 	}
 
 	var runRows int
-	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM autopilot_run WHERE id = $1 AND autopilot_id = $2`, runID, autopilotID).Scan(&runRows); err != nil {
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM autopilot_run WHERE id = $1 AND autopilot_id = $2`, autopilotRunID, autopilotID).Scan(&runRows); err != nil {
 		t.Fatalf("count run after delete: %v", err)
 	}
 	if runRows != 1 {
 		t.Fatalf("autopilot_run rows after delete = %d, want 1 (archival preserves history)", runRows)
 	}
 
-	var taskRunID string
-	if err := testPool.QueryRow(ctx, `SELECT autopilot_run_id::text FROM agent_task_queue WHERE id = $1`, taskID).Scan(&taskRunID); err != nil {
+	var runRunID string
+	if err := testPool.QueryRow(ctx, `SELECT autopilot_run_id::text FROM agent_run WHERE id = $1`, runID).Scan(&runRunID); err != nil {
 		t.Fatalf("load linked task after delete: %v", err)
 	}
-	if taskRunID != runID {
-		t.Fatalf("task autopilot_run_id after delete = %q, want %q", taskRunID, runID)
+	if runRunID != autopilotRunID {
+		t.Fatalf("task autopilot_run_id after delete = %q, want %q", runRunID, autopilotRunID)
 	}
 }

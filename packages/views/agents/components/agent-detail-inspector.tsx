@@ -9,8 +9,8 @@ import type {
 } from "@silieco/core/types";
 import {
   AGENT_DESCRIPTION_MAX_LENGTH,
-  AGENT_MAX_CONCURRENT_TASKS_MAX,
-  AGENT_MAX_CONCURRENT_TASKS_MIN,
+  AGENT_MAX_CONCURRENT_RUNS_MAX,
+  AGENT_MAX_CONCURRENT_RUNS_MIN,
 } from "@silieco/core/agents";
 import { runtimeModelsOptions } from "@silieco/core/runtimes";
 import { isImeComposing } from "@silieco/core/utils";
@@ -312,9 +312,9 @@ export function AgentDetailInspector({
             size="select-wide"
           >
             <ConcurrencyField
-              value={agent.max_concurrent_tasks}
+              value={agent.max_concurrent_runs}
               canEdit={canEdit}
-              onSave={(next) => update({ max_concurrent_tasks: next })}
+              onSave={(next) => update({ max_concurrent_runs: next })}
             />
           </SettingsRow>
         </SettingsCard>
@@ -341,8 +341,8 @@ function ConcurrencyField({
     const next = Number(draft);
     if (
       !Number.isInteger(next) ||
-      next < AGENT_MAX_CONCURRENT_TASKS_MIN ||
-      next > AGENT_MAX_CONCURRENT_TASKS_MAX
+      next < AGENT_MAX_CONCURRENT_RUNS_MIN ||
+      next > AGENT_MAX_CONCURRENT_RUNS_MAX
     ) {
       setDraft(String(value));
       return;
@@ -358,8 +358,8 @@ function ConcurrencyField({
         name="agent-concurrency"
         autoComplete="off"
         inputMode="numeric"
-        min={AGENT_MAX_CONCURRENT_TASKS_MIN}
-        max={AGENT_MAX_CONCURRENT_TASKS_MAX}
+        min={AGENT_MAX_CONCURRENT_RUNS_MIN}
+        max={AGENT_MAX_CONCURRENT_RUNS_MAX}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
@@ -376,8 +376,8 @@ function ConcurrencyField({
       />
       <p className="mt-1 text-caption text-muted-foreground">
         {t(($) => $.pickers.concurrency_range, {
-          min: AGENT_MAX_CONCURRENT_TASKS_MIN,
-          max: AGENT_MAX_CONCURRENT_TASKS_MAX,
+          min: AGENT_MAX_CONCURRENT_RUNS_MIN,
+          max: AGENT_MAX_CONCURRENT_RUNS_MAX,
         })}
       </p>
     </div>

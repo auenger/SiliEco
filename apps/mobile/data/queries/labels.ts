@@ -1,5 +1,5 @@
 /**
- * Workspace label list. Used by the label picker on issue detail.
+ * Workspace label list. Used by the label picker on task detail.
  *
  * Workspace-scoped key — switching workspaces flips wsId and TanStack Query
  * picks up the new workspace's labels automatically.

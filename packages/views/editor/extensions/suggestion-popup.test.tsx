@@ -222,7 +222,7 @@ describe("createSuggestionPopupRender", () => {
 // stops propagation, and Base UI's dismiss layer listens for Escape on
 // `document` in the BUBBLE phase without consulting defaultPrevented — so
 // without an explicit stopPropagation the same keypress also closed the host
-// create-issue dialog and threw the draft away. The plain document listener
+// create-task dialog and threw the draft away. The plain document listener
 // below stands in for that dismiss layer.
 // ---------------------------------------------------------------------------
 

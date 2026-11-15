@@ -43,10 +43,10 @@ func TestWorkflowAcceptanceAtomicVersionHandoff(t *testing.T) {
 		if _, err := svc.SubmitResult(ctx, submission); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, execution.MainIssueID); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, execution.MainTaskID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, execution.MainTaskID); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, execution.MainRunID); err != nil {
 			t.Fatal(err)
 		}
 		basis, err := svc.PrepareHumanReview(ctx, p.WorkspaceID, p.InstanceID, execution.ID, p.ActorID)
@@ -100,14 +100,14 @@ func TestWorkflowAcceptanceAtomicVersionHandoff(t *testing.T) {
 	if _, err := svc.AdvanceHumanReviewedExecution(ctx, advance); err != nil {
 		t.Fatalf("idempotent advance: %v", err)
 	}
-	issue, err := svc.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{WorkspaceID: p.WorkspaceID, ID: first.MainIssueID})
+	task, err := svc.Queries.GetTaskInWorkspace(ctx, db.GetTaskInWorkspaceParams{WorkspaceID: p.WorkspaceID, ID: first.MainTaskID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.UpdateIssueStatusWithWorkflowLock(ctx, issue, "todo"); !errors.Is(err, ErrWorkflowExecutionConflict) {
+	if _, err := svc.UpdateTaskStatusWithWorkflowLock(ctx, task, "todo"); !errors.Is(err, ErrWorkflowExecutionConflict) {
 		t.Fatalf("accepted source was reopened: %v", err)
 	}
-	if _, err := svc.MoveIssueStage(ctx, p.WorkspaceID, issue.ID, p.InstanceID, nextStage); !errors.Is(err, ErrWorkflowExecutionConflict) {
+	if _, err := svc.MoveTaskStage(ctx, p.WorkspaceID, task.ID, p.InstanceID, nextStage); !errors.Is(err, ErrWorkflowExecutionConflict) {
 		t.Fatalf("accepted source moved: %v", err)
 	}
 	// The same accepted result identity feeds a second execution; completing its
@@ -148,10 +148,10 @@ func TestWorkflowAcceptanceRejectsStaleBasisAndSerializesRetries(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=jsonb_set(config_snapshot,'{gate}',jsonb_build_object('type','human','decider',$2::text)) WHERE id=$1`, execution.ID, util.UUIDToString(submit.ActorID)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, execution.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, execution.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	approve := func() AdvanceWorkflowHumanReviewParams {
@@ -166,7 +166,7 @@ func TestWorkflowAcceptanceRejectsStaleBasisAndSerializesRetries(t *testing.T) {
 		return AdvanceWorkflowHumanReviewParams{WorkspaceID: submit.WorkspaceID, InstanceID: submit.InstanceID, ExecutionID: execution.ID, ActorID: submit.ActorID, ExpectedResultRevision: basis.ResultRevision, ExpectedBasisHash: basis.Hash}
 	}
 	stale := approve()
-	if _, err := pool.Exec(ctx, `UPDATE issue SET title='Changed after approval',updated_at=now() WHERE id=$1`, execution.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET title='Changed after approval',updated_at=now() WHERE id=$1`, execution.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.AdvanceHumanReviewedExecution(ctx, stale); !errors.Is(err, ErrWorkflowExecutionConflict) {
@@ -212,10 +212,10 @@ func TestWorkflowHumanDecisionAndAcceptanceCommitTogether(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=jsonb_set(config_snapshot,'{gate}',jsonb_build_object('type','human','decider',$2::text)) WHERE id=$1`, execution.ID, util.UUIDToString(submit.ActorID)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, execution.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, execution.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	basis, err := svc.PrepareHumanReview(ctx, submit.WorkspaceID, submit.InstanceID, execution.ID, submit.ActorID)

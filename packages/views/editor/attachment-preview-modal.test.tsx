@@ -76,7 +76,7 @@ vi.mock("../navigation", () => ({
     push: vi.fn(),
     replace: vi.fn(),
     back: vi.fn(),
-    pathname: "/acme/issues",
+    pathname: "/acme/tasks",
     searchParams: new URLSearchParams(),
     ...(navState.hasOpenInNewTab ? { openInNewTab: openInNewTabMock } : {}),
     getShareableUrl: getShareableUrlMock,
@@ -147,7 +147,7 @@ function makeAttachment(overrides: Partial<Attachment> = {}): Attachment {
   return {
     id: "att-1",
     workspace_id: "ws-1",
-    issue_id: null,
+    task_id: null,
     comment_id: null,
     chat_session_id: null,
     chat_message_id: null,

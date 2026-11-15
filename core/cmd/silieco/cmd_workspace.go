@@ -33,7 +33,7 @@ var workspaceCreateCmd = &cobra.Command{
 		"Creating a workspace does NOT change the current default workspace for " +
 		"this profile — run 'silieco workspace switch <slug>' afterward if you " +
 		"want subsequent commands to target the new workspace.",
-	Example: "  silieco workspace create --name \"Support Team\" --slug support-team --issue-prefix SUP",
+	Example: "  silieco workspace create --name \"Support Team\" --slug support-team --task-prefix SUP",
 	Args:    cobra.NoArgs,
 	RunE:    runWorkspaceCreate,
 }
@@ -116,7 +116,7 @@ func init() {
 	workspaceCreateCmd.Flags().Bool("description-stdin", false, "Read description from stdin (preserves multi-line content verbatim)")
 	workspaceCreateCmd.Flags().String("context", "", "Workspace context (decodes \\n, \\r, \\t, \\\\; pipe via --context-stdin to preserve literal backslashes)")
 	workspaceCreateCmd.Flags().Bool("context-stdin", false, "Read context from stdin (preserves multi-line content verbatim)")
-	workspaceCreateCmd.Flags().String("issue-prefix", "", "Issue prefix (uppercased server-side)")
+	workspaceCreateCmd.Flags().String("task-prefix", "", "Task prefix (uppercased server-side)")
 	workspaceCreateCmd.Flags().String("output", "json", "Output format: table or json")
 	workspaceGetCmd.Flags().String("output", "json", "Output format: table or json")
 	workspaceMemberListCmd.Flags().String("output", "table", "Output format: table or json")
@@ -128,7 +128,7 @@ func init() {
 	workspaceUpdateCmd.Flags().Bool("description-stdin", false, "Read description from stdin (preserves multi-line content verbatim)")
 	workspaceUpdateCmd.Flags().String("context", "", "New workspace context (decodes \\n, \\r, \\t, \\\\; pipe via --context-stdin to preserve literal backslashes)")
 	workspaceUpdateCmd.Flags().Bool("context-stdin", false, "Read context from stdin (preserves multi-line content verbatim)")
-	workspaceUpdateCmd.Flags().String("issue-prefix", "", "New issue prefix (uppercased server-side)")
+	workspaceUpdateCmd.Flags().String("task-prefix", "", "New task prefix (uppercased server-side)")
 	workspaceUpdateCmd.Flags().String("output", "json", "Output format: table or json")
 }
 
@@ -239,12 +239,12 @@ func buildWorkspaceCreateBody(cmd *cobra.Command) (map[string]any, error) {
 		}
 		body["context"] = ctxText
 	}
-	if cmd.Flags().Changed("issue-prefix") {
-		v, _ := cmd.Flags().GetString("issue-prefix")
+	if cmd.Flags().Changed("task-prefix") {
+		v, _ := cmd.Flags().GetString("task-prefix")
 		if strings.TrimSpace(v) == "" {
-			return nil, fmt.Errorf("--issue-prefix cannot be empty; omit it to use the server-generated prefix")
+			return nil, fmt.Errorf("--task-prefix cannot be empty; omit it to use the server-generated prefix")
 		}
-		body["issue_prefix"] = v
+		body["task_prefix"] = v
 	}
 	return body, nil
 }
@@ -475,15 +475,15 @@ func buildWorkspaceUpdateBody(cmd *cobra.Command) (map[string]any, error) {
 		}
 		body["context"] = ctxText
 	}
-	if cmd.Flags().Changed("issue-prefix") {
-		v, _ := cmd.Flags().GetString("issue-prefix")
+	if cmd.Flags().Changed("task-prefix") {
+		v, _ := cmd.Flags().GetString("task-prefix")
 		// The handler silently skips an empty prefix (workspace.go:274), so
-		// `--issue-prefix ""` would otherwise return 200 without changing
+		// `--task-prefix ""` would otherwise return 200 without changing
 		// anything. Reject it here so the failure is visible.
 		if strings.TrimSpace(v) == "" {
-			return nil, fmt.Errorf("--issue-prefix cannot be empty; clearing the prefix is not supported")
+			return nil, fmt.Errorf("--task-prefix cannot be empty; clearing the prefix is not supported")
 		}
-		body["issue_prefix"] = v
+		body["task_prefix"] = v
 	}
 	return body, nil
 }
@@ -502,7 +502,7 @@ func runWorkspaceUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if len(body) == 0 {
-		return fmt.Errorf("no fields to update; use --name, --description, --context, or --issue-prefix")
+		return fmt.Errorf("no fields to update; use --name, --description, --context, or --task-prefix")
 	}
 
 	client, err := newAPIClient(cmd)

@@ -19,7 +19,7 @@ import { useT } from "../../i18n";
  * Typed-confirmation dialog for workspace deletion — GitHub's repo-delete
  * pattern. The destructive button stays disabled until the user types
  * the workspace name exactly (case-sensitive, no trimming). The friction
- * is deliberate: deleting a workspace cascades into every issue, agent,
+ * is deliberate: deleting a workspace cascades into every task, agent,
  * skill, and run under it, and the backend has no soft-delete.
  *
  * Case-sensitive match matches GitHub's pattern and catches the "I

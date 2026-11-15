@@ -67,7 +67,7 @@ const SORT_FIELDS: AutopilotSortField[] = [
   "created",
 ];
 
-const MODES = ["create_issue", "run_only"] as const;
+const MODES = ["create_task", "run_only"] as const;
 const TRIGGER_KINDS = ["schedule", "webhook", "api"] as const;
 
 export function countActiveFilterDimensions(
@@ -197,7 +197,7 @@ export function AutopilotListToolbar({
           box: scope buttons already partition the (small) set, so search
           was dropped by product call. The count only appears while filters
           narrow the list. Button styling and the <md dropdown collapse
-          follow the issues header's scope buttons. */}
+          follow the tasks header's scope buttons. */}
       <div className="flex min-w-0 items-center gap-2">
         <div className="hidden shrink-0 items-center gap-1 md:flex">
           {AUTOPILOT_SCOPES.map((s) => (

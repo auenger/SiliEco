@@ -42,7 +42,7 @@ func setupResolverFixture(t *testing.T, pool *pgxpool.Pool) (workspaceID string,
 	_, _ = pool.Exec(ctx, `DELETE FROM workspace WHERE slug = $1`, testResolverSlug)
 
 	if err := pool.QueryRow(ctx,
-		`INSERT INTO workspace (name, slug, description, issue_prefix) VALUES ($1, $2, '', 'MRT') RETURNING id`,
+		`INSERT INTO workspace (name, slug, description, task_prefix) VALUES ($1, $2, '', 'MRT') RETURNING id`,
 		"Middleware Resolver Test", testResolverSlug,
 	).Scan(&workspaceID); err != nil {
 		t.Fatalf("insert workspace: %v", err)
@@ -149,17 +149,17 @@ func TestResolveWorkspaceIDFromRequest(t *testing.T) {
 		{
 			// SILI-2600: a mat_ task token authenticates the request and
 			// the auth middleware writes the token-bound workspace into
-			// X-Workspace-ID along with X-Actor-Source=task_token. Any
+			// X-Workspace-ID along with X-Actor-Source=agent_run_token. Any
 			// other workspace identifier the agent puts on the wire — a
 			// slug pointing at a sibling workspace, a different
 			// workspace_id — must be ignored. Otherwise an agent could
 			// route owner-token traffic at any workspace its host is
 			// also a member of.
-			name: "task_token actor: client-supplied slug/id cannot override token-bound workspace",
+			name: "agent_run_token actor: client-supplied slug/id cannot override token-bound workspace",
 			setup: func(r *http.Request) {
-				r.Header.Set("X-Actor-Source", "task_token")
+				r.Header.Set("X-Actor-Source", "agent_run_token")
 				r.Header.Set("X-Workspace-ID", uuidA)
-				// All of these should be ignored under task_token.
+				// All of these should be ignored under agent_run_token.
 				r.Header.Set("X-Workspace-Slug", testResolverSlug)
 				q := r.URL.Query()
 				q.Set("workspace_slug", testResolverSlug)

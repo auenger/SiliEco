@@ -13,15 +13,15 @@ import {
 } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { getCurrentWsId } from "@silieco/core/platform";
-import { flattenIssueBuckets, issueKeys } from "@silieco/core/issues/queries";
+import { flattenTaskBuckets, taskKeys } from "@silieco/core/tasks/queries";
 import { workspaceKeys } from "@silieco/core/workspace/queries";
 import { useAuthStore } from "@silieco/core/auth";
-import { canAssignAgentToIssue } from "@silieco/core/permissions";
+import { canAssignAgentToTask } from "@silieco/core/permissions";
 import { api } from "@silieco/core/api";
 import { isImeComposing } from "@silieco/core/utils";
 import type {
-  Issue,
-  ListIssuesCache,
+  Task,
+  ListTasksCache,
   MemberWithUser,
   Agent,
   Squad,
@@ -29,12 +29,12 @@ import type {
 } from "@silieco/core/types";
 import { FileImage, FileText, ListTodo } from "lucide-react";
 import { ActorAvatar } from "../../common/actor-avatar";
-import { StatusIcon } from "../../issues/components/status-icon";
+import { StatusIcon } from "../../tasks/components/status-icon";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { useT } from "../../i18n";
 import { Badge } from "@silieco/ui/components/ui/badge";
 import { cn } from "@silieco/ui/lib/utils";
-import type { IssueStatus, ProjectStatus } from "@silieco/core/types";
+import type { TaskStatus, ProjectStatus } from "@silieco/core/types";
 import { PROJECT_STATUS_CONFIG } from "@silieco/core/projects/config";
 import type { SuggestionOptions } from "@tiptap/suggestion";
 import { PluginKey } from "@tiptap/pm/state";
@@ -54,13 +54,13 @@ import { isTriggerArmedAt } from "./suggestion-trigger-arming";
 export interface MentionItem {
   id: string;
   label: string;
-  type: "member" | "agent" | "squad" | "issue" | "project" | "file" | "all";
+  type: "member" | "agent" | "squad" | "task" | "project" | "file" | "all";
   /** Optional grouping hint for injected context items. */
   group?: "current" | "recent" | "search";
-  /** Secondary text shown beside the label (e.g. issue title) */
+  /** Secondary text shown beside the label (e.g. task title) */
   description?: string;
-  /** Issue status for StatusIcon rendering */
-  status?: IssueStatus;
+  /** Task status for StatusIcon rendering */
+  status?: TaskStatus;
   /** Project emoji/icon snapshot for ProjectIcon rendering */
   icon?: string | null;
   /** Project status snapshot for recent/current project rendering */
@@ -95,7 +95,7 @@ function groupItems(items: MentionItem[]): MentionGroup[] {
   const recent: MentionItem[] = [];
   const search: MentionItem[] = [];
   const users: MentionItem[] = [];
-  const issues: MentionItem[] = [];
+  const tasks: MentionItem[] = [];
   const resources: MentionItem[] = [];
 
   for (const item of items) {
@@ -107,8 +107,8 @@ function groupItems(items: MentionItem[]): MentionGroup[] {
       search.push(item);
     } else if (item.type === "file") {
       resources.push(item);
-    } else if (item.type === "issue" || item.type === "project") {
-      issues.push(item);
+    } else if (item.type === "task" || item.type === "project") {
+      tasks.push(item);
     } else {
       users.push(item);
     }
@@ -119,7 +119,7 @@ function groupItems(items: MentionItem[]): MentionGroup[] {
   if (recent.length > 0) groups.push({ label: "Recent", items: recent });
   if (search.length > 0) groups.push({ label: "Search", items: search });
   if (users.length > 0) groups.push({ label: "Users", items: users });
-  if (issues.length > 0) groups.push({ label: "Issues", items: issues });
+  if (tasks.length > 0) groups.push({ label: "Tasks", items: tasks });
   if (resources.length > 0) groups.push({ label: "Resources", items: resources });
   return groups;
 }
@@ -129,7 +129,7 @@ function groupItems(items: MentionItem[]): MentionGroup[] {
 // ---------------------------------------------------------------------------
 
 const MAX_ITEMS = 20;
-const SERVER_ISSUE_SEARCH_LIMIT = 20;
+const SERVER_TASK_SEARCH_LIMIT = 20;
 const SERVER_CONTEXT_SEARCH_LIMIT = 8;
 const SERVER_SEARCH_DEBOUNCE_MS = 150;
 
@@ -227,8 +227,8 @@ export const MentionList = forwardRef<MentionListRef, MentionListProps>(
         void (async () => {
           try {
             if (includeProjectSearch) {
-              const [issues, projects] = await Promise.all([
-                api.searchIssues({
+              const [tasks, projects] = await Promise.all([
+                api.searchTasks({
                   q,
                   limit: SERVER_CONTEXT_SEARCH_LIMIT,
                   include_closed: true,
@@ -243,19 +243,19 @@ export const MentionList = forwardRef<MentionListRef, MentionListProps>(
               ]);
               if (!cancelled && !controller.signal.aborted) {
                 setServerItems([
-                  ...issues.issues.map((issue) => ({ ...issueToMention(issue), group: "search" as const })),
+                  ...tasks.tasks.map((task) => ({ ...taskToMention(task), group: "search" as const })),
                   ...projects.projects.map((project) => ({ ...projectToMention(project), group: "search" as const })),
                 ]);
               }
             } else {
-              const res = await api.searchIssues({
+              const res = await api.searchTasks({
                 q,
-                limit: SERVER_ISSUE_SEARCH_LIMIT,
+                limit: SERVER_TASK_SEARCH_LIMIT,
                 include_closed: true,
                 signal: controller.signal,
               });
               if (!cancelled && !controller.signal.aborted) {
-                setServerItems(res.issues.map(issueToMention));
+                setServerItems(res.tasks.map(taskToMention));
               }
             }
           } catch {
@@ -286,7 +286,7 @@ export const MentionList = forwardRef<MentionListRef, MentionListProps>(
     }, [items, normalizedQuery, resourceItems, searchedQuery, serverItems]);
 
     // The single index space for selection. groupItems() re-buckets displayItems
-    // (current → recent → search → users → issues); orderedItems is exactly what
+    // (current → recent → search → users → tasks); orderedItems is exactly what
     // the popup renders, top to bottom. Keyboard nav, Enter, clicks, highlight,
     // and scroll all index THIS, so the highlighted row always equals the
     // committed item — there is no second "data order" to drift against.
@@ -367,7 +367,7 @@ export const MentionList = forwardRef<MentionListRef, MentionListProps>(
       if (label === "Recent") return t(($) => $.mention.group_recent);
       if (label === "Search") return t(($) => $.mention.group_search);
       if (label === "Users") return t(($) => $.mention.group_users);
-      if (label === "Issues") return t(($) => $.mention.group_issues);
+      if (label === "Tasks") return t(($) => $.mention.group_tasks);
       if (label === "Resources") return t(($) => $.mention.group_resources);
       return label;
     };
@@ -440,8 +440,8 @@ function MentionRow({
   buttonRef: (el: HTMLButtonElement | null) => void;
 }) {
   const { t } = useT("editor");
-  if (item.type === "issue") {
-    // Visually dim closed issues (done/cancelled) so they're distinguishable
+  if (item.type === "task") {
+    // Visually dim closed tasks (done/cancelled) so they're distinguishable
     // from active ones in the suggestion list — they're still selectable.
     const isClosed = item.status === "done" || item.status === "cancelled";
     return (
@@ -578,13 +578,13 @@ function MentionRow({
 // Suggestion config factory
 // ---------------------------------------------------------------------------
 
-function issueToMention(i: Pick<Issue, "id" | "identifier" | "title" | "status">): MentionItem {
+function taskToMention(i: Pick<Task, "id" | "identifier" | "title" | "status">): MentionItem {
   return {
     id: i.id,
     label: i.identifier,
-    type: "issue" as const,
+    type: "task" as const,
     description: i.title,
-    status: i.status as IssueStatus,
+    status: i.status as TaskStatus,
   };
 }
 
@@ -604,7 +604,7 @@ function fileToMention(file: FileResource): MentionItem {
     id: file.id,
     label: file.filename,
     type: "file",
-    description: [file.source_project_title, file.source_issue_title].filter(Boolean).join(" · "),
+    description: [file.source_project_title, file.source_task_title].filter(Boolean).join(" · "),
     file,
   };
 }
@@ -648,9 +648,9 @@ export function createMentionSuggestion(
     const members: MemberWithUser[] = qc.getQueryData(workspaceKeys.members(wsId)) ?? [];
     const agents: Agent[] = qc.getQueryData(workspaceKeys.agents(wsId)) ?? [];
     const squads: Squad[] = qc.getQueryData(workspaceKeys.squads(wsId)) ?? [];
-    const listQueries = qc.getQueriesData<ListIssuesCache>({ queryKey: issueKeys.list(wsId) });
+    const listQueries = qc.getQueriesData<ListTasksCache>({ queryKey: taskKeys.list(wsId) });
     const cachedResponse = listQueries[0]?.[1];
-    const cachedIssues: Issue[] = cachedResponse ? flattenIssueBuckets(cachedResponse) : [];
+    const cachedTasks: Task[] = cachedResponse ? flattenTaskBuckets(cachedResponse) : [];
 
     // Read current user identity imperatively — this factory runs outside
     // React render so we can't useAuthStore() as a hook here. The Proxy in
@@ -681,7 +681,7 @@ export function createMentionSuggestion(
         (a) =>
           !a.archived_at &&
           (a.name.toLowerCase().includes(q) || matchesPinyin(a.name, q)) &&
-          canAssignAgentToIssue(a, { userId, role: myRole }).allowed,
+          canAssignAgentToTask(a, { userId, role: myRole }).allowed,
       )
       .map((a) => ({ id: a.id, label: a.name, type: "agent" as const }));
 
@@ -698,17 +698,17 @@ export function createMentionSuggestion(
       recency,
     );
 
-    // Cached issues give an instant first paint; MentionList adds server
-    // matches for done/cancelled and any other issues not in this cache.
-    const issueItems: MentionItem[] = cachedIssues
+    // Cached tasks give an instant first paint; MentionList adds server
+    // matches for done/cancelled and any other tasks not in this cache.
+    const taskItems: MentionItem[] = cachedTasks
       .filter(
         (i) =>
           i.identifier.toLowerCase().includes(q) ||
           i.title.toLowerCase().includes(q),
       )
-      .map(issueToMention);
+      .map(taskToMention);
 
-    return [...allItem, ...userItems, ...issueItems];
+    return [...allItem, ...userItems, ...taskItems];
   }
 
   return {

@@ -366,7 +366,7 @@ export function createFileUploadExtension(
               if (!handler) return false;
               // Resolve drop position from mouse coordinates.
               // Only the first file uses the drop position; subsequent files
-              // append to the end to avoid stale position issues.
+              // append to the end to avoid stale position tasks.
               const dropPos = view.posAtCoords({ left: dragEvent.clientX, top: dragEvent.clientY });
               const unique = dedupFiles(files);
               for (let i = 0; i < unique.length; i++) {

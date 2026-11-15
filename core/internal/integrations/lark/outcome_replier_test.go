@@ -310,9 +310,9 @@ func TestLarkOutcomeReplierUsesAppURLForWebLinks(t *testing.T) {
 	rep.Reply(context.Background(), inst, InboundMessage{ChatID: "oc_chat", SenderOpenID: "ou_user"},
 		DispatchResult{
 			Outcome:         OutcomeIngested,
-			IssueID:         mustUUID("22222222-2222-2222-2222-222222222222"),
-			IssueNumber:     42,
-			IssueIdentifier: "SILI-42",
+			TaskID:         mustUUID("22222222-2222-2222-2222-222222222222"),
+			TaskNumber:     42,
+			TaskIdentifier: "SILI-42",
 		})
 
 	stub.mu.Lock()
@@ -324,23 +324,23 @@ func TestLarkOutcomeReplierUsesAppURLForWebLinks(t *testing.T) {
 		t.Fatalf("binding URL should use AppURL; got %q", got)
 	}
 	if len(stub.textOut) != 1 {
-		t.Fatalf("expected one issue-created text, got %d", len(stub.textOut))
+		t.Fatalf("expected one task-created text, got %d", len(stub.textOut))
 	}
-	if !strings.Contains(stub.textOut[0].Text, "https://app.silieco.test/issues/SILI-42") {
-		t.Fatalf("issue-created text should use AppURL; got %q", stub.textOut[0].Text)
+	if !strings.Contains(stub.textOut[0].Text, "https://app.silieco.test/tasks/SILI-42") {
+		t.Fatalf("task-created text should use AppURL; got %q", stub.textOut[0].Text)
 	}
 }
 
-// TestLarkOutcomeReplierIssueCreatedSendsConfirmation pins the
-// recovered /issue confirmation path. Before the plain-text refactor
+// TestLarkOutcomeReplierTaskCreatedSendsConfirmation pins the
+// recovered /task confirmation path. Before the plain-text refactor
 // the design called for a "已创建 [SILI-xxx]" card; the refactor
 // dropped the whole card lifecycle, which had the side effect of
-// silently dropping the issue-created signal. Trump flagged it as a
-// blocker on PR #3277 review. Fix: OutcomeIngested with IssueID.Valid
+// silently dropping the task-created signal. Trump flagged it as a
+// blocker on PR #3277 review. Fix: OutcomeIngested with TaskID.Valid
 // triggers a plain text confirmation send via SendTextMessage,
 // composing the workspace-qualified identifier with the title and a
 // deep link back to Silieco.
-func TestLarkOutcomeReplierIssueCreatedSendsConfirmation(t *testing.T) {
+func TestLarkOutcomeReplierTaskCreatedSendsConfirmation(t *testing.T) {
 	t.Parallel()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	stub := &stubAPIClientWithRecorder{configured: true}
@@ -358,10 +358,10 @@ func TestLarkOutcomeReplierIssueCreatedSendsConfirmation(t *testing.T) {
 	msg := InboundMessage{ChatID: "oc_chat_42", SenderOpenID: "ou_user"}
 	rep.Reply(context.Background(), inst, msg, DispatchResult{
 		Outcome:         OutcomeIngested,
-		IssueID:         mustUUID("22222222-2222-2222-2222-222222222222"),
-		IssueNumber:     42,
-		IssueIdentifier: "SILI-42",
-		IssueTitle:      "fix login bug",
+		TaskID:         mustUUID("22222222-2222-2222-2222-222222222222"),
+		TaskNumber:     42,
+		TaskIdentifier: "SILI-42",
+		TaskTitle:      "fix login bug",
 	})
 
 	stub.mu.Lock()
@@ -377,24 +377,24 @@ func TestLarkOutcomeReplierIssueCreatedSendsConfirmation(t *testing.T) {
 		t.Errorf("text should embed the workspace-qualified key; got %q", got.Text)
 	}
 	if !strings.Contains(got.Text, "fix login bug") {
-		t.Errorf("text should embed the issue title; got %q", got.Text)
+		t.Errorf("text should embed the task title; got %q", got.Text)
 	}
-	if !strings.Contains(got.Text, "https://silieco.test/issues/SILI-42") {
+	if !strings.Contains(got.Text, "https://silieco.test/tasks/SILI-42") {
 		t.Errorf("text should embed the deep link back to Silieco; got %q", got.Text)
 	}
 	// No interactive card on this path — the confirmation must be
 	// plain text, matching how chat replies render.
 	if len(stub.interactiveOut) != 0 {
-		t.Errorf("issue-created confirmation must not send a card; got %d cards", len(stub.interactiveOut))
+		t.Errorf("task-created confirmation must not send a card; got %d cards", len(stub.interactiveOut))
 	}
 }
 
-// TestLarkOutcomeReplierOutcomeIngestedSilentWithoutIssue pins the
+// TestLarkOutcomeReplierOutcomeIngestedSilentWithoutTask pins the
 // silent-by-default behaviour for plain chat messages. The "Created"
-// text is gated on IssueID.Valid; a chat that didn't include /issue
+// text is gated on TaskID.Valid; a chat that didn't include /task
 // must NOT trigger an outbound from the OutcomeReplier (the agent's
 // reply is delivered separately by the Patcher on EventChatDone).
-func TestLarkOutcomeReplierOutcomeIngestedSilentWithoutIssue(t *testing.T) {
+func TestLarkOutcomeReplierOutcomeIngestedSilentWithoutTask(t *testing.T) {
 	t.Parallel()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	stub := &stubAPIClientWithRecorder{configured: true}
@@ -408,7 +408,7 @@ func TestLarkOutcomeReplierOutcomeIngestedSilentWithoutIssue(t *testing.T) {
 	})
 
 	rep.Reply(context.Background(), Installation{}, InboundMessage{ChatID: "oc"},
-		DispatchResult{Outcome: OutcomeIngested}) // no IssueID
+		DispatchResult{Outcome: OutcomeIngested}) // no TaskID
 
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
@@ -424,11 +424,11 @@ func threadedInboundMsg(chatID ChatID) InboundMessage {
 	return InboundMessage{ChatID: chatID, MessageID: "om_trigger", ThreadID: "omt_topic", SenderOpenID: "ou_user"}
 }
 
-// TestLarkOutcomeReplierIssueCreatedThreadFallback verifies the /issue
+// TestLarkOutcomeReplierTaskCreatedThreadFallback verifies the /task
 // confirmation reuses the Patcher's classified fallback: a thread reply
 // rejected with a "topic cannot receive this" Lark error retries once at
 // the chat level so the confirmation is not lost.
-func TestLarkOutcomeReplierIssueCreatedThreadFallback(t *testing.T) {
+func TestLarkOutcomeReplierTaskCreatedThreadFallback(t *testing.T) {
 	t.Parallel()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	stub := &stubAPIClientWithRecorder{configured: true, threadSendErr: errThreadReplyClassified}
@@ -443,10 +443,10 @@ func TestLarkOutcomeReplierIssueCreatedThreadFallback(t *testing.T) {
 
 	rep.Reply(context.Background(), Installation{AppID: "cli_x"}, threadedInboundMsg("oc_chat_42"), DispatchResult{
 		Outcome:         OutcomeIngested,
-		IssueID:         mustUUID("22222222-2222-2222-2222-222222222222"),
-		IssueNumber:     42,
-		IssueIdentifier: "SILI-42",
-		IssueTitle:      "fix login bug",
+		TaskID:         mustUUID("22222222-2222-2222-2222-222222222222"),
+		TaskNumber:     42,
+		TaskIdentifier: "SILI-42",
+		TaskTitle:      "fix login bug",
 	})
 
 	stub.mu.Lock()
@@ -462,10 +462,10 @@ func TestLarkOutcomeReplierIssueCreatedThreadFallback(t *testing.T) {
 	}
 }
 
-// TestLarkOutcomeReplierIssueCreatedNoFallbackOnAmbiguous verifies the
-// /issue confirmation does NOT retry at chat level on an ambiguous
+// TestLarkOutcomeReplierTaskCreatedNoFallbackOnAmbiguous verifies the
+// /task confirmation does NOT retry at chat level on an ambiguous
 // transport failure, so the confirmation cannot be duplicated.
-func TestLarkOutcomeReplierIssueCreatedNoFallbackOnAmbiguous(t *testing.T) {
+func TestLarkOutcomeReplierTaskCreatedNoFallbackOnAmbiguous(t *testing.T) {
 	t.Parallel()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	stub := &stubAPIClientWithRecorder{configured: true, threadSendErr: errThreadReplyTransport}
@@ -480,9 +480,9 @@ func TestLarkOutcomeReplierIssueCreatedNoFallbackOnAmbiguous(t *testing.T) {
 
 	rep.Reply(context.Background(), Installation{AppID: "cli_x"}, threadedInboundMsg("oc_chat_42"), DispatchResult{
 		Outcome:         OutcomeIngested,
-		IssueID:         mustUUID("22222222-2222-2222-2222-222222222222"),
-		IssueNumber:     42,
-		IssueIdentifier: "SILI-42",
+		TaskID:         mustUUID("22222222-2222-2222-2222-222222222222"),
+		TaskNumber:     42,
+		TaskIdentifier: "SILI-42",
 	})
 
 	stub.mu.Lock()

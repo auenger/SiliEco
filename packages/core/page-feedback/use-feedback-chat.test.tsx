@@ -23,7 +23,7 @@ describe("feedback handoff through the existing chat draft", () => {
     listChatSessions: vi.fn(async () => [{ id: "other-chat", agent_id: "session-agent", status: "active" }]),
     createChatSession: vi.fn(async () => session),
     getChatSession: vi.fn(async () => session),
-    sendChatMessage: vi.fn(), createIssue: vi.fn(),
+    sendChatMessage: vi.fn(), createTask: vi.fn(),
   };
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -54,7 +54,7 @@ describe("feedback handoff through the existing chat draft", () => {
     expect(chat.inputDrafts["feedback-chat"]).toContain("Improve contrast");
     expect(chat.activeSessionId).toBe("other-chat");
     expect(api.sendChatMessage).not.toHaveBeenCalled();
-    expect(api.createIssue).not.toHaveBeenCalled();
+    expect(api.createTask).not.toHaveBeenCalled();
     expect(usePageFeedbackStore.getState().drafts[feedbackDraftKey(context)]?.chatSessionId).toBe("feedback-chat");
   });
   it("does not stage a new draft into the destination workspace after a switch", async () => {

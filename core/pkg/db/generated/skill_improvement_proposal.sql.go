@@ -68,7 +68,7 @@ func (q *Queries) CreateSkillImprovementProposal(ctx context.Context, arg Create
 }
 
 const getSkillImprovementProposal = `-- name: GetSkillImprovementProposal :one
-SELECT id, workspace_id, skill_id, baseline_revision_id, candidate_revision_id, request_id, request_hash, category, reason, hypothesis, applicable_scope, evidence, created_by, created_at FROM skill_improvement_proposal WHERE workspace_id=$1 AND skill_id=$2 AND id=$3
+SELECT id, workspace_id, skill_id, baseline_revision_id, candidate_revision_id, request_id, request_hash, category, reason, hypothesis, applicable_scope, evidence, created_by, created_at FROM skill_improvement_proposal WHERE skill_improvement_proposal.workspace_id=$1 AND skill_id=$2 AND id=$3
 `
 
 type GetSkillImprovementProposalParams struct {
@@ -100,7 +100,7 @@ func (q *Queries) GetSkillImprovementProposal(ctx context.Context, arg GetSkillI
 }
 
 const getSkillImprovementProposalByRequest = `-- name: GetSkillImprovementProposalByRequest :one
-SELECT id, workspace_id, skill_id, baseline_revision_id, candidate_revision_id, request_id, request_hash, category, reason, hypothesis, applicable_scope, evidence, created_by, created_at FROM skill_improvement_proposal WHERE workspace_id=$1 AND created_by=$2 AND request_id=$3
+SELECT id, workspace_id, skill_id, baseline_revision_id, candidate_revision_id, request_id, request_hash, category, reason, hypothesis, applicable_scope, evidence, created_by, created_at FROM skill_improvement_proposal WHERE skill_improvement_proposal.workspace_id=$1 AND created_by=$2 AND request_id=$3
 `
 
 type GetSkillImprovementProposalByRequestParams struct {

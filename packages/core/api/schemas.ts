@@ -13,26 +13,26 @@ import type {
   BillingPriceTier,
   BillingTopupsPage,
   BillingTransactionsPage,
-  CancelTaskResponse,
+  CancelRunResponse,
   ChatDraftRestoresResponse,
   CreateAgentFromTemplateResponse,
   CreateBillingCheckoutSessionResponse,
   CreateBillingPortalSessionResponse,
   CronPreviewResponse,
-  GroupedIssuesResponse,
+  GroupedTasksResponse,
   GitHubConnectResponse,
   GitHubPullRequest,
   InboxItem,
   InboxWorkspaceUnread,
   Label,
-  IssueProperty,
+  TaskProperty,
   ListPropertiesResponse,
-  IssuePropertiesResponse,
-  IssueTableGroupDescriptor,
-  IssueTableFacetsResponse,
-  IssueTableGroupsResponse,
-  IssueTableRowsResponse,
-  ListIssuesResponse,
+  TaskPropertiesResponse,
+  TaskTableGroupDescriptor,
+  TaskTableFacetsResponse,
+  TaskTableGroupsResponse,
+  TaskTableRowsResponse,
+  ListTasksResponse,
   ListGitHubInstallationsResponse,
   ListGitHubRepositoriesResponse,
   ListLabelsResponse,
@@ -42,7 +42,7 @@ import type {
   ListProjectResourcesResponse,
   ResourceLabelsResponse,
   RuntimeModelListRequest,
-  SearchIssuesResponse,
+  SearchTasksResponse,
   SearchProjectsResponse,
   Squad,
   TimelineEntry,
@@ -189,11 +189,11 @@ export const GitHubPullRequestSchema = z.object({
   changed_files: z.number().optional().default(0),
 }).loose();
 
-export const IssuePullRequestsResponseSchema = z.object({
+export const TaskPullRequestsResponseSchema = z.object({
   pull_requests: z.array(GitHubPullRequestSchema).default([]),
 }).loose();
 
-export const EMPTY_ISSUE_PULL_REQUESTS_RESPONSE: { pull_requests: GitHubPullRequest[] } = {
+export const EMPTY_TASK_PULL_REQUESTS_RESPONSE: { pull_requests: GitHubPullRequest[] } = {
   pull_requests: [],
 };
 
@@ -203,7 +203,7 @@ export const EMPTY_ISSUE_PULL_REQUESTS_RESPONSE: { pull_requests: GitHubPullRequ
 export const LabelSchema = z.object({
   id: z.string(),
   workspace_id: z.string(),
-  resource_type: z.string().optional().default("issue"),
+  resource_type: z.string().optional().default("task"),
   name: z.string(),
   description: z.string().optional().default(""),
   color: z.string(),
@@ -216,7 +216,7 @@ export const LabelSchema = z.object({
 export const EMPTY_LABEL: Label = {
   id: "",
   workspace_id: "",
-  resource_type: "issue",
+  resource_type: "task",
   name: "",
   description: "",
   color: "#6b7280",
@@ -245,7 +245,7 @@ export const EMPTY_RESOURCE_LABELS_RESPONSE: ResourceLabelsResponse = {
 
 // Custom property definitions. `type` stays a lenient string so newer server
 // types don't break installed clients; UI narrows with isKnownPropertyType.
-export const IssuePropertySchema = z.object({
+export const TaskPropertySchema = z.object({
   id: z.string(),
   workspace_id: z.string(),
   name: z.string(),
@@ -267,7 +267,7 @@ export const IssuePropertySchema = z.object({
   updated_at: z.string(),
 }).loose();
 
-export const EMPTY_ISSUE_PROPERTY: IssueProperty = {
+export const EMPTY_TASK_PROPERTY: TaskProperty = {
   id: "",
   workspace_id: "",
   name: "",
@@ -283,7 +283,7 @@ export const EMPTY_ISSUE_PROPERTY: IssueProperty = {
 };
 
 export const ListPropertiesResponseSchema = z.object({
-  properties: z.array(IssuePropertySchema).default([]),
+  properties: z.array(TaskPropertySchema).default([]),
   total: z.number().default(0),
 }).loose();
 
@@ -296,8 +296,8 @@ export const EMPTY_LIST_PROPERTIES_RESPONSE: ListPropertiesResponse = {
 // arrays (multi_select). The preprocess step drops entries with unknown
 // shapes BEFORE validation — a newer server shipping an object-shaped value
 // (future actor/relation types) must degrade to "that one property missing",
-// never fail the whole IssueSchema and blank the list via parseWithFallback.
-export const IssuePropertyValuesSchema = z.preprocess(
+// never fail the whole TaskSchema and blank the list via parseWithFallback.
+export const TaskPropertyValuesSchema = z.preprocess(
   (raw) => {
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
     const out: Record<string, unknown> = {};
@@ -314,11 +314,11 @@ export const IssuePropertyValuesSchema = z.preprocess(
   z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).default({}),
 );
 
-export const IssuePropertiesResponseSchema = z.object({
-  properties: IssuePropertyValuesSchema,
+export const TaskPropertiesResponseSchema = z.object({
+  properties: TaskPropertyValuesSchema,
 }).loose();
 
-export const EMPTY_ISSUE_PROPERTIES_RESPONSE: IssuePropertiesResponse = {
+export const EMPTY_TASK_PROPERTIES_RESPONSE: TaskPropertiesResponse = {
   properties: {},
 };
 
@@ -347,7 +347,7 @@ export interface AppConfigResponse {
 
 // ---------------------------------------------------------------------------
 // Schemas for the highest-risk API endpoints — those whose responses drive
-// the issue detail page (timeline, comments, subscribers) and the issues
+// the task detail page (timeline, comments, subscribers) and the tasks
 // list. These are the surfaces that white-screened in #2143 / #2147 / #2192.
 //
 // These schemas are intentionally LENIENT:
@@ -367,7 +367,7 @@ export interface AppConfigResponse {
 //     that synchronisation hazard.
 //
 // These schemas are deliberately not typed as `z.ZodType<TimelineEntry>` /
-// `z.ZodType<Issue>` etc. — the strict TS types narrow string fields to
+// `z.ZodType<Task>` etc. — the strict TS types narrow string fields to
 // literal unions, which would defeat the leniency above. `parseWithFallback`
 // returns the parsed value cast to the caller-supplied `T`, so the strict
 // type still flows out at the call site; the schema only guards shape.
@@ -414,7 +414,7 @@ export const AttachmentResponseSchema = z.object({
 export const EMPTY_ATTACHMENT: Attachment = {
   id: "",
   workspace_id: "",
-  issue_id: null,
+  task_id: null,
   comment_id: null,
   chat_session_id: null,
   chat_message_id: null,
@@ -431,15 +431,15 @@ export const EMPTY_ATTACHMENT: Attachment = {
 
 export const FileResourceSchema = AttachmentResponseSchema.extend({
   workspace_id: z.string(),
-  issue_id: z.string().nullable().optional().default(null),
+  task_id: z.string().nullable().optional().default(null),
   comment_id: z.string().nullable().optional().default(null),
   uploader_type: z.string().optional().default(""),
   uploader_id: z.string().optional().default(""),
   content_type: z.string().optional().default("application/octet-stream"),
   size_bytes: z.number().optional().default(0),
   created_at: z.string(),
-  source_issue_title: z.string().nullable().optional().default(null),
-  source_issue_number: z.number().nullable().optional().default(null),
+  source_task_title: z.string().nullable().optional().default(null),
+  source_task_number: z.number().nullable().optional().default(null),
   source_project_id: z.string().nullable().optional().default(null),
   source_project_title: z.string().nullable().optional().default(null),
   reference_count: z.number().optional().default(0),
@@ -456,12 +456,12 @@ export const AttachmentReferenceSchema = z.object({
   id: z.string(),
   workspace_id: z.string(),
   attachment_id: z.string(),
-  target_type: z.enum(["issue", "project"]),
+  target_type: z.enum(["task", "project"]),
   target_id: z.string(),
   created_by: z.string(),
   created_at: z.string(),
   target_title: z.string().nullable().optional().default(null),
-  target_issue_number: z.number().nullable().optional().default(null),
+  target_task_number: z.number().nullable().optional().default(null),
   target_project_id: z.string().nullable().optional().default(null),
   target_project_title: z.string().nullable().optional().default(null),
 }).loose();
@@ -497,13 +497,13 @@ const TimelineEntrySchema = z.object({
   comment_type: z.string().optional(),
   reactions: z.array(ReactionSchema).optional(),
   attachments: z.array(AttachmentSchema).optional(),
-  source_task_id: z.string().nullable().optional(),
+  source_run_id: z.string().nullable().optional(),
   coalesced_count: z.number().optional(),
 }).loose();
 
 // /timeline returns a flat array of TimelineEntry, oldest first. The
 // previously cursor-paginated wrapper was removed (#1929) — at observed data
-// sizes (p99 ~30 entries per issue) paged delivery only created bugs.
+// sizes (p99 ~30 entries per task) paged delivery only created bugs.
 export const TimelineEntriesSchema = z.array(TimelineEntrySchema);
 
 export const EMPTY_TIMELINE_ENTRIES: TimelineEntry[] = [];
@@ -579,7 +579,7 @@ export const EMPTY_CREATE_FEEDBACK_RESPONSE: CreateFeedbackResponse = {
 
 export const CommentSchema = z.object({
   id: z.string(),
-  issue_id: z.string(),
+  task_id: z.string(),
   author_type: z.string(),
   author_id: z.string(),
   content: z.string(),
@@ -589,7 +589,7 @@ export const CommentSchema = z.object({
   attachments: z.array(AttachmentSchema).default([]),
   created_at: z.string(),
   updated_at: z.string(),
-  source_task_id: z.string().nullable().optional(),
+  source_run_id: z.string().nullable().optional(),
 }).loose();
 
 export const CommentsListSchema = z.array(CommentSchema);
@@ -629,24 +629,24 @@ export const CommentTriggerPreviewSchema = z.object({
     ),
 }).loose();
 
-const IssueTriggerPreviewItemSchema = z.object({
-  issue_id: z.string(),
+const TaskTriggerPreviewItemSchema = z.object({
+  task_id: z.string(),
   agent_id: z.string().default(""),
   source: z.string().default(""),
   handoff_supported: z.boolean().default(false),
 }).loose();
 
-export const IssueTriggerPreviewSchema = z.object({
-  triggers: z.array(IssueTriggerPreviewItemSchema).default([]),
+export const TaskTriggerPreviewSchema = z.object({
+  triggers: z.array(TaskTriggerPreviewItemSchema).default([]),
   total_count: z.number().default(0),
 }).loose();
 
 // Metadata is primitive-only by API/DB contract. Stay lenient on shape:
 // unknown keys land as `unknown` to a caller, but the field itself defaults
-// to {} so consumers never need to nil-guard `issue.metadata`.
-const IssueMetadataSchema = z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({});
+// to {} so consumers never need to nil-guard `task.metadata`.
+const TaskMetadataSchema = z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({});
 
-export const IssueSchema = z.object({
+export const TaskSchema = z.object({
   id: z.string(),
   workspace_id: z.string(),
   number: z.number(),
@@ -659,7 +659,7 @@ export const IssueSchema = z.object({
   assignee_id: z.string().nullable(),
   creator_type: z.string(),
   creator_id: z.string(),
-  parent_issue_id: z.string().nullable(),
+  parent_task_id: z.string().nullable(),
   project_id: z.string().nullable(),
   // Older servers do not know about optional SOP assignment. Missing values
   // therefore degrade to a plain Task rather than invalidating the response.
@@ -668,30 +668,30 @@ export const IssueSchema = z.object({
   workflow_invalidated_by_rework_id: z.string().min(1).nullable().default(null).catch("unknown"),
   position: z.number(),
   // Older backends predate `stage`; default to null so a missing field parses
-  // cleanly into the non-optional Issue.stage (number | null).
+  // cleanly into the non-optional Task.stage (number | null).
   stage: z.number().nullable().default(null),
   start_date: z.string().nullable(),
   due_date: z.string().nullable(),
   revision: z.string().optional(),
-  metadata: IssueMetadataSchema,
+  metadata: TaskMetadataSchema,
   // Older backends predate custom properties; default {} so consumers never
-  // nil-guard issue.properties.
-  properties: IssuePropertyValuesSchema,
+  // nil-guard task.properties.
+  properties: TaskPropertyValuesSchema,
   reactions: z.array(z.unknown()).optional(),
   labels: z.array(z.unknown()).optional(),
   created_at: z.string(),
   updated_at: z.string(),
 }).loose();
 
-export const ListIssuesResponseSchema = z.object({
-  issues: z.array(IssueSchema).default([]),
+export const ListTasksResponseSchema = z.object({
+  tasks: z.array(TaskSchema).default([]),
   total: z.number().default(0),
 }).loose();
 
-// Response schema for POST /api/issues. Two tightenings over IssueSchema:
+// Response schema for POST /api/tasks. Two tightenings over TaskSchema:
 //
-//   - `id` must be non-empty. A created issue always carries a real id, so an
-//     empty/absent id means the create effectively failed. createIssue turns a
+//   - `id` must be non-empty. A created task always carries a real id, so an
+//     empty/absent id means the create effectively failed. createTask turns a
 //     schema failure into a rejection (not a fabricated success), so tightening
 //     id here routes an id-less body to that same failure path.
 //   - `labels` is the backend-compatibility signal the create modal reads to
@@ -700,15 +700,15 @@ export const ListIssuesResponseSchema = z.object({
 //     Validate it strictly as Label[] and degrade a malformed value to
 //     `undefined` — the same as an absent field — so a wrong shape (null,
 //     object, a garbage array) can never masquerade as "handled" and suppress
-//     the fallback. Unlike the loose IssueSchema.labels (z.array(z.unknown())),
-//     the elements are fully validated. See packages/views/modals/create-issue.tsx.
-export const CreateIssueResponseSchema = IssueSchema.extend({
+//     the fallback. Unlike the loose TaskSchema.labels (z.array(z.unknown())),
+//     the elements are fully validated. See packages/views/modals/create-task.tsx.
+export const CreateTaskResponseSchema = TaskSchema.extend({
   id: z.string().min(1),
   labels: z.array(LabelSchema).optional().catch(undefined),
 }).loose();
 
-export const EMPTY_LIST_ISSUES_RESPONSE: ListIssuesResponse = {
-  issues: [],
+export const EMPTY_LIST_TASKS_RESPONSE: ListTasksResponse = {
+  tasks: [],
   total: 0,
 };
 
@@ -856,11 +856,11 @@ export const WorkflowHumanReviewSchema = z.object({
   execution_id: z.string(),
   result_revision: z.number().int().positive().catch(0),
   basis_hash: z.string().regex(/^[0-9a-f]{64}$/).catch(""),
-  issues: z.array(z.object({
+  tasks: z.array(z.object({
     id: z.string(), title: z.string(), status: z.string(), updated_at: z.string(),
   }).loose()),
   calls: z.array(z.object({
-    id: z.string(), issue_id: z.string().nullable().default(null), agent_id: z.string(), status: z.string(),
+    id: z.string(), task_id: z.string().nullable().default(null), agent_id: z.string(), status: z.string(),
   }).loose()),
 }).loose();
 
@@ -916,7 +916,7 @@ export const WorkflowInstanceSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   stages: z.array(WorkflowInstanceStageSchema).optional(),
-  tasks: z.array(IssueSchema).optional(),
+  tasks: z.array(TaskSchema).optional(),
   decisions: z.array(WorkflowGateDecisionSchema).optional(),
   changes: z.array(z.object({
     id: z.string(),
@@ -945,7 +945,7 @@ export const ListWorkflowInstancesResponseSchema = z.object({
 }).loose();
 
 export const ListWorkflowTasksResponseSchema = z.object({
-  tasks: z.array(IssueSchema).default([]),
+  tasks: z.array(TaskSchema).default([]),
   total: z.number().default(0),
 }).loose();
 
@@ -1020,20 +1020,20 @@ export const EMPTY_LIST_WORKFLOW_TASKS_RESPONSE: ListWorkflowTasksResponse = {
   total: 0,
 };
 
-const SearchIssueResultSchema = IssueSchema.extend({
+const SearchTaskResultSchema = TaskSchema.extend({
   match_source: z.string(),
   matched_snippet: z.string().optional(),
   matched_description_snippet: z.string().optional(),
   matched_comment_snippet: z.string().optional(),
 }).loose();
 
-export const SearchIssuesResponseSchema = z.object({
-  issues: z.array(SearchIssueResultSchema).default([]),
+export const SearchTasksResponseSchema = z.object({
+  tasks: z.array(SearchTaskResultSchema).default([]),
   total: z.number().default(0),
 }).loose();
 
-export const EMPTY_SEARCH_ISSUES_RESPONSE: SearchIssuesResponse = {
-  issues: [],
+export const EMPTY_SEARCH_TASKS_RESPONSE: SearchTasksResponse = {
+  tasks: [],
   total: 0,
 };
 
@@ -1054,7 +1054,7 @@ const ProjectSchema = z.object({
   due_date: z.string().nullable().default(null),
   created_at: z.string(),
   updated_at: z.string(),
-  issue_count: z.number().default(0),
+  task_count: z.number().default(0),
   done_count: z.number().default(0),
   resource_count: z.number().default(0),
 }).loose();
@@ -1074,30 +1074,30 @@ export const EMPTY_SEARCH_PROJECTS_RESPONSE: SearchProjectsResponse = {
   total: 0,
 };
 
-const IssueAssigneeGroupSchema = z.object({
+const TaskAssigneeGroupSchema = z.object({
   id: z.string(),
   assignee_type: z.string().nullable(),
   assignee_id: z.string().nullable(),
-  issues: z.array(IssueSchema).default([]),
+  tasks: z.array(TaskSchema).default([]),
   total: z.number().default(0),
 }).loose();
 
-export const GroupedIssuesResponseSchema = z.object({
-  groups: z.array(IssueAssigneeGroupSchema).default([]),
+export const GroupedTasksResponseSchema = z.object({
+  groups: z.array(TaskAssigneeGroupSchema).default([]),
 }).loose();
 
-export const EMPTY_GROUPED_ISSUES_RESPONSE: GroupedIssuesResponse = {
+export const EMPTY_GROUPED_TASKS_RESPONSE: GroupedTasksResponse = {
   groups: [],
 };
 
-const IssueTableActorRefSchema = z.object({
+const TaskTableActorRefSchema = z.object({
   // Server-driven enums stay open so installed desktop clients survive a
   // backend that introduces another actor kind.
   type: z.string(),
   id: z.string(),
 }).loose();
 
-const IssueTableParentRefSchema = z.object({
+const TaskTableParentRefSchema = z.object({
   id: z.string(),
   number: z.number(),
   identifier: z.string(),
@@ -1105,14 +1105,14 @@ const IssueTableParentRefSchema = z.object({
   status: z.string(),
 }).loose();
 
-const IssueTableGroupValueSchema = z.discriminatedUnion("kind", [
+const TaskTableGroupValueSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("status"),
     status: z.string(),
   }).loose(),
   z.object({
     kind: z.literal("assignee"),
-    actor: IssueTableActorRefSchema.nullable(),
+    actor: TaskTableActorRefSchema.nullable(),
   }).loose(),
   z.object({
     kind: z.literal("project"),
@@ -1121,7 +1121,7 @@ const IssueTableGroupValueSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("parent"),
     parent_id: z.string().nullable().optional().default(null),
-    parent: IssueTableParentRefSchema.nullable().optional().default(null),
+    parent: TaskTableParentRefSchema.nullable().optional().default(null),
     value_state: z.enum(["value", "unavailable", "unset"]),
   }).loose(),
   z.object({
@@ -1132,43 +1132,43 @@ const IssueTableGroupValueSchema = z.discriminatedUnion("kind", [
   }).loose(),
 ]);
 
-const IssueTableGroupDescriptorSchema: z.ZodType<IssueTableGroupDescriptor> = z.lazy(() => z.object({
+const TaskTableGroupDescriptorSchema: z.ZodType<TaskTableGroupDescriptor> = z.lazy(() => z.object({
   key: z.string(),
-  value: IssueTableGroupValueSchema,
+  value: TaskTableGroupValueSchema,
   count: z.number(),
-  secondary_groups: z.array(IssueTableGroupDescriptorSchema).optional(),
+  secondary_groups: z.array(TaskTableGroupDescriptorSchema).optional(),
 }).loose());
 
-export const IssueTableGroupsResponseSchema = z.object({
+export const TaskTableGroupsResponseSchema = z.object({
   query_fingerprint: z.string(),
   total: z.number(),
-  groups: z.array(IssueTableGroupDescriptorSchema).default([]),
+  groups: z.array(TaskTableGroupDescriptorSchema).default([]),
   next_cursor: z.string().nullable().default(null),
 }).loose();
 
-export const EMPTY_ISSUE_TABLE_GROUPS_RESPONSE: IssueTableGroupsResponse = {
+export const EMPTY_TASK_TABLE_GROUPS_RESPONSE: TaskTableGroupsResponse = {
   query_fingerprint: "",
   total: 0,
   groups: [],
   next_cursor: null,
 };
 
-const IssueTableRowSchema = z.object({
-  issue: IssueSchema,
+const TaskTableRowSchema = z.object({
+  task: TaskSchema,
   direct_child_count: z.number().default(0),
 }).loose();
 
-export const IssueTableRowsResponseSchema = z.object({
+export const TaskTableRowsResponseSchema = z.object({
   query_fingerprint: z.string(),
   group_key: z.string().nullable().default(null),
   parent_id: z.string().nullable().default(null),
   total: z.number(),
-  rows: z.array(IssueTableRowSchema).default([]),
+  rows: z.array(TaskTableRowSchema).default([]),
   branch_total: z.number(),
   next_cursor: z.string().nullable().default(null),
 }).loose();
 
-export const EMPTY_ISSUE_TABLE_ROWS_RESPONSE: IssueTableRowsResponse = {
+export const EMPTY_TASK_TABLE_ROWS_RESPONSE: TaskTableRowsResponse = {
   query_fingerprint: "",
   group_key: null,
   parent_id: null,
@@ -1178,31 +1178,31 @@ export const EMPTY_ISSUE_TABLE_ROWS_RESPONSE: IssueTableRowsResponse = {
   next_cursor: null,
 };
 
-const IssueTableFacetValueSchema = z.object({
+const TaskTableFacetValueSchema = z.object({
   key: z.string(),
   count: z.number(),
 }).loose();
 
-const IssueTableFacetSchema = z.object({
+const TaskTableFacetSchema = z.object({
   kind: z.enum(["status", "priority", "assignee", "creator", "project", "label", "property"]),
   property_id: z.string().optional(),
-  values: z.array(IssueTableFacetValueSchema).default([]),
+  values: z.array(TaskTableFacetValueSchema).default([]),
 }).loose();
 
-export const IssueTableFacetsResponseSchema = z.object({
+export const TaskTableFacetsResponseSchema = z.object({
   query_fingerprint: z.string(),
   total: z.number(),
-  facets: z.array(IssueTableFacetSchema).default([]),
+  facets: z.array(TaskTableFacetSchema).default([]),
 }).loose();
 
-export const EMPTY_ISSUE_TABLE_FACETS_RESPONSE: IssueTableFacetsResponse = {
+export const EMPTY_TASK_TABLE_FACETS_RESPONSE: TaskTableFacetsResponse = {
   query_fingerprint: "",
   total: 0,
   facets: [],
 };
 
 const SubscriberSchema = z.object({
-  issue_id: z.string(),
+  task_id: z.string(),
   user_type: z.string(),
   user_id: z.string(),
   reason: z.string(),
@@ -1211,8 +1211,8 @@ const SubscriberSchema = z.object({
 
 export const SubscribersListSchema = z.array(SubscriberSchema);
 
-export const ChildIssuesResponseSchema = z.object({
-  issues: z.array(IssueSchema).default([]),
+export const ChildTasksResponseSchema = z.object({
+  tasks: z.array(TaskSchema).default([]),
 }).loose();
 
 export const CloudRuntimeNodeSchema = z.object({
@@ -1291,7 +1291,7 @@ const DashboardUsageDailySchema = z.object({
   cache_read_tokens: z.number().default(0),
   cache_write_tokens: z.number().default(0),
   ...CostSplitShape,
-  task_count: z.number().default(0),
+  run_count: z.number().default(0),
 }).loose();
 
 export const DashboardUsageDailyListSchema = z.array(DashboardUsageDailySchema);
@@ -1305,7 +1305,7 @@ const DashboardUsageByAgentSchema = z.object({
   cache_read_tokens: z.number().default(0),
   cache_write_tokens: z.number().default(0),
   ...CostSplitShape,
-  task_count: z.number().default(0),
+  run_count: z.number().default(0),
 }).loose();
 
 export const DashboardUsageByAgentListSchema = z.array(DashboardUsageByAgentSchema);
@@ -1313,7 +1313,7 @@ export const DashboardUsageByAgentListSchema = z.array(DashboardUsageByAgentSche
 const DashboardAgentRunTimeSchema = z.object({
   agent_id: z.string().default(""),
   total_seconds: z.number().default(0),
-  task_count: z.number().default(0),
+  run_count: z.number().default(0),
   failed_count: z.number().default(0),
 }).loose();
 
@@ -1322,7 +1322,7 @@ export const DashboardAgentRunTimeListSchema = z.array(DashboardAgentRunTimeSche
 const DashboardRunTimeDailySchema = z.object({
   date: z.string().default(""),
   total_seconds: z.number().default(0),
-  task_count: z.number().default(0),
+  run_count: z.number().default(0),
   failed_count: z.number().default(0),
 }).loose();
 
@@ -1339,7 +1339,7 @@ export const DashboardRunTimeDailyListSchema = z.array(DashboardRunTimeDailySche
 const DashboardFailureDailySchema = z.object({
   date: z.string().default(""),
   failure_reason: z.string().default(""),
-  task_count: z.number().default(0),
+  run_count: z.number().default(0),
 }).loose();
 
 export const DashboardFailureDailyListSchema = z.array(DashboardFailureDailySchema);
@@ -1347,7 +1347,7 @@ export const DashboardFailureDailyListSchema = z.array(DashboardFailureDailySche
 const DashboardFailureByAgentSchema = z.object({
   agent_id: z.string().default(""),
   failure_reason: z.string().default(""),
-  task_count: z.number().default(0),
+  run_count: z.number().default(0),
 }).loose();
 
 export const DashboardFailureByAgentListSchema = z.array(
@@ -1391,7 +1391,7 @@ const RuntimeUsageByAgentSchema = z.object({
   cache_read_tokens: z.number().default(0),
   cache_write_tokens: z.number().default(0),
   ...CostSplitShape,
-  task_count: z.number().default(0),
+  run_count: z.number().default(0),
 }).loose();
 
 export const RuntimeUsageByAgentListSchema = z.array(RuntimeUsageByAgentSchema);
@@ -1404,7 +1404,7 @@ const RuntimeUsageByHourSchema = z.object({
   cache_read_tokens: z.number().default(0),
   cache_write_tokens: z.number().default(0),
   ...CostSplitShape,
-  task_count: z.number().default(0),
+  run_count: z.number().default(0),
 }).loose();
 
 export const RuntimeUsageByHourListSchema = z.array(RuntimeUsageByHourSchema);
@@ -1425,21 +1425,21 @@ const AttributionUserSchema = z.object({
   avatar_url: z.string().optional(),
 }).loose();
 
-const TaskEvidenceSchema = z.object({
+const AgentRunEvidenceSchema = z.object({
   kind: z.string().default(""),
   ref_id: z.string().default(""),
 }).loose();
 
-const TaskAttributionSchema = z.object({
+const AgentRunAttributionSchema = z.object({
   source: z.string().default("unattributed"),
   precise: z.boolean().default(false),
   initiator: AttributionUserSchema.optional(),
   originator: AttributionUserSchema.optional(),
-  evidence: TaskEvidenceSchema.optional(),
+  evidence: AgentRunEvidenceSchema.optional(),
   rule_version_id: z.string().optional(),
-  delegated_from_task_id: z.string().optional(),
-  retry_of_task_id: z.string().optional(),
-  rerun_of_task_id: z.string().optional(),
+  delegated_from_run_id: z.string().optional(),
+  retry_of_run_id: z.string().optional(),
+  rerun_of_run_id: z.string().optional(),
 }).loose();
 
 const OptionalStringArraySchema = z.preprocess(
@@ -1450,11 +1450,11 @@ const OptionalStringArraySchema = z.preprocess(
   z.array(z.string()).optional(),
 );
 
-export const AgentTaskSchema = z.object({
+export const AgentRunSchema = z.object({
   id: z.string(),
   agent_id: z.string().default(""),
   runtime_id: z.string().default(""),
-  issue_id: z.string().default(""),
+  task_id: z.string().default(""),
   status: z.string().default("cancelled"),
   priority: z.number().default(0),
   dispatched_at: z.string().nullable().default(null),
@@ -1466,7 +1466,7 @@ export const AgentTaskSchema = z.object({
   created_at: z.string().default(""),
   chat_session_id: z.string().optional(),
   autopilot_run_id: z.string().optional(),
-  parent_task_id: z.string().optional(),
+  parent_run_id: z.string().optional(),
   attempt: z.number().optional(),
   trigger_comment_id: z.string().optional(),
   // Coverage is additive display metadata. A mixed-version or partially
@@ -1479,10 +1479,40 @@ export const AgentTaskSchema = z.object({
   kind: z.string().optional(),
   work_dir: z.string().optional(),
   relative_work_dir: z.string().optional(),
-  attribution: TaskAttributionSchema.optional(),
+  attribution: AgentRunAttributionSchema.optional(),
 }).loose();
 
-export const AgentTaskListSchema = z.array(AgentTaskSchema);
+export const TaskUsageSummarySchema = z.object({
+  total_input_tokens: z.number().default(0),
+  total_output_tokens: z.number().default(0),
+  total_cache_read_tokens: z.number().default(0),
+  total_cache_write_tokens: z.number().default(0),
+  cost_usd_ticks: z.number().optional(),
+  uncosted_input_tokens: z.number().optional(),
+  uncosted_output_tokens: z.number().optional(),
+  uncosted_cache_read_tokens: z.number().optional(),
+  uncosted_cache_write_tokens: z.number().optional(),
+  run_count: z.number().default(0),
+}).loose();
+
+export const AgentRunListSchema = z.array(AgentRunSchema);
+
+export const ActiveAgentRunsSchema = z.object({
+  runs: AgentRunListSchema,
+}).loose();
+
+export const AgentRunMessageListSchema = z.array(z.object({
+  run_id: z.string(),
+  task_id: z.string().default(""),
+  chat_session_id: z.string().optional(),
+  seq: z.number(),
+  type: z.string(),
+  tool: z.string().optional(),
+  content: z.string().optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
+  output: z.string().optional(),
+  created_at: z.string().optional(),
+}).loose());
 
 // Task cancellation (`POST /api/tasks/:id/cancel`) is consumed directly by
 // chat recovery. Its optional message payload must be well-formed before the
@@ -1497,7 +1527,7 @@ const CancelledChatMessageSchema = z.object({
   attachments: z.array(AttachmentSchema).optional(),
 }).loose();
 
-export const CancelTaskResponseSchema = AgentTaskSchema.extend({
+export const CancelRunResponseSchema = AgentRunSchema.extend({
   cancelled_chat_message: CancelledChatMessageSchema.nullish()
     .transform((value) => value ?? undefined),
 }).loose();
@@ -1511,7 +1541,7 @@ export const CancelTaskResponseSchema = AgentTaskSchema.extend({
 const ChatDraftRestoreSchema = z.object({
   id: z.string(),
   chat_session_id: z.string(),
-  task_id: z.string().optional(),
+  run_id: z.string().optional(),
   content: z.string().default(""),
   attachments: z.array(AttachmentSchema).optional(),
   created_at: z.string().optional(),
@@ -1525,11 +1555,11 @@ export const EMPTY_CHAT_DRAFT_RESTORES: ChatDraftRestoresResponse = {
   restores: [],
 };
 
-export const EMPTY_CANCEL_TASK_RESPONSE: CancelTaskResponse = {
+export const EMPTY_CANCEL_RUN_RESPONSE: CancelRunResponse = {
   id: "",
   agent_id: "",
   runtime_id: "",
-  issue_id: "",
+  task_id: "",
   status: "cancelled",
   priority: 0,
   dispatched_at: null,
@@ -1545,7 +1575,7 @@ export const EMPTY_CANCEL_TASK_RESPONSE: CancelTaskResponse = {
 // create-from-template response. The desktop app's create-agent picker
 // reaches these endpoints, and a future server change to the template shape
 // would white-screen older installed builds (#2192 pattern) without these
-// parsers. Lenient by the same rules as IssueSchema above: arrays default to
+// parsers. Lenient by the same rules as TaskSchema above: arrays default to
 // `[]`, optional fields stay optional, `.loose()` lets unknown fields pass
 // through unchanged.
 // ---------------------------------------------------------------------------
@@ -1733,18 +1763,18 @@ export const EMPTY_SQUAD: Squad = {
 // is `string | null` (not the narrow `SquadMemberStatusValue` union) so a
 // new server-side status doesn't fail the parse; the UI defaults to a
 // neutral pill for unknown values.
-const SquadActiveIssueBriefSchema = z.object({
-  issue_id: z.string(),
+const SquadActiveTaskBriefSchema = z.object({
+  task_id: z.string(),
   identifier: z.string(),
   title: z.string(),
-  issue_status: z.string(),
+  task_status: z.string(),
 }).loose();
 
 const SquadMemberStatusSchema = z.object({
   member_type: z.string(),
   member_id: z.string(),
   status: z.string().nullable().optional().transform((v) => v ?? null),
-  active_issues: z.array(SquadActiveIssueBriefSchema).default([]),
+  active_tasks: z.array(SquadActiveTaskBriefSchema).default([]),
   last_active_at: z.string().nullable().optional().transform((v) => v ?? null),
 }).loose();
 
@@ -1755,41 +1785,41 @@ export const SquadMemberStatusListResponseSchema = z.object({
 export const EMPTY_SQUAD_MEMBER_STATUS_LIST = { members: [] };
 
 // ---------------------------------------------------------------------------
-// Structured error body — POST /api/workspaces/:wsId/issues 409 conflict.
+// Structured error body — POST /api/workspaces/:wsId/tasks 409 conflict.
 //
-// When the server detects an active issue with the same title in the same
-// workspace, it returns `{ code: "active_duplicate_issue", error, issue }`
-// instead of letting the create through. The UI uses the embedded issue ref
+// When the server detects an active task with the same title in the same
+// workspace, it returns `{ code: "active_duplicate_task", error, task }`
+// instead of letting the create through. The UI uses the embedded task ref
 // to offer "view existing" rather than dropping the user into a generic
 // "create failed" toast.
 //
 // Strict guarantees:
-//   - `code` is a literal so a future server rename (e.g. `duplicate_issue`)
+//   - `code` is a literal so a future server rename (e.g. `duplicate_task`)
 //     fails the parse and falls back to a normal error toast — drift never
 //     ships as a broken duplicate UI.
-//   - `issue` is required; without an id/identifier/title the "view existing"
+//   - `task` is required; without an id/identifier/title the "view existing"
 //     button has nothing to point at, so we'd rather fall back than guess.
-//   - `issue.status` is intentionally OMITTED: the duplicate toast doesn't
+//   - `task.status` is intentionally OMITTED: the duplicate toast doesn't
 //     render a StatusIcon (which has no fallback for unknown enum values),
 //     so a future server-side rename of `status` must not knock this branch
 //     out. `.loose()` lets the field pass through unchanged for any other
 //     consumer.
 // ---------------------------------------------------------------------------
 
-export const DuplicateIssueErrorBodySchema = z.object({
-  code: z.literal("active_duplicate_issue"),
+export const DuplicateTaskErrorBodySchema = z.object({
+  code: z.literal("active_duplicate_task"),
   error: z.string().optional(),
-  issue: z.object({
+  task: z.object({
     id: z.string(),
     identifier: z.string(),
     title: z.string(),
   }).loose(),
 }).loose();
 
-export interface DuplicateIssueErrorBody {
-  code: "active_duplicate_issue";
+export interface DuplicateTaskErrorBody {
+  code: "active_duplicate_task";
   error?: string;
-  issue: {
+  task: {
     id: string;
     identifier: string;
     title: string;
@@ -1868,7 +1898,7 @@ const AutopilotListItemSchema = z.object({
   assignee_id: z.string(),
   status: z.string(),
   execution_mode: z.string(),
-  issue_title_template: z.string().nullable().optional(),
+  task_title_template: z.string().nullable().optional(),
   created_by_type: z.string(),
   created_by_id: z.string(),
   last_run_at: z.string().nullable().optional(),
@@ -1905,8 +1935,8 @@ export const AutopilotRunSchema = z.object({
   trigger_id: z.string().nullable().default(null),
   source: z.string().default("manual"),
   status: z.string().default("failed"),
-  issue_id: z.string().nullable().default(null),
   task_id: z.string().nullable().default(null),
+  run_id: z.string().nullable().default(null),
   triggered_at: z.string().default(""),
   completed_at: z.string().nullable().default(null),
   failure_reason: z.string().nullable().default(null),
@@ -1922,8 +1952,8 @@ export const FALLBACK_AUTOPILOT_RUN: AutopilotRun = {
   trigger_id: null,
   source: "manual",
   status: "failed",
-  issue_id: null,
   task_id: null,
+  run_id: null,
   triggered_at: "",
   completed_at: null,
   failure_reason: null,
@@ -1971,7 +2001,7 @@ export const EMPTY_WEBHOOK_DELIVERY: WebhookDelivery = {
 // ---------------------------------------------------------------------------
 // User (`/api/me` GET + PATCH). The auth store and Settings → Account both
 // trust this shape — a drift here would knock both surfaces out. Kept
-// lenient by the same rules as IssueSchema: enums stay `z.string()`,
+// lenient by the same rules as TaskSchema: enums stay `z.string()`,
 // nullable fields are unioned with `null`, unknown server fields pass
 // through via `.loose()`. `profile_description` is the field added in
 // SILI-2406; the server emits `""` when unset (NOT NULL DEFAULT ''), so
@@ -2048,7 +2078,7 @@ export const InboxItemListSchema = z.array(
       recipient_id: z.string(),
       type: z.string(),
       severity: z.string(),
-      issue_id: z.string().nullish(),
+      task_id: z.string().nullish(),
       title: z.string(),
       body: z.string().nullish(),
       read: z.boolean(),
@@ -2312,7 +2342,7 @@ export const WorkflowExecutionListSchema = z.array(z.object({
   failure_code: z.string().nullable().catch(null), failure_detail: z.string().nullable().catch(null),
   id: z.string(), stage_id: z.string(), attempt: z.number().int().positive(),
   plan_revision: z.number().int().positive(), executor_id: z.string(),
-  main_issue_id: z.string().nullable().default(null), main_task_id: z.string().nullable().default(null),
+  main_task_id: z.string().nullable().default(null), main_run_id: z.string().nullable().default(null),
   status: z.string().catch("unknown"), result_revision: z.number().int().nonnegative().catch(0),
 }).loose());
 
@@ -2364,6 +2394,6 @@ export const WorkflowAgentReviewStatusSchema = z.object({
 
 export const WorkflowAgentReviewRecoverySchema = z.object({
   recovery_id: z.string().uuid(), instance_id: z.string().uuid(), execution_id: z.string().uuid(),
-  request_id: z.string().uuid(), failed_task_id: z.string().uuid(), task_id: z.string().uuid(),
+  request_id: z.string().uuid(), failed_run_id: z.string().uuid(), run_id: z.string().uuid(),
   allowed_attempts: z.number().int().min(1).max(3), max_attempts: z.number().int().positive(),
 }).loose();

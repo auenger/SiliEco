@@ -8,18 +8,18 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/agentconfig"
 )
 
-func validateAgentMaxConcurrentTasks(value int32) error {
-	if err := agentconfig.ValidateMaxConcurrentTasks(value); err != nil {
-		return fmt.Errorf("max_concurrent_tasks %w", err)
+func validateAgentMaxConcurrentRuns(value int32) error {
+	if err := agentconfig.ValidateMaxConcurrentRuns(value); err != nil {
+		return fmt.Errorf("max_concurrent_runs %w", err)
 	}
 	return nil
 }
 
-func defaultAndValidateAgentMaxConcurrentTasks(rawFields map[string]json.RawMessage, value *int32) error {
-	raw, provided := rawFields["max_concurrent_tasks"]
+func defaultAndValidateAgentMaxConcurrentRuns(rawFields map[string]json.RawMessage, value *int32) error {
+	raw, provided := rawFields["max_concurrent_runs"]
 	if !provided || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		*value = agentconfig.DefaultMaxConcurrentTasks
+		*value = agentconfig.DefaultMaxConcurrentRuns
 		return nil
 	}
-	return validateAgentMaxConcurrentTasks(*value)
+	return validateAgentMaxConcurrentRuns(*value)
 }

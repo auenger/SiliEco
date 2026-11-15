@@ -25,8 +25,8 @@ import { api, MAX_FILE_SIZE, type FileAsset } from "@/data/api";
 export interface FileAttachResult {
   /** Attachment id from the server. Callers MUST carry this to the mutation
    *  that creates / updates the comment, so the backend can re-parent the
-   *  attachment from "issue-scoped" to "comment-scoped" (otherwise the
-   *  attachment lives at the issue level forever and never cascades on
+   *  attachment from "task-scoped" to "comment-scoped" (otherwise the
+   *  attachment lives at the task level forever and never cascades on
    *  comment delete). */
   id: string;
   url: string;
@@ -34,7 +34,7 @@ export interface FileAttachResult {
 }
 
 export interface UploadContext {
-  issueId?: string;
+  taskId?: string;
   commentId?: string;
 }
 

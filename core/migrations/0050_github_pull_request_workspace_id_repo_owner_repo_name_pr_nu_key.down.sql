@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.github_pull_request_workspace_id_repo_owner_repo_name_pr_nu_key;

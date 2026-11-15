@@ -12,10 +12,10 @@ import (
 )
 
 // TaskDiskUsage describes one task workdir's footprint on disk.
-type TaskDiskUsage struct {
+type RunDiskUsage struct {
 	WorkspaceID       string `json:"workspace_id"`
 	WorkspaceShort    string `json:"workspace_short"`
-	TaskShort         string `json:"task_short"`
+	RunShort          string `json:"run_short"`
 	Path              string `json:"path"`
 	Kind              string `json:"kind"`
 	ParentStatus      string `json:"parent_status"`
@@ -32,7 +32,7 @@ type TaskDiskUsage struct {
 type WorkspaceDiskUsage struct {
 	WorkspaceID       string  `json:"workspace_id"`
 	WorkspaceShort    string  `json:"workspace_short"`
-	TaskCount         int     `json:"task_count"`
+	RunCount          int     `json:"run_count"`
 	SizeBytes         int64   `json:"size_bytes"`
 	ArtifactSizeBytes int64   `json:"artifact_size_bytes"`
 	ArtifactRatio     float64 `json:"artifact_ratio"`
@@ -47,9 +47,9 @@ type DiskUsageReport struct {
 	GeneratedAt             time.Time            `json:"generated_at"`
 	ArtifactPatterns        []string             `json:"artifact_patterns"`
 	ManagedArtifactSubpaths []string             `json:"managed_artifact_subpaths"`
-	Tasks                   []TaskDiskUsage      `json:"tasks"`
+	Runs                    []RunDiskUsage       `json:"runs"`
 	Workspaces              []WorkspaceDiskUsage `json:"workspaces"`
-	TotalTaskCount          int                  `json:"total_task_count"`
+	TotalRunCount           int                  `json:"total_run_count"`
 	TotalWorkspaceCount     int                  `json:"total_workspace_count"`
 	TotalSizeBytes          int64                `json:"total_size_bytes"`
 	TotalArtifactSizeBytes  int64                `json:"total_artifact_size_bytes"`
@@ -80,7 +80,7 @@ type AggregateDiskUsageReport struct {
 	ArtifactPatterns        []string        `json:"artifact_patterns"`
 	ManagedArtifactSubpaths []string        `json:"managed_artifact_subpaths"`
 	Roots                   []RootDiskUsage `json:"roots"`
-	TotalTaskCount          int             `json:"total_task_count"`
+	TotalRunCount           int             `json:"total_run_count"`
 	TotalWorkspaceCount     int             `json:"total_workspace_count"`
 	TotalSizeBytes          int64           `json:"total_size_bytes"`
 	TotalArtifactSizeBytes  int64           `json:"total_artifact_size_bytes"`
@@ -104,7 +104,7 @@ func ScanDiskUsageRoots(roots []DiskUsageRoot, artifactPatterns []string) (Aggre
 			return agg, err
 		}
 		agg.Roots = append(agg.Roots, RootDiskUsage{Profile: r.Profile, Report: report})
-		agg.TotalTaskCount += report.TotalTaskCount
+		agg.TotalRunCount += report.TotalRunCount
 		agg.TotalWorkspaceCount += report.TotalWorkspaceCount
 		agg.TotalSizeBytes += report.TotalSizeBytes
 		agg.TotalArtifactSizeBytes += report.TotalArtifactSizeBytes
@@ -159,18 +159,18 @@ func ScanDiskUsage(workspacesRoot string, artifactPatterns []string) (DiskUsageR
 		}
 		wsID := wsEntry.Name()
 		wsDir := filepath.Join(workspacesRoot, wsID)
-		taskEntries, err := os.ReadDir(wsDir)
+		runEntries, err := os.ReadDir(wsDir)
 		if err != nil {
 			continue
 		}
-		for _, t := range taskEntries {
+		for _, t := range runEntries {
 			if !t.IsDir() {
 				continue
 			}
-			taskDir := filepath.Join(wsDir, t.Name())
-			usage := buildTaskUsage(taskDir, wsID, t.Name(), matcher)
+			runDir := filepath.Join(wsDir, t.Name())
+			usage := buildAgentRunUsage(runDir, wsID, t.Name(), matcher)
 
-			report.Tasks = append(report.Tasks, usage)
+			report.Runs = append(report.Runs, usage)
 			report.TotalSizeBytes += usage.SizeBytes
 			report.TotalArtifactSizeBytes += usage.ArtifactSizeBytes
 
@@ -182,7 +182,7 @@ func ScanDiskUsage(workspacesRoot string, artifactPatterns []string) (DiskUsageR
 				}
 				wsAgg[wsID] = ws
 			}
-			ws.TaskCount++
+			ws.RunCount++
 			ws.SizeBytes += usage.SizeBytes
 			ws.ArtifactSizeBytes += usage.ArtifactSizeBytes
 			if usage.AgeSeconds > ws.OldestAgeSeconds {
@@ -191,8 +191,8 @@ func ScanDiskUsage(workspacesRoot string, artifactPatterns []string) (DiskUsageR
 		}
 	}
 
-	sort.Slice(report.Tasks, func(i, j int) bool {
-		return report.Tasks[i].SizeBytes > report.Tasks[j].SizeBytes
+	sort.Slice(report.Runs, func(i, j int) bool {
+		return report.Runs[i].SizeBytes > report.Runs[j].SizeBytes
 	})
 
 	report.Workspaces = make([]WorkspaceDiskUsage, 0, len(wsAgg))
@@ -204,7 +204,7 @@ func ScanDiskUsage(workspacesRoot string, artifactPatterns []string) (DiskUsageR
 		return report.Workspaces[i].SizeBytes > report.Workspaces[j].SizeBytes
 	})
 
-	report.TotalTaskCount = len(report.Tasks)
+	report.TotalRunCount = len(report.Runs)
 	report.TotalWorkspaceCount = len(report.Workspaces)
 	report.TotalArtifactRatio = ratio(report.TotalArtifactSizeBytes, report.TotalSizeBytes)
 
@@ -242,35 +242,35 @@ func sortedKeys(set map[string]struct{}) []string {
 	return out
 }
 
-func buildTaskUsage(taskDir, wsID, taskShort string, matcher artifactMatcher) TaskDiskUsage {
-	usage := TaskDiskUsage{
+func buildAgentRunUsage(runDir, wsID, runShort string, matcher artifactMatcher) RunDiskUsage {
+	usage := RunDiskUsage{
 		WorkspaceID:    wsID,
 		WorkspaceShort: ShortID(wsID),
-		TaskShort:      taskShort,
-		Path:           taskDir,
+		RunShort:       runShort,
+		Path:           runDir,
 		Kind:           DiskUsageKindUnknown,
 	}
 
 	metaPresent := false
-	if meta, err := execenv.ReadGCMeta(taskDir); err == nil && meta != nil {
+	if meta, err := execenv.ReadGCMeta(runDir); err == nil && meta != nil {
 		metaPresent = true
 		usage.Kind = string(meta.Kind)
 		if !meta.CompletedAt.IsZero() {
 			usage.AgeSeconds = int64(time.Since(meta.CompletedAt).Seconds())
-		} else if age, ok := gcMetaFileAge(taskDir); ok {
+		} else if age, ok := gcMetaFileAge(runDir); ok {
 			usage.AgeSeconds = int64(age.Seconds())
 		}
 	}
 	// With no readable metadata, use taskDir mtime just like orphanByMTime.
 	// Legacy readable metadata without completed_at uses its own file mtime,
-	// matching gcDecisionIssueResult's managed-only fallback.
+	// matching gcDecisionTaskResult's managed-only fallback.
 	if usage.AgeSeconds <= 0 && !metaPresent {
-		if info, err := os.Stat(taskDir); err == nil {
+		if info, err := os.Stat(runDir); err == nil {
 			usage.AgeSeconds = int64(time.Since(info.ModTime()).Seconds())
 		}
 	}
 
-	usage.SizeBytes, usage.ArtifactSizeBytes = taskSize(taskDir, matcher)
+	usage.SizeBytes, usage.ArtifactSizeBytes = runSize(runDir, matcher)
 	return usage
 }
 
@@ -280,11 +280,11 @@ func buildTaskUsage(taskDir, wsID, taskShort string, matcher artifactMatcher) Ta
 // artifact subtree — its size is added to both totals and the walk does not
 // descend further so the size matches what os.RemoveAll would reclaim if the
 // GC ran cleanTaskArtifacts on it.
-func taskSize(taskDir string, matcher artifactMatcher) (totalBytes int64, artifactBytes int64) {
-	if taskDir == "" {
+func runSize(runDir string, matcher artifactMatcher) (totalBytes int64, artifactBytes int64) {
+	if runDir == "" {
 		return
 	}
-	absRoot, err := filepath.Abs(taskDir)
+	absRoot, err := filepath.Abs(runDir)
 	if err != nil {
 		return
 	}

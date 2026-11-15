@@ -7,7 +7,7 @@ import (
 
 // Event represents a domain event published by handlers or services.
 type Event struct {
-	Type        string // e.g. "issue:created", "inbox:new"
+	Type        string // e.g. "task:created", "inbox:new"
 	WorkspaceID string // routes to correct Hub room
 	ActorType   string // "member", "agent", or "system"
 	ActorID     string
@@ -17,7 +17,7 @@ type Event struct {
 	// event to a more specific scope than `workspace:{WorkspaceID}`. When set
 	// these tell the listener which Redis stream / Hub room to publish on
 	// without re-deserializing Payload. See SILI-1138 phase 1.
-	TaskID        string
+	RunID        string
 	ChatSessionID string
 }
 

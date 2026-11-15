@@ -276,7 +276,7 @@ func TestDeleteProject_ClearsChatSessionContext(t *testing.T) {
 	}
 }
 
-func TestClaimTaskByRuntime_ChatProjectContext(t *testing.T) {
+func TestClaimRunByRuntime_ChatProjectContext(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -301,7 +301,7 @@ func TestClaimTaskByRuntime_ChatProjectContext(t *testing.T) {
 		t.Fatalf("create project resource: %v", err)
 	}
 
-	agentID := createHandlerTestAgent(t, "ChatProjectClaimAgent", []byte("[]"))
+	agentID := createHandlerTestAgent(t, "ChatProjectClaimAgent", []byte("{}"))
 	runtimeID := handlerTestRuntimeID(t)
 	sessionID := createChatSessionWithProjectForTest(t, agentID, projectID)
 	if _, err := testPool.Exec(ctx, `
@@ -311,62 +311,62 @@ func TestClaimTaskByRuntime_ChatProjectContext(t *testing.T) {
 		t.Fatalf("create chat message: %v", err)
 	}
 
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (
+		INSERT INTO agent_run (
 			agent_id, runtime_id, status, priority, chat_session_id
 		) VALUES ($1, $2, 'queued', 1000, $3)
 		RETURNING id
-	`, agentID, runtimeID, sessionID).Scan(&taskID); err != nil {
-		t.Fatalf("create chat task: %v", err)
+	`, agentID, runtimeID, sessionID).Scan(&runID); err != nil {
+		t.Fatalf("create chat run: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID)
 	})
 
 	w := httptest.NewRecorder()
 	req := newDaemonTokenRequest(
 		http.MethodPost,
-		"/api/daemon/runtimes/"+runtimeID+"/claim",
+		"/api/daemon/runtimes/"+runtimeID+"/runs/claim",
 		nil,
 		testWorkspaceID,
 		"chat-project-context-test",
 	)
 	req = withURLParam(req, "runtimeId", runtimeID)
-	testHandler.ClaimTaskByRuntime(w, req)
+	testHandler.ClaimRunByRuntime(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("ClaimTaskByRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("ClaimRunByRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var response struct {
-		Task *struct {
+		AgentRun *struct {
 			ID                 string                `json:"id"`
 			ProjectID          string                `json:"project_id"`
 			ProjectTitle       string                `json:"project_title"`
 			ProjectDescription string                `json:"project_description"`
 			ProjectResources   []ProjectResourceData `json:"project_resources"`
 			Repos              []RepoData            `json:"repos"`
-		} `json:"task"`
+		} `json:"run"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Task == nil || response.Task.ID != taskID {
-		t.Fatalf("claimed task = %+v, want %s", response.Task, taskID)
+	if response.AgentRun == nil || response.AgentRun.ID != runID {
+		t.Fatalf("claimed task = %+v, want %s", response.AgentRun, runID)
 	}
-	if response.Task.ProjectID != projectID {
-		t.Fatalf("project_id = %q, want %q", response.Task.ProjectID, projectID)
+	if response.AgentRun.ProjectID != projectID {
+		t.Fatalf("project_id = %q, want %q", response.AgentRun.ProjectID, projectID)
 	}
-	if response.Task.ProjectTitle != "Chat claim project" {
-		t.Fatalf("project_title = %q", response.Task.ProjectTitle)
+	if response.AgentRun.ProjectTitle != "Chat claim project" {
+		t.Fatalf("project_title = %q", response.AgentRun.ProjectTitle)
 	}
-	if response.Task.ProjectDescription != "Use the project design system and release branch." {
-		t.Fatalf("project_description = %q", response.Task.ProjectDescription)
+	if response.AgentRun.ProjectDescription != "Use the project design system and release branch." {
+		t.Fatalf("project_description = %q", response.AgentRun.ProjectDescription)
 	}
-	if len(response.Task.ProjectResources) != 1 || response.Task.ProjectResources[0].Label != "Chat repository" {
-		t.Fatalf("project_resources = %+v", response.Task.ProjectResources)
+	if len(response.AgentRun.ProjectResources) != 1 || response.AgentRun.ProjectResources[0].Label != "Chat repository" {
+		t.Fatalf("project_resources = %+v", response.AgentRun.ProjectResources)
 	}
-	if len(response.Task.Repos) != 1 || response.Task.Repos[0].URL != projectRepoURL || response.Task.Repos[0].Ref != projectRepoRef {
-		t.Fatalf("repos = %+v, want project repo only", response.Task.Repos)
+	if len(response.AgentRun.Repos) != 1 || response.AgentRun.Repos[0].URL != projectRepoURL || response.AgentRun.Repos[0].Ref != projectRepoRef {
+		t.Fatalf("repos = %+v, want project repo only", response.AgentRun.Repos)
 	}
 }

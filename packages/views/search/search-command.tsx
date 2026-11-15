@@ -23,18 +23,18 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type {
   MemberWithUser,
-  SearchIssueResult,
+  SearchTaskResult,
   SearchProjectResult,
 } from "@silieco/core/types";
 import { api } from "@silieco/core/api";
 import {
-  openCreateIssueWithPreference,
-  selectRecentIssues,
+  openCreateTaskWithPreference,
+  selectRecentTasks,
   useCommentCollapseStore,
-  useRecentIssuesStore,
+  useRecentTasksStore,
   useResolvedExpandStore,
-} from "@silieco/core/issues/stores";
-import { issueDetailOptions, issueTimelineOptions } from "@silieco/core/issues/queries";
+} from "@silieco/core/tasks/stores";
+import { taskDetailOptions, taskTimelineOptions } from "@silieco/core/tasks/queries";
 import { useWorkspaceId } from "@silieco/core";
 import { useWorkspacePaths } from "@silieco/core/paths";
 import type { WorkspacePaths } from "@silieco/core/paths";
@@ -42,8 +42,8 @@ import { useModalStore } from "@silieco/core/modals";
 import { createShortcutChord } from "@silieco/core/shortcuts";
 import { memberListOptions } from "@silieco/core/workspace/queries";
 import { resolvePublicFileUrl } from "@silieco/core/workspace/avatar-url";
-import { StatusIcon } from "../issues/components";
-import { resolvedThreadRootIds, rootCommentIds } from "../issues/components/thread-utils";
+import { StatusIcon } from "../tasks/components";
+import { resolvedThreadRootIds, rootCommentIds } from "../tasks/components/thread-utils";
 import { ProjectIcon } from "../projects/components/project-icon";
 import { routeIconForPath } from "../layout/route-icon-components";
 import { PROJECT_STATUS_CONFIG } from "@silieco/core/projects/config";
@@ -71,8 +71,8 @@ import { useSearchStore } from "./search-store";
 // Only parameterless paths are valid nav destinations.
 type NavKey =
   | "inbox"
-  | "myIssues"
-  | "issues"
+  | "myTasks"
+  | "tasks"
   | "projects"
   | "agents"
   | "runtimes"
@@ -108,7 +108,7 @@ function matchesMember(member: MemberWithUser, query: string) {
   );
 }
 
-function IssueAssigneeAvatar({
+function TaskAssigneeAvatar({
   assigneeType,
   assigneeId,
 }: {
@@ -137,7 +137,7 @@ interface CommandItem {
 }
 
 interface SearchResults {
-  issues: SearchIssueResult[];
+  tasks: SearchTaskResult[];
   projects: SearchProjectResult[];
 }
 
@@ -145,8 +145,8 @@ export function SearchCommand() {
   const { t } = useT("search");
   const navPages: NavPage[] = [
     { key: "inbox", label: t(($) => $.pages.inbox), keywords: ["inbox", "notifications", "收件箱"] },
-    { key: "myIssues", label: t(($) => $.pages.my_issues), keywords: ["my", "issues", "assigned", "我的"] },
-    { key: "issues", label: t(($) => $.pages.issues), keywords: ["issues", "tasks", "bugs"] },
+    { key: "myTasks", label: t(($) => $.pages.my_tasks), keywords: ["my", "tasks", "assigned", "我的"] },
+    { key: "tasks", label: t(($) => $.pages.tasks), keywords: ["tasks", "tasks", "bugs"] },
     { key: "projects", label: t(($) => $.pages.projects), keywords: ["projects", "kanban", "项目"] },
     { key: "agents", label: t(($) => $.pages.agents), keywords: ["agents", "bots", "ai"] },
     { key: "runtimes", label: t(($) => $.pages.runtimes), keywords: ["runtimes", "environments"] },
@@ -157,26 +157,26 @@ export function SearchCommand() {
   const open = useSearchStore((s) => s.open);
   const setOpen = useSearchStore((s) => s.setOpen);
   const wsId = useWorkspaceId();
-  const recentItems = useRecentIssuesStore(selectRecentIssues(wsId));
+  const recentItems = useRecentTasksStore(selectRecentTasks(wsId));
   const p: WorkspacePaths = useWorkspacePaths();
   const { theme, setTheme } = useTheme();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
 
-  // Resolve each recent issue via its cached detail entry. Recent items are
+  // Resolve each recent task via its cached detail entry. Recent items are
   // typically already in the detail cache because the user has opened them;
   // if not, this triggers a lookup per id so Recent never depends on whether
-  // the issue falls inside the paginated list cache.
+  // the task falls inside the paginated list cache.
   const recentDetailQueries = useQueries({
-    queries: recentItems.map((item) => issueDetailOptions(wsId, item.id)),
+    queries: recentItems.map((item) => taskDetailOptions(wsId, item.id)),
   });
-  const recentIssues = useMemo(
+  const recentTasks = useMemo(
     () =>
       recentDetailQueries.flatMap((q) => (q.data ? [q.data] : [])),
     [recentDetailQueries],
   );
 
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResults>({ issues: [], projects: [] });
+  const [results, setResults] = useState<SearchResults>({ tasks: [], projects: [] });
   const [isLoading, setIsLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -191,16 +191,16 @@ export function SearchCommand() {
     );
   }, [query]);
 
-  // Detect if current route is an issue detail page — /{slug}/issues/{id}.
-  // Falls back to null on any other route; used to gate issue-specific commands.
-  const currentIssueId = useMemo(() => {
-    const match = pathname.match(/\/(?:tasks|issues)\/([^/]+)$/);
+  // Detect if current route is an task detail page — /{slug}/tasks/{id}.
+  // Falls back to null on any other route; used to gate task-specific commands.
+  const currentTaskId = useMemo(() => {
+    const match = pathname.match(/\/(?:tasks|tasks)\/([^/]+)$/);
     const raw = match?.[1];
     return raw ? decodeURIComponent(raw) : null;
   }, [pathname]);
-  const { data: currentIssue = null } = useQuery({
-    ...issueDetailOptions(wsId, currentIssueId ?? ""),
-    enabled: !!currentIssueId,
+  const { data: currentTask = null } = useQuery({
+    ...taskDetailOptions(wsId, currentTaskId ?? ""),
+    enabled: !!currentTaskId,
   });
   const queryClient = useQueryClient();
 
@@ -215,12 +215,12 @@ export function SearchCommand() {
 
     const items: CommandItem[] = [
       {
-        key: "new-issue",
-        label: t(($) => $.commands.new_issue),
+        key: "new-task",
+        label: t(($) => $.commands.new_task),
         icon: Plus,
-        keywords: ["new", "issue", "create", "add"],
+        keywords: ["new", "task", "create", "add"],
         onSelect: () => {
-          openCreateIssueWithPreference();
+          openCreateTaskWithPreference();
           setOpen(false);
         },
       },
@@ -236,12 +236,12 @@ export function SearchCommand() {
       },
     ];
 
-    if (currentIssueId && currentIssue) {
-      const identifier = currentIssue.identifier;
+    if (currentTaskId && currentTask) {
+      const identifier = currentTask.identifier;
       items.push(
         {
-          key: "copy-issue-link",
-          label: t(($) => $.commands.copy_issue_link),
+          key: "copy-task-link",
+          label: t(($) => $.commands.copy_task_link),
           icon: Link2,
           keywords: ["copy", "link", "share", "url", identifier.toLowerCase()],
           onSelect: () => {
@@ -252,7 +252,7 @@ export function SearchCommand() {
           },
         },
         {
-          key: "copy-issue-identifier",
+          key: "copy-task-identifier",
           label: t(($) => $.commands.copy_identifier, { identifier }),
           icon: Copy,
           keywords: ["copy", "id", "identifier", identifier.toLowerCase()],
@@ -269,17 +269,17 @@ export function SearchCommand() {
           icon: ListChevronsDownUp,
           keywords: ["fold", "collapse", "comments", "收起", "折叠", "评论"],
           onSelect: () => {
-            // The timeline is already cached whenever the issue page has
+            // The timeline is already cached whenever the task page has
             // rendered; ensureQueryData only fetches on a cold cache. If it
             // still can't load, no comments are on screen — dropping the
             // action matches the visible state.
             void queryClient
-              .ensureQueryData(issueTimelineOptions(currentIssueId))
+              .ensureQueryData(taskTimelineOptions(currentTaskId))
               .then((entries) => {
                 useCommentCollapseStore
                   .getState()
-                  .collapseAll(currentIssueId, rootCommentIds(entries));
-                useResolvedExpandStore.getState().collapseAll(currentIssueId);
+                  .collapseAll(currentTaskId, rootCommentIds(entries));
+                useResolvedExpandStore.getState().collapseAll(currentTaskId);
               })
               .catch(() => {});
             setOpen(false);
@@ -292,12 +292,12 @@ export function SearchCommand() {
           keywords: ["unfold", "expand", "comments", "展开", "评论"],
           onSelect: () => {
             void queryClient
-              .ensureQueryData(issueTimelineOptions(currentIssueId))
+              .ensureQueryData(taskTimelineOptions(currentTaskId))
               .then((entries) => {
-                useCommentCollapseStore.getState().expandAll(currentIssueId);
+                useCommentCollapseStore.getState().expandAll(currentTaskId);
                 useResolvedExpandStore
                   .getState()
-                  .expandAll(currentIssueId, resolvedThreadRootIds(entries));
+                  .expandAll(currentTaskId, resolvedThreadRootIds(entries));
               })
               .catch(() => {});
             setOpen(false);
@@ -343,14 +343,14 @@ export function SearchCommand() {
     );
 
     return items;
-  }, [currentIssue, currentIssueId, getShareableUrl, pathname, queryClient, setOpen, setTheme, theme, t]);
+  }, [currentTask, currentTaskId, getShareableUrl, pathname, queryClient, setOpen, setTheme, theme, t]);
 
   const filteredCommands = useMemo(() => {
     const q = query.trim().toLowerCase();
     // No query: only surface the primary creation action. Other commands
     // (theme switches, copy actions, New Project) are revealed as the user
     // types, leaving the empty-state space to Recent.
-    if (!q) return commands.filter((c) => c.key === "new-issue");
+    if (!q) return commands.filter((c) => c.key === "new-task");
     return commands.filter(
       (c) =>
         c.label.toLowerCase().includes(q) ||
@@ -373,7 +373,7 @@ export function SearchCommand() {
   }, [members, query]);
 
   const hasResults =
-    results.issues.length > 0 ||
+    results.tasks.length > 0 ||
     results.projects.length > 0 ||
     filteredMembers.length > 0;
 
@@ -403,7 +403,7 @@ export function SearchCommand() {
   useEffect(() => {
     if (!open) {
       setQuery("");
-      setResults({ issues: [], projects: [] });
+      setResults({ tasks: [], projects: [] });
       setIsLoading(false);
     }
   }, [open]);
@@ -413,7 +413,7 @@ export function SearchCommand() {
     if (abortRef.current) abortRef.current.abort();
 
     if (!q.trim()) {
-      setResults({ issues: [], projects: [] });
+      setResults({ tasks: [], projects: [] });
       setIsLoading(false);
       return;
     }
@@ -423,8 +423,8 @@ export function SearchCommand() {
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const [issueRes, projectRes] = await Promise.all([
-          api.searchIssues({
+        const [taskRes, projectRes] = await Promise.all([
+          api.searchTasks({
             q: q.trim(),
             limit: 20,
             include_closed: true,
@@ -439,7 +439,7 @@ export function SearchCommand() {
         ]);
         if (!controller.signal.aborted) {
           setResults({
-            issues: issueRes.issues,
+            tasks: taskRes.tasks,
             projects: projectRes.projects,
           });
           setIsLoading(false);
@@ -467,7 +467,7 @@ export function SearchCommand() {
         // value is "project:<id>" — slice off the 8-char prefix to extract the id.
         push(p.projectDetail(value.slice(8)));
       } else {
-        push(p.issueDetail(value));
+        push(p.taskDetail(value));
       }
     },
     [push, setOpen, p],
@@ -555,7 +555,7 @@ export function SearchCommand() {
               </CommandPrimitive.Group>
             )}
 
-            {/* Commands section — New Issue / New Project / Copy link / Theme, only shown when query matches */}
+            {/* Commands section — New Task / New Project / Copy link / Theme, only shown when query matches */}
             {filteredCommands.length > 0 && (
               <CommandPrimitive.Group className="p-2">
                 <div className="px-3 py-1.5 text-caption font-medium text-muted-foreground">
@@ -664,51 +664,51 @@ export function SearchCommand() {
               </CommandPrimitive.Group>
             )}
 
-            {!isLoading && results.issues.length > 0 && (
+            {!isLoading && results.tasks.length > 0 && (
               <CommandPrimitive.Group
-                heading={t(($) => $.groups.issues)}
+                heading={t(($) => $.groups.tasks)}
                 className="p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
               >
-                {results.issues.map((issue) => (
+                {results.tasks.map((task) => (
                   <CommandPrimitive.Item
-                    key={issue.id}
-                    value={issue.id}
+                    key={task.id}
+                    value={task.id}
                     onSelect={handleSelect}
                     className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
                   >
                     <div className="flex items-center gap-2.5">
                       <StatusIcon
-                        status={issue.status}
+                        status={task.status}
                         className="size-4 shrink-0"
                       />
                       <span className="text-caption text-muted-foreground shrink-0">
-                        {issue.identifier}
+                        {task.identifier}
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        <HighlightText text={issue.title} query={query} />
+                        <HighlightText text={task.title} query={query} />
                       </span>
-                      <IssueAssigneeAvatar
-                        assigneeType={issue.assignee_type}
-                        assigneeId={issue.assignee_id}
+                      <TaskAssigneeAvatar
+                        assigneeType={task.assignee_type}
+                        assigneeId={task.assignee_id}
                       />
                     </div>
-                    {issue.matched_description_snippet && (
+                    {task.matched_description_snippet && (
                       <div className="flex items-start gap-2 pl-[26px]">
                         <FileText className="size-3 shrink-0 text-muted-foreground mt-0.5" />
                         <span className="text-caption text-muted-foreground truncate">
                           <HighlightText
-                            text={issue.matched_description_snippet}
+                            text={task.matched_description_snippet}
                             query={query}
                           />
                         </span>
                       </div>
                     )}
-                    {issue.matched_comment_snippet && (
+                    {task.matched_comment_snippet && (
                       <div className="flex items-start gap-2 pl-[26px]">
                         <MessageSquare className="size-3 shrink-0 text-muted-foreground mt-0.5" />
                         <span className="text-caption text-muted-foreground truncate">
                           <HighlightText
-                            text={issue.matched_comment_snippet}
+                            text={task.matched_comment_snippet}
                             query={query}
                           />
                         </span>
@@ -719,13 +719,13 @@ export function SearchCommand() {
               </CommandPrimitive.Group>
             )}
 
-            {!isLoading && !query.trim() && recentIssues.length > 0 && (
+            {!isLoading && !query.trim() && recentTasks.length > 0 && (
               <CommandPrimitive.Group className="p-2">
                 <div className="flex items-center gap-2 px-3 py-1.5 text-caption font-medium text-muted-foreground">
                   <Clock className="size-3" />
                   <span>{t(($) => $.groups.recent)}</span>
                 </div>
-                {recentIssues.map((item) => (
+                {recentTasks.map((item) => (
                   <CommandPrimitive.Item
                     key={item.id}
                     value={item.id}
@@ -740,7 +740,7 @@ export function SearchCommand() {
                       {item.identifier}
                     </span>
                     <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                    <IssueAssigneeAvatar
+                    <TaskAssigneeAvatar
                       assigneeType={item.assignee_type}
                       assigneeId={item.assignee_id}
                     />
@@ -749,7 +749,7 @@ export function SearchCommand() {
               </CommandPrimitive.Group>
             )}
 
-            {!isLoading && !query.trim() && recentIssues.length === 0 && (
+            {!isLoading && !query.trim() && recentTasks.length === 0 && (
               <div className="px-5 py-4 text-center text-caption text-muted-foreground">
                 {t(($) => $.empty.type_to_search)}
               </div>

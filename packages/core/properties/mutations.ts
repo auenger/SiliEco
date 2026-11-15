@@ -2,21 +2,21 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { propertyKeys } from "./queries";
 import { useWorkspaceId } from "../hooks";
-import { issueKeys } from "../issues/queries";
+import { taskKeys } from "../tasks/queries";
 import {
   invalidatePropertyWindowQueries,
-  onIssuePropertiesChanged,
-  patchIssueProperties,
-} from "../issues/ws-updaters";
-import { findIssueLocation } from "../issues/cache-helpers";
-import type { IssueFlatCache } from "../issues/cache-coordinator";
+  onTaskPropertiesChanged,
+  patchTaskProperties,
+} from "../tasks/ws-updaters";
+import { findTaskLocation } from "../tasks/cache-helpers";
+import type { TaskFlatCache } from "../tasks/cache-coordinator";
 import type {
   CreatePropertyRequest,
   UpdatePropertyRequest,
-  Issue,
-  IssuePropertyValue,
-  IssuePropertyValues,
-  ListIssuesCache,
+  Task,
+  TaskPropertyValue,
+  TaskPropertyValues,
+  ListTasksCache,
 } from "../types";
 
 export function useCreateProperty() {
@@ -43,131 +43,131 @@ export function useUpdateProperty() {
       api.updateProperty(id, data),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: propertyKeys.all(wsId) });
-      // Issue caches embed the value bag; a definition change (rename,
+      // Task caches embed the value bag; a definition change (rename,
       // option edits) changes how values render, and rows referencing an
       // archived definition must drop out of "+ Add property" menus.
-      qc.invalidateQueries({ queryKey: issueKeys.all(wsId) });
+      qc.invalidateQueries({ queryKey: taskKeys.all(wsId) });
     },
   });
 }
 
 /**
- * Read the issue's current property bag from whichever cache holds it: the
+ * Read the task's current property bag from whichever cache holds it: the
  * detail cache first, then any list cache bucket. Board/list surfaces never
  * populate the detail cache, so stopping there would make the optimistic
  * merge below overwrite the whole bag with a single key.
  */
-function readIssueProperties(qc: ReturnType<typeof useQueryClient>, wsId: string, issueId: string): IssuePropertyValues | undefined {
-  const detail = qc.getQueryData<Issue>(issueKeys.detail(wsId, issueId));
+function readTaskProperties(qc: ReturnType<typeof useQueryClient>, wsId: string, taskId: string): TaskPropertyValues | undefined {
+  const detail = qc.getQueryData<Task>(taskKeys.detail(wsId, taskId));
   if (detail) return detail.properties ?? {};
-  for (const [, data] of qc.getQueriesData<ListIssuesCache>({ queryKey: issueKeys.list(wsId) })) {
+  for (const [, data] of qc.getQueriesData<ListTasksCache>({ queryKey: taskKeys.list(wsId) })) {
     if (!data) continue;
-    const location = findIssueLocation(data, issueId);
-    if (location) return location.issue.properties ?? {};
+    const location = findTaskLocation(data, taskId);
+    if (location) return location.task.properties ?? {};
   }
-  for (const [, data] of qc.getQueriesData<IssueFlatCache>({
-    queryKey: issueKeys.flatAll(wsId),
+  for (const [, data] of qc.getQueriesData<TaskFlatCache>({
+    queryKey: taskKeys.flatAll(wsId),
   })) {
     for (const page of data?.pages ?? []) {
-      const issue = page.issues.find((candidate) => candidate.id === issueId);
-      if (issue) return issue.properties ?? {};
+      const task = page.tasks.find((candidate) => candidate.id === taskId);
+      if (task) return task.properties ?? {};
     }
   }
-  for (const [, data] of qc.getQueriesData<Issue[]>({
-    queryKey: issueKeys.childrenAll(wsId),
+  for (const [, data] of qc.getQueriesData<Task[]>({
+    queryKey: taskKeys.childrenAll(wsId),
   })) {
-    const issue = data?.find((candidate) => candidate.id === issueId);
-    if (issue) return issue.properties ?? {};
+    const task = data?.find((candidate) => candidate.id === taskId);
+    if (task) return task.properties ?? {};
   }
   return undefined;
 }
 
-async function cancelIssuePropertyMutationQueries(
+async function cancelTaskPropertyMutationQueries(
   qc: ReturnType<typeof useQueryClient>,
   wsId: string,
-  issueId: string,
+  taskId: string,
 ) {
   await Promise.all([
-    qc.cancelQueries({ queryKey: issueKeys.detail(wsId, issueId) }),
-    qc.cancelQueries({ queryKey: issueKeys.list(wsId) }),
-    qc.cancelQueries({ queryKey: issueKeys.flatAll(wsId) }),
-    qc.cancelQueries({ queryKey: issueKeys.childrenAll(wsId) }),
-    qc.cancelQueries({ queryKey: issueKeys.childrenByParentsAll(wsId) }),
+    qc.cancelQueries({ queryKey: taskKeys.detail(wsId, taskId) }),
+    qc.cancelQueries({ queryKey: taskKeys.list(wsId) }),
+    qc.cancelQueries({ queryKey: taskKeys.flatAll(wsId) }),
+    qc.cancelQueries({ queryKey: taskKeys.childrenAll(wsId) }),
+    qc.cancelQueries({ queryKey: taskKeys.childrenByParentsAll(wsId) }),
   ]);
 }
 
 /**
- * Optimistic single-property write on an issue.
+ * Optimistic single-property write on an task.
  *
  * Concurrency contract (SILI-4463 review round 1/2):
- *   - Mutations for the SAME issue serialize via TanStack's mutation
+ *   - Mutations for the SAME task serialize via TanStack's mutation
  *     `scope`, so full-bag responses cannot land out of order and rapid
  *     multi-select toggles cannot interleave.
  *   - The optimistic patch merges into the bag read from ANY cache
  *     (detail or list) — never replaces it — so board-only surfaces keep
- *     the issue's other property values.
+ *     the task's other property values.
  *   - Failure restores the snapshot; if no snapshot existed, it falls back
  *     to invalidation.
- *   - The LAST settled mutation for the issue does an authoritative
+ *   - The LAST settled mutation for the task does an authoritative
  *     invalidate of the detail cache plus the definition catalog (usage
  *     counts), reconciling any raced WS snapshots under staleTime:Infinity.
  */
-export function useSetIssueProperty() {
+export function useSetTaskProperty() {
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
   return useMutation({
-    mutationFn: ({ issueId, propertyId, value }: { issueId: string; propertyId: string; value: IssuePropertyValue }) =>
-      api.setIssueProperty(issueId, propertyId, value),
-    scope: { id: `issue-properties:${wsId}` },
-    mutationKey: ["issue-properties", wsId],
-    onMutate: async ({ issueId, propertyId, value }) => {
+    mutationFn: ({ taskId, propertyId, value }: { taskId: string; propertyId: string; value: TaskPropertyValue }) =>
+      api.setTaskProperty(taskId, propertyId, value),
+    scope: { id: `task-properties:${wsId}` },
+    mutationKey: ["task-properties", wsId],
+    onMutate: async ({ taskId, propertyId, value }) => {
       // A response snapshotted before this write must not land after the
-      // optimistic patch and revert any denormalized issue projection.
-      await cancelIssuePropertyMutationQueries(qc, wsId, issueId);
-      const prev = readIssueProperties(qc, wsId, issueId);
-      patchIssueProperties(qc, wsId, issueId, { ...(prev ?? {}), [propertyId]: value });
-      return { prevValue: prev?.[propertyId], hadBag: prev !== undefined, issueId, propertyId };
+      // optimistic patch and revert any denormalized task projection.
+      await cancelTaskPropertyMutationQueries(qc, wsId, taskId);
+      const prev = readTaskProperties(qc, wsId, taskId);
+      patchTaskProperties(qc, wsId, taskId, { ...(prev ?? {}), [propertyId]: value });
+      return { prevValue: prev?.[propertyId], hadBag: prev !== undefined, taskId, propertyId };
     },
     onError: (_err, _vars, ctx) => {
       if (!ctx) return;
       rollbackSingleKey(qc, wsId, ctx);
     },
-    onSuccess: (data, { issueId }) => {
-      onIssuePropertiesChanged(qc, wsId, issueId, data.properties ?? {});
+    onSuccess: (data, { taskId }) => {
+      onTaskPropertiesChanged(qc, wsId, taskId, data.properties ?? {});
     },
-    onSettled: (_data, _err, { issueId }) => {
-      settleIssuePropertyCaches(qc, wsId, issueId);
+    onSettled: (_data, _err, { taskId }) => {
+      settleTaskPropertyCaches(qc, wsId, taskId);
     },
   });
 }
 
-export function useUnsetIssueProperty() {
+export function useUnsetTaskProperty() {
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
   return useMutation({
-    mutationFn: ({ issueId, propertyId }: { issueId: string; propertyId: string }) =>
-      api.unsetIssueProperty(issueId, propertyId),
-    scope: { id: `issue-properties:${wsId}` },
-    mutationKey: ["issue-properties", wsId],
-    onMutate: async ({ issueId, propertyId }) => {
-      await cancelIssuePropertyMutationQueries(qc, wsId, issueId);
-      const prev = readIssueProperties(qc, wsId, issueId);
+    mutationFn: ({ taskId, propertyId }: { taskId: string; propertyId: string }) =>
+      api.unsetTaskProperty(taskId, propertyId),
+    scope: { id: `task-properties:${wsId}` },
+    mutationKey: ["task-properties", wsId],
+    onMutate: async ({ taskId, propertyId }) => {
+      await cancelTaskPropertyMutationQueries(qc, wsId, taskId);
+      const prev = readTaskProperties(qc, wsId, taskId);
       if (prev) {
         const next = { ...prev };
         delete next[propertyId];
-        patchIssueProperties(qc, wsId, issueId, next);
+        patchTaskProperties(qc, wsId, taskId, next);
       }
-      return { prevValue: prev?.[propertyId], hadBag: prev !== undefined, issueId, propertyId };
+      return { prevValue: prev?.[propertyId], hadBag: prev !== undefined, taskId, propertyId };
     },
     onError: (_err, _vars, ctx) => {
       if (!ctx) return;
       rollbackSingleKey(qc, wsId, ctx);
     },
-    onSuccess: (data, { issueId }) => {
-      onIssuePropertiesChanged(qc, wsId, issueId, data.properties ?? {});
+    onSuccess: (data, { taskId }) => {
+      onTaskPropertiesChanged(qc, wsId, taskId, data.properties ?? {});
     },
-    onSettled: (_data, _err, { issueId }) => {
-      settleIssuePropertyCaches(qc, wsId, issueId);
+    onSettled: (_data, _err, { taskId }) => {
+      settleTaskPropertyCaches(qc, wsId, taskId);
     },
   });
 }
@@ -181,26 +181,26 @@ export function useUnsetIssueProperty() {
 function rollbackSingleKey(
   qc: ReturnType<typeof useQueryClient>,
   wsId: string,
-  ctx: { prevValue: IssuePropertyValue | undefined; hadBag: boolean; issueId: string; propertyId: string },
+  ctx: { prevValue: TaskPropertyValue | undefined; hadBag: boolean; taskId: string; propertyId: string },
 ) {
   if (!ctx.hadBag) {
-    qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, ctx.issueId) });
+    qc.invalidateQueries({ queryKey: taskKeys.detail(wsId, ctx.taskId) });
     return;
   }
-  const current = readIssueProperties(qc, wsId, ctx.issueId) ?? {};
+  const current = readTaskProperties(qc, wsId, ctx.taskId) ?? {};
   const next = { ...current };
   if (ctx.prevValue === undefined) delete next[ctx.propertyId];
   else next[ctx.propertyId] = ctx.prevValue;
-  patchIssueProperties(qc, wsId, ctx.issueId, next);
+  patchTaskProperties(qc, wsId, ctx.taskId, next);
 }
 
 /** Authoritative reconcile once the LAST in-flight property write settles. */
-function settleIssuePropertyCaches(qc: ReturnType<typeof useQueryClient>, wsId: string, issueId: string) {
-  if (qc.isMutating({ mutationKey: ["issue-properties", wsId] }) > 1) return;
-  qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, issueId) });
+function settleTaskPropertyCaches(qc: ReturnType<typeof useQueryClient>, wsId: string, taskId: string) {
+  if (qc.isMutating({ mutationKey: ["task-properties", wsId] }) > 1) return;
+  qc.invalidateQueries({ queryKey: taskKeys.detail(wsId, taskId) });
   qc.invalidateQueries({ queryKey: propertyKeys.all(wsId) });
   // Server-filtered/-sorted windows must refetch: the write may have moved
-  // this issue across pages or reordered it (onIssuePropertiesChanged
+  // this task across pages or reordered it (onTaskPropertiesChanged
   // already fires this for the WS path; local mutations need it on settle
   // because the self-emitted WS event may be suppressed or raced).
   invalidatePropertyWindowQueries(qc, wsId);

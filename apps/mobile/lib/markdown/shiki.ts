@@ -17,7 +17,7 @@
  *
  * Boot path:
  *   `prewarmHighlighter()` from app/_layout.tsx fires the init promise
- *   during app start, so by the time the user opens an issue with a code
+ *   during app start, so by the time the user opens a task with a code
  *   block, the highlighter is usually ready and there's no first-paint
  *   "plain → highlighted" flash.
  */

@@ -8,9 +8,9 @@ import (
 func TestMetrics_RecordEvent(t *testing.T) {
 	m := &Metrics{}
 
-	m.RecordEvent("issue:updated")
-	m.RecordEvent("issue:updated")
-	m.RecordEvent("task:message")
+	m.RecordEvent("task:updated")
+	m.RecordEvent("task:updated")
+	m.RecordEvent("run:message")
 	m.RecordEvent("") // ignored
 
 	snap := m.Snapshot()
@@ -18,11 +18,11 @@ func TestMetrics_RecordEvent(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected events_sent_by_type to be map[string]int64, got %T", snap["events_sent_by_type"])
 	}
-	if events["issue:updated"] != 2 {
-		t.Errorf("issue:updated count = %d, want 2", events["issue:updated"])
+	if events["task:updated"] != 2 {
+		t.Errorf("task:updated count = %d, want 2", events["task:updated"])
 	}
-	if events["task:message"] != 1 {
-		t.Errorf("task:message count = %d, want 1", events["task:message"])
+	if events["run:message"] != 1 {
+		t.Errorf("run:message count = %d, want 1", events["run:message"])
 	}
 	if _, ok := events[""]; ok {
 		t.Errorf("empty event type should not be recorded")

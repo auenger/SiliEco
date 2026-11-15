@@ -96,7 +96,7 @@ export function DeleteRuntimeDialog({
 
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  // Server-issued message shown above the agent table on plan-changed —
+  // Server-taskd message shown above the agent table on plan-changed —
   // tells the user "the list refreshed because something moved" without
   // re-stating it in the title. Stored as a localized string (already
   // translated) so the consumer can just render it.

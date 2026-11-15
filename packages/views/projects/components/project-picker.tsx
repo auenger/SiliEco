@@ -5,7 +5,7 @@ import { FolderKanban, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { projectListOptions } from "@silieco/core/projects/queries";
 import { useWorkspaceId } from "@silieco/core/hooks";
-import type { UpdateIssueRequest } from "@silieco/core/types";
+import type { UpdateTaskRequest } from "@silieco/core/types";
 import { cn } from "@silieco/ui/lib/utils";
 import { ProjectIcon } from "./project-icon";
 import {
@@ -13,7 +13,7 @@ import {
   PickerItem,
   PickerEmpty,
   PICKER_TRIGGER_CLASS,
-} from "../../issues/components/pickers/property-picker";
+} from "../../tasks/components/pickers/property-picker";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import { useT } from "../../i18n";
 
@@ -28,7 +28,7 @@ export function ProjectPicker({
   disabled = false,
 }: {
   projectId: string | null;
-  onUpdate: (updates: Partial<UpdateIssueRequest>) => void;
+  onUpdate: (updates: Partial<UpdateTaskRequest>) => void;
   triggerRender?: React.ReactElement;
   align?: "start" | "center" | "end";
   /** Open the dropdown on first mount. Used by progressive-disclosure
@@ -52,7 +52,7 @@ export function ProjectPicker({
   // Normalize to an always-boolean controlled `open`, matching the other
   // pickers (status/priority/assignee/labels). Base UI latches a controlled
   // `open={true}` — a later `undefined` does NOT close it — so callers wiring
-  // `open={cond ? true : undefined}` (create-issue dialog) would otherwise
+  // `open={cond ? true : undefined}` (create-task dialog) would otherwise
   // leave the popup stuck open after selecting a project.
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   // A disabled picker can never be open, and no interaction may reopen it.

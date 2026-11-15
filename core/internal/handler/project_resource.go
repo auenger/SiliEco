@@ -256,7 +256,7 @@ func (h *Handler) loadProjectForResource(w http.ResponseWriter, r *http.Request,
 // tokens are always read-only here so an executing agent cannot redirect future
 // runs to a different repository or local directory.
 func (h *Handler) requireProjectResourceManager(w http.ResponseWriter, r *http.Request, project db.Project) bool {
-	if r.Header.Get("X-Actor-Source") == "task_token" {
+	if r.Header.Get("X-Actor-Source") == "agent_run_token" {
 		writeError(w, http.StatusForbidden, "agent tasks cannot manage project resources")
 		return false
 	}
@@ -276,7 +276,7 @@ func (h *Handler) requireProjectResourceManager(w http.ResponseWriter, r *http.R
 }
 
 func (h *Handler) requireLocalDirectoryManager(w http.ResponseWriter, r *http.Request, project db.Project, ref json.RawMessage) bool {
-	if r.Header.Get("X-Actor-Source") == "task_token" {
+	if r.Header.Get("X-Actor-Source") == "agent_run_token" {
 		writeError(w, http.StatusForbidden, "agent tasks cannot manage project resources")
 		return false
 	}

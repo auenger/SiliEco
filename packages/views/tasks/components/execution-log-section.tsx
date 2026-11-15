@@ -1,0 +1,554 @@
+"use client";
+
+import { agentRunsKeys } from "@silieco/core/agent-runs/queries";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Ban, CheckCircle2, ChevronRight, Loader2, RotateCcw, Square, XCircle } from "lucide-react";
+import { toast } from "sonner";
+import { api, dispatchReasonCode } from "@silieco/core/api";
+import { useWorkspaceId } from "@silieco/core/hooks";
+import type { AgentRun } from "@silieco/core/types";
+import { useTimeAgo } from "../../i18n";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@silieco/ui/components/ui/tooltip";
+import { ActorAvatar } from "../../common/actor-avatar";
+import { formatDuration } from "../../agents/components/agent-activity-hover-content";
+import { TranscriptButton } from "../../common/agent-run-transcript";
+import { failureReasonLabel } from "../../agents/components/tabs/run-failure";
+import { useT } from "../../i18n";
+import { TerminateRunConfirmDialog } from "./terminate-run-confirm-dialog";
+
+// Right-panel section that lists every agent run for this task. Active
+// runs sit at the top (always visible when present); past runs (terminal
+// statuses) collapse behind a "Show past runs (N)" toggle.
+//
+// Replaces:
+//   - the click-to-expand timeline that used to live inside the in-body live
+//     card (the live "agent is working" signal now lives in the header via
+//     TaskAgentHeaderChip)
+//   - the standalone <AgentRunHistory> below the main content
+//
+// Row layout — simple left/right flex:
+//   1. Agent avatar (no status dot — agent availability is not the
+//      story here; the row's right column carries the task status)
+//   2. Trigger description flexes and truncates
+//   3. Status is a normal shrink-0 right column; on hover it is replaced
+//      in place by the action buttons (status is removed, not covered).
+//      Left text keeps flex-1 so the row never shows a mid-row gap. Do
+//      not use masks/padding gymnastics here.
+//
+// One query (`listRunsByTask`) drives both buckets — the back-end
+// returns every status, the front-end filters into active vs past on the
+// client. WS run:* events for this task trigger an invalidate so the
+// list updates without polling.
+
+interface ExecutionLogSectionProps {
+  taskId: string;
+}
+
+// Past-runs sort priority: newest first by timestamp. When two runs
+// share the same timestamp, failed ranks above cancelled, which ranks
+// above completed.
+const PAST_STATUS_RANK: Record<string, number> = {
+  failed: 0,
+  cancelled: 1,
+  completed: 2,
+};
+
+export function ExecutionLogSection({ taskId }: ExecutionLogSectionProps) {
+  const wsId = useWorkspaceId();
+  const { t } = useT("tasks");
+  const [open, setOpen] = useState(true);
+  const [showPast, setShowPast] = useState(false);
+
+  // Workspace-scoped execution cache shared with the task header chip.
+  // Global run events invalidate this cache even while the panel is unmounted.
+  const { data: runs = [] } = useQuery({
+    queryKey: agentRunsKeys.forTask(wsId, taskId),
+    queryFn: () => api.listRunsByTask(taskId),
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const activeRuns = useMemo(
+    () =>
+      runs.filter(
+        (t) =>
+          t.status === "queued" ||
+          t.status === "dispatched" ||
+          // Daemon-parked task on a busy local_directory — still active
+          // (waiting on a path lock), not terminal. Surfacing it here is
+          // what tells the user the agent is alive and will resume.
+          t.status === "waiting_local_directory" ||
+          t.status === "running",
+      ),
+    [runs],
+  );
+
+  const pastRuns = useMemo(() => {
+    const past = runs.filter(
+      (t) =>
+        t.status === "completed" ||
+        t.status === "failed" ||
+        t.status === "cancelled",
+    );
+    return past.toSorted((a, b) => {
+      const at = a.completed_at ?? a.created_at;
+      const bt = b.completed_at ?? b.created_at;
+      const timeDiff = new Date(bt).getTime() - new Date(at).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return (
+        (PAST_STATUS_RANK[a.status] ?? 99) -
+        (PAST_STATUS_RANK[b.status] ?? 99)
+      );
+    });
+  }, [runs]);
+
+  if (activeRuns.length === 0 && pastRuns.length === 0) return null;
+
+  return (
+    <div>
+      <button
+        type="button"
+        className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-caption font-medium transition-colors mb-2 hover:bg-accent/70 ${
+          open ? "" : "text-muted-foreground hover:text-foreground"
+        }`}
+        onClick={() => setOpen(!open)}
+      >
+        {t(($) => $.execution_log.section)}
+        <ChevronRight
+          className={`!size-3 shrink-0 stroke-[2.5] text-muted-foreground transition-transform ${
+            open ? "rotate-90" : ""
+          }`}
+        />
+        {activeRuns.length > 0 && (
+          <span className="ml-auto inline-flex items-center gap-1 text-info">
+            <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse" />
+            <span className="font-mono tabular-nums">{activeRuns.length}</span>
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="space-y-0.5 pl-2">
+          {activeRuns.map((run) => (
+            <ActiveRunRow key={run.id} run={run} taskId={taskId} />
+          ))}
+
+          {pastRuns.length > 0 && (
+            <>
+              {activeRuns.length > 0 && (
+                <div className="my-1.5 border-t border-border/60" />
+              )}
+              <button
+                type="button"
+                onClick={() => setShowPast(!showPast)}
+                className="flex w-full items-center gap-1 rounded px-1 py-1 text-caption text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+              >
+                <ChevronRight
+                  className={`!size-3 shrink-0 stroke-[2.5] transition-transform ${
+                    showPast ? "rotate-90" : ""
+                  }`}
+                />
+                {showPast
+                  ? t(($) => $.execution_log.hide_past, { count: pastRuns.length })
+                  : t(($) => $.execution_log.show_past, { count: pastRuns.length })}
+              </button>
+              {showPast && (
+                <div className="mt-0.5 space-y-0.5">
+                  {pastRuns.map((run) => (
+                    <PastRow key={run.id} run={run} taskId={taskId} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Trigger description ────────────────────────────────────────────────────
+
+// Primary source: the canonical snapshot taken at task creation time
+// (comment text / autopilot title). Survives source edits/deletes and
+// is information-dense — far better than a structural label.
+//
+// Retry tasks inherit the parent's trigger_summary on the DB side (so the
+// snapshot survives across attempts), but a row that just shows the
+// inherited summary is indistinguishable from its parent. We prepend
+// "Retry #N" when parent_run_id is set so retries are scannable as
+// retries even when their summary is inherited.
+//
+// Fallback chain for legacy tasks created before the snapshot field
+// shipped, OR for sources we don't snapshot (direct assignment / chat):
+// degrade to a short structural label by trigger source. New tasks
+// (post-061 migration) almost always hit the snapshot path.
+
+// ─── Row visual config ─────────────────────────────────────────────────────
+
+const STATUS_TONE: Record<AgentRun["status"], string> = {
+  queued: "text-warning",
+  dispatched: "text-warning",
+  // Same tone as queued/dispatched — visually "stopped" so users see the
+  // task is parked, but distinguished by the status label.
+  waiting_local_directory: "text-warning",
+  running: "text-info",
+  completed: "text-success",
+  failed: "text-destructive",
+  cancelled: "text-muted-foreground",
+};
+
+// ─── Active row ────────────────────────────────────────────────────────────
+
+import { stripMentionMarkdown } from "../utils/strip-mention-markdown";
+
+function useTriggerText(run: AgentRun): string {
+  const { t } = useT("tasks");
+  const isRetry = !!run.parent_run_id;
+  const retryPrefix = isRetry
+    ? run.attempt && run.attempt > 1
+      ? t(($) => $.execution_log.trigger_retry_attempt_prefix, { attempt: run.attempt })
+      : t(($) => $.execution_log.trigger_retry_prefix)
+    : "";
+
+  if (run.trigger_summary) return retryPrefix + stripMentionMarkdown(run.trigger_summary);
+  if (isRetry) {
+    return run.attempt && run.attempt > 1
+      ? t(($) => $.execution_log.trigger_retry_attempt, { attempt: run.attempt })
+      : t(($) => $.execution_log.trigger_retry);
+  }
+  if (run.autopilot_run_id) return t(($) => $.execution_log.trigger_autopilot);
+  if (run.trigger_comment_id) return t(($) => $.execution_log.trigger_comment);
+  // Assignment-triggered run that carried a handoff note: show the note inline
+  // (truncated by TriggerText) the way comment triggers show their text, so the
+  // row reads as the handoff instead of the generic "initial run".
+  if (run.handoff_note) {
+    return retryPrefix + t(($) => $.execution_log.trigger_handoff_prefix) + stripMentionMarkdown(run.handoff_note);
+  }
+  return t(($) => $.execution_log.trigger_initial);
+}
+
+function useStatusLabel(status: AgentRun["status"]): string {
+  const { t } = useT("tasks");
+  switch (status) {
+    case "queued": return t(($) => $.execution_log.status_queued);
+    case "dispatched": return t(($) => $.execution_log.status_dispatched);
+    case "waiting_local_directory":
+      return t(($) => $.execution_log.status_waiting_local_directory);
+    case "running": return t(($) => $.execution_log.status_running);
+    case "completed": return t(($) => $.execution_log.status_completed);
+    case "failed": return t(($) => $.execution_log.status_failed);
+    case "cancelled": return t(($) => $.execution_log.status_cancelled);
+  }
+}
+
+// One active (running / queued / dispatched / parked) task row. Running rows
+// keep status to a single live elapsed timer; transcript and stop stay available
+// as hover actions. Transcript content lazy-loads on click via TranscriptButton,
+// so the row no longer fetches task messages just to render a count.
+export function ActiveRunRow({
+  run,
+  taskId,
+}: {
+  run: AgentRun;
+  taskId: string;
+}) {
+  const { t } = useT("tasks");
+  const [cancelling, setCancelling] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const tone = STATUS_TONE[run.status];
+  const label = useStatusLabel(run.status);
+  const trigger = useTriggerText(run);
+
+  // Running rows show a live-ticking elapsed timer (the ticking digits carry
+  // "alive", the duration carries "how long"). Only running rows tick.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (run.status !== "running") return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [run.status]);
+  const elapsed =
+    run.status === "running"
+      ? formatDuration(
+          run.started_at ?? run.dispatched_at ?? run.created_at,
+          now,
+        )
+      : "";
+
+  // Transcript only meaningful once messages exist — pure-queued and
+  // waiting_local_directory tasks haven't streamed any agent output yet.
+  const showTranscript =
+    run.status !== "queued" && run.status !== "waiting_local_directory";
+
+  const handleCancel = async () => {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      await api.cancelRun(taskId, run.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t(($) => $.execution_log.cancel_failed));
+      setCancelling(false);
+    }
+  };
+
+  const requestCancel = () => {
+    if (cancelling) return;
+    setConfirmOpen(true);
+  };
+
+  return (
+    <RowShell run={run}>
+      <TriggerText text={trigger} />
+      <AgentRunCommentCoverage run={run} />
+      <RowStatus title={label}>
+        {run.status === "running" ? (
+          <>
+            <span className="text-info tabular-nums">{elapsed}</span>
+            <span className="sr-only">{label}</span>
+          </>
+        ) : (
+          <span className={`${tone} min-w-0 truncate`}>{label}</span>
+        )}
+      </RowStatus>
+      <RowActions>
+        {showTranscript && (
+          <TranscriptButton
+            run={run}
+            agentName=""
+            isLive={run.status === "running"}
+            title={t(($) => $.execution_log.transcript_tooltip)}
+          />
+        )}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                onClick={requestCancel}
+                disabled={cancelling}
+                aria-label={t(($) => $.execution_log.cancel_task_aria)}
+              />
+            }
+            className="flex items-center justify-center rounded p-1 text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {cancelling ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Square className="h-3.5 w-3.5" />
+            )}
+          </TooltipTrigger>
+          <TooltipContent>{t(($) => $.execution_log.cancel_task_tooltip)}</TooltipContent>
+        </Tooltip>
+      </RowActions>
+      <TerminateRunConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        onConfirm={() => void handleCancel()}
+        showRunningNote={
+          run.status === "running" ||
+          run.status === "dispatched" ||
+          run.status === "waiting_local_directory"
+        }
+      />
+    </RowShell>
+  );
+}
+
+// ─── Past row ──────────────────────────────────────────────────────────────
+
+function PastRow({ run, taskId }: { run: AgentRun; taskId: string }) {
+  const { t } = useT("tasks");
+  const timeAgo = useTimeAgo();
+  const [retrying, setRetrying] = useState(false);
+  const label = useStatusLabel(run.status);
+  const trigger = useTriggerText(run);
+  const time = run.completed_at ? timeAgo(run.completed_at) : "—";
+  const failureLabel =
+    run.status === "failed" ? failureReasonLabel(run.failure_reason) : null;
+
+  // Retry only makes sense for terminal-but-not-success rows. Passing
+  // task.id targets this specific row's agent — without it, the rerun
+  // endpoint would fall back to the task's current assignee and the
+  // wrong agent would fire on rows whose agent has since been displaced
+  // (e.g. reassignment, squad worker, or a one-off @-mention agent).
+  const canRetry = run.status === "failed" || run.status === "cancelled";
+
+  const handleRetry = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await api.rerunTask(taskId, run.id);
+    } catch (e) {
+      // A rerun is now re-gated on the operator's invoke permission (SILI-4525):
+      // a structured 403 means the agent can't be triggered, not a transient
+      // failure — localize it instead of echoing the server's generic message.
+      toast.error(
+        dispatchReasonCode(e) === "invocation_not_allowed"
+          ? t(($) => $.execution_log.retry_blocked)
+          : e instanceof Error
+            ? e.message
+            : t(($) => $.execution_log.retry_failed),
+      );
+    } finally {
+      // Reset on both success and failure: the past row stays mounted
+      // (its task.id is unchanged), so leaving `retrying` true on success
+      // would pin the button as a permanent spinner.
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <RowShell run={run}>
+      <TriggerText text={trigger} />
+      <AgentRunCommentCoverage run={run} />
+      <RowStatus title={failureLabel ?? label}>
+        <AgentRunStatusIcon status={run.status} />
+        <span className="sr-only">{failureLabel ?? label}</span>
+        <span className="text-muted-foreground">{time}</span>
+      </RowStatus>
+      <RowActions>
+        <TranscriptButton run={run} agentName="" title={t(($) => $.execution_log.transcript_tooltip)} />
+        {canRetry && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  disabled={retrying}
+                  aria-label={t(($) => $.execution_log.retry_task_aria)}
+                />
+              }
+              className="flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {retrying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
+            </TooltipTrigger>
+            <TooltipContent>{t(($) => $.execution_log.retry_task_tooltip)}</TooltipContent>
+          </Tooltip>
+        )}
+      </RowActions>
+    </RowShell>
+  );
+}
+
+// ─── Shared row chrome ─────────────────────────────────────────────────────
+
+function RowShell({
+  run,
+  children,
+}: {
+  run: AgentRun;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="group/execution-log-row flex items-center gap-2 overflow-hidden rounded px-1 py-1.5 transition-colors hover:bg-accent/40">
+      {run.agent_id ? (
+        <ActorAvatar
+          actorType="agent"
+          actorId={run.agent_id}
+          size="sm"
+          enableHoverCard
+        />
+      ) : (
+        <span className="inline-block h-5 w-5 shrink-0 rounded-full bg-muted" />
+      )}
+      {children}
+    </div>
+  );
+}
+
+function TriggerText({ text }: { text: string }) {
+  return <span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{text}</span>;
+}
+
+function supportsCommentCoverage(status: AgentRun["status"]): boolean {
+  switch (status) {
+    case "queued":
+    case "dispatched":
+    case "waiting_local_directory":
+    case "running":
+    case "completed":
+    case "failed":
+    case "cancelled":
+      return true;
+    default:
+      return false;
+  }
+}
+
+export function AgentRunCommentCoverage({ run }: { run: AgentRun }) {
+  const { t } = useT("tasks");
+  if (!supportsCommentCoverage(run.status)) return null;
+
+  // Queued rows show the planned coverage: coalesced_comment_ids deliberately
+  // excludes the newest trigger. Once claimed, prefer the server's actual
+  // delivery receipt. Only legacy rows where that field is absent fall back to
+  // the plan; an explicit [] means the claim delivered no comments.
+  const plannedCommentIds = [
+    run.trigger_comment_id,
+    ...(run.coalesced_comment_ids ?? []),
+  ];
+  const coverageIds =
+    run.status !== "queued" && run.delivered_comment_ids !== undefined
+      ? run.delivered_comment_ids
+      : plannedCommentIds;
+  const commentIds = new Set(
+    coverageIds.filter((id): id is string => Boolean(id)),
+  );
+  if (commentIds.size <= 1) return null;
+
+  return (
+    <span className="shrink-0 whitespace-nowrap text-micro text-muted-foreground">
+      {t(($) => $.execution_log.included_comments, { count: commentIds.size })}
+    </span>
+  );
+}
+
+function RowStatus({
+  children,
+  title,
+}: {
+  children: React.ReactNode;
+  title?: string;
+}) {
+  return (
+    <div
+      title={title}
+      className="flex h-7 shrink-0 items-center justify-end gap-1 overflow-hidden whitespace-nowrap text-caption [@media(hover:hover)]:group-hover/execution-log-row:hidden"
+    >
+      {children}
+    </div>
+  );
+}
+
+function AgentRunStatusIcon({ status }: { status: AgentRun["status"] }) {
+  switch (status) {
+    case "completed":
+      return <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5 text-success" />;
+    case "failed":
+      return <XCircle aria-hidden="true" className="h-3.5 w-3.5 text-destructive" />;
+    case "cancelled":
+      return <Ban aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />;
+    default:
+      return null;
+  }
+}
+
+// Action slot — visible by default for touch devices. On hover-capable
+// surfaces, it replaces the status column in place on row hover.
+function RowActions({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-7 items-center gap-0.5 [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/execution-log-row:flex">
+      {children}
+    </div>
+  );
+}

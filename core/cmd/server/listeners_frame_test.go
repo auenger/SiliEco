@@ -22,11 +22,11 @@ func TestRegisterListeners_FrameContainsActorType(t *testing.T) {
 		{
 			name: "workspace broadcast carries actor_type",
 			event: events.Event{
-				Type:        protocol.EventIssueCreated,
+				Type:        protocol.EventTaskCreated,
 				WorkspaceID: "ws-1",
 				ActorID:     "agent-abc",
 				ActorType:   "agent",
-				Payload:     map[string]any{"id": "issue-1"},
+				Payload:     map[string]any{"id": "task-1"},
 			},
 		},
 		{

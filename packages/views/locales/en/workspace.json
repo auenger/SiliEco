@@ -30,5 +30,13 @@
     "description": "This workspace doesn't exist or you don't have access.",
     "go_to_workspaces": "Go to my workspaces",
     "sign_in_different": "Sign in as a different user"
+  },
+  "empty": {
+    "title": "No workspace yet",
+    "description": "Your account is ready. Wait for a workspace invitation, or create a workspace whenever you are ready.",
+    "invitations": "View invitations ({{count}})",
+    "refresh": "Check for invitations",
+    "hint": "Ask a workspace administrator to invite the email shown above. This page checks for updates automatically.",
+    "load_failed": "Could not check your workspaces or invitations. Please try again."
   }
 }

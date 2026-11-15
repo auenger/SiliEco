@@ -114,29 +114,29 @@ func TestGroupChatCreateAndMentionTrigger(t *testing.T) {
 	}
 
 	plain := send("Human-only planning note")
-	if plain.TaskID != "" || len(plain.TaskIDs) != 0 {
+	if plain.RunID != "" || len(plain.RunIDs) != 0 {
 		t.Fatalf("ordinary group message unexpectedly triggered tasks: %#v", plain)
 	}
-	var plainTaskCount int
+	var plainRunCount int
 	if err := testPool.QueryRow(ctx, `
-		SELECT count(*) FROM agent_task_queue WHERE chat_session_id = $1
-	`, session.ID).Scan(&plainTaskCount); err != nil {
+		SELECT count(*) FROM agent_run WHERE chat_session_id = $1
+	`, session.ID).Scan(&plainRunCount); err != nil {
 		t.Fatalf("count plain group tasks: %v", err)
 	}
-	if plainTaskCount != 0 {
-		t.Fatalf("ordinary group message created %d tasks, want 0", plainTaskCount)
+	if plainRunCount != 0 {
+		t.Fatalf("ordinary group message created %d tasks, want 0", plainRunCount)
 	}
 
 	mentioned := send("[@GroupChatReviewAgent](mention://agent/" + agentID + ") please review the plan")
-	if mentioned.TaskID == "" || len(mentioned.TaskIDs) != 1 || mentioned.TaskIDs[0] != mentioned.TaskID {
+	if mentioned.RunID == "" || len(mentioned.RunIDs) != 1 || mentioned.RunIDs[0] != mentioned.RunID {
 		t.Fatalf("mentioned group message task ids = %#v", mentioned)
 	}
 	var storedAgentID, triggerMessageID string
 	if err := testPool.QueryRow(ctx, `
 		SELECT agent_id::text, trigger_chat_message_id::text
-		FROM agent_task_queue WHERE id = $1
-	`, mentioned.TaskID).Scan(&storedAgentID, &triggerMessageID); err != nil {
-		t.Fatalf("load mentioned group task: %v", err)
+		FROM agent_run WHERE id = $1
+	`, mentioned.RunID).Scan(&storedAgentID, &triggerMessageID); err != nil {
+		t.Fatalf("load mentioned group run: %v", err)
 	}
 	if storedAgentID != agentID || triggerMessageID != mentioned.MessageID {
 		t.Fatalf("group task target/trigger = %s/%s, want %s/%s", storedAgentID, triggerMessageID, agentID, mentioned.MessageID)

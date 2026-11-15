@@ -1,11 +1,13 @@
 /**
  * Thin wrapper around expo-secure-store for the auth token.
- * Keyed identically to web/desktop ("silieco_token") so logic stays aligned
- * with packages/core/auth/store.ts even though storage backends differ.
+ * The protocol generation isolates credentials from discarded test environments.
+ * Old credentials are never restored into the Task / AgentRun contract.
  */
 import * as SecureStore from "expo-secure-store";
 
-const TOKEN_KEY = "silieco_token";
+import { PROTOCOL_GENERATION } from "./protocol";
+
+const TOKEN_KEY = `silieco_${PROTOCOL_GENERATION}_token`;
 
 export async function getToken(): Promise<string | null> {
   return SecureStore.getItemAsync(TOKEN_KEY);

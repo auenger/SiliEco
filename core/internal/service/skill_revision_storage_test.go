@@ -14,7 +14,7 @@ import (
 )
 
 func TestSkillRevisionStorageIsImmutableAndWorkspaceScoped(t *testing.T) {
-	pool := newTaskClaimRacePool(t)
+	pool := newRunClaimRacePool(t)
 	ctx := context.Background()
 	q := db.New(pool)
 	agentID := createClaimCapacityFixture(t, ctx, pool)

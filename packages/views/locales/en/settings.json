@@ -31,7 +31,7 @@
       "title": "Sticky comment bar",
       "hint": "Keep the comment bar pinned to the bottom while scrolling an task page."
     },
-    "issue_link_new_tab": {
+    "task_link_new_tab": {
       "title": "Open task links in new tab",
       "hint": "Task links in descriptions, comments, and chat open in a new tab instead of navigating in place."
     }
@@ -70,7 +70,7 @@
         "label": "Open search",
         "description": "Search and run commands from anywhere."
       },
-      "createIssue": {
+      "createTask": {
         "label": "Create task",
         "description": "Open your preferred task creation flow."
       },
@@ -78,7 +78,7 @@
         "label": "Toggle sidebar",
         "description": "Show or hide the main sidebar."
       },
-      "findInIssue": {
+      "findInTask": {
         "label": "Find in task",
         "description": "Search within the open task detail."
       },
@@ -94,11 +94,11 @@
         "label": "Go to Chat",
         "description": "Open workspace chat."
       },
-      "goMyIssues": {
+      "goMyTasks": {
         "label": "Go to My Tasks",
         "description": "Open tasks assigned to you."
       },
-      "goIssues": {
+      "goTasks": {
         "label": "Go to Tasks",
         "description": "Open the task list."
       },
@@ -150,7 +150,7 @@
     "floating_label": "Floating chat window",
     "floating_hint": "Show the floating chat button in the corner of every page. Off by default — turn it on to summon chat anywhere; when off, Chat lives only in this tab."
   },
-  "issue": {
+  "task": {
     "description": "Choose which fields each create dialog keeps on its toolbar. Hidden fields stay available from the ⋯ menu and reappear while they hold a value.",
     "quick_create_title": "Create with agent",
     "quick_create_description": "Fields shown in the quick create toolbar.",
@@ -174,7 +174,7 @@
       "profile": "Profile",
       "preferences": "Preferences",
       "shortcuts": "Shortcuts",
-      "issue": "Task",
+      "task": "Task",
       "chat": "Chat",
       "notifications": "Notifications",
       "tokens": "API Tokens",
@@ -260,7 +260,7 @@
     "title": "Labels",
     "description": "Manage the separate label catalogs used to organize tasks, agents, and skills in this workspace.",
     "scopes": {
-      "issue": "Tasks",
+      "task": "Tasks",
       "agent": "Agents",
       "skill": "Skills"
     },
@@ -416,8 +416,8 @@
     "context_label": "Context",
     "context_placeholder": "Background information and context for AI agents working in this workspace",
     "slug_label": "Slug",
-    "issue_prefix_label": "Task prefix",
-    "issue_prefix_hint": "Used in task numbers like {{example}}.",
+    "task_prefix_label": "Task prefix",
+    "task_prefix_hint": "Used in task numbers like {{example}}.",
     "prefix_confirm_title": "Change task prefix?",
     "prefix_confirm_description": "All tasks will be renumbered from {{oldPrefix}}-N to {{newPrefix}}-N. External references — pull request titles, branch names, links in docs and chat — that use {{oldPrefix}}-N will stop resolving.",
     "save": "Save",

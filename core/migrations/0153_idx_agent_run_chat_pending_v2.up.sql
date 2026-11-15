@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY idx_agent_run_chat_pending_v2 ON public.agent_run USING btree (chat_session_id, created_at DESC) WHERE ((chat_session_id IS NOT NULL) AND (status = ANY (ARRAY['queued'::text, 'dispatched'::text, 'running'::text, 'waiting_local_directory'::text])));

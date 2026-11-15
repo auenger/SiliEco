@@ -24,8 +24,14 @@ func (q *Queries) CountRecentFeedbackByUser(ctx context.Context, userID pgtype.U
 }
 
 const createFeedback = `-- name: CreateFeedback :one
-INSERT INTO feedback (user_id, workspace_id, message, metadata)
-VALUES ($1, $4, $2, $3)
+INSERT INTO feedback (user_id, workspace_id, message, metadata) SELECT
+    $1 AS user_id,
+    $4 AS workspace_id,
+    $2 AS message,
+    $3 AS metadata
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_user_id WHERE ref_user_id.id = ($1) FOR KEY SHARE))
+  AND (($4)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($4) FOR KEY SHARE))
+
 RETURNING id, user_id, workspace_id, message, metadata, created_at
 `
 

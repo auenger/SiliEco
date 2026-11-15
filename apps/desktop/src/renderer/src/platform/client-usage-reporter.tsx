@@ -5,7 +5,7 @@ import { getOrCreateInstallId, utcDay } from "@silieco/core/client-usage";
 import { defaultStorage } from "@silieco/core/platform";
 import type { LocalRuntimeProbe } from "../../../shared/daemon-types";
 
-const LAST_RUNTIME_PREFIX = "silieco_runtime_probe_last_reported";
+const LAST_RUNTIME_PREFIX = "silieco_tr1_runtime_probe_last_reported";
 
 export function runtimeProbeSignature(probe: LocalRuntimeProbe): string {
   if (probe.probeResult === "error") return "error";

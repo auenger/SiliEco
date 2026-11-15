@@ -17,7 +17,7 @@ func TestContainsMarkdown(t *testing.T) {
 		"sure, on it",
 		"Hello, world. How are you?", // bare comma + period, no markdown
 		"the build is green",
-		"我已经创建了 issue SILI-42", // Chinese + dashed identifier (no `- ` line)
+		"我已经创建了 task SILI-42", // Chinese + dashed identifier (no `- ` line)
 	}
 	for _, s := range plain {
 		if containsMarkdown(s) {

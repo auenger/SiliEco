@@ -49,7 +49,7 @@ func TestDashboardPerAgentRollupsFoldRestrictedAgents(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, permission_mode, max_concurrent_tasks, owner_id,
+			runtime_id, visibility, permission_mode, max_concurrent_runs, owner_id,
 			instructions, custom_env, custom_args
 		)
 		VALUES ($1, 'dashboard-visibility-public-agent', '', 'cloud', '{}'::jsonb,
@@ -72,16 +72,16 @@ func TestDashboardPerAgentRollupsFoldRestrictedAgents(t *testing.T) {
 			`DELETE FROM agent_invocation_target WHERE agent_id = $1`, publicAgentID)
 	})
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_id, creator_type, number)
+		INSERT INTO task (workspace_id, title, creator_id, creator_type, number)
 		VALUES ($1, 'dashboard agent visibility', $2, 'member',
-		        (SELECT COALESCE(MAX(number), 0) + 1 FROM issue WHERE workspace_id = $1))
+		        (SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE workspace_id = $1))
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID) })
 
 	started := time.Now().UTC().Add(-30 * time.Minute)
 	completed := started.Add(10 * time.Minute) // 600s run
@@ -90,25 +90,25 @@ func TestDashboardPerAgentRollupsFoldRestrictedAgents(t *testing.T) {
 	// endpoints have something to fold: tokens/cost, run time, and a failure
 	// reason alongside its succeeded denominator.
 	seedRun := func(agentID, status, failureReason string, tokens int64) {
-		var taskID string
+		var runID string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO agent_task_queue (
-				agent_id, issue_id, runtime_id, status, failure_reason,
+			INSERT INTO agent_run (
+				agent_id, task_id, runtime_id, status, failure_reason,
 				started_at, completed_at, created_at
 			)
 			VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, now())
 			RETURNING id
-		`, agentID, issueID, runtimeID, status, failureReason, started, completed).Scan(&taskID); err != nil {
-			t.Fatalf("insert %s task: %v", status, err)
+		`, agentID, taskID, runtimeID, status, failureReason, started, completed).Scan(&runID); err != nil {
+			t.Fatalf("insert %s run: %v", status, err)
 		}
 		t.Cleanup(func() {
-			testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+			testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID)
 		})
 		if _, err := testPool.Exec(ctx, `
-			INSERT INTO task_usage (task_id, provider, model, input_tokens, output_tokens, created_at)
+			INSERT INTO agent_run_usage (run_id, provider, model, input_tokens, output_tokens, created_at)
 			VALUES ($1, 'claude', 'agent-visibility-model', $2, 0, now())
-		`, taskID, tokens); err != nil {
-			t.Fatalf("insert task_usage: %v", err)
+		`, runID, tokens); err != nil {
+			t.Fatalf("insert agent_run_usage: %v", err)
 		}
 	}
 	seedRun(privateAgentID, "completed", "", 1000)
@@ -118,10 +118,10 @@ func TestDashboardPerAgentRollupsFoldRestrictedAgents(t *testing.T) {
 
 	t.Cleanup(func() {
 		testPool.Exec(context.Background(),
-			`DELETE FROM task_usage_hourly WHERE model = 'agent-visibility-model'`)
+			`DELETE FROM agent_run_usage_hourly WHERE model = 'agent-visibility-model'`)
 	})
 	if _, err := testPool.Exec(ctx, `
-		SELECT rollup_task_usage_hourly_window('1970-01-01'::timestamptz, now() + interval '1 hour')
+		SELECT rollup_agent_run_usage_hourly_window('1970-01-01'::timestamptz, now() + interval '1 hour')
 	`); err != nil {
 		t.Fatalf("rollup window: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestDashboardPerAgentRollupsFoldRestrictedAgents(t *testing.T) {
 	type runTimeRow struct {
 		AgentID      string `json:"agent_id"`
 		TotalSeconds int64  `json:"total_seconds"`
-		TaskCount    int32  `json:"task_count"`
+		RunCount     int32  `json:"run_count"`
 		FailedCount  int32  `json:"failed_count"`
 	}
 	var ownerRunTime, memberRunTime []runTimeRow
@@ -215,19 +215,19 @@ func TestDashboardPerAgentRollupsFoldRestrictedAgents(t *testing.T) {
 	assertDashboardAgentPresence(t, "agent-runtime (member)", dashboardAgentIDSet(memberRunTime, runTimeID),
 		dashboardAgentPresence{privateAgent: false, publicAgent: true, sentinel: true}, privateAgentID, publicAgentID)
 
-	sumRunTime := func(rows []runTimeRow) (secs int64, tasks, failed int32) {
+	sumRunTime := func(rows []runTimeRow) (secs int64, agentRuns, failed int32) {
 		for _, r := range rows {
 			secs += r.TotalSeconds
-			tasks += r.TaskCount
+			agentRuns += r.RunCount
 			failed += r.FailedCount
 		}
 		return
 	}
-	ownerSecs, ownerTasks, ownerFailed := sumRunTime(ownerRunTime)
-	memberSecs, memberTasks, memberFailed := sumRunTime(memberRunTime)
-	if ownerSecs != memberSecs || ownerTasks != memberTasks || ownerFailed != memberFailed {
+	ownerSecs, ownerRuns, ownerFailed := sumRunTime(ownerRunTime)
+	memberSecs, memberRuns, memberFailed := sumRunTime(memberRunTime)
+	if ownerSecs != memberSecs || ownerRuns != memberRuns || ownerFailed != memberFailed {
 		t.Errorf("agent-runtime: folding changed the totals — owner (%ds, %d tasks, %d failed), member (%ds, %d tasks, %d failed)",
-			ownerSecs, ownerTasks, ownerFailed, memberSecs, memberTasks, memberFailed)
+			ownerSecs, ownerRuns, ownerFailed, memberSecs, memberRuns, memberFailed)
 	}
 	// One bucket, not one row per hidden agent: how MANY private agents exist
 	// is itself part of what "private" hides.
@@ -246,7 +246,7 @@ func TestDashboardPerAgentRollupsFoldRestrictedAgents(t *testing.T) {
 	type failureRow struct {
 		AgentID       string `json:"agent_id"`
 		FailureReason string `json:"failure_reason"`
-		TaskCount     int32  `json:"task_count"`
+		RunCount      int32  `json:"run_count"`
 	}
 	var ownerFailures, memberFailures []failureRow
 	const failuresPath = "/api/dashboard/failures/by-agent?days=7"
@@ -265,7 +265,7 @@ func TestDashboardPerAgentRollupsFoldRestrictedAgents(t *testing.T) {
 	byReason := func(rows []failureRow) map[string]int32 {
 		out := map[string]int32{}
 		for _, r := range rows {
-			out[r.FailureReason] += r.TaskCount
+			out[r.FailureReason] += r.RunCount
 		}
 		return out
 	}
@@ -290,7 +290,7 @@ func TestDashboardPerAgentRollupsFoldRestrictedAgents(t *testing.T) {
 // first version of the SILI-5409 fix missed. `kind = 'system'` agents — the
 // hidden execution carriers behind agent-builder sessions — run real tasks and
 // book real usage, and the three rollup queries aggregate over
-// agent_task_queue / task_usage without any kind filter. But NO list endpoint
+// agent_run / agent_run_usage without any kind filter. But NO list endpoint
 // returns them (ListAgents / ListAllAgents both filter `kind = 'user'`), so no
 // client can resolve one to a name.
 //
@@ -309,32 +309,32 @@ func TestDashboardPerAgentRollupsFoldSystemAgentCarriers(t *testing.T) {
 	_, _, memberID := privateAgentTestFixture(t)
 	runtimeID := handlerTestRuntimeID(t)
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_id, creator_type, number)
+		INSERT INTO task (workspace_id, title, creator_id, creator_type, number)
 		VALUES ($1, 'system carrier visibility', $2, 'member',
-		        (SELECT COALESCE(MAX(number), 0) + 1 FROM issue WHERE workspace_id = $1))
+		        (SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE workspace_id = $1))
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID) })
 
 	rollup := func(label string) {
 		t.Helper()
 		if _, err := testPool.Exec(ctx, `
-			SELECT rollup_task_usage_hourly_window('1970-01-01'::timestamptz, now() + interval '1 hour')
+			SELECT rollup_agent_run_usage_hourly_window('1970-01-01'::timestamptz, now() + interval '1 hour')
 		`); err != nil {
 			t.Fatalf("rollup (%s): %v", label, err)
 		}
 	}
 
 	type totals struct {
-		tokens int64
-		secs   int64
-		tasks  int32
-		failed int32
-		runs   int32
+		tokens    int64
+		secs      int64
+		agentRuns int32
+		failed    int32
+		runs      int32
 	}
 	// Sums the whole response rather than one row: the point is that the
 	// carrier's numbers are still IN there, just not attributable.
@@ -367,7 +367,7 @@ func TestDashboardPerAgentRollupsFoldSystemAgentCarriers(t *testing.T) {
 			"/api/dashboard/agent-runtime?days=7", func(b []byte) {
 				var rows []struct {
 					TotalSeconds int64 `json:"total_seconds"`
-					TaskCount    int32 `json:"task_count"`
+					RunCount     int32 `json:"run_count"`
 					FailedCount  int32 `json:"failed_count"`
 				}
 				if err := json.Unmarshal(b, &rows); err != nil {
@@ -375,20 +375,20 @@ func TestDashboardPerAgentRollupsFoldSystemAgentCarriers(t *testing.T) {
 				}
 				for _, r := range rows {
 					out.secs += r.TotalSeconds
-					out.tasks += r.TaskCount
+					out.agentRuns += r.RunCount
 					out.failed += r.FailedCount
 				}
 			})
 		read("failures/by-agent", testHandler.GetDashboardFailuresByAgent,
 			"/api/dashboard/failures/by-agent?days=7", func(b []byte) {
 				var rows []struct {
-					TaskCount int32 `json:"task_count"`
+					RunCount int32 `json:"run_count"`
 				}
 				if err := json.Unmarshal(b, &rows); err != nil {
 					t.Fatalf("decode failures/by-agent: %v", err)
 				}
 				for _, r := range rows {
-					out.runs += r.TaskCount
+					out.runs += r.RunCount
 				}
 			})
 		return out, bodies
@@ -404,7 +404,7 @@ func TestDashboardPerAgentRollupsFoldSystemAgentCarriers(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config, runtime_id,
-			visibility, permission_mode, max_concurrent_tasks, owner_id, instructions,
+			visibility, permission_mode, max_concurrent_runs, owner_id, instructions,
 			custom_env, custom_args, kind, system_key
 		)
 		VALUES ($1, 'agent-builder-carrier', '', 'cloud', '{}'::jsonb, $2,
@@ -427,30 +427,30 @@ func TestDashboardPerAgentRollupsFoldSystemAgentCarriers(t *testing.T) {
 		{"completed", "", 900},
 		{"failed", "agent_error.provider_quota_limit", 100},
 	} {
-		var taskID string
+		var runID string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO agent_task_queue (
-				agent_id, issue_id, runtime_id, status, failure_reason,
+			INSERT INTO agent_run (
+				agent_id, task_id, runtime_id, status, failure_reason,
 				started_at, completed_at, created_at
 			)
 			VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, now())
 			RETURNING id
-		`, carrierID, issueID, runtimeID, run.status, run.failureReason, started, completed).Scan(&taskID); err != nil {
-			t.Fatalf("insert carrier %s task: %v", run.status, err)
+		`, carrierID, taskID, runtimeID, run.status, run.failureReason, started, completed).Scan(&runID); err != nil {
+			t.Fatalf("insert carrier %s run: %v", run.status, err)
 		}
 		t.Cleanup(func() {
-			testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+			testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID)
 		})
 		if _, err := testPool.Exec(ctx, `
-			INSERT INTO task_usage (task_id, provider, model, input_tokens, output_tokens, created_at)
+			INSERT INTO agent_run_usage (run_id, provider, model, input_tokens, output_tokens, created_at)
 			VALUES ($1, 'claude', 'system-carrier-model', $2, 0, now())
-		`, taskID, run.tokens); err != nil {
-			t.Fatalf("insert carrier task_usage: %v", err)
+		`, runID, run.tokens); err != nil {
+			t.Fatalf("insert carrier agent_run_usage: %v", err)
 		}
 	}
 	t.Cleanup(func() {
 		testPool.Exec(context.Background(),
-			`DELETE FROM task_usage_hourly WHERE model = 'system-carrier-model'`)
+			`DELETE FROM agent_run_usage_hourly WHERE model = 'system-carrier-model'`)
 	})
 	rollup("after carrier")
 
@@ -483,7 +483,7 @@ func TestDashboardPerAgentRollupsFoldSystemAgentCarriers(t *testing.T) {
 		if got := after.secs - viewer.before.secs; got != 1200 {
 			t.Errorf("%s: agent-runtime seconds delta = %d, want 1200 (two 600s runs)", viewer.label, got)
 		}
-		if got := after.tasks - viewer.before.tasks; got != 2 {
+		if got := after.agentRuns - viewer.before.agentRuns; got != 2 {
 			t.Errorf("%s: agent-runtime task delta = %d, want 2", viewer.label, got)
 		}
 		if got := after.failed - viewer.before.failed; got != 1 {

@@ -1,8 +1,8 @@
 // onboarding_shim.go — DEPRECATED endpoints kept alive for desktop < v3.
 //
-// Background: v3 moved Helper-agent creation and starter-issue seeding to
+// Background: v3 moved Helper-agent creation and starter-task seeding to
 // the frontend welcome hook (packages/views/workspace/welcome-after-onboarding.tsx),
-// which calls generic CreateAgent / CreateIssue. Pre-v3 desktop builds
+// which calls generic CreateAgent / CreateTask. Pre-v3 desktop builds
 // however still call BootstrapOnboardingRuntime / BootstrapOnboardingNoRuntime
 // during their onboarding flow. Server-side removal would break those
 // users during the rollout window where v3 server is live but their
@@ -31,10 +31,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/silieco-ai/silieco/core/internal/analytics"
-	"github.com/silieco-ai/silieco/core/internal/issueguard"
 	"github.com/silieco-ai/silieco/core/internal/logger"
 	obsmetrics "github.com/silieco-ai/silieco/core/internal/metrics"
 	"github.com/silieco-ai/silieco/core/internal/middleware"
+	"github.com/silieco-ai/silieco/core/internal/taskguard"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
@@ -45,18 +45,18 @@ const runtimeBootstrapBodyLimit = 8 * 1024
 
 // maxStarterPromptLen caps the user-supplied StarterPrompt on
 // bootstrapOnboardingRuntimeRequest. The prompt becomes the seeded
-// onboarding issue's description, so it needs room for a real paragraph
+// onboarding task's description, so it needs room for a real paragraph
 // or two without inviting bulk payload. 2 KiB matches pre-v3 cap.
 const maxStarterPromptLen = 2 * 1024
 
 const (
 	onboardingAssistantName = "Sili Agent"
-	onboardingIssueTitle    = "Start here: learn Silieco with Sili Agent"
+	onboardingTaskTitle     = "Start here: learn Silieco with Sili Agent"
 	onboardingAgentTemplate = "silieco_helper"
 
-	// noRuntimeIssueTitle MUST match the pre-v3 service constant so
+	// noRuntimeTaskTitle MUST match the pre-v3 service constant so
 	// LockAndFindActiveDuplicate dedupes correctly across desktop versions.
-	noRuntimeIssueTitle = "Connect a runtime to start using agents"
+	noRuntimeTaskTitle = "Connect a runtime to start using agents"
 )
 
 const onboardingAssistantDescription = "Your built-in Silieco agent for product guidance, workspace setup, tasks, and automation."
@@ -66,7 +66,7 @@ const onboardingAssistantAvatarURL = "data:image/svg+xml,%3Csvg xmlns='http://ww
 // onboardingAssistantInstructions is the system prompt persisted on every
 // Sili Agent created by this shim. Pre-v3 desktop submits a
 // starter prompt from the workspace OnboardingHelperModal; that prompt
-// becomes the issue body, while this constant becomes the agent's identity
+// becomes the task body, while this constant becomes the agent's identity
 // block in CLAUDE.md / AGENTS.md / GEMINI.md. v3 frontend has its own
 // in-views copy of this string (`packages/views/onboarding/templates/
 // helper-instructions.ts`) — these two must stay in sync until the shim
@@ -75,9 +75,9 @@ const onboardingAssistantInstructions = `You are Sili Agent, the built-in AI ass
 
 ## What Silieco is
 
-Silieco is an open-source, AI-native team workspace (source: https://github.com/silieco-ai/silieco). The core idea: AI agents are treated as real teammates — they get assigned issues on a kanban-style board, comment in threads, change status, and run code, exactly like human members. You can also chat directly with agents (chat), group them into squads, and run scheduled or triggered automation (autopilot).
+Silieco is an open-source, AI-native team workspace (source: https://github.com/silieco-ai/silieco). The core idea: AI agents are treated as real teammates — they get assigned tasks on a kanban-style board, comment in threads, change status, and run code, exactly like human members. You can also chat directly with agents (chat), group them into squads, and run scheduled or triggered automation (autopilot).
 
-For concept details (workspace / issue / project / agent / runtime / skill / squad / autopilot / inbox / chat session): fetch https://silieco.ai/docs via WebFetch — that's authoritative. For the "why" or implementation, fetch the GitHub repo above. Never paraphrase concepts from memory.
+For concept details (workspace / task / project / agent / runtime / skill / squad / autopilot / inbox / chat session): fetch https://silieco.ai/docs via WebFetch — that's authoritative. For the "why" or implementation, fetch the GitHub repo above. Never paraphrase concepts from memory.
 
 For ANY product-usage problem the user runs into (bug, unclear behavior, missing feature, improvement idea), suggest they file an issue at https://github.com/silieco-ai/silieco/issues — that's the official feedback channel.
 
@@ -88,7 +88,7 @@ Your toolbox is the ` + "`silieco`" + ` CLI. It's already on your PATH and authe
 Your full capability surface = whatever ` + "`silieco --help`" + ` shows. Run ` + "`silieco --help`" + ` first, then ` + "`silieco <command> --help`" + ` for any subcommand; use ` + "`--output json`" + ` for structured data. The CLI is your manifest — never invent commands or flags.
 
 A few things you can actually do (non-exhaustive — ` + "`--help`" + ` is the source of truth):
-- Create issues, post comments
+- Create tasks, post comments
 - Create or iterate on agents
 - Manage projects, squads, autopilots, skills, runtimes, etc.
 
@@ -96,16 +96,16 @@ A few things you can actually do (non-exhaustive — ` + "`--help`" + ` is the s
 
 Be concise and direct, like a colleague. Respond in the user's language (Chinese in, Chinese out). When pointing at a UI location, name the exact path ("Settings → Agents → New"); when pointing at a doc, link to the specific page, not the homepage. Never fabricate URLs, flags, or file paths.`
 
-const onboardingIssueDescription = `Welcome to Silieco.
+const onboardingTaskDescription = `Welcome to Silieco.
 
-This is your guided first run. Sili Agent is assigned to this issue and will help you try the core workflow:
+This is your guided first run. Sili Agent is assigned to this task and will help you try the core workflow:
 
 1. Read Sili Agent's first comment.
 2. Reply with something you want to build, fix, write, or plan.
 3. @mention Sili Agent when you want it to continue.
 4. Open Agents and Runtimes later when you want to customize the teammate or the computer it runs on.
 
-You can close this issue when the workflow makes sense.`
+You can close this task when the workflow makes sense.`
 
 type bootstrapOnboardingRuntimeRequest struct {
 	WorkspaceID   string `json:"workspace_id"`
@@ -116,7 +116,7 @@ type bootstrapOnboardingRuntimeRequest struct {
 type bootstrapOnboardingRuntimeResponse struct {
 	WorkspaceID string `json:"workspace_id"`
 	AgentID     string `json:"agent_id"`
-	IssueID     string `json:"issue_id"`
+	TaskID      string `json:"task_id"`
 }
 
 type bootstrapOnboardingNoRuntimeRequest struct {
@@ -125,13 +125,13 @@ type bootstrapOnboardingNoRuntimeRequest struct {
 
 type bootstrapOnboardingNoRuntimeResponse struct {
 	WorkspaceID string `json:"workspace_id"`
-	IssueID     string `json:"issue_id"`
+	TaskID      string `json:"task_id"`
 }
 
 // BootstrapOnboardingRuntime — DEPRECATED, kept for desktop < v3.
 //
 // Creates or reuses one "Sili Agent" on the supplied runtime,
-// creates or reuses one onboarding issue assigned to it, then marks the
+// creates or reuses one onboarding task assigned to it, then marks the
 // user onboarded. Single transaction.
 func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
@@ -214,21 +214,21 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 	}
 	if !assistant.ID.Valid {
 		assistant, err = qtx.CreateAgent(r.Context(), db.CreateAgentParams{
-			WorkspaceID:        wsUUID,
-			Name:               onboardingAssistantName,
-			Description:        onboardingAssistantDescription,
-			AvatarUrl:          pgtype.Text{String: onboardingAssistantAvatarURL, Valid: true},
-			RuntimeMode:        runtime.RuntimeMode,
-			RuntimeConfig:      []byte("{}"),
-			RuntimeID:          runtime.ID,
-			Visibility:         "workspace",
-			MaxConcurrentTasks: 6,
-			OwnerID:            parseUUID(userID),
-			Instructions:       onboardingAssistantInstructions,
-			CustomEnv:          []byte("{}"),
-			CustomArgs:         []byte("[]"),
-			McpConfig:          nil,
-			Model:              pgtype.Text{},
+			WorkspaceID:       wsUUID,
+			Name:              onboardingAssistantName,
+			Description:       onboardingAssistantDescription,
+			AvatarUrl:         pgtype.Text{String: onboardingAssistantAvatarURL, Valid: true},
+			RuntimeMode:       runtime.RuntimeMode,
+			RuntimeConfig:     []byte("{}"),
+			RuntimeID:         runtime.ID,
+			Visibility:        "workspace",
+			MaxConcurrentRuns: 6,
+			OwnerID:           parseUUID(userID),
+			Instructions:      onboardingAssistantInstructions,
+			CustomEnv:         []byte("{}"),
+			CustomArgs:        []byte("[]"),
+			McpConfig:         nil,
+			Model:             pgtype.Text{},
 		})
 		if err != nil {
 			slog.Warn("bootstrap onboarding (shim): create assistant failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
@@ -239,46 +239,46 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 	}
 
 	var emptyUUID pgtype.UUID
-	issue, foundIssue, err := issueguard.LockAndFindActiveDuplicate(
-		r.Context(), qtx, wsUUID, emptyUUID, emptyUUID, onboardingIssueTitle, false,
+	task, foundTask, err := taskguard.LockAndFindActiveDuplicate(
+		r.Context(), qtx, wsUUID, emptyUUID, emptyUUID, onboardingTaskTitle, false,
 	)
 	if err != nil {
-		slog.Warn("bootstrap onboarding (shim): duplicate issue check failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
+		slog.Warn("bootstrap onboarding (shim): duplicate task check failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
+		writeError(w, http.StatusInternalServerError, "failed to create onboarding task")
 		return
 	}
-	issueCreated := false
-	if !foundIssue {
-		issueNumber, err := qtx.IncrementIssueCounter(r.Context(), wsUUID)
+	taskCreated := false
+	if !foundTask {
+		taskNumber, err := qtx.IncrementTaskCounter(r.Context(), wsUUID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to allocate issue number")
+			writeError(w, http.StatusInternalServerError, "failed to allocate task number")
 			return
 		}
-		description := onboardingIssueDescription
+		description := onboardingTaskDescription
 		if req.StarterPrompt != "" {
 			description = req.StarterPrompt
 		}
-		issue, err = qtx.CreateIssue(r.Context(), db.CreateIssueParams{
-			WorkspaceID:   wsUUID,
-			Title:         onboardingIssueTitle,
-			Description:   strOrNullText(description),
-			Status:        "todo",
-			Priority:      "high",
-			AssigneeType:  pgtype.Text{String: "agent", Valid: true},
-			AssigneeID:    assistant.ID,
-			CreatorType:   "member",
-			CreatorID:     parseUUID(userID),
-			ParentIssueID: emptyUUID,
-			Position:      0,
-			Number:        issueNumber,
-			ProjectID:     emptyUUID,
+		task, err = qtx.CreateTask(r.Context(), db.CreateTaskParams{
+			WorkspaceID:  wsUUID,
+			Title:        onboardingTaskTitle,
+			Description:  strOrNullText(description),
+			Status:       "todo",
+			Priority:     "high",
+			AssigneeType: pgtype.Text{String: "agent", Valid: true},
+			AssigneeID:   assistant.ID,
+			CreatorType:  "member",
+			CreatorID:    parseUUID(userID),
+			ParentTaskID: emptyUUID,
+			Position:     0,
+			Number:       taskNumber,
+			ProjectID:    emptyUUID,
 		})
 		if err != nil {
-			slog.Warn("bootstrap onboarding (shim): create issue failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-			writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
+			slog.Warn("bootstrap onboarding (shim): create task failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
+			writeError(w, http.StatusInternalServerError, "failed to create onboarding task")
 			return
 		}
-		issueCreated = true
+		taskCreated = true
 	}
 
 	// Mark onboarded. COALESCE in MarkUserOnboarded preserves the original
@@ -315,18 +315,18 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 			runtime.Provider, runtime.RuntimeMode, onboardingAgentTemplate, isFirstAgent,
 		))
 	}
-	if issueCreated {
-		prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
-		resp := issueToResponse(issue, prefix)
-		h.publish(protocol.EventIssueCreated, req.WorkspaceID, "member", userID, map[string]any{"issue": resp})
+	if taskCreated {
+		prefix := h.getTaskPrefix(r.Context(), task.WorkspaceID)
+		resp := taskToResponse(task, prefix)
+		h.publish(protocol.EventTaskCreated, req.WorkspaceID, "member", userID, map[string]any{"task": resp})
 		platform, _, _ := middleware.ClientMetadataFromContext(r.Context())
-		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(
-			userID, req.WorkspaceID, uuidToString(issue.ID),
+		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.TaskCreated(
+			userID, req.WorkspaceID, uuidToString(task.ID),
 			uuidToString(assistant.ID), "", "", analytics.SourceOnboarding,
 			platform,
 		))
-		if h.shouldEnqueueAgentTask(r.Context(), issue) {
-			h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
+		if h.shouldEnqueueAgentRun(r.Context(), task) {
+			h.AgentRunService.EnqueueRunForTask(r.Context(), task)
 		}
 	}
 	if firstCompletion {
@@ -343,13 +343,13 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, bootstrapOnboardingRuntimeResponse{
 		WorkspaceID: req.WorkspaceID,
 		AgentID:     uuidToString(assistant.ID),
-		IssueID:     uuidToString(issue.ID),
+		TaskID:      uuidToString(task.ID),
 	})
 }
 
 // BootstrapOnboardingNoRuntime — DEPRECATED, kept for desktop < v3.
 //
-// Creates or reuses one "install a runtime" guide issue (assigned to the
+// Creates or reuses one "install a runtime" guide task (assigned to the
 // member themselves) and marks onboarding complete. The user explicitly
 // skipped the runtime step, so we unconditionally seed regardless of any
 // pre-existing runtime on the workspace.
@@ -397,46 +397,46 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 	}
 
 	var emptyUUID pgtype.UUID
-	existing, foundIssue, err := issueguard.LockAndFindActiveDuplicate(
-		r.Context(), qtx, wsUUID, emptyUUID, emptyUUID, noRuntimeIssueTitle, false,
+	existing, foundTask, err := taskguard.LockAndFindActiveDuplicate(
+		r.Context(), qtx, wsUUID, emptyUUID, emptyUUID, noRuntimeTaskTitle, false,
 	)
 	if err != nil {
-		slog.Warn("bootstrap no-runtime onboarding (shim): duplicate issue check failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
+		slog.Warn("bootstrap no-runtime onboarding (shim): duplicate task check failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
+		writeError(w, http.StatusInternalServerError, "failed to create onboarding task")
 		return
 	}
 
-	var issue db.Issue
-	issueCreated := false
-	if foundIssue {
-		issue = existing
+	var task db.Task
+	taskCreated := false
+	if foundTask {
+		task = existing
 	} else {
-		issueNumber, err := qtx.IncrementIssueCounter(r.Context(), wsUUID)
+		taskNumber, err := qtx.IncrementTaskCounter(r.Context(), wsUUID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to allocate issue number")
+			writeError(w, http.StatusInternalServerError, "failed to allocate task number")
 			return
 		}
-		issue, err = qtx.CreateIssue(r.Context(), db.CreateIssueParams{
-			WorkspaceID:   wsUUID,
-			Title:         noRuntimeIssueTitle,
-			Description:   strOrNullText(noRuntimeIssueDescription(userBefore.Language)),
-			Status:        "todo",
-			Priority:      "high",
-			AssigneeType:  pgtype.Text{String: "member", Valid: true},
-			AssigneeID:    parseUUID(userID),
-			CreatorType:   "member",
-			CreatorID:     parseUUID(userID),
-			ParentIssueID: emptyUUID,
-			Position:      0,
-			Number:        issueNumber,
-			ProjectID:     emptyUUID,
+		task, err = qtx.CreateTask(r.Context(), db.CreateTaskParams{
+			WorkspaceID:  wsUUID,
+			Title:        noRuntimeTaskTitle,
+			Description:  strOrNullText(noRuntimeTaskDescription(userBefore.Language)),
+			Status:       "todo",
+			Priority:     "high",
+			AssigneeType: pgtype.Text{String: "member", Valid: true},
+			AssigneeID:   parseUUID(userID),
+			CreatorType:  "member",
+			CreatorID:    parseUUID(userID),
+			ParentTaskID: emptyUUID,
+			Position:     0,
+			Number:       taskNumber,
+			ProjectID:    emptyUUID,
 		})
 		if err != nil {
-			slog.Warn("bootstrap no-runtime onboarding (shim): create issue failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-			writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
+			slog.Warn("bootstrap no-runtime onboarding (shim): create task failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
+			writeError(w, http.StatusInternalServerError, "failed to create onboarding task")
 			return
 		}
-		issueCreated = true
+		taskCreated = true
 	}
 
 	firstCompletion := !userBefore.OnboardedAt.Valid
@@ -455,13 +455,13 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if issueCreated {
-		prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
-		resp := issueToResponse(issue, prefix)
-		h.publish(protocol.EventIssueCreated, req.WorkspaceID, "member", userID, map[string]any{"issue": resp})
+	if taskCreated {
+		prefix := h.getTaskPrefix(r.Context(), task.WorkspaceID)
+		resp := taskToResponse(task, prefix)
+		h.publish(protocol.EventTaskCreated, req.WorkspaceID, "member", userID, map[string]any{"task": resp})
 		platform2, _, _ := middleware.ClientMetadataFromContext(r.Context())
-		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(
-			userID, req.WorkspaceID, uuidToString(issue.ID),
+		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.TaskCreated(
+			userID, req.WorkspaceID, uuidToString(task.ID),
 			"", "", "", analytics.SourceOnboarding,
 			platform2,
 		))
@@ -479,21 +479,21 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 
 	writeJSON(w, http.StatusOK, bootstrapOnboardingNoRuntimeResponse{
 		WorkspaceID: req.WorkspaceID,
-		IssueID:     uuidToString(issue.ID),
+		TaskID:      uuidToString(task.ID),
 	})
 }
 
-// noRuntimeIssueDescription picks the EN or ZH copy based on the user's
+// noRuntimeTaskDescription picks the EN or ZH copy based on the user's
 // language preference. ZH selected on any "zh*" prefix (zh, zh-CN, zh-Hans).
 // Matches pre-v3 service.workspace_content.go behavior 1:1.
-func noRuntimeIssueDescription(language pgtype.Text) string {
+func noRuntimeTaskDescription(language pgtype.Text) string {
 	if language.Valid && strings.HasPrefix(language.String, "zh") {
-		return zhNoRuntimeIssueDescription()
+		return zhNoRuntimeTaskDescription()
 	}
-	return enNoRuntimeIssueDescription()
+	return enNoRuntimeTaskDescription()
 }
 
-func enNoRuntimeIssueDescription() string {
+func enNoRuntimeTaskDescription() string {
 	return strings.Join([]string{
 		"Welcome to Silieco.",
 		"",
@@ -504,11 +504,11 @@ func enNoRuntimeIssueDescription() string {
 		"Before the runtime is ready, you can:",
 		"",
 		"1. Create a project for your current work.",
-		"2. Create a few issues and move them across backlog, todo, in_progress, and done.",
+		"2. Create a few tasks and move them across backlog, todo, in_progress, and done.",
 		"3. Add priorities, labels, comments, and subscriptions.",
 		"4. Use Inbox to track assignments and mentions.",
 		"",
-		"That gives you the project-management layer first. Once a runtime is connected, agents can start working from the same issues.",
+		"That gives you the project-management layer first. Once a runtime is connected, agents can start working from the same tasks.",
 		"",
 		"## Install your first agent runtime",
 		"",
@@ -528,7 +528,7 @@ func enNoRuntimeIssueDescription() string {
 		"   silieco daemon restart",
 		"   If you use the desktop app, restarting the app is enough.",
 		"6. Return to Runtimes and refresh. You should see a Codex runtime online.",
-		"7. Create your first agent from that runtime, then assign an issue to the agent and set status to todo.",
+		"7. Create your first agent from that runtime, then assign an task to the agent and set status to todo.",
 		"",
 		"Codex reference: https://developers.openai.com/codex/cli",
 		"",
@@ -536,7 +536,7 @@ func enNoRuntimeIssueDescription() string {
 	}, "\n")
 }
 
-func zhNoRuntimeIssueDescription() string {
+func zhNoRuntimeTaskDescription() string {
 	return strings.Join([]string{
 		"欢迎来到 Silieco。",
 		"",
@@ -547,11 +547,11 @@ func zhNoRuntimeIssueDescription() string {
 		"运行时安装前，你可以先做这些事：",
 		"",
 		"1. 为当前工作创建一个项目。",
-		"2. 新建几个 issue，并在 backlog、todo、in_progress、done 之间流转。",
-		"3. 给 issue 加优先级、标签、评论和订阅。",
+		"2. 新建几个 task，并在 backlog、todo、in_progress、done 之间流转。",
+		"3. 给 task 加优先级、标签、评论和订阅。",
 		"4. 用收件箱追踪分配给你的事项和 @mention。",
 		"",
-		"这样你先熟悉项目管理层。连上运行时后，智能体会直接在这些 issue 上开始工作。",
+		"这样你先熟悉项目管理层。连上运行时后，智能体会直接在这些 task 上开始工作。",
 		"",
 		"## 安装第一个 Agent 运行时",
 		"",
@@ -572,7 +572,7 @@ func zhNoRuntimeIssueDescription() string {
 		"   silieco daemon restart",
 		"   如果你用桌面端，重启 app 即可。",
 		"6. 回到 Runtimes 页面刷新。你应该能看到一个在线的 Kimi 运行时。",
-		"7. 用这个运行时创建第一个智能体，再把一个 issue 分配给它，并把状态切到 todo。",
+		"7. 用这个运行时创建第一个智能体，再把一个 task 分配给它，并把状态切到 todo。",
 		"",
 		"Kimi CLI 官方文档：https://moonshotai.github.io/kimi-cli/zh/guides/getting-started.html",
 		"",

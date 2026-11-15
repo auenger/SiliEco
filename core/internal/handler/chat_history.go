@@ -76,38 +76,38 @@ func (h *Handler) GetChatThread(w http.ResponseWriter, r *http.Request) {
 
 // chatHistorySession authorizes the request and returns the caller's own chat
 // session. It is authorized by the task-scoped token alone: middleware stamps
-// the token's task into X-Actor-Source=task_token + X-Task-ID (a normal JWT /
+// the token's task into X-Actor-Source=agent_run_token + X-Run-ID (a normal JWT /
 // sili_ PAT leaves X-Actor-Source empty and does NOT strip a client-forged
-// X-Task-ID), so requiring the task-token actor is load-bearing — without it a
-// member could forge X-Task-ID and read another session's history.
+// X-Run-ID), so requiring the task-token actor is load-bearing — without it a
+// member could forge X-Run-ID and read another session's history.
 func (h *Handler) chatHistorySession(w http.ResponseWriter, r *http.Request) (pgtype.UUID, bool) {
-	if r.Header.Get("X-Actor-Source") != "task_token" {
+	if r.Header.Get("X-Actor-Source") != "agent_run_token" {
 		writeError(w, http.StatusForbidden, "chat history is only available from within an agent task")
 		return pgtype.UUID{}, false
 	}
-	taskIDHeader := r.Header.Get("X-Task-ID")
-	if taskIDHeader == "" {
+	runIDHeader := r.Header.Get("X-Run-ID")
+	if runIDHeader == "" {
 		writeError(w, http.StatusBadRequest, "missing task context")
 		return pgtype.UUID{}, false
 	}
-	taskUUID, err := util.ParseUUID(taskIDHeader)
+	runUUID, err := util.ParseUUID(runIDHeader)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid task id")
 		return pgtype.UUID{}, false
 	}
-	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
+	agentRun, err := h.Queries.GetAgentRun(r.Context(), runUUID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "task not found")
 		return pgtype.UUID{}, false
 	}
-	if !task.ChatSessionID.Valid {
+	if !agentRun.ChatSessionID.Valid {
 		writeError(w, http.StatusBadRequest, "this task is not a chat task")
 		return pgtype.UUID{}, false
 	}
 	// Defense in depth: load the session and confirm it lives in the token's
 	// stamped workspace. The token→task binding already guarantees the agent can
 	// only reach its own task; this makes a future wiring regression fail closed.
-	session, err := h.Queries.GetChatSession(r.Context(), task.ChatSessionID)
+	session, err := h.Queries.GetChatSession(r.Context(), agentRun.ChatSessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "chat session not found")
 		return pgtype.UUID{}, false
@@ -116,7 +116,7 @@ func (h *Handler) chatHistorySession(w http.ResponseWriter, r *http.Request) (pg
 		writeError(w, http.StatusForbidden, "chat session does not belong to this workspace")
 		return pgtype.UUID{}, false
 	}
-	return task.ChatSessionID, true
+	return agentRun.ChatSessionID, true
 }
 
 // respondChatHistory writes the shared response: a note (200) when the session

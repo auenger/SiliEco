@@ -16,11 +16,11 @@ func TestResolveDaemonStringOverridePrecedence(t *testing.T) {
 	const envName = "TEST_SILIECO_STR_OVERRIDE"
 
 	cases := []struct {
-		name   string
-		flag   string
-		env    string // "" means unset
-		cfg    string
-		want   string
+		name string
+		flag string
+		env  string // "" means unset
+		cfg  string
+		want string
 	}{
 		{"flag wins over env and cfg", "flag-val", "env-val", "cfg-val", "flag-val"},
 		{"env suppresses cfg", "", "env-val", "cfg-val", ""},
@@ -51,12 +51,12 @@ func TestResolveDaemonDurationOverridePrecedence(t *testing.T) {
 	const envName = "TEST_SILIECO_DUR_OVERRIDE"
 
 	cases := []struct {
-		name    string
-		flag    time.Duration
-		env     string
-		cfg     string
-		want    time.Duration
-		errSub  string // substring of expected error, "" = no error
+		name   string
+		flag   time.Duration
+		env    string
+		cfg    string
+		want   time.Duration
+		errSub string // substring of expected error, "" = no error
 	}{
 		{"flag wins", 5 * time.Second, "10s", "20s", 5 * time.Second, ""},
 		{"env suppresses cfg", 0, "10s", "20s", 0, ""},
@@ -95,7 +95,7 @@ func TestResolveDaemonDurationOverridePrecedence(t *testing.T) {
 }
 
 // TestResolveDaemonIntOverridePrecedence — same shape as the string case
-// but with the int knob (max_concurrent_tasks). flag>0 wins; env
+// but with the int knob (max_concurrent_runs). flag>0 wins; env
 // non-empty suppresses cfg; cfg>0 wins only when both are absent.
 func TestResolveDaemonIntOverridePrecedence(t *testing.T) {
 	const envName = "TEST_SILIECO_INT_OVERRIDE"

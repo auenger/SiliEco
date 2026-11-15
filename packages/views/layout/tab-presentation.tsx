@@ -12,7 +12,7 @@ import {
   type TabEntityData,
   type TabLabelKey,
 } from "@silieco/core/paths";
-import { issueDetailOptions } from "@silieco/core/issues/queries";
+import { taskDetailOptions } from "@silieco/core/tasks/queries";
 import { projectDetailOptions } from "@silieco/core/projects/queries";
 import { autopilotDetailOptions } from "@silieco/core/autopilots/queries";
 import {
@@ -29,7 +29,7 @@ import {
   archivedInboxListOptions,
 } from "@silieco/core/inbox/queries";
 import { cn } from "@silieco/ui/lib/utils";
-import { StatusIcon } from "../issues/components";
+import { StatusIcon } from "../tasks/components";
 import { ProjectIcon } from "../projects/components/project-icon";
 import { ActorAvatar } from "../common/actor-avatar";
 import { getInboxDisplayTitle } from "../inbox/components/inbox-display";
@@ -44,7 +44,7 @@ import { ROUTE_ICON_COMPONENTS } from "./route-icon-components";
  * Cache-only reads: every query in `useTabEntityData` is `enabled: false`. It
  * observes whatever the pages/directory already loaded and re-renders when that
  * data changes, so an open tab's icon/title stay in sync (project renamed,
- * issue status changed, chat session retitled) without amplifying requests. A
+ * task status changed, chat session retitled) without amplifying requests. A
  * resource that has not loaded yet renders a stable type fallback until its
  * page fills the cache.
  *
@@ -63,7 +63,7 @@ const NONE = "__tab_presentation_none__";
 // Flow/unknown/attachment always use their type label.
 const PENDING_RESOURCE_KEYS: ReadonlySet<TabLabelKey> = new Set<TabLabelKey>([
   "browser",
-  "issue",
+  "task",
   "project",
   "autopilot",
   "agent",
@@ -91,22 +91,22 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
   const inboxItem =
     subject.kind === "inbox" && subject.selectedKey
       ? (activeInboxList?.find(
-          (i) => (i.issue_id ?? i.id) === subject.selectedKey,
+          (i) => (i.task_id ?? i.id) === subject.selectedKey,
         ) ?? null)
       : null;
 
-  // One issue query serves both a direct issue tab and an inbox-selected issue.
-  const issueId =
-    subject.kind === "issue"
+  // One task query serves both a direct task tab and an inbox-selected task.
+  const taskId =
+    subject.kind === "task"
       ? subject.id
-      : (inboxItem?.issue_id ?? "");
-  const issue = useQuery({
-    ...issueDetailOptions(wsId, issueId || NONE),
+      : (inboxItem?.task_id ?? "");
+  const task = useQuery({
+    ...taskDetailOptions(wsId, taskId || NONE),
     enabled: false,
   }).data;
 
   const project = useQuery({
-    ...projectDetailOptions(wsId, subject.kind === "project" ? subject.id : NONE),
+    ...projectDetailOptions(wsId, (subject.kind === "project" || subject.kind === "project-files") ? subject.id : NONE),
     enabled: false,
   }).data;
   const autopilot = useQuery({
@@ -129,15 +129,16 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
 
   const data: TabEntityData = {};
   switch (subject.kind) {
-    case "issue":
-      if (issue) {
-        data.issue = {
-          identifier: issue.identifier,
-          title: issue.title,
-          status: issue.status,
+    case "task":
+      if (task) {
+        data.task = {
+          identifier: task.identifier,
+          title: task.title,
+          status: task.status,
         };
       }
       break;
+    case "project-files":
     case "project":
       if (project) data.project = { icon: project.icon, title: project.title };
       break;
@@ -175,13 +176,13 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
       break;
     case "inbox":
       if (inboxItem) {
-        if (inboxItem.issue_id && issue) {
+        if (inboxItem.task_id && task) {
           data.inboxSelection = {
-            kind: "issue",
-            identifier: issue.identifier,
-            title: issue.title,
+            kind: "task",
+            identifier: task.identifier,
+            title: task.title,
           };
-        } else if (!inboxItem.issue_id) {
+        } else if (!inboxItem.task_id) {
           data.inboxSelection = {
             kind: "item",
             title: getInboxDisplayTitle(inboxItem),
@@ -272,7 +273,7 @@ export function ResourceLeadingVisual({
       inner = <Icon className="size-3.5" />;
       break;
     }
-    case "issue-status":
+    case "task-status":
       // A null status (loading) renders StatusIcon's neutral fallback glyph.
       inner = <StatusIcon status={visual.status ?? ""} className="size-3.5" />;
       break;

@@ -13,6 +13,29 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const env = process.env.APP_ENV ?? "development";
   const isProd = env === "production";
   const isStaging = env === "staging";
+  const httpHost =
+    env === "development" ? process.env.SILIECO_IOS_HTTP_HOST : undefined;
+
+  if (httpHost !== undefined) {
+    let apiUrl: URL;
+    try {
+      apiUrl = new URL(process.env.EXPO_PUBLIC_API_URL ?? "");
+    } catch {
+      throw new Error(
+        "SILIECO_IOS_HTTP_HOST requires an explicit HTTP EXPO_PUBLIC_API_URL",
+      );
+    }
+    if (
+      !httpHost ||
+      httpHost.includes("*") ||
+      apiUrl.protocol !== "http:" ||
+      apiUrl.hostname !== httpHost
+    ) {
+      throw new Error(
+        "SILIECO_IOS_HTTP_HOST must exactly match the HTTP API hostname",
+      );
+    }
+  }
 
   return {
     ...config,
@@ -32,6 +55,22 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     icon: "./assets/icon.png",
     ios: {
       supportsTablet: false,
+      // Explicitly reset exceptions on every prebuild: Expo otherwise retains
+      // the previous native plist's values when switching environments.
+      infoPlist: {
+        NSAppTransportSecurity: {
+          NSAllowsArbitraryLoads: false,
+          NSAllowsLocalNetworking: true,
+          NSExceptionDomains: httpHost
+            ? {
+                [httpHost]: {
+                  NSExceptionAllowsInsecureHTTPLoads: true,
+                  NSIncludesSubdomains: false,
+                },
+              }
+            : {},
+        },
+      },
       // Per-variant bundle id overrides exist for one reason: an Apple ID
       // can only sign bundle prefixes it owns, so contributors not on the
       // Silieco Apple Developer team (and external users self-building a

@@ -63,7 +63,7 @@ func TestChannelStore_ScopesToFeishu(t *testing.T) {
 		wsID          = "5c09e000-0000-4000-8000-000000000001"
 		agentID       = "5c09e000-0000-4000-8000-000000000002"
 		chatSessionID = "5c09e000-0000-4000-8000-000000000003"
-		taskID        = "5c09e000-0000-4000-8000-000000000004"
+		runID        = "5c09e000-0000-4000-8000-000000000004"
 		installerID   = "5c09e000-0000-4000-8000-000000000005"
 	)
 	clean := func() {
@@ -73,7 +73,7 @@ func TestChannelStore_ScopesToFeishu(t *testing.T) {
 		_, _ = pool.Exec(context.Background(),
 			`DELETE FROM channel_chat_session_binding WHERE chat_session_id = $1`, chatSessionID)
 		_, _ = pool.Exec(context.Background(),
-			`DELETE FROM channel_outbound_card_message WHERE task_id = $1`, taskID)
+			`DELETE FROM channel_outbound_card_message WHERE run_id = $1`, runID)
 	}
 	clean()
 	t.Cleanup(clean)
@@ -100,15 +100,15 @@ VALUES ($1, $2, 'slack', 'oc_scope_slack', 'p2p')
 		t.Fatalf("insert slack chat binding: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO channel_outbound_card_message (chat_session_id, task_id, channel_type, channel_chat_id, channel_card_message_id, status)
+INSERT INTO channel_outbound_card_message (chat_session_id, run_id, channel_type, channel_chat_id, channel_card_message_id, status)
 VALUES ($1, $2, 'slack', 'oc_scope_slack', 'om_scope_slack', 'pending')
-`, chatSessionID, taskID); err != nil {
+`, chatSessionID, runID); err != nil {
 		t.Fatalf("insert slack outbound card: %v", err)
 	}
 
 	wsUUID := util.MustParseUUID(wsID)
 	sessionUUID := util.MustParseUUID(chatSessionID)
-	taskUUID := util.MustParseUUID(taskID)
+	runUUID := util.MustParseUUID(runID)
 
 	// --- installation reads: Feishu visible, Slack invisible ---
 
@@ -148,7 +148,7 @@ VALUES ($1, $2, 'slack', 'oc_scope_slack', 'om_scope_slack', 'pending')
 	if _, err := store.GetLarkChatSessionBindingBySession(ctx, sessionUUID); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("GetLarkChatSessionBindingBySession(slack-bound session): err=%v, want pgx.ErrNoRows (scoped out)", err)
 	}
-	if _, err := store.GetLarkOutboundCardByTask(ctx, taskUUID); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := store.GetLarkOutboundCardByRun(ctx, runUUID); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("GetLarkOutboundCardByTask(slack card): err=%v, want pgx.ErrNoRows (scoped out)", err)
 	}
 }

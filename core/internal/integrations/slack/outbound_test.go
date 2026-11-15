@@ -27,17 +27,17 @@ type fakeOutboundQueries struct {
 	bindingErr          error
 	inst                db.ChannelInstallation
 	instErr             error
-	task                db.AgentTaskQueue
-	taskErr             error
-	taskChannelIngested bool
+	agentRun                db.AgentRun
+	runErr             error
+	runChannelIngested bool
 }
 
-func (f *fakeOutboundQueries) GetAgentTask(context.Context, pgtype.UUID) (db.AgentTaskQueue, error) {
-	return f.task, f.taskErr
+func (f *fakeOutboundQueries) GetAgentRun(context.Context, pgtype.UUID) (db.AgentRun, error) {
+	return f.agentRun, f.runErr
 }
 
-func (f *fakeOutboundQueries) TaskHasChannelIngestedMessages(context.Context, pgtype.UUID) (bool, error) {
-	return f.taskChannelIngested, nil
+func (f *fakeOutboundQueries) RunHasChannelIngestedMessages(context.Context, pgtype.UUID) (bool, error) {
+	return f.runChannelIngested, nil
 }
 
 func (f *fakeOutboundQueries) GetChannelChatSessionBindingBySession(context.Context, db.GetChannelChatSessionBindingBySessionParams) (db.ChannelChatSessionBinding, error) {
@@ -81,16 +81,16 @@ func chatDoneEvent(sessionID string, content string) events.Event {
 		Type:          protocol.EventChatDone,
 		ChatSessionID: sessionID,
 		Payload: protocol.ChatDonePayload{
-			TaskID:        "00000000-0000-0000-0000-000000000002",
+			RunID:        "00000000-0000-0000-0000-000000000002",
 			ChatSessionID: sessionID,
 			Content:       content,
 		},
 	}
 }
 
-func TestOutbound_SkipsDirectChatTaskOnBoundSlackSession(t *testing.T) {
+func TestOutbound_SkipsDirectChatRunOnBoundSlackSession(t *testing.T) {
 	q := &fakeOutboundQueries{
-		task: db.AgentTaskQueue{ChatInputTaskID: uid(2)},
+		agentRun: db.AgentRun{ChatInputRunID: uid(2)},
 		binding: db.ChannelChatSessionBinding{
 			InstallationID: uid(1),
 			ChannelChatID:  "C123",
@@ -110,10 +110,10 @@ func TestOutbound_SkipsDirectChatTaskOnBoundSlackSession(t *testing.T) {
 // A sealed channel task owns an input batch exactly like a direct task; the
 // outbound gate must key on channel provenance, not owner presence, or every
 // Slack reply is silently dropped.
-func TestOutbound_PostsSealedChannelTaskReply(t *testing.T) {
+func TestOutbound_PostsSealedChannelRunReply(t *testing.T) {
 	q := &fakeOutboundQueries{
-		task:                db.AgentTaskQueue{ChatInputTaskID: uid(2)},
-		taskChannelIngested: true,
+		agentRun:                db.AgentRun{ChatInputRunID: uid(2)},
+		runChannelIngested: true,
 		binding: db.ChannelChatSessionBinding{
 			InstallationID: uid(1),
 			ChannelChatID:  "C123",

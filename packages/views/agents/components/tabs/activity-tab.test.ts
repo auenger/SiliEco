@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentTask } from "@silieco/core/types";
+import type { AgentRun } from "@silieco/core/types";
 import {
   deriveAvgDurationLast30d,
   formatDurationMs,
@@ -9,12 +9,12 @@ const NOW = new Date("2026-04-28T12:00:00Z").getTime();
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-function task(overrides: Partial<AgentTask>): AgentTask {
+function task(overrides: Partial<AgentRun>): AgentRun {
   return {
     id: "t",
     agent_id: "a",
     runtime_id: "r",
-    issue_id: "",
+    task_id: "",
     status: "completed",
     priority: 0,
     dispatched_at: null,

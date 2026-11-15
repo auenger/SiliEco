@@ -1,6 +1,6 @@
 /**
  * Builds a markdown blockquote that documents who the user is on each
- * starter issue Helper picks up. Source data is the onboarding
+ * starter task Helper picks up. Source data is the onboarding
  * questionnaire stashed on `user.onboarding_questionnaire`.
  *
  * The block is APPENDED (not prepended) so the original prompt stays

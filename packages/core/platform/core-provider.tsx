@@ -56,7 +56,7 @@ function initCore(
   const api = new ApiClient(apiBaseUrl, {
     logger: createLogger("api"),
     onUnauthorized: () => {
-      storage.removeItem("silieco_token");
+      storage.removeItem("silieco_tr1_token");
     },
     identity,
   });
@@ -65,7 +65,7 @@ function initCore(
 
   // In token mode, hydrate token from storage.
   if (!cookieAuth) {
-    const token = storage.getItem("silieco_token");
+    const token = storage.getItem("silieco_tr1_token");
     if (token) api.setToken(token);
   }
   // Workspace identity is URL-driven: the [workspaceSlug] layout resolves

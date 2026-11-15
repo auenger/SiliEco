@@ -28,4 +28,4 @@ export const usePageFeedbackStore = create<FeedbackStore>()(persist((set) => ({
   setPending: (key, value) => set((state) => ({ pending: { ...state.pending, [key]: value } })),
   patch: (key, patch) => set((state) => ({ drafts: { ...state.drafts, [key]: { ...(state.drafts[key] ?? emptyFeedbackDraft), ...patch } } })),
   clear: (key) => set((state) => { const drafts = { ...state.drafts }; delete drafts[key]; return { drafts }; }),
-}), { name: "silieco_page_feedback", storage: createJSONStorage(() => defaultStorage), partialize: (state) => ({ drafts: state.drafts }), version: 1 }));
+}), { name: "silieco_tr1_page_feedback", storage: createJSONStorage(() => defaultStorage), partialize: (state) => ({ drafts: state.drafts }), version: 1 }));

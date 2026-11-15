@@ -41,7 +41,7 @@ func withCloudFrontSigner(t *testing.T) {
 }
 
 func requestWithCapabilities(caps string) *http.Request {
-	r := httptest.NewRequest(http.MethodGet, "/api/issues/x/comments", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/tasks/x/comments", nil)
 	if caps != "" {
 		r.Header.Set("X-Client-Capabilities", caps)
 	}

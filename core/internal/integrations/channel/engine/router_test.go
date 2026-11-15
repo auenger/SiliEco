@@ -233,20 +233,20 @@ func (f *fakeMedia) calls() int {
 	return f.count
 }
 
-type fakeIssues struct {
+type fakeTasks struct {
 	called bool
-	params service.IssueCreateParams
-	result service.IssueCreateResult
+	params service.TaskCreateParams
+	result service.TaskCreateResult
 	err    error
 }
 
-func (f *fakeIssues) Create(_ context.Context, p service.IssueCreateParams, _ service.IssueCreateOpts) (service.IssueCreateResult, error) {
+func (f *fakeTasks) Create(_ context.Context, p service.TaskCreateParams, _ service.TaskCreateOpts) (service.TaskCreateResult, error) {
 	f.called = true
 	f.params = p
 	return f.result, f.err
 }
 
-type fakeTasks struct {
+type fakeRuns struct {
 	mu         sync.Mutex
 	called     bool
 	callCount  int
@@ -256,31 +256,31 @@ type fakeTasks struct {
 	err        error
 }
 
-func (f *fakeTasks) PromoteChannelChatTasksIfMediaReady(_ context.Context, _ pgtype.UUID) error {
+func (f *fakeRuns) PromoteChannelChatRunsIfMediaReady(_ context.Context, _ pgtype.UUID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.promotions++
 	return nil
 }
 
-func (f *fakeTasks) EnqueueChatTask(_ context.Context, _ db.ChatSession, initiator pgtype.UUID, forceFresh bool) (db.AgentTaskQueue, error) {
+func (f *fakeRuns) EnqueueChatRun(_ context.Context, _ db.ChatSession, initiator pgtype.UUID, forceFresh bool) (db.AgentRun, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.called = true
 	f.callCount++
 	f.forceFresh = forceFresh
 	f.initiator = initiator
-	return db.AgentTaskQueue{}, f.err
+	return db.AgentRun{}, f.err
 }
-func (f *fakeTasks) wasCalled() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.called }
-func (f *fakeTasks) freshArg() bool  { f.mu.Lock(); defer f.mu.Unlock(); return f.forceFresh }
-func (f *fakeTasks) calls() int      { f.mu.Lock(); defer f.mu.Unlock(); return f.callCount }
-func (f *fakeTasks) promotionCalls() int {
+func (f *fakeRuns) wasCalled() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.called }
+func (f *fakeRuns) freshArg() bool  { f.mu.Lock(); defer f.mu.Unlock(); return f.forceFresh }
+func (f *fakeRuns) calls() int      { f.mu.Lock(); defer f.mu.Unlock(); return f.callCount }
+func (f *fakeRuns) promotionCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.promotions
 }
-func (f *fakeTasks) initiatorArg() pgtype.UUID {
+func (f *fakeRuns) initiatorArg() pgtype.UUID {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.initiator
@@ -336,8 +336,8 @@ type harness struct {
 	replier *fakeReplier
 	typing  *fakeTyping
 	media   *fakeMedia
-	issues  *fakeIssues
-	tasks   *fakeTasks
+	tasks  *fakeTasks
+	agentRuns   *fakeRuns
 	reader  *fakeReader
 }
 
@@ -358,11 +358,11 @@ func newHarness(t *testing.T) *harness {
 		replier: &fakeReplier{},
 		typing:  &fakeTyping{},
 		media:   &fakeMedia{},
-		issues:  &fakeIssues{},
-		tasks:   &fakeTasks{},
-		reader:  &fakeReader{ws: db.Workspace{IssuePrefix: "SILI"}},
+		tasks:  &fakeTasks{},
+		agentRuns:   &fakeRuns{},
+		reader:  &fakeReader{ws: db.Workspace{TaskPrefix: "SILI"}},
 	}
-	h.router = NewRouter(h.issues, h.tasks, h.reader, RouterConfig{Logger: discardLogger()})
+	h.router = NewRouter(h.tasks, h.agentRuns, h.reader, RouterConfig{Logger: discardLogger()})
 	h.router.Register(channel.TypeFeishu, ResolverSet{
 		Installation: h.inst,
 		Identity:     h.ident,
@@ -532,7 +532,7 @@ func TestRouter_Ingested_InTxMark_FinalizeNone(t *testing.T) {
 	if h.dedup.releases() != 0 {
 		t.Fatalf("a durable ingest must not Release, got %d", h.dedup.releases())
 	}
-	if !waitFor(time.Second, h.tasks.wasCalled) {
+	if !waitFor(time.Second, h.agentRuns.wasCalled) {
 		t.Fatalf("ingest must trigger a chat run (inline, no batcher)")
 	}
 	if !waitFor(time.Second, func() bool { return h.typing.calls() == 1 }) {
@@ -559,7 +559,7 @@ func TestRouter_NoMediaMessageSkipsMediaPipeline(t *testing.T) {
 	if err := h.router.Handle(context.Background(), p2pMessage(t)); err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
-	if !waitFor(time.Second, h.tasks.wasCalled) {
+	if !waitFor(time.Second, h.agentRuns.wasCalled) {
 		t.Fatal("no-media message must still trigger a chat run")
 	}
 	if got := h.binder.appendedParams().MediaPendingSeconds; got != 0 {
@@ -568,14 +568,14 @@ func TestRouter_NoMediaMessageSkipsMediaPipeline(t *testing.T) {
 	if h.media.calls() != 0 {
 		t.Fatalf("no-media message ran ResolveMedia %d times, want 0", h.media.calls())
 	}
-	if h.tasks.promotionCalls() != 0 {
-		t.Fatalf("no-media message triggered %d promotions, want 0", h.tasks.promotionCalls())
+	if h.agentRuns.promotionCalls() != 0 {
+		t.Fatalf("no-media message triggered %d promotions, want 0", h.agentRuns.promotionCalls())
 	}
 }
 
 func TestRouter_MediaResolverTimeoutAppendsOriginalMessage(t *testing.T) {
 	h := newHarness(t)
-	h.router = NewRouter(h.issues, h.tasks, h.reader, RouterConfig{MediaTimeout: 10 * time.Millisecond, Logger: discardLogger()})
+	h.router = NewRouter(h.tasks, h.agentRuns, h.reader, RouterConfig{MediaTimeout: 10 * time.Millisecond, Logger: discardLogger()})
 	h.media.waitForCancel = true
 	h.router.Register(channel.TypeFeishu, ResolverSet{
 		Installation: h.inst,
@@ -598,7 +598,7 @@ func TestRouter_MediaResolverTimeoutAppendsOriginalMessage(t *testing.T) {
 	if refs := h.binder.boundMedia().MediaRefs; len(refs) != 0 {
 		t.Fatalf("timed-out media refs must not attach: %+v", refs)
 	}
-	if !waitFor(time.Second, h.tasks.wasCalled) {
+	if !waitFor(time.Second, h.agentRuns.wasCalled) {
 		t.Fatalf("message should still be ingested and trigger a chat run")
 	}
 	if h.dedup.releases() != 0 {
@@ -613,7 +613,7 @@ func TestRouter_MediaBindFailureStillChecksPlaceholderPromotion(t *testing.T) {
 	if err := h.router.Handle(context.Background(), p2pMessage(t)); err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
-	if !waitFor(time.Second, func() bool { return h.tasks.promotionCalls() == 1 }) {
+	if !waitFor(time.Second, func() bool { return h.agentRuns.promotionCalls() == 1 }) {
 		t.Fatal("binding failure did not check whether the cleared placeholder task could be promoted")
 	}
 	// No inline deletion on bind failure: the attachments may or may not
@@ -624,7 +624,7 @@ func TestRouter_MediaBindFailureStillChecksPlaceholderPromotion(t *testing.T) {
 
 func TestRouter_MediaDeadlineDropsRefsWithoutBinding(t *testing.T) {
 	h := newHarness(t)
-	h.router = NewRouter(h.issues, h.tasks, h.reader, RouterConfig{MediaTimeout: 10 * time.Millisecond, Logger: discardLogger()})
+	h.router = NewRouter(h.tasks, h.agentRuns, h.reader, RouterConfig{MediaTimeout: 10 * time.Millisecond, Logger: discardLogger()})
 	// A rich post where an early upload succeeded before the deadline killed
 	// the rest of the resolution: the resolver returns the partial refs. The
 	// router must not bind them — and must not delete anything inline: the
@@ -652,7 +652,7 @@ func TestRouter_MediaDeadlineDropsRefsWithoutBinding(t *testing.T) {
 	if err := h.router.Handle(context.Background(), p2pMessage(t)); err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
-	if !waitFor(time.Second, func() bool { return h.tasks.promotionCalls() == 1 }) {
+	if !waitFor(time.Second, func() bool { return h.agentRuns.promotionCalls() == 1 }) {
 		t.Fatal("deadline expiry must still clear the marker and check promotion")
 	}
 	if refs := h.binder.boundMedia().MediaRefs; len(refs) != 0 {
@@ -687,12 +687,12 @@ func TestRouter_MediaResolutionDoesNotBlockInboundHandle(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Handle waited for media resolution on the connector ACK path")
 	}
-	if !h.tasks.wasCalled() {
+	if !h.agentRuns.wasCalled() {
 		t.Fatal("durable run trigger was not scheduled while media resolution was pending")
 	}
 
 	close(release)
-	if !waitFor(time.Second, func() bool { return h.tasks.promotionCalls() == 1 }) {
+	if !waitFor(time.Second, func() bool { return h.agentRuns.promotionCalls() == 1 }) {
 		t.Fatal("media completion did not promote the durable deferred run")
 	}
 }
@@ -737,13 +737,13 @@ func TestRouter_MediaQueuePreservesSessionOrderWithoutCancellingRunBoundary(t *t
 		t.Fatalf("new media must keep one fenced run boundary, pending=%d", got)
 	}
 	timers.fireArmed()
-	if !waitFor(time.Second, func() bool { return h.tasks.calls() == 1 }) {
+	if !waitFor(time.Second, func() bool { return h.agentRuns.calls() == 1 }) {
 		t.Fatal("durable run trigger did not flush while media was pending")
 	}
 
 	close(releaseSecond)
-	if !waitFor(time.Second, func() bool { return h.tasks.promotionCalls() == 2 }) {
-		t.Fatalf("media completion promotions = %d, want 2", h.tasks.promotionCalls())
+	if !waitFor(time.Second, func() bool { return h.agentRuns.promotionCalls() == 2 }) {
+		t.Fatalf("media completion promotions = %d, want 2", h.agentRuns.promotionCalls())
 	}
 }
 
@@ -761,28 +761,28 @@ func TestRouter_ClaimLost_Drops(t *testing.T) {
 	}
 }
 
-func TestRouter_IssueCommand_Creates(t *testing.T) {
+func TestRouter_TaskCommand_Creates(t *testing.T) {
 	h := newHarness(t)
-	h.binder.appendResult = AppendResult{DedupMarked: true, IssueCommand: &IssueCommand{Title: "Fix login", Description: "details"}}
-	h.issues.result = service.IssueCreateResult{Issue: db.Issue{ID: uuidFromString(t, "77777777-7777-7777-7777-777777777777"), Number: 42, Title: "Fix login"}}
+	h.binder.appendResult = AppendResult{DedupMarked: true, TaskCommand: &TaskCommand{Title: "Fix login", Description: "details"}}
+	h.tasks.result = service.TaskCreateResult{Task: db.Task{ID: uuidFromString(t, "77777777-7777-7777-7777-777777777777"), Number: 42, Title: "Fix login"}}
 	if err := h.router.Handle(context.Background(), p2pMessage(t)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !h.issues.called {
-		t.Fatal("expected issue create")
+	if !h.tasks.called {
+		t.Fatal("expected task create")
 	}
-	if h.issues.params.OriginType.String != "lark_chat" {
-		t.Fatalf("origin_type must come from the resolver set, got %q", h.issues.params.OriginType.String)
+	if h.tasks.params.OriginType.String != "lark_chat" {
+		t.Fatalf("origin_type must come from the resolver set, got %q", h.tasks.params.OriginType.String)
 	}
 	if !waitFor(time.Second, func() bool {
 		for _, r := range h.replier.calls() {
-			if r.IssueIdentifier == "SILI-42" && r.IssueTitle == "Fix login" {
+			if r.TaskIdentifier == "SILI-42" && r.TaskTitle == "Fix login" {
 				return true
 			}
 		}
 		return false
 	}) {
-		t.Fatalf("expected an issue-created reply with the workspace-qualified identifier")
+		t.Fatalf("expected an task-created reply with the workspace-qualified identifier")
 	}
 }
 
@@ -798,7 +798,7 @@ func TestRouter_GroupSessionCreatorIsInstaller(t *testing.T) {
 		t.Fatalf("group session creator must be the installer")
 	}
 	// And the run initiator is the sender, not the installer.
-	if !waitFor(time.Second, h.tasks.wasCalled) || h.tasks.initiatorArg() != h.ident.id.UserID {
+	if !waitFor(time.Second, h.agentRuns.wasCalled) || h.agentRuns.initiatorArg() != h.ident.id.UserID {
 		t.Fatalf("run initiator must be the message sender")
 	}
 }
@@ -815,7 +815,7 @@ func TestRouter_P2PSessionCreatorIsSender(t *testing.T) {
 
 func TestRouter_FlushOffline_RepliesAgentOffline(t *testing.T) {
 	h := newHarness(t)
-	h.tasks.err = service.ErrChatTaskAgentNoRuntime
+	h.agentRuns.err = service.ErrChatRunAgentNoRuntime
 	if err := h.router.Handle(context.Background(), p2pMessage(t)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -838,7 +838,7 @@ func TestRouter_FlushOffline_RepliesAgentOffline(t *testing.T) {
 
 func TestRouter_FlushArchived_ClearsTyping(t *testing.T) {
 	h := newHarness(t)
-	h.tasks.err = service.ErrChatTaskAgentArchived
+	h.agentRuns.err = service.ErrChatRunAgentArchived
 	if err := h.router.Handle(context.Background(), p2pMessage(t)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -852,7 +852,7 @@ func TestRouter_FlushSuccess_DoesNotClearTyping(t *testing.T) {
 	if err := h.router.Handle(context.Background(), p2pMessage(t)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !waitFor(time.Second, h.tasks.wasCalled) {
+	if !waitFor(time.Second, h.agentRuns.wasCalled) {
 		t.Fatalf("a healthy session must enqueue a task")
 	}
 	// A successfully enqueued task is cleared by the platform's bus-driven
@@ -869,7 +869,7 @@ func TestRouter_ForceFresh_Propagates(t *testing.T) {
 	if err := h.router.Handle(context.Background(), msg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !waitFor(time.Second, h.tasks.wasCalled) || !h.tasks.freshArg() {
+	if !waitFor(time.Second, h.agentRuns.wasCalled) || !h.agentRuns.freshArg() {
 		t.Fatalf("ForceFresh must propagate to EnqueueChatTask")
 	}
 }
@@ -894,7 +894,7 @@ func TestRouter_DrainJoinsReplies(t *testing.T) {
 
 func TestRouter_MediaConcurrencyCapAppliesAcrossSessions(t *testing.T) {
 	h := newHarness(t)
-	h.router = NewRouter(h.issues, h.tasks, h.reader, RouterConfig{MediaConcurrency: 1, Logger: discardLogger()})
+	h.router = NewRouter(h.tasks, h.agentRuns, h.reader, RouterConfig{MediaConcurrency: 1, Logger: discardLogger()})
 	release := make(chan struct{})
 	h.media.resolve = func(ctx context.Context, msg channel.InboundMessage) channel.InboundMessage {
 		select {
@@ -979,7 +979,7 @@ func TestRouter_EmptyMessageID_SkipsDedup(t *testing.T) {
 	if h.dedup.claimCalls != 0 {
 		t.Fatalf("empty message id must skip the dedup claim, got %d", h.dedup.claimCalls)
 	}
-	if !waitFor(time.Second, h.tasks.wasCalled) {
+	if !waitFor(time.Second, h.agentRuns.wasCalled) {
 		t.Fatalf("message must still ingest without a dedup key")
 	}
 }
@@ -990,7 +990,7 @@ func TestRouter_EmptyMessageID_SkipsDedup(t *testing.T) {
 // the resolver, while the slot holder keeps running.
 func TestRouter_MediaQueueWaitExpiryFinalizesWithoutResolving(t *testing.T) {
 	h := newHarness(t)
-	h.router = NewRouter(h.issues, h.tasks, h.reader, RouterConfig{MediaConcurrency: 1, MediaTimeout: 150 * time.Millisecond, Logger: discardLogger()})
+	h.router = NewRouter(h.tasks, h.agentRuns, h.reader, RouterConfig{MediaConcurrency: 1, MediaTimeout: 150 * time.Millisecond, Logger: discardLogger()})
 	release := make(chan struct{})
 	firstStarted := make(chan struct{})
 	h.media.resolve = func(_ context.Context, msg channel.InboundMessage) channel.InboundMessage {
@@ -1034,15 +1034,15 @@ func TestRouter_MediaQueueWaitExpiryFinalizesWithoutResolving(t *testing.T) {
 	if err := h.router.Handle(context.Background(), second); err != nil {
 		t.Fatalf("second Handle: %v", err)
 	}
-	if !waitFor(2*time.Second, func() bool { return h.tasks.promotionCalls() >= 1 }) {
+	if !waitFor(2*time.Second, func() bool { return h.agentRuns.promotionCalls() >= 1 }) {
 		t.Fatal("expired queued job did not finalize while the slot was held")
 	}
 	if h.media.calls() != 1 {
 		t.Fatalf("expired job must not invoke the resolver, calls=%d", h.media.calls())
 	}
 	close(release)
-	if !waitFor(2*time.Second, func() bool { return h.tasks.promotionCalls() == 2 }) {
-		t.Fatalf("slot holder promotion missing, promotions=%d", h.tasks.promotionCalls())
+	if !waitFor(2*time.Second, func() bool { return h.agentRuns.promotionCalls() == 2 }) {
+		t.Fatalf("slot holder promotion missing, promotions=%d", h.agentRuns.promotionCalls())
 	}
 }
 
@@ -1055,7 +1055,7 @@ func TestRouter_MediaDeadlineStartsBeforeAppend(t *testing.T) {
 	h := newHarness(t)
 	const timeout = 300 * time.Millisecond
 	const appendLatency = 150 * time.Millisecond
-	h.router = NewRouter(h.issues, h.tasks, h.reader, RouterConfig{MediaTimeout: timeout, Logger: discardLogger()})
+	h.router = NewRouter(h.tasks, h.agentRuns, h.reader, RouterConfig{MediaTimeout: timeout, Logger: discardLogger()})
 	h.binder.appendDelay = appendLatency
 	deadlines := make(chan time.Time, 1)
 	h.media.resolve = func(ctx context.Context, msg channel.InboundMessage) channel.InboundMessage {

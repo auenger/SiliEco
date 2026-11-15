@@ -6,14 +6,7 @@ export type {
   TaskMetadata,
   TaskMetadataValue,
   TaskReaction,
-  Issue,
-  IssueStatus,
-  IssuePriority,
-  IssueAssigneeType,
-  IssueMetadata,
-  IssueMetadataValue,
-  IssueReaction,
-} from "./issue";
+} from "./task";
 export type {
   Agent,
   AgentStatus,
@@ -22,16 +15,16 @@ export type {
   AgentPermissionMode,
   AgentInvocationTarget,
   AgentInvocationTargetInput,
-  AgentTask,
-  TaskAttribution,
+  AgentRun,
+  AgentRunAttribution,
   AttributionUser,
-  TaskEvidence,
+  AgentRunEvidence,
   AgentActivityBucket,
   AgentRunCount,
   WorkspaceWorkingAgent,
   WorkspaceWorkingAgentType,
   WorkspaceWorkingAgentMineRelation,
-  TaskFailureReason,
+  AgentRunFailureReason,
   AgentRuntime,
   RuntimeDevice,
   RuntimeProfile,
@@ -91,21 +84,21 @@ export type {
   RuntimeLocalSkillImportRequest,
   RuntimeLocalSkillsResult,
   RuntimeLocalSkillImportResult,
-  IssueUsageSummary,
+  TaskUsageSummary,
 } from "./agent";
 export { RUNTIME_PROFILE_PROTOCOL_FAMILIES } from "./agent";
 export type { Workspace, WorkspaceRepo, Member, MemberRole, User, MemberWithUser, Invitation } from "./workspace";
 export type { InboxItem, InboxSeverity, InboxItemType, InboxWorkspaceUnread } from "./inbox";
 export type { NotificationGroupKey, NotificationGroupValue, NotificationPreferences, NotificationPreferenceResponse } from "./notification-preference";
 export type { Comment, CommentType, CommentAuthorType, CommentTriggerPreview, CommentTriggerPreviewAgent, CommentTriggerSource, CommentTriggerOutcome, CommentTriggerStatus, Reaction } from "./comment";
-export type { Label, LabelResourceType, CreateLabelRequest, UpdateLabelRequest, ListLabelsResponse, IssueLabelsResponse, ResourceLabelsResponse } from "./label";
-export type { IssueProperty, IssuePropertyType, IssuePropertyOption, IssuePropertyConfig, IssuePropertyValue, IssuePropertyValues, CreatePropertyRequest, UpdatePropertyRequest, ListPropertiesResponse, IssuePropertiesResponse } from "./property";
-export { ISSUE_PROPERTY_TYPES, isKnownPropertyType } from "./property";
+export type { Label, LabelResourceType, CreateLabelRequest, UpdateLabelRequest, ListLabelsResponse, TaskLabelsResponse, ResourceLabelsResponse } from "./label";
+export type { TaskProperty, TaskPropertyType, TaskPropertyOption, TaskPropertyConfig, TaskPropertyValue, TaskPropertyValues, CreatePropertyRequest, UpdatePropertyRequest, ListPropertiesResponse, TaskPropertiesResponse } from "./property";
+export { TASK_PROPERTY_TYPES, isKnownPropertyType } from "./property";
 export type {
   TimelineEntry,
   AssigneeFrequencyEntry,
 } from "./activity";
-export type { IssueSubscriber } from "./subscriber";
+export type { TaskSubscriber } from "./subscriber";
 export type * from "./events";
 export type * from "./api";
 export type { Attachment } from "./attachment";
@@ -123,13 +116,13 @@ export type {
   ChatPinnedAgent,
   ChatMessage,
   ChatMessagesPage,
-  ChatPendingTask,
-  PendingChatTaskItem,
-  PendingChatTasksResponse,
-  HasPendingChatTasksResponse,
+  ChatPendingRun,
+  PendingChatRunItem,
+  PendingChatRunsResponse,
+  HasPendingChatRunsResponse,
   SendChatMessageResponse,
   CancelledChatMessage,
-  CancelTaskResponse,
+  CancelRunResponse,
   ChatDraftRestore,
   ChatDraftRestoresResponse,
 } from "./chat";
@@ -271,7 +264,7 @@ export type {
   UpdateSquadMemberRoleRequest,
   CreateSquadActivityLogRequest,
   SquadMemberStatusValue,
-  SquadActiveIssueBrief,
+  SquadActiveTaskBrief,
   SquadMemberStatus,
   SquadMemberStatusListResponse,
 } from "./squad";

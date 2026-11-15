@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.workflow_artifact_revision_number_idx;

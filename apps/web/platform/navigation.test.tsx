@@ -1,7 +1,7 @@
 /**
  * SILI-5208 — the web half of the `silieco:navigate` bridge.
  *
- * Shared content (comments, chat, issue descriptions) fires this event whenever
+ * Shared content (comments, chat, task descriptions) fires this event whenever
  * a link resolves to an in-app destination, including an absolute URL on this
  * deployment's own origin. Desktop answers it by opening a tab; the web must
  * answer it with a router push, or those links silently do nothing.
@@ -18,7 +18,7 @@ const router = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => router,
-  usePathname: () => "/acme/issues",
+  usePathname: () => "/acme/tasks",
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -53,9 +53,9 @@ describe("WebNavigationProvider internal link bridge", () => {
   it("pushes the path a content link resolved to", () => {
     render(<WebNavigationProvider>{null}</WebNavigationProvider>);
 
-    navigate("/acme/issues/SILI-1");
+    navigate("/acme/tasks/SILI-1");
 
-    expect(router.push).toHaveBeenCalledWith("/acme/issues/SILI-1");
+    expect(router.push).toHaveBeenCalledWith("/acme/tasks/SILI-1");
   });
 
   it("ignores an event without a path", () => {
@@ -72,7 +72,7 @@ describe("WebNavigationProvider internal link bridge", () => {
     );
 
     unmount();
-    navigate("/acme/issues/SILI-1");
+    navigate("/acme/tasks/SILI-1");
 
     expect(router.push).not.toHaveBeenCalled();
   });
@@ -113,9 +113,9 @@ describe("WebNavigationProvider canGoBack", () => {
     win.navigation = { canGoBack: false };
     const adapter = renderAdapter();
 
-    adapter().push("/acme/issues");
+    adapter().push("/acme/tasks");
 
-    expect(router.push).toHaveBeenCalledWith("/acme/issues");
+    expect(router.push).toHaveBeenCalledWith("/acme/tasks");
     expect(adapter().canGoBack!()).toBe(false);
   });
 

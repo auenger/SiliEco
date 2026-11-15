@@ -193,7 +193,7 @@ describe("keyboard shortcut definitions", () => {
     const cmdP = createShortcutChord("P", { primary: true });
     expect(isShortcutAllowedForAction("openSearch", cmdP, "macos", "desktop")).toBe(true);
     expect(isShortcutAllowedForAction("openSearch", cmdP, "macos", "web")).toBe(false);
-    expect(isShortcutAllowedForAction("goIssues", cmdP, "windows", "desktop")).toBe(true);
+    expect(isShortcutAllowedForAction("goTasks", cmdP, "windows", "desktop")).toBe(true);
     // Modifier variants keep the historical reservation even on desktop.
     expect(
       isShortcutAllowedForAction(

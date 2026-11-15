@@ -18,7 +18,7 @@ func TestWorkflowDeadlineRespectsExplicitTimeout(t *testing.T) {
 			if _, err := pool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=jsonb_set(config_snapshot,'{retry_policy}',$2::jsonb) WHERE id=$1`, e.ID, tc.policy); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='running',started_at=now()-$2::interval WHERE id=$1`, e.MainTaskID, tc.started); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='running',started_at=now()-$2::interval WHERE id=$1`, e.MainRunID, tc.started); err != nil {
 				t.Fatal(err)
 			}
 			for range 2 {
@@ -26,17 +26,17 @@ func TestWorkflowDeadlineRespectsExplicitTimeout(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			task, err := svc.Queries.GetAgentTask(ctx, e.MainTaskID)
-			if err != nil || task.Status != tc.status {
-				t.Fatalf("deadline status=%s want=%s err=%v", task.Status, tc.status, err)
+			agentRun, err := svc.Queries.GetAgentRun(ctx, e.MainRunID)
+			if err != nil || agentRun.Status != tc.status {
+				t.Fatalf("deadline status=%s want=%s err=%v", agentRun.Status, tc.status, err)
 			}
 			if tc.status == "failed" {
-				if task.FailureReason.String != "timeout" {
-					t.Fatalf("wrong reason: %s", task.FailureReason.String)
+				if agentRun.FailureReason.String != "timeout" {
+					t.Fatalf("wrong reason: %s", agentRun.FailureReason.String)
 				}
 				p.ActorType = "agent"
 				p.ActorID = e.ExecutorID
-				p.SourceTaskID = e.MainTaskID
+				p.SourceRunID = e.MainRunID
 				if _, err := svc.SubmitResult(ctx, p); err == nil {
 					t.Fatal("accepted late result after timeout")
 				}
@@ -45,7 +45,7 @@ func TestWorkflowDeadlineRespectsExplicitTimeout(t *testing.T) {
 					wantChildren = 1
 				}
 				var count int
-				if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE retry_of_task_id=$1`, e.MainTaskID).Scan(&count); err != nil || count != wantChildren {
+				if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE retry_of_run_id=$1`, e.MainRunID).Scan(&count); err != nil || count != wantChildren {
 					t.Fatalf("deadline retry created %d children, want %d: %v", count, wantChildren, err)
 				}
 			}
@@ -56,18 +56,18 @@ func TestWorkflowDeadlineRespectsExplicitTimeout(t *testing.T) {
 func TestWorkflowDeadlineExpiresReviewerWithoutOrdinaryClone(t *testing.T) {
 	pool, svc, p := workflowReviewRecoveryFixture(t, `{"max_attempts":1,"timeout_seconds":1}`)
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='running',started_at=now()-interval '2 seconds' WHERE id=$1`, p.FailedTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='running',started_at=now()-interval '2 seconds' WHERE id=$1`, p.FailedRunID); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.ExpireStageCalls(ctx); err != nil {
 		t.Fatal(err)
 	}
-	task, err := svc.Queries.GetAgentTask(ctx, p.FailedTaskID)
-	if err != nil || task.Status != "failed" || task.FailureReason.String != "timeout" {
-		t.Fatalf("review timeout: %+v %v", task, err)
+	agentRun, err := svc.Queries.GetAgentRun(ctx, p.FailedRunID)
+	if err != nil || agentRun.Status != "failed" || agentRun.FailureReason.String != "timeout" {
+		t.Fatalf("review timeout: %+v %v", agentRun, err)
 	}
 	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE retry_of_task_id=$1`, task.ID).Scan(&count); err != nil || count != 0 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE retry_of_run_id=$1`, agentRun.ID).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("ordinary review clone: %d %v", count, err)
 	}
 }

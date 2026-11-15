@@ -71,7 +71,7 @@ func TestInboundFromMessage_DM(t *testing.T) {
 func TestInboundFromMessage_ChannelMention(t *testing.T) {
 	msg, ok := translateMessage("UBOT", eventsAPI(nil), &slackevents.MessageEvent{
 		User:        "UALICE",
-		Text:        "<@UBOT> create an issue",
+		Text:        "<@UBOT> create an task",
 		Channel:     "C123",
 		ChannelType: "channel",
 		TimeStamp:   "1700000000.000200",
@@ -85,7 +85,7 @@ func TestInboundFromMessage_ChannelMention(t *testing.T) {
 	if !msg.AddressedToBot {
 		t.Error("channel message mentioning the bot should be addressed to bot")
 	}
-	if msg.Text != "create an issue" {
+	if msg.Text != "create an task" {
 		t.Errorf("Text = %q, want mention stripped", msg.Text)
 	}
 }

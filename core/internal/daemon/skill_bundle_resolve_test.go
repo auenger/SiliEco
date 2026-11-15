@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/silieco-ai/silieco/core/pkg/taskfailure"
+	"github.com/silieco-ai/silieco/core/pkg/runfailure"
 )
 
 func TestSkillBundleResolveTimeout(t *testing.T) {
@@ -68,7 +68,7 @@ func makeResolvableSkillBundle(id string) SkillData {
 // whole set in one atomic request and cached nothing on failure, so a large
 // bundle that could not finish in the fixed 30s timeout was re-downloaded in
 // full on every dispatch and never converged.
-func TestEnsureTaskSkillBundles_CachesEachSuccessAcrossDispatches(t *testing.T) {
+func TestEnsureRunSkillBundles_CachesEachSuccessAcrossDispatches(t *testing.T) {
 	defer noSleepRetry(t)()
 
 	var mu sync.Mutex
@@ -115,7 +115,7 @@ func TestEnsureTaskSkillBundles_CachesEachSuccessAcrossDispatches(t *testing.T) 
 		client:     NewClient(srv.URL),
 		skillCache: NewSkillBundleCache(t.TempDir()),
 	}
-	task := &Task{
+	agentRun := &AgentRun{
 		ID:          "task-1",
 		RuntimeID:   "rt-1",
 		WorkspaceID: "ws-1",
@@ -127,7 +127,7 @@ func TestEnsureTaskSkillBundles_CachesEachSuccessAcrossDispatches(t *testing.T) 
 	failIDs["skill-3"] = true
 	mu.Unlock()
 
-	if err := d.ensureTaskSkillBundles(context.Background(), task); err == nil {
+	if err := d.ensureRunSkillBundles(context.Background(), agentRun); err == nil {
 		t.Fatal("dispatch 1: expected error because skill-3 fails, got nil")
 	}
 	if _, ok := d.skillCache.Load("ws-1", refs[0]); !ok {
@@ -151,7 +151,7 @@ func TestEnsureTaskSkillBundles_CachesEachSuccessAcrossDispatches(t *testing.T) 
 
 	// Dispatch 2: everything succeeds. Only the previously-missing skill-3 may
 	// be re-fetched; the two cached skills must not hit the network again.
-	if err := d.ensureTaskSkillBundles(context.Background(), task); err != nil {
+	if err := d.ensureRunSkillBundles(context.Background(), agentRun); err != nil {
 		t.Fatalf("dispatch 2: expected success, got %v", err)
 	}
 	mu.Lock()
@@ -165,12 +165,12 @@ func TestEnsureTaskSkillBundles_CachesEachSuccessAcrossDispatches(t *testing.T) 
 	if got := requested["skill-3"]; got != 1 {
 		t.Errorf("dispatch 2: skill-3 fetched %d times, want exactly 1", got)
 	}
-	if len(task.Agent.Skills) != len(ids) {
-		t.Fatalf("dispatch 2: resolved %d skills, want %d", len(task.Agent.Skills), len(ids))
+	if len(agentRun.Agent.Skills) != len(ids) {
+		t.Fatalf("dispatch 2: resolved %d skills, want %d", len(agentRun.Agent.Skills), len(ids))
 	}
 	for i, id := range ids {
-		if task.Agent.Skills[i].ID != id {
-			t.Errorf("dispatch 2: skill[%d].ID = %q, want %q", i, task.Agent.Skills[i].ID, id)
+		if agentRun.Agent.Skills[i].ID != id {
+			t.Errorf("dispatch 2: skill[%d].ID = %q, want %q", i, agentRun.Agent.Skills[i].ID, id)
 		}
 	}
 }
@@ -182,7 +182,7 @@ func TestEnsureTaskSkillBundles_CachesEachSuccessAcrossDispatches(t *testing.T) 
 // accept it — validating the bundle for self-consistency, not against the
 // requested hash — and cache it under its new hash. Pinning to the requested
 // hash would reject a legitimate update and fail the task.
-func TestEnsureTaskSkillBundles_AcceptsServerSideSkillUpdate(t *testing.T) {
+func TestEnsureRunSkillBundles_AcceptsServerSideSkillUpdate(t *testing.T) {
 	defer noSleepRetry(t)()
 
 	current := makeResolvableSkillBundleWith("skill-1", "v2-content", "v2-rules")
@@ -214,18 +214,18 @@ func TestEnsureTaskSkillBundles_AcceptsServerSideSkillUpdate(t *testing.T) {
 		client:     NewClient(srv.URL),
 		skillCache: NewSkillBundleCache(t.TempDir()),
 	}
-	task := &Task{
+	agentRun := &AgentRun{
 		ID:          "task-1",
 		RuntimeID:   "rt-1",
 		WorkspaceID: "ws-1",
 		Agent:       &AgentData{ID: "agent-1", SkillRefs: []SkillRefData{staleRef}},
 	}
 
-	if err := d.ensureTaskSkillBundles(context.Background(), task); err != nil {
+	if err := d.ensureRunSkillBundles(context.Background(), agentRun); err != nil {
 		t.Fatalf("expected success when server returns an updated bundle, got %v", err)
 	}
-	if len(task.Agent.Skills) != 1 || task.Agent.Skills[0].Hash != currentRef.Hash {
-		t.Fatalf("expected the resolved skill to be the updated bundle (hash %s), got %+v", currentRef.Hash, task.Agent.Skills)
+	if len(agentRun.Agent.Skills) != 1 || agentRun.Agent.Skills[0].Hash != currentRef.Hash {
+		t.Fatalf("expected the resolved skill to be the updated bundle (hash %s), got %+v", currentRef.Hash, agentRun.Agent.Skills)
 	}
 	if _, ok := d.skillCache.Load("ws-1", currentRef); !ok {
 		t.Error("updated bundle should be cached under its own (new) hash")
@@ -241,7 +241,7 @@ func TestEnsureTaskSkillBundles_AcceptsServerSideSkillUpdate(t *testing.T) {
 // went wrong". The wrap must now (a) name the skill and how long we waited,
 // (b) preserve the transport cause, and (c) carry a sentinel that
 // taskRunFailureReason maps to the retryable platform-side reason.
-func TestEnsureTaskSkillBundles_DeadlineIsLabelledStructurally(t *testing.T) {
+func TestEnsureRunSkillBundles_DeadlineIsLabelledStructurally(t *testing.T) {
 	defer noSleepRetry(t)()
 
 	block := make(chan struct{})
@@ -260,7 +260,7 @@ func TestEnsureTaskSkillBundles_DeadlineIsLabelledStructurally(t *testing.T) {
 		client:     NewClient(srv.URL),
 		skillCache: NewSkillBundleCache(t.TempDir()),
 	}
-	task := &Task{
+	agentRun := &AgentRun{
 		ID:          "task-1",
 		RuntimeID:   "rt-1",
 		WorkspaceID: "ws-1",
@@ -272,7 +272,7 @@ func TestEnsureTaskSkillBundles_DeadlineIsLabelledStructurally(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 
-	err := d.ensureTaskSkillBundles(ctx, task)
+	err := d.ensureRunSkillBundles(ctx, agentRun)
 	if err == nil {
 		t.Fatal("expected an error when the bundle download never completes")
 	}
@@ -285,8 +285,8 @@ func TestEnsureTaskSkillBundles_DeadlineIsLabelledStructurally(t *testing.T) {
 	if !strings.Contains(err.Error(), "frontend-review") {
 		t.Errorf("error must name the skill that failed, got %v", err)
 	}
-	want := taskfailure.ReasonSkillBundleUnavailable.String()
-	if got := taskRunFailureReason(err); got != want {
+	want := runfailure.ReasonSkillBundleUnavailable.String()
+	if got := runRunFailureReason(err); got != want {
 		t.Errorf("taskRunFailureReason = %q, want %q (retryable platform-side reason)", got, want)
 	}
 }

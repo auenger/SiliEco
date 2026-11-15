@@ -1,6 +1,6 @@
 export type CommentType = "comment" | "status_change" | "progress_update" | "system";
 
-// `system` is used by platform-generated rows (e.g. the parent-issue
+// `system` is used by platform-generated rows (e.g. the parent-task
 // child-done notification, SILI-2538). System rows carry a zero UUID for
 // author_id; render paths should branch on author_type rather than the UUID.
 export type CommentAuthorType = "member" | "agent" | "system";
@@ -17,7 +17,7 @@ export interface Reaction {
 export interface Comment {
   revision?: string;
   id: string;
-  issue_id: string;
+  task_id: string;
   author_type: CommentAuthorType;
   author_id: string;
   content: string;
@@ -30,7 +30,7 @@ export interface Comment {
   resolved_at: string | null;
   resolved_by_type: CommentAuthorType | null;
   resolved_by_id: string | null;
-  source_task_id?: string | null;
+  source_run_id?: string | null;
   // Per-target result of every explicit @agent / @squad mention in this comment
   // (SILI-4525 §2). Present only on create/edit responses; older servers omit it.
   trigger_outcomes?: CommentTriggerOutcome[];
@@ -53,7 +53,7 @@ export interface CommentTriggerOutcome {
 }
 
 export type CommentTriggerSource =
-  | "issue_assignee"
+  | "task_assignee"
   | "mention_agent"
   | "mention_squad_leader";
 

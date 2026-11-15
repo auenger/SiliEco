@@ -3,10 +3,10 @@
 - `core/cmd/silieco/cmd_autopilot.go` registers `list`, `get`, `create`, `update`, `delete`, `trigger`, `runs`, `trigger-add`, `trigger-update`, `trigger-delete`, and `trigger-rotate-url`.
 - The CLI maps reads/writes to `/api/autopilots`, `/api/autopilots/{id}`, `/api/autopilots/{id}/trigger`, `/api/autopilots/{id}/runs`, and trigger subroutes.
 - `core/internal/service/autopilot.go` has `DispatchAutopilot`, synchronous delivery-idempotent `AdmitAutopilotWebhookDelivery`, and worker-side `DispatchAutopilotForWebhookDelivery`; it creates `autopilot_run` and switches on `execution_mode`.
-- `create_issue` calls `dispatchCreateIssue`; `run_only` calls `dispatchRunOnly`.
+- `create_task` calls `dispatchCreateTask`; `run_only` calls `dispatchRunOnly`.
 - `resolveAutopilotLeader` resolves squad-assigned autopilots to the squad leader.
 - `AgentReadiness` blocks archived/runtime-unready agents before enqueue.
-- `core/cmd/core/router.go` exposes authenticated `/api/autopilots` routes and unauthenticated webhook ingress `/api/webhooks/autopilots/{token}`.
+- `core/cmd/server/router.go` exposes authenticated `/api/autopilots` routes and unauthenticated webhook ingress `/api/webhooks/autopilots/{token}`.
 - `core/internal/handler/autopilot_webhook.go` durably stores public webhook deliveries, synchronously admits an idempotent run for the compatible `200 accepted|skipped` + `run_id` response, and wakes the worker.
 - `core/internal/handler/webhook_delivery_worker.go` claims queued deliveries with expiring database leases, applies per-trigger dispatch pacing, and resumes admitted runs using `autopilot_run.webhook_delivery_id` so recovery cannot duplicate a run/task.
 - `GET /api/autopilots/cron-preview?expr=&tz=` (`core/internal/handler/autopilot_cron_preview.go`) returns `{next_runs}` — the next 3 occurrences as RFC3339 UTC — or 400 with the parser/timezone error. Compute-only (no autopilot is touched), gated by workspace membership; schedule editors use it instead of approximating the next run client-side.

@@ -22,7 +22,7 @@
       "ordered_list": "번호 목록",
       "task_list": "체크리스트"
     },
-    "sub_issue": {
+    "sub_task": {
       "tooltip": "선택 영역으로 하위 Task 만들기",
       "created": "{{identifier}} 생성됨",
       "create_failed": "하위 Task를 만들지 못했습니다"
@@ -63,7 +63,7 @@
   },
   "mention": {
     "group_users": "사용자",
-    "group_issues": "Task",
+    "group_tasks": "Task",
     "group_resources": "리소스 파일",
     "all_members": "모든 멤버",
     "searching": "검색 중...",

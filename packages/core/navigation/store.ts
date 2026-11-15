@@ -38,7 +38,7 @@ export const useNavigationStore = create<NavigationState>()(
       },
     }),
     {
-      name: "silieco_navigation",
+      name: "silieco_tr1_navigation",
       storage: createJSONStorage(() => createWorkspaceAwareStorage(defaultStorage)),
       partialize: (state) => ({ lastPath: state.lastPath }),
     },

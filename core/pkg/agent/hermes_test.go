@@ -2480,7 +2480,7 @@ done
 // fails -32603 "Session not found"), the Result must carry an empty
 // SessionID. The daemon's resume-failure fallback keys on
 // `SessionID == ""` — with the stale id still in the Result, the retry
-// never fires and every future dispatch on the same (agent, issue)
+// never fires and every future dispatch on the same (agent, task)
 // loops on the dead session.
 func TestHermesBackendClearsSessionIDWhenResumedSessionNotFound(t *testing.T) {
 	t.Parallel()

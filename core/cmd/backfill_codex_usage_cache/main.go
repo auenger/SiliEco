@@ -1,4 +1,4 @@
-// Backfill_codex_usage_cache corrects historical Codex task_usage rows
+// Backfill_codex_usage_cache corrects historical Codex agent_run_usage rows
 // written before Codex cached input was normalized at ingestion time.
 //
 // This is a hosted-data repair tool, not a general migration:
@@ -67,10 +67,10 @@ func run() error {
 	cfg := config{}
 	flag.StringVar(&cfg.cutoffRaw, "cutoff", "", "required RFC3339 hosted deployment time of the Codex usage normalization fix")
 	flag.StringVar(&cfg.workspaceID, "workspace-id", "", "optional workspace UUID to limit the backfill")
-	flag.IntVar(&cfg.batchSize, "batch-size", 1000, "number of task_usage rows to update per batch when --execute is set")
+	flag.IntVar(&cfg.batchSize, "batch-size", 1000, "number of agent_run_usage rows to update per batch when --execute is set")
 	flag.DurationVar(&cfg.sleepBetweenBatches, "sleep-between-batches", 0, "pause between update batches to throttle write pressure")
-	flag.BoolVar(&cfg.execute, "execute", false, "mutate task_usage rows; without this flag the command only prints a dry-run summary")
-	flag.BoolVar(&cfg.rebuildRollup, "rebuild-rollup", true, "after --execute, call rollup_task_usage_hourly_window for the update window")
+	flag.BoolVar(&cfg.execute, "execute", false, "mutate agent_run_usage rows; without this flag the command only prints a dry-run summary")
+	flag.BoolVar(&cfg.rebuildRollup, "rebuild-rollup", true, "after --execute, call rollup_agent_run_usage_hourly_window for the update window")
 	flag.Parse()
 
 	now := time.Now().UTC()
@@ -102,7 +102,7 @@ func run() error {
 	}
 	logSummary(cfg, rows, total)
 	if total.Rows == 0 {
-		slog.Info("no eligible Codex task_usage rows found")
+		slog.Info("no eligible Codex agent_run_usage rows found")
 		return nil
 	}
 	if !cfg.execute {
@@ -131,7 +131,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	slog.Info("task_usage rows updated", "rows", updatedRows, "input_tokens_removed", removedTokens)
+	slog.Info("agent_run_usage rows updated", "rows", updatedRows, "input_tokens_removed", removedTokens)
 	if updatedRows == 0 || !cfg.rebuildRollup {
 		return nil
 	}
@@ -143,7 +143,7 @@ func run() error {
 	rollupFrom, rollupTo := rollupWindow(updateStartedAt, updateFinishedAt)
 	var rollupRows int64
 	if err := pool.QueryRow(ctx,
-		`SELECT rollup_task_usage_hourly_window($1::timestamptz, $2::timestamptz)`,
+		`SELECT rollup_agent_run_usage_hourly_window($1::timestamptz, $2::timestamptz)`,
 		rollupFrom, rollupTo,
 	).Scan(&rollupRows); err != nil {
 		return fmt.Errorf("rebuild hourly rollup for update window %s..%s: %w",
@@ -187,8 +187,8 @@ SELECT
     COUNT(*) FILTER (WHERE tu.input_tokens < tu.cache_read_tokens)::bigint AS clamped_rows,
     MIN(tu.created_at) AS min_created_at,
     MAX(tu.created_at) AS max_created_at
-FROM task_usage tu
-JOIN agent_task_queue atq ON atq.id = tu.task_id
+FROM agent_run_usage tu
+JOIN agent_run atq ON atq.id = tu.run_id
 JOIN agent a ON a.id = atq.agent_id
 WHERE tu.provider = 'codex'
   AND tu.cache_read_tokens > 0
@@ -263,8 +263,8 @@ WITH candidates AS (
     SELECT
         tu.id,
         (tu.input_tokens - GREATEST(tu.input_tokens - tu.cache_read_tokens, 0))::bigint AS removed_tokens
-      FROM task_usage tu
-      JOIN agent_task_queue atq ON atq.id = tu.task_id
+      FROM agent_run_usage tu
+      JOIN agent_run atq ON atq.id = tu.run_id
       JOIN agent a ON a.id = atq.agent_id
      WHERE tu.provider = 'codex'
        AND tu.cache_read_tokens > 0
@@ -276,7 +276,7 @@ WITH candidates AS (
      FOR UPDATE OF tu SKIP LOCKED
 ),
 updated AS (
-    UPDATE task_usage tu
+    UPDATE agent_run_usage tu
        SET input_tokens = GREATEST(tu.input_tokens - tu.cache_read_tokens, 0),
            updated_at = now()
       FROM candidates c
@@ -289,14 +289,14 @@ SELECT COUNT(*)::bigint, COALESCE(SUM(removed_tokens), 0)::bigint FROM updated`
 	for {
 		var rows, removed int64
 		if err := pool.QueryRow(ctx, query, cfg.cutoff, cfg.workspaceID, cfg.batchSize).Scan(&rows, &removed); err != nil {
-			return totalRows, totalRemoved, fmt.Errorf("update Codex task_usage batch: %w", err)
+			return totalRows, totalRemoved, fmt.Errorf("update Codex agent_run_usage batch: %w", err)
 		}
 		if rows == 0 {
 			break
 		}
 		totalRows += rows
 		totalRemoved += removed
-		slog.Info("updated Codex task_usage batch", "rows", rows, "input_tokens_removed", removed, "total_rows", totalRows)
+		slog.Info("updated Codex agent_run_usage batch", "rows", rows, "input_tokens_removed", removed, "total_rows", totalRows)
 		if cfg.sleepBetweenBatches > 0 {
 			select {
 			case <-time.After(cfg.sleepBetweenBatches):

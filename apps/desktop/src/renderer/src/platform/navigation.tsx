@@ -50,6 +50,10 @@ function extractWorkspaceSlug(path: string): string | null {
  */
 function tryRouteToOverlay(path: string): boolean {
   const overlay = useWindowOverlayStore.getState();
+  if (path === "/workspaces") {
+    overlay.open({ type: "workspaces" });
+    return true;
+  }
   if (path === "/workspaces/new") {
     overlay.open({ type: "new-workspace" });
     return true;
@@ -104,7 +108,7 @@ function tryRouteToOtherWorkspace(path: string): boolean {
  *
  * A content link is a jump to another subject, so it gets its own tab rather
  * than replacing what the user was reading. It can also address another
- * workspace — a pasted app URL, an agent quoting a cross-workspace issue — and
+ * workspace — a pasted app URL, an agent quoting a cross-workspace task — and
  * opening that inside the active workspace's tab group would mount it under the
  * wrong group, so the slug check routes it through switchWorkspace exactly like
  * an adapter push does.

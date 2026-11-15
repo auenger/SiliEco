@@ -4,7 +4,7 @@ import { Fragment, type Key, type ReactNode } from "react";
 
 /**
  * Upper bound on rows rendered in the first-paint seed ({@link VirtuosoSeed})
- * and passed as `initialItemCount` to the virtualized issue/inbox lists.
+ * and passed as `initialItemCount` to the virtualized task/inbox lists.
  *
  * One screen's worth of rows is enough to fill the viewport on a route-return
  * remount; the real Virtuoso trims to its measured window on the next frame.
@@ -17,7 +17,7 @@ export const VIRTUOSO_SEED_COUNT = 30;
  * Non-virtualized fallback for the frame(s) before a Virtuoso's
  * `customScrollParent` is ready.
  *
- * The issue/inbox lists hand Virtuoso the scroll element through a callback
+ * The task/inbox lists hand Virtuoso the scroll element through a callback
  * ref that lands in state, so the first render after a remount has
  * `scrollParent === null` and Virtuoso cannot mount yet. Rendering nothing
  * there paints an empty card area (group/column headers present, rows blank)

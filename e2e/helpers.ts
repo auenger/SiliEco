@@ -7,9 +7,9 @@ const E2E_RUN_ID = process.env.E2E_RUN_ID ?? `${Date.now().toString(36)}-${proce
 const DEFAULT_E2E_EMAIL = `e2e-${E2E_WORKER}-${E2E_RUN_ID}@silieco.ai`;
 const DEFAULT_E2E_WORKSPACE = `e2e-workspace-${E2E_WORKER}-${E2E_RUN_ID}`;
 
-async function waitForIssuesPage(page: Page) {
-  await waitForPageText(page, "New Issue");
-  await expect(page.getByRole("button", { name: "New Issue" })).toBeVisible({
+async function waitForTasksPage(page: Page) {
+  await waitForPageText(page, "New Task");
+  await expect(page.getByRole("button", { name: "New Task" })).toBeVisible({
     timeout: 15000,
   });
 }
@@ -24,7 +24,7 @@ export async function waitForPageText(page: Page, text: string, timeout = 30000)
 
 export async function reloadAppPage(page: Page) {
   await page.reload({ waitUntil: "domcontentloaded" });
-  await waitForPageText(page, "Issues");
+  await waitForPageText(page, "Tasks");
 }
 
 /**
@@ -49,11 +49,11 @@ export async function loginAsDefault(page: Page): Promise<string> {
   }
 
   await page.addInitScript((t) => {
-    localStorage.setItem("silieco_token", t);
-    localStorage.setItem("silieco:chat:isOpen", "false");
+    localStorage.setItem("silieco_tr1_token", t);
+    localStorage.setItem("silieco:tr1:chat:isOpen", "false");
   }, token);
-  await page.goto(`/${workspace.slug}/issues`, { waitUntil: "domcontentloaded" });
-  await waitForIssuesPage(page);
+  await page.goto(`/${workspace.slug}/tasks`, { waitUntil: "domcontentloaded" });
+  await waitForTasksPage(page);
   return workspace.slug;
 }
 
@@ -72,12 +72,12 @@ export async function createTestApi(): Promise<TestApiClient> {
 export async function preferManualCreateMode(page: Page) {
   await page.evaluate(() => {
     localStorage.setItem(
-      "silieco_create_mode",
+      "silieco_tr1_create_mode",
       JSON.stringify({ state: { lastMode: "manual" }, version: 0 }),
     );
   });
   await reloadAppPage(page);
-  await waitForIssuesPage(page);
+  await waitForTasksPage(page);
 }
 
 export async function openWorkspaceMenu(page: Page) {

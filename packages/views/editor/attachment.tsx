@@ -15,8 +15,8 @@
  *   - extensions/file-card.tsx FileCardView (Tiptap NodeView)
  *   - extensions/image-view.tsx ImageView (Tiptap NodeView)
  *   - rich-content/rich-content.tsx (markdown img + fileCard div renderers,
- *     serving Chat, Issue descriptions and Comments through one renderer)
- *   - issues/components/comment-card.tsx AttachmentList (standalone fallback)
+ *     serving Chat, Task descriptions and Comments through one renderer)
+ *   - tasks/components/comment-card.tsx AttachmentList (standalone fallback)
  *
  * The component owns its own preview modal and download dispatcher — callers
  * just pass `attachment` and (for editor surfaces) optional editor chrome
@@ -327,7 +327,7 @@ const INLINE_BLOB_GC_MS = 5 * 60 * 1000;
 // natively.
 //
 // The picked inline URL can end up being the stable per-attachment API
-// endpoint (e.g. a reopened issue draft, whose persisted record deliberately
+// endpoint (e.g. a reopened task draft, whose persisted record deliberately
 // strips the short-lived signed `download_url`). That endpoint needs
 // credentials: web loads it because the session cookie rides on the <img>
 // request when it is genuinely same-origin. Desktop's file:// renderer, the

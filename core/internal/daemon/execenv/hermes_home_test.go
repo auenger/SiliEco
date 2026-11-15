@@ -268,7 +268,7 @@ func TestHermesOverlayIsolatesMemories(t *testing.T) {
 // session store is never mirrored from the host. Hermes creates it lazily in
 // the task home, and reuse must preserve that task-local database instead of
 // replacing it with a fresh host snapshot.
-func TestHermesOverlayKeepsSessionDatabaseTaskLocal(t *testing.T) {
+func TestHermesOverlayKeepsSessionDatabaseRunLocal(t *testing.T) {
 	t.Parallel()
 	sharedHome := t.TempDir()
 	mustWrite(t, filepath.Join(sharedHome, "config.yaml"), "model: hermes-4\n")
@@ -380,7 +380,7 @@ func TestHermesOverlayPermissions(t *testing.T) {
 	} else if fi.Mode().Perm() != 0o600 {
 		t.Errorf("derived config perms = %o, want 0600", fi.Mode().Perm())
 	}
-	if fi, err := os.Stat(filepath.Join(hermesHome, hermesTaskLocalStateMarker)); err != nil {
+	if fi, err := os.Stat(filepath.Join(hermesHome, hermesRunLocalStateMarker)); err != nil {
 		t.Fatalf("stat task-local state marker: %v", err)
 	} else if fi.Mode().Perm() != 0o600 {
 		t.Errorf("task-local state marker perms = %o, want 0600", fi.Mode().Perm())
@@ -754,9 +754,9 @@ func TestPrepareHermesNoSkillsLeavesHomeUnset(t *testing.T) {
 	env, err := Prepare(PrepareParams{
 		WorkspacesRoot: t.TempDir(),
 		WorkspaceID:    "ws-hermes-noskill",
-		TaskID:         "aaaa1111-2222-3333-4444-555566667777",
+		RunID:          "aaaa1111-2222-3333-4444-555566667777",
 		Provider:       "hermes",
-		Task:           TaskContextForEnv{IssueID: "no-skill"},
+		AgentRun:       RunContextForEnv{TaskID: "no-skill"},
 	}, testLogger())
 	if err != nil {
 		t.Fatalf("Prepare failed: %v", err)
@@ -779,17 +779,17 @@ func TestReuseHermesTearsDownWhenSkillsRemoved(t *testing.T) {
 	sharedHome := t.TempDir()
 	mustWrite(t, filepath.Join(sharedHome, "config.yaml"), "model: hermes-4\n")
 
-	withSkill := TaskContextForEnv{
-		IssueID:     "hermes-resume",
+	withSkill := RunContextForEnv{
+		TaskID:      "hermes-resume",
 		AgentSkills: []SkillContextForEnv{{Name: "Review Helper", Content: "Help review."}},
 	}
 	env, err := Prepare(PrepareParams{
 		WorkspacesRoot:   t.TempDir(),
 		WorkspaceID:      "ws-hermes-resume",
-		TaskID:           "bbbb1111-2222-3333-4444-555566667777",
+		RunID:            "bbbb1111-2222-3333-4444-555566667777",
 		Provider:         "hermes",
 		HermesSourceHome: sharedHome,
-		Task:             withSkill,
+		AgentRun:         withSkill,
 	}, testLogger())
 	if err != nil {
 		t.Fatalf("Prepare failed: %v", err)
@@ -801,14 +801,14 @@ func TestReuseHermesTearsDownWhenSkillsRemoved(t *testing.T) {
 	}
 	overlayDir := filepath.Join(env.RootDir, "hermes-home")
 
-	if reused := Reuse(ReuseParams{WorkDir: env.WorkDir, Provider: "hermes", HermesSourceHome: sharedHome, Task: withSkill}, testLogger()); reused == nil {
+	if reused := Reuse(ReuseParams{WorkDir: env.WorkDir, Provider: "hermes", HermesSourceHome: sharedHome, AgentRun: withSkill}, testLogger()); reused == nil {
 		t.Fatal("Reuse with skill returned nil")
 	} else if reused.HermesHome == "" {
 		t.Error("resume with a bound skill should keep the redirect")
 	}
 
-	noSkill := TaskContextForEnv{IssueID: "hermes-resume"}
-	reused := Reuse(ReuseParams{WorkDir: env.WorkDir, Provider: "hermes", HermesSourceHome: sharedHome, Task: noSkill}, testLogger())
+	noSkill := RunContextForEnv{TaskID: "hermes-resume"}
+	reused := Reuse(ReuseParams{WorkDir: env.WorkDir, Provider: "hermes", HermesSourceHome: sharedHome, AgentRun: noSkill}, testLogger())
 	if reused == nil {
 		t.Fatal("Reuse without skill returned nil")
 	}

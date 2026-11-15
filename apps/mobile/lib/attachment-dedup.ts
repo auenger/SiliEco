@@ -17,7 +17,7 @@ import { contentReferencesAttachment } from "@silieco/core/types";
  * the body has no markdown that could reference them.
  *
  * Mirrors web's `AttachmentList` filter in
- * `packages/views/issues/components/comment-card.tsx`.
+ * `packages/views/tasks/components/comment-card.tsx`.
  */
 export function standaloneAttachments(
   attachments: Attachment[] | undefined,

@@ -21,8 +21,8 @@ var (
 	human    = uid(0x11)
 	other    = uid(0x22)
 	comment  = uid(0xC0)
-	srcTask  = uid(0x5A)
-	issue    = uid(0x15)
+	srcRun  = uid(0x5A)
+	task    = uid(0x15)
 	originTk = uid(0x0A)
 	ruleVer  = uid(0x4E)
 )
@@ -43,7 +43,7 @@ func TestClassifyComment_MemberAuthoredIsDirectHuman(t *testing.T) {
 	if got.EvidenceKind != EvidenceComment || got.EvidenceRefID != comment {
 		t.Errorf("evidence = %q/%v, want comment/%v", got.EvidenceKind, got.EvidenceRefID, comment)
 	}
-	if got.DelegatedFromTaskID.Valid {
+	if got.DelegatedFromRunID.Valid {
 		t.Errorf("member-authored comment must not set delegated_from")
 	}
 }
@@ -55,7 +55,7 @@ func TestClassifyComment_AgentAuthoredInheritsParentAsDelegation(t *testing.T) {
 		CommentID:        comment,
 		AuthorType:       "agent",
 		AuthorID:         other,
-		SourceTaskID:     srcTask,
+		SourceRunID:     srcRun,
 		ParentOriginator: human,
 	}, SourceDelegation)
 
@@ -65,8 +65,8 @@ func TestClassifyComment_AgentAuthoredInheritsParentAsDelegation(t *testing.T) {
 	if got.UserID != human {
 		t.Errorf("delegation must copy the parent's human, got %v", got.UserID)
 	}
-	if got.DelegatedFromTaskID != srcTask {
-		t.Errorf("delegated_from = %v, want %v", got.DelegatedFromTaskID, srcTask)
+	if got.DelegatedFromRunID != srcRun {
+		t.Errorf("delegated_from = %v, want %v", got.DelegatedFromRunID, srcRun)
 	}
 }
 
@@ -80,7 +80,7 @@ func TestClassifyComment_AutopilotRootedParentInheritsAccountableOnly(t *testing
 	got := ClassifyComment(CommentFacts{
 		CommentID:         comment,
 		AuthorType:        "agent",
-		SourceTaskID:      srcTask,
+		SourceRunID:      srcRun,
 		ParentAccountable: human,
 	}, SourceDelegation)
 
@@ -96,19 +96,19 @@ func TestClassifyComment_AutopilotRootedParentInheritsAccountableOnly(t *testing
 	if !got.Source.Precise() {
 		t.Errorf("delegation is a precise source; fail-closed must not reject it")
 	}
-	if got.DelegatedFromTaskID != srcTask {
-		t.Errorf("delegated_from = %v, want %v", got.DelegatedFromTaskID, srcTask)
+	if got.DelegatedFromRunID != srcRun {
+		t.Errorf("delegated_from = %v, want %v", got.DelegatedFromRunID, srcRun)
 	}
 }
 
 func TestClassifyDirect_AutopilotRootedOriginInheritsAccountableOnly(t *testing.T) {
-	// agent_create sub-issue whose origin task is autopilot-rooted: inherit the
+	// agent_create sub-task whose origin task is autopilot-rooted: inherit the
 	// origin's accountable via delegation, originator stays NULL.
 	got := ClassifyDirect(DirectFacts{
-		IssueID:           issue,
+		TaskID:           task,
 		CreatorType:       "agent",
 		OriginType:        "agent_create",
-		OriginTaskID:      srcTask,
+		OriginRunID:      srcRun,
 		OriginAccountable: human,
 	})
 
@@ -124,11 +124,11 @@ func TestClassifyDirect_AutopilotRootedOriginInheritsAccountableOnly(t *testing.
 }
 
 func TestClassifyComment_AgentAuthoredUsesCommentSourceLabelForAssigneePath(t *testing.T) {
-	// Same facts, but the issue-assignee-reacting path passes comment_source.
+	// Same facts, but the task-assignee-reacting path passes comment_source.
 	got := ClassifyComment(CommentFacts{
 		CommentID:        comment,
 		AuthorType:       "agent",
-		SourceTaskID:     srcTask,
+		SourceRunID:     srcRun,
 		ParentOriginator: human,
 	}, SourceCommentSource)
 
@@ -140,7 +140,7 @@ func TestClassifyComment_AgentAuthoredUsesCommentSourceLabelForAssigneePath(t *t
 	}
 }
 
-func TestClassifyComment_AgentAuthoredNoSourceTaskIsUnattributed(t *testing.T) {
+func TestClassifyComment_AgentAuthoredNoSourceRunIsUnattributed(t *testing.T) {
 	got := ClassifyComment(CommentFacts{
 		CommentID:  comment,
 		AuthorType: "agent",
@@ -161,7 +161,7 @@ func TestClassifyComment_AgentAuthoredParentWithoutHumanIsUnattributed(t *testin
 	got := ClassifyComment(CommentFacts{
 		CommentID:    comment,
 		AuthorType:   "agent",
-		SourceTaskID: srcTask,
+		SourceRunID: srcRun,
 	}, SourceDelegation)
 
 	if got.Source != SourceUnattributed {
@@ -170,7 +170,7 @@ func TestClassifyComment_AgentAuthoredParentWithoutHumanIsUnattributed(t *testin
 	if got.UserID.Valid {
 		t.Errorf("must not fabricate a human when the parent has none")
 	}
-	if got.DelegatedFromTaskID != srcTask {
+	if got.DelegatedFromRunID != srcRun {
 		t.Errorf("delegation lineage should still be recorded as evidence")
 	}
 }
@@ -187,7 +187,7 @@ func TestClassifyComment_SystemAuthoredIsUnattributed(t *testing.T) {
 
 func TestClassifyDirect_MemberCreatorIsDirectHuman(t *testing.T) {
 	got := ClassifyDirect(DirectFacts{
-		IssueID:     issue,
+		TaskID:     task,
 		CreatorType: "member",
 		CreatorID:   human,
 	})
@@ -195,38 +195,38 @@ func TestClassifyDirect_MemberCreatorIsDirectHuman(t *testing.T) {
 		t.Fatalf("source = %q, want direct_human", got.Source)
 	}
 	if got.UserID != human {
-		t.Errorf("member-created issue must attribute to its creator")
+		t.Errorf("member-created task must attribute to its creator")
 	}
-	if got.EvidenceKind != EvidenceIssueAssignment || got.EvidenceRefID != issue {
-		t.Errorf("evidence should point at the issue")
+	if got.EvidenceKind != EvidenceTaskAssignment || got.EvidenceRefID != task {
+		t.Errorf("evidence should point at the task")
 	}
 }
 
 func TestClassifyDirect_QuickCreateInheritsOriginAsDelegation(t *testing.T) {
 	got := ClassifyDirect(DirectFacts{
-		IssueID:          issue,
+		TaskID:          task,
 		CreatorType:      "agent",
 		OriginType:       "quick_create",
-		OriginTaskID:     originTk,
+		OriginRunID:     originTk,
 		OriginOriginator: human,
 	})
 	if got.Source != SourceDelegation {
 		t.Fatalf("source = %q, want delegation", got.Source)
 	}
 	if got.UserID != human {
-		t.Errorf("quick-create issue must inherit the origin task's human")
+		t.Errorf("quick-create task must inherit the origin task's human")
 	}
-	if got.DelegatedFromTaskID != originTk {
-		t.Errorf("delegated_from = %v, want %v", got.DelegatedFromTaskID, originTk)
+	if got.DelegatedFromRunID != originTk {
+		t.Errorf("delegated_from = %v, want %v", got.DelegatedFromRunID, originTk)
 	}
 }
 
 func TestClassifyDirect_QuickCreateWithoutHumanIsUnattributed(t *testing.T) {
 	got := ClassifyDirect(DirectFacts{
-		IssueID:      issue,
+		TaskID:      task,
 		CreatorType:  "agent",
 		OriginType:   "quick_create",
-		OriginTaskID: originTk,
+		OriginRunID: originTk,
 	})
 	if got.Source != SourceUnattributed {
 		t.Fatalf("source = %q, want unattributed", got.Source)
@@ -238,22 +238,22 @@ func TestClassifyDirect_QuickCreateWithoutHumanIsUnattributed(t *testing.T) {
 
 func TestClassifyDirect_AgentCreatedNoOriginIsUnattributed(t *testing.T) {
 	got := ClassifyDirect(DirectFacts{
-		IssueID:     issue,
+		TaskID:     task,
 		CreatorType: "agent",
 	})
 	if got.Source != SourceUnattributed {
 		t.Fatalf("source = %q, want unattributed", got.Source)
 	}
 	if got.UserID.Valid {
-		t.Errorf("agent-created issue with no origin has no human")
+		t.Errorf("agent-created task with no origin has no human")
 	}
 }
 
 func TestClassifyDirect_ActorOverridesCreator(t *testing.T) {
-	// A member directly assigned/promoted an issue someone else created: the
+	// A member directly assigned/promoted an task someone else created: the
 	// acting member is accountable, ahead of the creator (SILI-4302 §4).
 	got := ClassifyDirect(DirectFacts{
-		IssueID:     issue,
+		TaskID:     task,
 		CreatorType: "member",
 		CreatorID:   other,
 		ActorUserID: human,
@@ -264,19 +264,19 @@ func TestClassifyDirect_ActorOverridesCreator(t *testing.T) {
 	if got.UserID != human {
 		t.Errorf("actor should be attributed, got %v want %v", got.UserID, human)
 	}
-	if got.EvidenceKind != EvidenceIssueAssignment || got.EvidenceRefID != issue {
-		t.Errorf("evidence should point at the assigned issue")
+	if got.EvidenceKind != EvidenceTaskAssignment || got.EvidenceRefID != task {
+		t.Errorf("evidence should point at the assigned task")
 	}
 }
 
 func TestClassifyDirect_ActorOverridesAgentOriginInheritance(t *testing.T) {
-	// Even when the issue carries an agent origin link, a real member actor wins:
+	// Even when the task carries an agent origin link, a real member actor wins:
 	// a human directly acted on it, so we do not fall through to origin delegation.
 	got := ClassifyDirect(DirectFacts{
-		IssueID:          issue,
+		TaskID:          task,
 		CreatorType:      "agent",
 		OriginType:       "agent_create",
-		OriginTaskID:     originTk,
+		OriginRunID:     originTk,
 		OriginOriginator: other,
 		ActorUserID:      human,
 	})
@@ -286,25 +286,25 @@ func TestClassifyDirect_ActorOverridesAgentOriginInheritance(t *testing.T) {
 	if got.UserID != human {
 		t.Errorf("actor should win over origin inheritance, got %v", got.UserID)
 	}
-	if got.DelegatedFromTaskID.Valid {
+	if got.DelegatedFromRunID.Valid {
 		t.Errorf("actor path is not a delegation; delegated_from must stay empty")
 	}
 }
 
 func TestClassifyDirect_AgentCreateInheritsOriginAsDelegation(t *testing.T) {
-	// agent_create (an agent's ordinary `issue create`, SILI-4305) inherits the
+	// agent_create (an agent's ordinary `task create`, SILI-4305) inherits the
 	// origin task's human exactly like quick_create.
 	got := ClassifyDirect(DirectFacts{
-		IssueID:          issue,
+		TaskID:          task,
 		CreatorType:      "agent",
 		OriginType:       "agent_create",
-		OriginTaskID:     originTk,
+		OriginRunID:     originTk,
 		OriginOriginator: human,
 	})
 	if got.Source != SourceDelegation {
 		t.Fatalf("source = %q, want delegation", got.Source)
 	}
-	if got.UserID != human || got.DelegatedFromTaskID != originTk {
+	if got.UserID != human || got.DelegatedFromRunID != originTk {
 		t.Errorf("agent_create must inherit origin human + lineage")
 	}
 }
@@ -319,18 +319,18 @@ func TestClassifyDirect_AgentCreateInheritsOriginAsDelegation(t *testing.T) {
 func TestAccountableMirrorsOriginatorInvariant(t *testing.T) {
 	results := []Result{
 		ClassifyComment(CommentFacts{CommentID: comment, AuthorType: "member", AuthorID: human}, SourceCommentSource),
-		ClassifyComment(CommentFacts{CommentID: comment, AuthorType: "agent", SourceTaskID: srcTask, ParentOriginator: human}, SourceDelegation),
+		ClassifyComment(CommentFacts{CommentID: comment, AuthorType: "agent", SourceRunID: srcRun, ParentOriginator: human}, SourceDelegation),
 		ClassifyComment(CommentFacts{CommentID: comment, AuthorType: "agent"}, SourceDelegation),
 		ClassifyComment(CommentFacts{CommentID: comment, AuthorType: "system"}, SourceCommentSource),
-		ClassifyDirect(DirectFacts{IssueID: issue, CreatorType: "member", CreatorID: human}),
-		ClassifyDirect(DirectFacts{IssueID: issue, CreatorType: "member", CreatorID: other, ActorUserID: human}),
-		ClassifyDirect(DirectFacts{IssueID: issue, CreatorType: "agent", OriginType: "quick_create", OriginTaskID: originTk, OriginOriginator: human}),
-		ClassifyDirect(DirectFacts{IssueID: issue, CreatorType: "agent"}),
+		ClassifyDirect(DirectFacts{TaskID: task, CreatorType: "member", CreatorID: human}),
+		ClassifyDirect(DirectFacts{TaskID: task, CreatorType: "member", CreatorID: other, ActorUserID: human}),
+		ClassifyDirect(DirectFacts{TaskID: task, CreatorType: "agent", OriginType: "quick_create", OriginRunID: originTk, OriginOriginator: human}),
+		ClassifyDirect(DirectFacts{TaskID: task, CreatorType: "agent"}),
 		DirectHumanRun(human, EvidenceComment, comment),
 		DirectHumanRun(pgtype.UUID{}, "", pgtype.UUID{}),
-		Unattributed(EvidenceAutopilotRun, srcTask),
-		RuleOwner(human, ruleVer, EvidenceAutopilotRun, srcTask),         // divergent: accountable set, originator NULL
-		RuleOwner(pgtype.UUID{}, ruleVer, EvidenceAutopilotRun, srcTask), // no publisher → unattributed
+		Unattributed(EvidenceAutopilotRun, srcRun),
+		RuleOwner(human, ruleVer, EvidenceAutopilotRun, srcRun),         // divergent: accountable set, originator NULL
+		RuleOwner(pgtype.UUID{}, ruleVer, EvidenceAutopilotRun, srcRun), // no publisher → unattributed
 	}
 	for i, r := range results {
 		// One-way invariant: a valid originator must equal accountable.
@@ -369,7 +369,7 @@ func TestDirectHumanRun(t *testing.T) {
 func TestRuleOwner(t *testing.T) {
 	// The divergence case: an autopilot run has NO authorizing human (originator
 	// NULL) but IS accountable to the rule publisher.
-	got := RuleOwner(human, ruleVer, EvidenceAutopilotRun, issue)
+	got := RuleOwner(human, ruleVer, EvidenceAutopilotRun, task)
 	if got.Source != SourceRuleOwner {
 		t.Fatalf("source = %q, want rule_owner", got.Source)
 	}
@@ -382,12 +382,12 @@ func TestRuleOwner(t *testing.T) {
 	if got.RuleVersionID != ruleVer {
 		t.Errorf("rule_version_id = %v, want %v", got.RuleVersionID, ruleVer)
 	}
-	if got.EvidenceKind != EvidenceAutopilotRun || got.EvidenceRefID != issue {
+	if got.EvidenceKind != EvidenceAutopilotRun || got.EvidenceRefID != task {
 		t.Errorf("evidence should be carried through")
 	}
 
 	// No publisher (system-published / unresolved) must not fabricate a human.
-	none := RuleOwner(pgtype.UUID{}, ruleVer, EvidenceAutopilotRun, issue)
+	none := RuleOwner(pgtype.UUID{}, ruleVer, EvidenceAutopilotRun, task)
 	if none.Source != SourceUnattributed {
 		t.Errorf("missing publisher must degrade to unattributed, got %q", none.Source)
 	}
@@ -400,7 +400,7 @@ func TestTriggerOwner(t *testing.T) {
 	// The divergence case (SILI-4302; Bohan): an autopilot schedule/webhook run has
 	// NO authorizing human (originator NULL) but IS accountable to the member who
 	// created the firing trigger.
-	got := TriggerOwner(human, EvidenceAutopilotRun, issue)
+	got := TriggerOwner(human, EvidenceAutopilotRun, task)
 	if got.Source != SourceTriggerOwner {
 		t.Fatalf("source = %q, want trigger_owner", got.Source)
 	}
@@ -413,13 +413,13 @@ func TestTriggerOwner(t *testing.T) {
 	if got.AccountableUserID != human {
 		t.Errorf("accountable should be the trigger creator, got %v", got.AccountableUserID)
 	}
-	if got.EvidenceKind != EvidenceAutopilotRun || got.EvidenceRefID != issue {
+	if got.EvidenceKind != EvidenceAutopilotRun || got.EvidenceRefID != task {
 		t.Errorf("evidence should be carried through")
 	}
 
 	// No creator (unrecoverable) must not fabricate a human — degrades to
 	// unattributed so the caller can fall back to rule_owner.
-	none := TriggerOwner(pgtype.UUID{}, EvidenceAutopilotRun, issue)
+	none := TriggerOwner(pgtype.UUID{}, EvidenceAutopilotRun, task)
 	if none.Source != SourceUnattributed {
 		t.Errorf("missing creator must degrade to unattributed, got %q", none.Source)
 	}
@@ -431,7 +431,7 @@ func TestTriggerOwner(t *testing.T) {
 func TestOwnerFallback(t *testing.T) {
 	// Unattributed → owner_fallback: accountable = owner, originator stays NULL,
 	// source is degraded (not precise).
-	base := Unattributed(EvidenceIssueAssignment, issue)
+	base := Unattributed(EvidenceTaskAssignment, task)
 	got := OwnerFallback(base, other)
 	if got.Source != SourceOwnerFallback {
 		t.Fatalf("source = %q, want owner_fallback", got.Source)
@@ -447,27 +447,27 @@ func TestOwnerFallback(t *testing.T) {
 	}
 
 	// Precise results are untouched.
-	precise := ClassifyDirect(DirectFacts{IssueID: issue, CreatorType: "member", CreatorID: human})
+	precise := ClassifyDirect(DirectFacts{TaskID: task, CreatorType: "member", CreatorID: human})
 	if OwnerFallback(precise, other) != precise {
 		t.Errorf("owner_fallback must not alter a precise attribution")
 	}
 
 	// Invalid owner → stays unattributed, never fabricates a human.
-	noOwner := OwnerFallback(Unattributed(EvidenceIssueAssignment, issue), pgtype.UUID{})
+	noOwner := OwnerFallback(Unattributed(EvidenceTaskAssignment, task), pgtype.UUID{})
 	if noOwner.Source != SourceUnattributed || noOwner.AccountableUserID.Valid {
 		t.Errorf("invalid owner must leave the result unattributed with no human, got %+v", noOwner)
 	}
 }
 
 func TestUnattributed(t *testing.T) {
-	got := Unattributed(EvidenceAutopilotRun, srcTask)
+	got := Unattributed(EvidenceAutopilotRun, srcRun)
 	if got.Source != SourceUnattributed {
 		t.Fatalf("source = %q, want unattributed", got.Source)
 	}
 	if got.UserID.Valid || got.AccountableUserID.Valid {
 		t.Errorf("unattributed must carry no human on either side")
 	}
-	if got.EvidenceKind != EvidenceAutopilotRun || got.EvidenceRefID != srcTask {
+	if got.EvidenceKind != EvidenceAutopilotRun || got.EvidenceRefID != srcRun {
 		t.Errorf("evidence should be carried so the row is not a NULL-source bypass")
 	}
 }

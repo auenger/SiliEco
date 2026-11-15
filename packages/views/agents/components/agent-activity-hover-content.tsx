@@ -8,15 +8,15 @@ import { useWorkspaceId } from "@silieco/core/hooks";
 import { runtimeListOptions } from "@silieco/core/runtimes/queries";
 import { agentListOptions } from "@silieco/core/workspace/queries";
 import { deriveAgentAvailability } from "@silieco/core/agents";
-import type { AgentTask, Issue } from "@silieco/core/types";
+import type { AgentRun, Task } from "@silieco/core/types";
 import { workloadConfig } from "../presence";
 import { useT } from "../../i18n";
 
 interface AgentActivityHoverContentProps {
   // Active tasks (running / queued / dispatched) to render — caller filters
-  // by issue id or by workspace scope. Order is preserved; we render every
+  // by task id or by workspace scope. Order is preserved; we render every
   // task as its own row.
-  tasks: readonly AgentTask[];
+  runs: readonly AgentRun[];
 }
 
 /**
@@ -59,22 +59,22 @@ type ActivityLookups = ReturnType<typeof useActivityLookups>;
  * — same rule as agent-presence-indicator.tsx so users see a single,
  * consistent language for "agent is in trouble" vs "just enqueued".
  */
-function AgentActivityTaskRow({
-  task,
+function AgentActivityRunRow({
+  run,
   now,
   agentById,
   runtimeById,
 }: {
-  task: AgentTask;
+  run: AgentRun;
   now: number;
 } & ActivityLookups) {
-  const { t } = useT("issues");
+  const { t } = useT("tasks");
   const { getActorName, getActorInitials, getActorAvatarUrl } = useActorName();
 
-  const agent = agentById.get(task.agent_id);
+  const agent = agentById.get(run.agent_id);
   const runtime = runtimeFrom(agent?.runtime_id, runtimeById);
   const availability = deriveAgentAvailability(runtime, now);
-  const isRunning = task.status === "running";
+  const isRunning = run.status === "running";
   // queued/dispatched both read as "queued" in the user-facing copy —
   // `dispatched` is the daemon-acked sub-state of queued and not
   // user-meaningful here.
@@ -93,20 +93,20 @@ function AgentActivityTaskRow({
       ? "text-muted-foreground"
       : wl.textClass;
   const startedFrom = isRunning
-    ? (task.started_at ?? task.dispatched_at ?? task.created_at)
-    : task.created_at;
+    ? (run.started_at ?? run.dispatched_at ?? run.created_at)
+    : run.created_at;
 
   return (
     <div className="flex items-center gap-2 text-caption">
       <ActorAvatarBase
-        name={getActorName("agent", task.agent_id)}
-        initials={getActorInitials("agent", task.agent_id)}
-        avatarUrl={getActorAvatarUrl("agent", task.agent_id)}
+        name={getActorName("agent", run.agent_id)}
+        initials={getActorInitials("agent", run.agent_id)}
+        avatarUrl={getActorAvatarUrl("agent", run.agent_id)}
         isAgent
         size="sm"
       />
       <span className="flex-1 truncate font-medium">
-        {getActorName("agent", task.agent_id)}
+        {getActorName("agent", run.agent_id)}
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
         <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
@@ -125,19 +125,19 @@ function AgentActivityTaskRow({
 
 /**
  * Shared hover-card body for "what are these agents doing right now?" — used
- * by IssueAgentActivityIndicator (per-issue). One row per task.
+ * by TaskAgentActivityIndicator (per-task). One row per task.
  *
  * The workspace-wide chip uses WorkspaceAgentActivityHoverContent below,
- * which groups the same rows by issue.
+ * which groups the same rows by task.
  */
 export function AgentActivityHoverContent({
-  tasks,
+  runs,
 }: AgentActivityHoverContentProps) {
-  const { t } = useT("issues");
+  const { t } = useT("tasks");
   const now = useActivityNow();
   const { agentById, runtimeById } = useActivityLookups();
 
-  if (tasks.length === 0) return null;
+  if (runs.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -145,13 +145,13 @@ export function AgentActivityHoverContent({
         {/* One row per task, so count tasks — not agents. A single agent can
             run several tasks at once, so an agent-worded header here would
             disagree with the row count below. */}
-        {t(($) => $.agent_activity.hover_header_tasks, { count: tasks.length })}
+        {t(($) => $.agent_activity.hover_header_runs, { count: runs.length })}
       </div>
       <div className="flex flex-col gap-1.5">
-        {tasks.map((task) => (
-          <AgentActivityTaskRow
-            key={task.id}
-            task={task}
+        {runs.map((run) => (
+          <AgentActivityRunRow
+            key={run.id}
+            run={run}
             now={now}
             agentById={agentById}
             runtimeById={runtimeById}
@@ -163,41 +163,41 @@ export function AgentActivityHoverContent({
 }
 
 interface WorkspaceAgentActivityHoverContentProps {
-  /** Issues the working filter leaves on screen, in list order. Each has at
+  /** Tasks the working filter leaves on screen, in list order. Each has at
    *  least one running task. */
-  issues: readonly Issue[];
-  /** Running tasks for those issues, keyed by issue id. */
-  tasksByIssueId: ReadonlyMap<string, readonly AgentTask[]>;
-  /** Total running tasks across `issues` — the second header figure. */
-  taskCount: number;
+  tasks: readonly Task[];
+  /** Running tasks for those tasks, keyed by task id. */
+  runsByTaskId: ReadonlyMap<string, readonly AgentRun[]>;
+  /** Total running tasks across `tasks` — the second header figure. */
+  runCount: number;
 }
 
 /**
  * Hover-card body for the workspace working chip (SILI-4884).
  *
  * The chip says WHO is working ("N agents working"); this card says WHERE.
- * The header carries the two figures the chip does not — how many issues
+ * The header carries the two figures the chip does not — how many tasks
  * that work lands on, and how many tasks it takes — and the rows group by
- * issue, mirroring what clicking the chip does to the list.
+ * task, mirroring what clicking the chip does to the list.
  *
  * It says nothing about work it excludes. Chat/autopilot runs have no
- * linked issue and leave no trace anywhere on this page: no row, no head,
+ * linked task and leave no trace anywhere on this page: no row, no head,
  * no indicator. A footnote about them would explain an absence the user
  * never perceived — inventing a discrepancy rather than resolving one.
- * Same for tasks on issues the current filters or the loaded page exclude.
+ * Same for tasks on tasks the current filters or the loaded page exclude.
  *
  * Deliberately not a dashboard: two figures and grouped rows.
  */
 export function WorkspaceAgentActivityHoverContent({
-  issues,
-  tasksByIssueId,
-  taskCount,
+  tasks,
+  runsByTaskId,
+  runCount,
 }: WorkspaceAgentActivityHoverContentProps) {
-  const { t } = useT("issues");
+  const { t } = useT("tasks");
   const now = useActivityNow();
   const { agentById, runtimeById } = useActivityLookups();
 
-  if (issues.length === 0) {
+  if (tasks.length === 0) {
     return (
       <p className="text-caption text-muted-foreground">
         {t(($) => $.agent_activity.empty_hover)}
@@ -208,24 +208,24 @@ export function WorkspaceAgentActivityHoverContent({
   return (
     <div className="flex flex-col gap-2.5">
       <div className="text-caption font-medium text-muted-foreground">
-        {`${t(($) => $.agent_activity.issues_count, {
-          count: issues.length,
-        })} · ${t(($) => $.agent_activity.tasks_count, { count: taskCount })}`}
+        {`${t(($) => $.agent_activity.tasks_count, {
+          count: tasks.length,
+        })} · ${t(($) => $.agent_activity.runs_count, { count: runCount })}`}
       </div>
       <div className="flex flex-col gap-2.5">
-        {issues.map((issue) => (
-          <div key={issue.id} className="flex flex-col gap-1.5">
+        {tasks.map((task) => (
+          <div key={task.id} className="flex flex-col gap-1.5">
             <div className="flex items-baseline gap-1.5 text-caption">
               <span className="shrink-0 font-mono text-micro text-muted-foreground">
-                {issue.identifier}
+                {task.identifier}
               </span>
-              <span className="truncate">{issue.title}</span>
+              <span className="truncate">{task.title}</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              {(tasksByIssueId.get(issue.id) ?? []).map((task) => (
-                <AgentActivityTaskRow
-                  key={task.id}
-                  task={task}
+              {(runsByTaskId.get(task.id) ?? []).map((run) => (
+                <AgentActivityRunRow
+                  key={run.id}
+                  run={run}
                   now={now}
                   agentById={agentById}
                   runtimeById={runtimeById}
@@ -252,7 +252,7 @@ function runtimeFrom<T extends { id: string }>(
 // stuck runtime, but the hover card is not the place to relitigate that;
 // the row will read as `26h 12m` and the user can act.
 //
-// Exported so the issue-detail header live chip formats its collapsed
+// Exported so the task-detail header live chip formats its collapsed
 // single-agent elapsed with the same `2m 14s` / `1h 03m` rule used here.
 export function formatDuration(fromIso: string, nowMs: number): string {
   const start = new Date(fromIso).getTime();

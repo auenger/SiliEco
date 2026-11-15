@@ -1,6 +1,6 @@
 export type AutopilotStatus = "active" | "paused" | "archived";
 
-export type AutopilotExecutionMode = "create_issue" | "run_only";
+export type AutopilotExecutionMode = "create_task" | "run_only";
 
 // `assignee_type` selects which polymorphic actor backs the autopilot:
 // "agent" → assignee_id references agent(id); "squad" → assignee_id references
@@ -15,7 +15,7 @@ export type AutopilotTriggerKind = "schedule" | "webhook" | "api";
 // handle it explicitly — falling through to a generic case used to show
 // the run as still-pending which masked the no-op.
 export type AutopilotRunStatus =
-  | "issue_created"
+  | "task_created"
   | "running"
   | "completed"
   | "failed"
@@ -33,7 +33,7 @@ export interface Autopilot {
   assignee_id: string;
   status: AutopilotStatus;
   execution_mode: AutopilotExecutionMode;
-  issue_title_template: string | null;
+  task_title_template: string | null;
   created_by_type: string;
   created_by_id: string;
   last_run_at: string | null;
@@ -117,8 +117,8 @@ export interface AutopilotRun {
   trigger_id: string | null;
   source: AutopilotRunSource;
   status: AutopilotRunStatus;
-  issue_id: string | null;
   task_id: string | null;
+  run_id: string | null;
   triggered_at: string;
   completed_at: string | null;
   failure_reason: string | null;
@@ -146,7 +146,7 @@ export interface CreateAutopilotRequest {
   assignee_type?: AutopilotAssigneeType;
   assignee_id: string;
   execution_mode: AutopilotExecutionMode;
-  issue_title_template?: string;
+  task_title_template?: string;
   subscribers?: AutopilotSubscriberInput[];
 }
 
@@ -160,7 +160,7 @@ export interface UpdateAutopilotRequest {
   assignee_id?: string;
   status?: AutopilotStatus;
   execution_mode?: AutopilotExecutionMode;
-  issue_title_template?: string | null;
+  task_title_template?: string | null;
   // When present, fully replaces the autopilot's subscriber template;
   // omit to leave it untouched.
   subscribers?: AutopilotSubscriberInput[];

@@ -30,7 +30,7 @@ describe("useNavigationStore.lastPath excludes global paths", () => {
   it("does persist workspace-scoped paths", async () => {
     const { useNavigationStore } = await import("./store");
     useNavigationStore.setState({ lastPath: null });
-    useNavigationStore.getState().onPathChange("/acme/issues");
-    expect(useNavigationStore.getState().lastPath).toBe("/acme/issues");
+    useNavigationStore.getState().onPathChange("/acme/tasks");
+    expect(useNavigationStore.getState().lastPath).toBe("/acme/tasks");
   });
 });

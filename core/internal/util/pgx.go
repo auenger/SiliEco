@@ -103,7 +103,7 @@ func TimestampToPtr(t pgtype.Timestamptz) *string {
 }
 
 // DateToPtr formats a pgtype.Date as a date-only "YYYY-MM-DD" string, or nil
-// when unset. Issue start_date/due_date are calendar days with no time-of-day
+// when unset. Task start_date/due_date are calendar days with no time-of-day
 // or timezone, so they must never be rendered through an instant.
 func DateToPtr(d pgtype.Date) *string {
 	if !d.Valid {

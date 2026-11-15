@@ -9,7 +9,7 @@
  *  #a1a1aa across all existing inputs — match the live UI, not the token). */
 export const MOBILE_PLACEHOLDER_COLOR = "#a1a1aa";
 
-/** Default minimum height for a multiline body input (issue description,
+/** Default minimum height for a multiline body input (task description,
  *  agent prompt). Comment composer keeps its own tighter min-h-8 because
  *  it's a chat-style row, not a body block. */
 export const MIN_BODY_INPUT_HEIGHT_PX = 120;

@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY idx_agent_run_usage_hourly_dirty_enqueued_at ON public.agent_run_usage_hourly_dirty USING btree (enqueued_at);

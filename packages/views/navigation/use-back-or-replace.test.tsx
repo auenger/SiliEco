@@ -21,7 +21,7 @@ function makeAdapter(
 function Probe() {
   const backOrReplace = useBackOrReplace();
   return (
-    <button onClick={() => backOrReplace("/acme/issues")}>leave</button>
+    <button onClick={() => backOrReplace("/acme/tasks")}>leave</button>
   );
 }
 
@@ -50,7 +50,7 @@ describe("useBackOrReplace", () => {
 
     renderProbe(adapter);
 
-    expect(adapter.replace).toHaveBeenCalledWith("/acme/issues");
+    expect(adapter.replace).toHaveBeenCalledWith("/acme/tasks");
     expect(adapter.back).not.toHaveBeenCalled();
   });
 
@@ -59,7 +59,7 @@ describe("useBackOrReplace", () => {
 
     renderProbe(adapter);
 
-    expect(adapter.replace).toHaveBeenCalledWith("/acme/issues");
+    expect(adapter.replace).toHaveBeenCalledWith("/acme/tasks");
     expect(adapter.back).not.toHaveBeenCalled();
   });
 

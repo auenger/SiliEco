@@ -24,7 +24,7 @@ function makeRow(
       avatar_url: null,
       runtime_mode: "local",
       runtime_config: {},
-      max_concurrent_tasks: 1,
+      max_concurrent_runs: 1,
       owner_id: "user-1",
       archived_at: null,
       custom_args: [],

@@ -176,7 +176,7 @@ func (b *openclawBackend) Execute(ctx context.Context, prompt string, opts ExecO
 // must be injected inline into --message because openclaw loads AGENTS.md from
 // its own workspace directory, not from cwd.
 //
-// Routing (issue #3260): `openclaw agent` defaults to Gateway routing; --local
+// Routing (task #3260): `openclaw agent` defaults to Gateway routing; --local
 // is the embedded-mode opt-in. The daemon historically forced --local so every
 // run executed in-process on the daemon host. When opts.OpenclawMode ==
 // "gateway" the daemon drops --local so openclaw dials its configured Gateway

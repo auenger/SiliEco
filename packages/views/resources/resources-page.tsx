@@ -1,4 +1,5 @@
 "use client";
+import { ProjectDirectoryBrowser } from "../projects/components/project-directory-browser";
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -13,7 +14,7 @@ import {
   targetAttachmentReferencesOptions,
   workspaceAttachmentReferencesOptions,
 } from "@silieco/core/resources";
-import { issueAttachmentsOptions } from "@silieco/core/issues/queries";
+import { taskAttachmentsOptions } from "@silieco/core/tasks/queries";
 import type { AttachmentReference, AttachmentReferenceTargetType, FileResource } from "@silieco/core/types";
 import { Button } from "@silieco/ui/components/ui/button";
 import {
@@ -86,9 +87,9 @@ function ResourceList({
             </AppLink>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-caption text-muted-foreground">
               <span>{formatBytes(file.size_bytes)}</span>
-              {file.source_issue_number !== null && file.issue_id ? (
-                <AppLink href={paths.taskDetail(file.issue_id)} className="hover:text-foreground hover:underline">
-                  {t(($) => $.source_task, { number: file.source_issue_number })}
+              {file.source_task_number !== null && file.task_id ? (
+                <AppLink href={paths.taskDetail(file.task_id)} className="hover:text-foreground hover:underline">
+                  {t(($) => $.source_task, { number: file.source_task_number })}
                 </AppLink>
               ) : null}
               {file.source_project_title && file.source_project_id ? (
@@ -111,14 +112,14 @@ function ResourceList({
                 {references.map((reference) => (
                   <AppLink
                     key={reference.id}
-                    href={reference.target_type === "issue"
+                    href={reference.target_type === "task"
                       ? paths.taskDetail(reference.target_id)
                       : paths.projectDetail(reference.target_id)}
                     className="rounded bg-muted px-1.5 py-0.5 text-foreground/80 hover:bg-accent hover:text-foreground"
                   >
-                    {reference.target_type === "issue"
+                    {reference.target_type === "task"
                       ? t(($) => $.reference_task, {
-                          number: reference.target_issue_number ?? "–",
+                          number: reference.target_task_number ?? "–",
                           title: reference.target_title ?? "",
                           project: reference.target_project_title ?? "",
                         })
@@ -200,7 +201,7 @@ export function AttachExistingFileButton({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState<"related" | "all">(
-    contextProjectId && targetType === "issue" ? "related" : "all",
+    contextProjectId && targetType === "task" ? "related" : "all",
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const fileQuery = useFileResources(wsId, undefined, open);
@@ -220,7 +221,7 @@ export function AttachExistingFileButton({
 
   const isAlreadyAvailable = (file: FileResource) =>
     directReferenceIds.has(file.id) ||
-    (targetType === "issue" && file.issue_id === targetId) ||
+    (targetType === "task" && file.task_id === targetId) ||
     (targetType === "project" && file.source_project_id === targetId);
 
   const visibleFiles = useMemo(() => {
@@ -237,8 +238,8 @@ export function AttachExistingFileButton({
         if (!query) return true;
         return [
           file.filename,
-          file.source_issue_title,
-          file.source_issue_number?.toString(),
+          file.source_task_title,
+          file.source_task_number?.toString(),
           file.source_project_title,
         ].some((value) => value?.toLocaleLowerCase().includes(query));
       })
@@ -281,7 +282,7 @@ export function AttachExistingFileButton({
     if (!nextOpen) {
       setSelectedIds(new Set());
       setSearch("");
-      setScope(contextProjectId && targetType === "issue" ? "related" : "all");
+      setScope(contextProjectId && targetType === "task" ? "related" : "all");
     }
   };
 
@@ -369,10 +370,10 @@ export function AttachExistingFileButton({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-body">{file.filename}</span>
                     <span className="mt-0.5 flex flex-wrap gap-x-2 text-caption text-muted-foreground">
-                      {file.source_issue_number !== null ? (
-                        <span>{t(($) => $.source_task, { number: file.source_issue_number })}</span>
+                      {file.source_task_number !== null ? (
+                        <span>{t(($) => $.source_task, { number: file.source_task_number })}</span>
                       ) : null}
-                      {file.source_issue_title ? <span className="truncate">{file.source_issue_title}</span> : null}
+                      {file.source_task_title ? <span className="truncate">{file.source_task_title}</span> : null}
                       {file.source_project_title ? <span>{file.source_project_title}</span> : null}
                     </span>
                   </span>
@@ -468,16 +469,16 @@ export function ResourcesPage() {
   );
 }
 
-export function IssueFilesSection({ issueId }: { issueId: string }) {
+export function TaskFilesSection({ taskId }: { taskId: string }) {
   const { t } = useT("resources");
   const wsId = useWorkspaceId();
   const paths = useWorkspacePaths();
   const download = useDownloadAttachment();
-  const [page, setPage] = useState({ issueId, limit: 50 });
-  const limit = page.issueId === issueId ? page.limit : 50;
-  const { data: attachments = [] } = useQuery(issueAttachmentsOptions(issueId));
+  const [page, setPage] = useState({ taskId, limit: 50 });
+  const limit = page.taskId === taskId ? page.limit : 50;
+  const { data: attachments = [] } = useQuery(taskAttachmentsOptions(taskId));
   const { data: references } = useQuery(
-    targetAttachmentReferencesOptions(wsId, "issue", issueId),
+    targetAttachmentReferencesOptions(wsId, "task", taskId),
   );
   const deleteReference = useDeleteAttachmentReference(wsId);
   const referencedIds = new Set(
@@ -489,8 +490,8 @@ export function IssueFilesSection({ issueId }: { issueId: string }) {
   const removeReference = async (attachmentId: string) => {
     try {
       await deleteReference.mutateAsync({
-        targetType: "issue",
-        targetId: issueId,
+        targetType: "task",
+        targetId: taskId,
         attachmentId,
       });
       toast.success(t(($) => $.reference_removed));
@@ -536,7 +537,7 @@ export function IssueFilesSection({ issueId }: { issueId: string }) {
         ))}
       </div>
       {attachments.length > limit && (
-        <Button variant="ghost" size="sm" onClick={() => setPage({ issueId, limit: limit + 50 })}>
+        <Button variant="ghost" size="sm" onClick={() => setPage({ taskId, limit: limit + 50 })}>
           {t(($) => $.load_more)}
         </Button>
       )}
@@ -593,6 +594,7 @@ export function ProjectFilesPage({
         ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        <ProjectDirectoryBrowser key={projectId} projectId={projectId} />
         {isLoading ? (
           <LoadingList />
         ) : (

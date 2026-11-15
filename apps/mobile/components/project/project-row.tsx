@@ -1,6 +1,6 @@
 /**
- * Project list row. Mirrors the IssueRow layout shape from
- * `(tabs)/my-issues.tsx` (left icon + flex title + right column for
+ * Project list row. Mirrors the TaskRow layout shape from
+ * `(tabs)/my-tasks.tsx` (left icon + flex title + right column for
  * counts + time), per apps/mobile/CLAUDE.md "Visual alignment is baseline
  * → row's right-side elements stack vertically into a column".
  *
@@ -26,8 +26,8 @@ interface Props {
 }
 
 export function ProjectRow({ project, onPress }: Props) {
-  const totalIssues = project.issue_count;
-  const showCount = totalIssues > 0;
+  const totalTasks = project.task_count;
+  const showCount = totalTasks > 0;
 
   return (
     <Pressable onPress={onPress} className="active:bg-secondary px-4 py-3">
@@ -60,7 +60,7 @@ export function ProjectRow({ project, onPress }: Props) {
         <View className="items-end gap-1">
           {showCount ? (
             <Text className="text-xs text-muted-foreground tabular-nums">
-              {project.done_count}/{totalIssues}
+              {project.done_count}/{totalTasks}
             </Text>
           ) : (
             <Text className="text-xs text-muted-foreground/60">—</Text>

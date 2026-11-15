@@ -25,7 +25,7 @@ func TestNormalizeLabelsCollapseUnknownValues(t *testing.T) {
 	if got := NormalizeRuntimeMode("workspace-123"); got != "unknown" {
 		t.Fatalf("NormalizeRuntimeMode unknown = %q, want unknown", got)
 	}
-	if got := NormalizeTaskSource("task-123"); got != "other" {
+	if got := NormalizeRunSource("task-123"); got != "other" {
 		t.Fatalf("NormalizeTaskSource unknown = %q, want other", got)
 	}
 }

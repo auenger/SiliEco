@@ -260,13 +260,13 @@ func TestRepoCheckoutModeFor(t *testing.T) {
 	}
 }
 
-func TestConfigureCodexTaskShellEnvironment(t *testing.T) {
+func TestConfigureCodexRunShellEnvironment(t *testing.T) {
 	t.Parallel()
 
 	t.Run("non-Codex runtime is unchanged", func(t *testing.T) {
 		t.Parallel()
 		codexHome := t.TempDir()
-		if err := configureCodexTaskShellEnvironment("claude", codexHome, nil, nil, nil, slog.Default()); err != nil {
+		if err := configureCodexRunShellEnvironment("claude", codexHome, nil, nil, nil, slog.Default()); err != nil {
 			t.Fatalf("configureCodexTaskShellEnvironment: %v", err)
 		}
 		if _, err := os.Stat(filepath.Join(codexHome, "config.toml")); !os.IsNotExist(err) {
@@ -294,7 +294,7 @@ func TestConfigureCodexTaskShellEnvironment(t *testing.T) {
 			"CUSTOM_ACCESS_TOKEN": "agent-secret",
 			"CUSTOM_FLAG":         "enabled",
 		}
-		if err := configureCodexTaskShellEnvironment("codex", codexHome, inherited, agentEnv, agentCustomEnv, slog.Default()); err != nil {
+		if err := configureCodexRunShellEnvironment("codex", codexHome, inherited, agentEnv, agentCustomEnv, slog.Default()); err != nil {
 			t.Fatalf("configureCodexTaskShellEnvironment: %v", err)
 		}
 		data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
@@ -316,7 +316,7 @@ func TestConfigureCodexTaskShellEnvironment(t *testing.T) {
 
 	t.Run("Codex without task home fails closed", func(t *testing.T) {
 		t.Parallel()
-		err := configureCodexTaskShellEnvironment("codex", "", nil, map[string]string{"SILIECO_TOKEN": "mat_task"}, nil, slog.Default())
+		err := configureCodexRunShellEnvironment("codex", "", nil, map[string]string{"SILIECO_TOKEN": "mat_task"}, nil, slog.Default())
 		if err == nil || !strings.Contains(err.Error(), "CODEX_HOME is missing") {
 			t.Fatalf("error = %v, want missing CODEX_HOME", err)
 		}
@@ -342,7 +342,7 @@ func TestCodexShellAuthorizedCustomEnvNamesUsesDaemonBlocklist(t *testing.T) {
 	}
 }
 
-func TestTaskScopedAuthToken(t *testing.T) {
+func TestRunScopedAuthToken(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -362,8 +362,8 @@ func TestTaskScopedAuthToken(t *testing.T) {
 		},
 		{
 			name:  "task token accepted",
-			token: " mat_task_token ",
-			want:  "mat_task_token",
+			token: " mat_agent_run_token ",
+			want:  "mat_agent_run_token",
 		},
 	}
 
@@ -371,7 +371,7 @@ func TestTaskScopedAuthToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := taskScopedAuthToken(Task{AuthToken: tt.token})
+			got, err := runScopedAuthToken(AgentRun{AuthToken: tt.token})
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("taskScopedAuthToken() error = nil, want %q", tt.wantErr)
@@ -460,10 +460,10 @@ func TestTriggerRestart_BrewPrefixUnavailable_NoKnownPrefix_KeepsExecutable(t *t
 	}
 }
 
-func TestNewTaskSlotSemaphoreReturnsStableSlotIndexes(t *testing.T) {
+func TestNewRunSlotSemaphoreReturnsStableSlotIndexes(t *testing.T) {
 	t.Parallel()
 
-	sem := newTaskSlotSemaphore(4)
+	sem := newRunSlotSemaphore(4)
 	seen := make(map[int]bool)
 	for i := 0; i < 4; i++ {
 		select {
@@ -604,12 +604,12 @@ func TestComposeOpenclawIncludeRoots(t *testing.T) {
 	}
 }
 
-func TestBuildPromptContainsIssueID(t *testing.T) {
+func TestBuildPromptContainsTaskID(t *testing.T) {
 	t.Parallel()
 
-	issueID := "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-	prompt := BuildPrompt(Task{
-		IssueID: issueID,
+	taskID := "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+	prompt := BuildPrompt(AgentRun{
+		TaskID: taskID,
 		Agent: &AgentData{
 			Name: "Local Codex",
 			Skills: []SkillData{
@@ -618,10 +618,10 @@ func TestBuildPromptContainsIssueID(t *testing.T) {
 		},
 	}, "claude")
 
-	// Prompt should contain the issue ID and CLI hint.
+	// Prompt should contain the task ID and CLI hint.
 	for _, want := range []string{
-		issueID,
-		"silieco issue get",
+		taskID,
+		"silieco task get",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
@@ -643,8 +643,8 @@ func TestBuildPromptContainsIssueID(t *testing.T) {
 func TestFreshSessionRetryPrompt(t *testing.T) {
 	t.Parallel()
 
-	base := BuildPrompt(Task{
-		IssueID:          "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+	base := BuildPrompt(AgentRun{
+		TaskID:           "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		TriggerCommentID: "c0ffee00-0000-0000-0000-000000000000",
 		Agent:            &AgentData{Name: "Local Kiro"},
 	}, "kiro")
@@ -656,7 +656,7 @@ func TestFreshSessionRetryPrompt(t *testing.T) {
 	for _, want := range []string{
 		"brand-new session",
 		"could not be resumed",
-		"re-read the issue",
+		"re-read the task",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("fresh-retry prompt missing disclosure %q; got:\n%s", want, got)
@@ -761,16 +761,16 @@ func TestReconcileFreshRetryResult(t *testing.T) {
 	}
 }
 
-func TestBuildPromptNoIssueDetails(t *testing.T) {
+func TestBuildPromptNoTaskDetails(t *testing.T) {
 	t.Parallel()
 
-	prompt := BuildPrompt(Task{
-		IssueID: "test-id",
-		Agent:   &AgentData{Name: "Test"},
+	prompt := BuildPrompt(AgentRun{
+		TaskID: "test-id",
+		Agent:  &AgentData{Name: "Test"},
 	}, "claude")
 
-	// Prompt should not contain issue title/description (agent fetches via CLI).
-	for _, absent := range []string{"**Issue:**", "**Summary:**"} {
+	// Prompt should not contain task title/description (agent fetches via CLI).
+	for _, absent := range []string{"**Task:**", "**Summary:**"} {
 		if strings.Contains(prompt, absent) {
 			t.Fatalf("prompt should NOT contain %q — agent fetches details via CLI", absent)
 		}
@@ -780,7 +780,7 @@ func TestBuildPromptNoIssueDetails(t *testing.T) {
 func TestBuildPromptAutopilotRunOnly(t *testing.T) {
 	t.Parallel()
 
-	prompt := BuildPrompt(Task{
+	prompt := BuildPrompt(AgentRun{
 		AutopilotRunID:       "run-1",
 		AutopilotID:          "autopilot-1",
 		AutopilotTitle:       "Daily dependency check",
@@ -794,27 +794,27 @@ func TestBuildPromptAutopilotRunOnly(t *testing.T) {
 		"Daily dependency check",
 		"Check dependencies and report outdated packages.",
 		"silieco autopilot get autopilot-1 --output json",
-		"Do not run `silieco issue get`",
+		"Do not run `silieco task get`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("autopilot prompt missing %q\n---\n%s", want, prompt)
 		}
 	}
 
-	if strings.Contains(prompt, "Your assigned issue ID is:") {
-		t.Fatalf("autopilot prompt should not use issue assignment template\n---\n%s", prompt)
+	if strings.Contains(prompt, "Your assigned task ID is:") {
+		t.Fatalf("autopilot prompt should not use task assignment template\n---\n%s", prompt)
 	}
 }
 
 func TestBuildPromptCommentTriggered(t *testing.T) {
 	t.Parallel()
 
-	issueID := "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+	taskID := "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 	commentID := "c1c2c3c4-d5d6-7890-abcd-ef1234567890"
 	commentContent := "请把报告翻译成英文"
 
-	prompt := BuildPrompt(Task{
-		IssueID:               issueID,
+	prompt := BuildPrompt(AgentRun{
+		TaskID:                taskID,
 		TriggerCommentID:      commentID,
 		TriggerCommentContent: commentContent,
 		Agent:                 &AgentData{Name: "Test"},
@@ -825,11 +825,11 @@ func TestBuildPromptCommentTriggered(t *testing.T) {
 	// is what prevents resumed sessions from reusing the previous turn's
 	// --parent UUID.
 	for _, want := range []string{
-		issueID,
+		taskID,
 		commentContent,
 		"Focus on THIS comment",
 		commentID,
-		"silieco issue comment add " + issueID + " --parent " + commentID,
+		"silieco task comment add " + taskID + " --parent " + commentID,
 		"do NOT reuse --parent values from previous turns",
 		// Silence-as-valid-exit for agent-to-agent loops depends on the
 		// reply command being framed conditionally rather than as a hard
@@ -842,9 +842,9 @@ func TestBuildPromptCommentTriggered(t *testing.T) {
 		}
 	}
 
-	// Should still contain CLI hint for fetching issue context.
-	if !strings.Contains(prompt, "silieco issue get") {
-		t.Fatal("prompt missing CLI hint for issue context")
+	// Should still contain CLI hint for fetching task context.
+	if !strings.Contains(prompt, "silieco task get") {
+		t.Fatal("prompt missing CLI hint for task context")
 	}
 }
 
@@ -856,8 +856,8 @@ func TestBuildPromptCommentTriggered(t *testing.T) {
 func TestBuildPromptCommentTriggeredByAgent(t *testing.T) {
 	t.Parallel()
 
-	prompt := BuildPrompt(Task{
-		IssueID:               "issue-1",
+	prompt := BuildPrompt(AgentRun{
+		TaskID:                "task-1",
 		TriggerCommentID:      "comment-1",
 		TriggerCommentContent: "thanks, looks good!",
 		TriggerAuthorType:     "agent",
@@ -882,8 +882,8 @@ func TestBuildPromptCommentTriggeredByAgent(t *testing.T) {
 func TestBuildPromptCommentTriggeredByMember(t *testing.T) {
 	t.Parallel()
 
-	prompt := BuildPrompt(Task{
-		IssueID:               "issue-1",
+	prompt := BuildPrompt(AgentRun{
+		TaskID:                "task-1",
 		TriggerCommentID:      "comment-1",
 		TriggerCommentContent: "can you translate this?",
 		TriggerAuthorType:     "member",
@@ -914,13 +914,13 @@ func TestBuildPromptCommentTriggeredNoContent(t *testing.T) {
 
 	// When TriggerCommentID is set but content is empty (e.g. fetch failed),
 	// it should still use the comment prompt path.
-	prompt := BuildPrompt(Task{
-		IssueID:          "test-id",
+	prompt := BuildPrompt(AgentRun{
+		TaskID:           "test-id",
 		TriggerCommentID: "comment-id",
 		Agent:            &AgentData{Name: "Test"},
 	}, "claude")
 
-	if !strings.Contains(prompt, "silieco issue get") {
+	if !strings.Contains(prompt, "silieco task get") {
 		t.Fatal("prompt missing CLI hint")
 	}
 }
@@ -932,8 +932,8 @@ func TestBuildPromptCommentTriggeredNoContent(t *testing.T) {
 func TestBuildPromptSquadLeaderNoActionProhibition(t *testing.T) {
 	t.Parallel()
 
-	prompt := BuildPrompt(Task{
-		IssueID:               "issue-1",
+	prompt := BuildPrompt(AgentRun{
+		TaskID:                "task-1",
 		TriggerCommentID:      "comment-1",
 		TriggerCommentContent: "Progress update: tests passing.",
 		TriggerAuthorType:     "agent",
@@ -955,8 +955,8 @@ func TestBuildPromptSquadLeaderNoActionProhibition(t *testing.T) {
 	}
 
 	// Non-squad-leader agent should NOT get the squad leader rule.
-	nonLeaderPrompt := BuildPrompt(Task{
-		IssueID:               "issue-1",
+	nonLeaderPrompt := BuildPrompt(AgentRun{
+		TaskID:                "task-1",
 		TriggerCommentID:      "comment-1",
 		TriggerCommentContent: "Progress update: tests passing.",
 		TriggerAuthorType:     "agent",
@@ -990,7 +990,7 @@ func TestIsWorkspaceNotFoundError(t *testing.T) {
 	}
 }
 
-func TestIsTaskNotFoundError(t *testing.T) {
+func TestIsRunNotFoundError(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -999,12 +999,12 @@ func TestIsTaskNotFoundError(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "404 with task not found body",
+			name: "404 with run not found body",
 			err: &requestError{
 				Method:     http.MethodPost,
-				Path:       "/api/daemon/tasks/abc/messages",
+				Path:       "/api/daemon/runs/abc/messages",
 				StatusCode: http.StatusNotFound,
-				Body:       `{"error":"task not found"}`,
+				Body:       `{"error":"run not found"}`,
 			},
 			want: true,
 		},
@@ -1012,7 +1012,7 @@ func TestIsTaskNotFoundError(t *testing.T) {
 			name: "404 with mixed-case body still matches",
 			err: &requestError{
 				StatusCode: http.StatusNotFound,
-				Body:       `{"error":"Task Not Found"}`,
+				Body:       `{"error":"Run Not Found"}`,
 			},
 			want: true,
 		},
@@ -1020,7 +1020,7 @@ func TestIsTaskNotFoundError(t *testing.T) {
 			name: "500 with same body is not task-not-found",
 			err: &requestError{
 				StatusCode: http.StatusInternalServerError,
-				Body:       `{"error":"task not found"}`,
+				Body:       `{"error":"run not found"}`,
 			},
 			want: false,
 		},
@@ -1046,8 +1046,8 @@ func TestIsTaskNotFoundError(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := isTaskNotFoundError(tc.err); got != tc.want {
-				t.Fatalf("isTaskNotFoundError(%v) = %v, want %v", tc.err, got, tc.want)
+			if got := isRunNotFoundError(tc.err); got != tc.want {
+				t.Fatalf("isRunNotFoundError(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
 	}
@@ -1075,7 +1075,7 @@ func TestIsRuntimeNotFoundError(t *testing.T) {
 			name: "404 with runtime not found body from claim",
 			err: &requestError{
 				Method:     http.MethodPost,
-				Path:       "/api/daemon/runtimes/abc/tasks/claim",
+				Path:       "/api/daemon/runtimes/abc/runs/claim",
 				StatusCode: http.StatusNotFound,
 				Body:       `{"error":"runtime not found"}`,
 			},
@@ -1101,7 +1101,7 @@ func TestIsRuntimeNotFoundError(t *testing.T) {
 			name: "404 with task-not-found body is not runtime-not-found",
 			err: &requestError{
 				StatusCode: http.StatusNotFound,
-				Body:       `{"error":"task not found"}`,
+				Body:       `{"error":"run not found"}`,
 			},
 			want: false,
 		},
@@ -1139,7 +1139,7 @@ func TestShouldInterruptAgent(t *testing.T) {
 
 	notFound := &requestError{
 		StatusCode: http.StatusNotFound,
-		Body:       `{"error":"task not found"}`,
+		Body:       `{"error":"run not found"}`,
 	}
 	transient := &requestError{
 		StatusCode: http.StatusBadGateway,
@@ -1173,14 +1173,14 @@ func TestShouldInterruptAgent(t *testing.T) {
 }
 
 // TestWatchTaskCancellation_TaskDeleted reproduces the zombie-task bug:
-// when the server deletes a task while it is running (issue removed,
+// when the server deletes a task while it is running (task removed,
 // agent reassigned, etc.), GetTaskStatus starts returning 404. Before the
 // fix the daemon kept polling and never interrupted the running agent —
 // codex would keep emitting tool calls for minutes against a dead task.
 //
 // After the fix, watchTaskCancellation must close its channel within a
 // few poll intervals so the caller can cancel the agent context.
-func TestWatchTaskCancellation_TaskDeleted(t *testing.T) {
+func TestWatchRunCancellation_RunDeleted(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1190,7 +1190,7 @@ func TestWatchTaskCancellation_TaskDeleted(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(`{"error":"task not found"}`))
+		_, _ = w.Write([]byte(`{"error":"run not found"}`))
 	}))
 	t.Cleanup(srv.Close)
 
@@ -1198,7 +1198,7 @@ func TestWatchTaskCancellation_TaskDeleted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	cancelled := d.watchTaskCancellation(ctx, "task-deleted", 10*time.Millisecond, slog.Default())
+	cancelled := d.watchRunCancellation(ctx, "task-deleted", 10*time.Millisecond, slog.Default())
 
 	select {
 	case <-cancelled:
@@ -1211,7 +1211,7 @@ func TestWatchTaskCancellation_TaskDeleted(t *testing.T) {
 // TestWatchTaskCancellation_StatusCancelled keeps the existing behaviour
 // (server transitions task status to "cancelled") working alongside the
 // new 404 path.
-func TestWatchTaskCancellation_StatusCancelled(t *testing.T) {
+func TestWatchRunCancellation_StatusCancelled(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1228,7 +1228,7 @@ func TestWatchTaskCancellation_StatusCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	cancelled := d.watchTaskCancellation(ctx, "task-cancelled", 10*time.Millisecond, slog.Default())
+	cancelled := d.watchRunCancellation(ctx, "task-cancelled", 10*time.Millisecond, slog.Default())
 
 	select {
 	case <-cancelled:
@@ -1239,7 +1239,7 @@ func TestWatchTaskCancellation_StatusCancelled(t *testing.T) {
 
 // TestWatchTaskCancellation_RunningTaskNotInterrupted ensures the watcher
 // does NOT trigger on transient errors or while the task is still running.
-func TestWatchTaskCancellation_RunningTaskNotInterrupted(t *testing.T) {
+func TestWatchRunCancellation_RunningRunNotInterrupted(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
@@ -1254,7 +1254,7 @@ func TestWatchTaskCancellation_RunningTaskNotInterrupted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	cancelled := d.watchTaskCancellation(ctx, "task-running", 10*time.Millisecond, slog.Default())
+	cancelled := d.watchRunCancellation(ctx, "task-running", 10*time.Millisecond, slog.Default())
 
 	select {
 	case <-cancelled:
@@ -1375,22 +1375,22 @@ func TestGateCodexResumeToRolloutPresence(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			task := Task{PriorSessionID: tt.sessionID}
-			taskCtx := execenv.TaskContextForEnv{PriorSessionResumed: tt.sessionID != ""}
+			agentRun := AgentRun{PriorSessionID: tt.sessionID}
+			runCtx := execenv.RunContextForEnv{PriorSessionResumed: tt.sessionID != ""}
 
-			gateCodexResumeToRolloutPresence(&task, &taskCtx, tt.provider, tt.codexHome, slog.Default())
+			gateCodexResumeToRolloutPresence(&agentRun, &runCtx, tt.provider, tt.codexHome, slog.Default())
 
-			if task.PriorSessionID != tt.wantSession {
-				t.Fatalf("PriorSessionID = %q, want %q", task.PriorSessionID, tt.wantSession)
+			if agentRun.PriorSessionID != tt.wantSession {
+				t.Fatalf("PriorSessionID = %q, want %q", agentRun.PriorSessionID, tt.wantSession)
 			}
-			if taskCtx.PriorSessionResumed != (tt.wantSession != "") {
-				t.Fatalf("PriorSessionResumed = %v, want %v", taskCtx.PriorSessionResumed, tt.wantSession != "")
+			if runCtx.PriorSessionResumed != (tt.wantSession != "") {
+				t.Fatalf("PriorSessionResumed = %v, want %v", runCtx.PriorSessionResumed, tt.wantSession != "")
 			}
 			// A dropped resume (had a session, now cleared) must be surfaced to
 			// the user via the brief; a kept/no-op resume must not.
 			wantUnavailable := tt.sessionID != "" && tt.wantSession == ""
-			if taskCtx.PriorSessionResumeUnavailable != wantUnavailable {
-				t.Fatalf("PriorSessionResumeUnavailable = %v, want %v", taskCtx.PriorSessionResumeUnavailable, wantUnavailable)
+			if runCtx.PriorSessionResumeUnavailable != wantUnavailable {
+				t.Fatalf("PriorSessionResumeUnavailable = %v, want %v", runCtx.PriorSessionResumeUnavailable, wantUnavailable)
 			}
 		})
 	}
@@ -1673,31 +1673,31 @@ func TestGateResumeToReusedWorkdir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			task := Task{PriorSessionID: tt.sessionID, PriorWorkDir: tt.priorDir}
-			taskCtx := execenv.TaskContextForEnv{PriorSessionResumed: tt.sessionID != ""}
+			agentRun := AgentRun{PriorSessionID: tt.sessionID, PriorWorkDir: tt.priorDir}
+			runCtx := execenv.RunContextForEnv{PriorSessionResumed: tt.sessionID != ""}
 
-			reused := gateResumeToReusedWorkdir(&task, &taskCtx, tt.envDir, slog.Default())
+			reused := gateResumeToReusedWorkdir(&agentRun, &runCtx, tt.envDir, slog.Default())
 
 			if reused != tt.wantReused {
 				t.Fatalf("reused = %v, want %v", reused, tt.wantReused)
 			}
-			if task.PriorSessionID != tt.wantSession {
-				t.Fatalf("PriorSessionID = %q, want %q", task.PriorSessionID, tt.wantSession)
+			if agentRun.PriorSessionID != tt.wantSession {
+				t.Fatalf("PriorSessionID = %q, want %q", agentRun.PriorSessionID, tt.wantSession)
 			}
-			if taskCtx.PriorSessionResumed != (tt.wantSession != "") {
-				t.Fatalf("PriorSessionResumed = %v, want %v", taskCtx.PriorSessionResumed, tt.wantSession != "")
+			if runCtx.PriorSessionResumed != (tt.wantSession != "") {
+				t.Fatalf("PriorSessionResumed = %v, want %v", runCtx.PriorSessionResumed, tt.wantSession != "")
 			}
 			// A dropped resume (had a session, now cleared) must be surfaced to
 			// the user via the brief; a kept/no-op resume must not.
 			wantUnavailable := tt.sessionID != "" && tt.wantSession == ""
-			if taskCtx.PriorSessionResumeUnavailable != wantUnavailable {
-				t.Fatalf("PriorSessionResumeUnavailable = %v, want %v", taskCtx.PriorSessionResumeUnavailable, wantUnavailable)
+			if runCtx.PriorSessionResumeUnavailable != wantUnavailable {
+				t.Fatalf("PriorSessionResumeUnavailable = %v, want %v", runCtx.PriorSessionResumeUnavailable, wantUnavailable)
 			}
 		})
 	}
 }
 
-// newCodexStoreGuardDaemon builds a Daemon with only the per-issue Codex session
+// newCodexStoreGuardDaemon builds a Daemon with only the per-task Codex session
 // store guard initialised — enough to exercise the reserve-vs-mark protocol.
 func newCodexStoreGuardDaemon() *Daemon {
 	d := &Daemon{
@@ -1714,7 +1714,7 @@ func newCodexStoreGuardDaemon() *Daemon {
 func TestCodexStoreGuard_MarkBeforeReserveBlocksDeletion(t *testing.T) {
 	t.Parallel()
 	d := newCodexStoreGuardDaemon()
-	const store = "/stores/agent/issue"
+	const store = "/stores/agent/task"
 
 	d.markActiveCodexStore(store)
 	if _, ok := d.reserveCodexStoreForDeletion(store); ok {
@@ -1735,7 +1735,7 @@ func TestCodexStoreGuard_MarkBeforeReserveBlocksDeletion(t *testing.T) {
 func TestCodexStoreGuard_ReserveBlocksMarkUntilCommit(t *testing.T) {
 	t.Parallel()
 	d := newCodexStoreGuardDaemon()
-	const store = "/stores/agent/issue"
+	const store = "/stores/agent/task"
 
 	commit, ok := d.reserveCodexStoreForDeletion(store)
 	if !ok {
@@ -1772,7 +1772,7 @@ func TestCodexStoreGuard_ReserveBlocksMarkUntilCommit(t *testing.T) {
 func TestCodexStoreGuard_SecondReserveRefusedWhileDeleting(t *testing.T) {
 	t.Parallel()
 	d := newCodexStoreGuardDaemon()
-	const store = "/stores/agent/issue"
+	const store = "/stores/agent/task"
 
 	commit, ok := d.reserveCodexStoreForDeletion(store)
 	if !ok {
@@ -1794,7 +1794,7 @@ func TestExecuteAndDrain_ResumeFailureFallback(t *testing.T) {
 
 	d := newTestDaemon(t)
 	ctx := context.Background()
-	taskLog := slog.Default()
+	runLog := slog.Default()
 
 	fb := &fakeBackend{
 		results: []agent.Result{
@@ -1810,7 +1810,7 @@ func TestExecuteAndDrain_ResumeFailureFallback(t *testing.T) {
 	// First attempt: resume fails (no SessionID in result).
 	opts := agent.ExecOptions{ResumeSessionID: "stale-id"}
 	var msgSeq atomic.Int32
-	result, tools, err := d.executeAndDrain(ctx, fb, "prompt", opts, taskLog, "task-1", "", &msgSeq)
+	result, tools, err := d.executeAndDrain(ctx, fb, "prompt", opts, runLog, "task-1", "", &msgSeq)
 	if err != nil {
 		t.Fatalf("first call error: %v", err)
 	}
@@ -1822,7 +1822,7 @@ func TestExecuteAndDrain_ResumeFailureFallback(t *testing.T) {
 	if shouldRetryWithFreshSession(result, opts.ResumeSessionID, tools, "claude") {
 		firstUsage := result.Usage
 		opts.ResumeSessionID = ""
-		retryResult, _, retryErr := d.executeAndDrain(ctx, fb, "prompt", opts, taskLog, "task-1", "", &msgSeq)
+		retryResult, _, retryErr := d.executeAndDrain(ctx, fb, "prompt", opts, runLog, "task-1", "", &msgSeq)
 		if retryErr != nil {
 			t.Fatalf("retry error: %v", retryErr)
 		}
@@ -1871,10 +1871,10 @@ func (b *transcriptBackend) Execute(_ context.Context, _ string, _ agent.ExecOpt
 // message endpoint.
 type transcriptRecorder struct {
 	mu       sync.Mutex
-	messages []TaskMessageData
+	messages []AgentRunMessageData
 }
 
-func (r *transcriptRecorder) snapshot() []TaskMessageData {
+func (r *transcriptRecorder) snapshot() []AgentRunMessageData {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return slices.Clone(r.messages)
@@ -1888,7 +1888,7 @@ func newTranscriptRecorder(t *testing.T) (*Daemon, *transcriptRecorder) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/messages") {
 			var body struct {
-				Messages []TaskMessageData `json:"messages"`
+				Messages []AgentRunMessageData `json:"messages"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
 				rec.mu.Lock()
@@ -2465,14 +2465,14 @@ func TestExecuteAndDrain_CodexInactivityReportsToolResultTranscript(t *testing.T
 	}
 
 	var mu sync.Mutex
-	var reported []TaskMessageData
+	var reported []AgentRunMessageData
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/daemon/tasks/task-stale/messages" {
+		if r.URL.Path != "/api/daemon/runs/task-stale/messages" {
 			http.NotFound(w, r)
 			return
 		}
 		var body struct {
-			Messages []TaskMessageData `json:"messages"`
+			Messages []AgentRunMessageData `json:"messages"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("decode task messages: %v", err)
@@ -2945,7 +2945,7 @@ func TestExecuteAndDrain_IdleWatchdog_FiresAfterToolResultIfBackendStaysSilent(t
 // reads `workspaceCoAuthoredByEnabled` right after, and the 30s workspace
 // sync tick is too slow to make a freshly-flipped GitHub toggle feel live.
 // PR #2847 review by Emacs caught this fast-path regression; the test
-// asserts the cached-repo path still issues exactly one refresh.
+// asserts the cached-repo path still tasks exactly one refresh.
 func TestEnsureRepoReadyCachedRepoStillRefreshesSettings(t *testing.T) {
 	t.Parallel()
 
@@ -3058,7 +3058,7 @@ func TestEnsureRepoReadyRefreshesOnMiss(t *testing.T) {
 // be allowed for `silieco repo checkout` after registerTaskRepos runs. Without
 // this, the new project-repos-override-workspace-repos behavior would surface
 // repos in the meta-skill that the agent then can't actually clone.
-func TestRegisterTaskReposAllowsProjectOnlyURL(t *testing.T) {
+func TestRegisterRunReposAllowsProjectOnlyURL(t *testing.T) {
 	t.Parallel()
 
 	sourceRepo := createDaemonTestRepo(t)
@@ -3077,7 +3077,7 @@ func TestRegisterTaskReposAllowsProjectOnlyURL(t *testing.T) {
 	// the only repo URL the agent should be able to check out.
 	d.workspaces["ws-1"] = newWorkspaceState("ws-1", nil, "", nil, nil)
 
-	d.registerTaskRepos("ws-1", "task-project-only", []RepoData{{URL: sourceRepo}})
+	d.registerRunRepos("ws-1", "task-project-only", []RepoData{{URL: sourceRepo}})
 
 	// The async clone goroutine in registerTaskRepos may not have finished;
 	// poll briefly until the cache is populated so the test isn't racy.
@@ -3112,7 +3112,7 @@ func TestRegisterTaskReposAllowsProjectOnlyURL(t *testing.T) {
 // task-scoped URLs (project repos). Without the separate taskRepoURLs map a
 // concurrent refresh would silently revoke project-only URLs and the next
 // checkout would fail.
-func TestRegisterTaskReposSurvivesWorkspaceRefresh(t *testing.T) {
+func TestRegisterRunReposSurvivesWorkspaceRefresh(t *testing.T) {
 	t.Parallel()
 
 	sourceRepo := createDaemonTestRepo(t)
@@ -3124,7 +3124,7 @@ func TestRegisterTaskReposSurvivesWorkspaceRefresh(t *testing.T) {
 		})
 	})
 	d.workspaces["ws-1"] = newWorkspaceState("ws-1", nil, "", nil, nil)
-	d.registerTaskRepos("ws-1", "task-refresh", []RepoData{{URL: sourceRepo}})
+	d.registerRunRepos("ws-1", "task-refresh", []RepoData{{URL: sourceRepo}})
 
 	// Wait for the registration to populate the cache.
 	deadline := time.Now().Add(5 * time.Second)
@@ -3141,7 +3141,7 @@ func TestRegisterTaskReposSurvivesWorkspaceRefresh(t *testing.T) {
 	}
 }
 
-func TestTaskRepoDefaultRefScopedByTask(t *testing.T) {
+func TestRunRepoDefaultRefScopedByRun(t *testing.T) {
 	t.Parallel()
 
 	const repoURL = "https://github.com/example/shared"
@@ -3151,25 +3151,25 @@ func TestTaskRepoDefaultRefScopedByTask(t *testing.T) {
 		},
 	}
 
-	d.registerTaskRepos("ws-1", "task-a", []RepoData{
+	d.registerRunRepos("ws-1", "task-a", []RepoData{
 		{URL: repoURL, Ref: "release/a"},
 		{URL: repoURL, Ref: "late-duplicate"},
 	})
-	d.registerTaskRepos("ws-1", "task-b", []RepoData{{URL: repoURL, Ref: "release/b"}})
+	d.registerRunRepos("ws-1", "task-b", []RepoData{{URL: repoURL, Ref: "release/b"}})
 
-	if got := d.taskRepoDefaultRef("ws-1", "task-a", repoURL); got != "release/a" {
+	if got := d.runRepoDefaultRef("ws-1", "task-a", repoURL); got != "release/a" {
 		t.Fatalf("task-a default ref = %q, want release/a", got)
 	}
-	if got := d.taskRepoDefaultRef("ws-1", "task-b", repoURL); got != "release/b" {
+	if got := d.runRepoDefaultRef("ws-1", "task-b", repoURL); got != "release/b" {
 		t.Fatalf("task-b default ref = %q, want release/b", got)
 	}
 
-	d.clearTaskRepoRefs("ws-1", "task-a")
+	d.clearRunRepoRefs("ws-1", "task-a")
 
-	if got := d.taskRepoDefaultRef("ws-1", "task-a", repoURL); got != "" {
+	if got := d.runRepoDefaultRef("ws-1", "task-a", repoURL); got != "" {
 		t.Fatalf("task-a default ref after cleanup = %q, want empty", got)
 	}
-	if got := d.taskRepoDefaultRef("ws-1", "task-b", repoURL); got != "release/b" {
+	if got := d.runRepoDefaultRef("ws-1", "task-b", repoURL); got != "release/b" {
 		t.Fatalf("task-b default ref after task-a cleanup = %q, want release/b", got)
 	}
 }
@@ -3298,25 +3298,25 @@ func TestDefaultArgsForProvider(t *testing.T) {
 // (.../complete or .../fail) reportTaskResult hits and the body it
 // posts, so the tests can assert the disposition (success vs fail)
 // independently of the rest of handleTask.
-type reportTaskResultRecorder struct {
+type reportRunResultRecorder struct {
 	mu      sync.Mutex
 	path    string
 	method  string
 	payload map[string]any
 }
 
-func TestTerminalTaskReportTimeoutCoversRetrySchedule(t *testing.T) {
+func TestTerminalRunReportTimeoutCoversRetrySchedule(t *testing.T) {
 	client := NewClient("http://example.invalid")
 	worstCase := time.Duration(len(defaultTerminalRetrySchedule)+1) * client.client.Timeout
 	for _, delay := range defaultTerminalRetrySchedule {
 		worstCase += delay
 	}
-	if terminalTaskReportTimeout < worstCase {
-		t.Fatalf("terminal report timeout = %s, want at least retry worst case %s", terminalTaskReportTimeout, worstCase)
+	if terminalRunReportTimeout < worstCase {
+		t.Fatalf("terminal report timeout = %s, want at least retry worst case %s", terminalRunReportTimeout, worstCase)
 	}
 }
 
-func (r *reportTaskResultRecorder) handler(t *testing.T) http.HandlerFunc {
+func (r *reportRunResultRecorder) handler(t *testing.T) http.HandlerFunc {
 	t.Helper()
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		body, err := io.ReadAll(req.Body)
@@ -3342,15 +3342,15 @@ func (r *reportTaskResultRecorder) handler(t *testing.T) http.HandlerFunc {
 	})
 }
 
-func TestReportTaskResult_CompletedHitsCompleteEndpoint(t *testing.T) {
+func TestReportRunResult_CompletedHitsCompleteEndpoint(t *testing.T) {
 	t.Parallel()
 
-	rec := &reportTaskResultRecorder{}
+	rec := &reportRunResultRecorder{}
 	srv := httptest.NewServer(rec.handler(t))
 	t.Cleanup(srv.Close)
 
 	d := &Daemon{client: NewClient(srv.URL), logger: slog.Default()}
-	d.reportTaskResult(context.Background(), "task-1", TaskResult{
+	d.reportRunResult(context.Background(), "task-1", RunResult{
 		Status:     "completed",
 		Comment:    "all good",
 		BranchName: "agent/foo",
@@ -3360,7 +3360,7 @@ func TestReportTaskResult_CompletedHitsCompleteEndpoint(t *testing.T) {
 
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
-	if rec.path != "/api/daemon/tasks/task-1/complete" {
+	if rec.path != "/api/daemon/runs/task-1/complete" {
 		t.Fatalf("expected /complete endpoint, got %s", rec.path)
 	}
 	if rec.payload["output"] != "all good" {
@@ -3374,17 +3374,17 @@ func TestReportTaskResult_CompletedHitsCompleteEndpoint(t *testing.T) {
 	}
 }
 
-func TestReportTaskResult_CancelledParentStillReportsTerminalState(t *testing.T) {
+func TestReportRunResult_CancelledParentStillReportsTerminalState(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
-		result     TaskResult
+		result     RunResult
 		wantSuffix string
 	}{
 		{
 			name: "complete",
-			result: TaskResult{
+			result: RunResult{
 				Status:     "completed",
 				Comment:    "all good",
 				BranchName: "agent/foo",
@@ -3395,7 +3395,7 @@ func TestReportTaskResult_CancelledParentStillReportsTerminalState(t *testing.T)
 		},
 		{
 			name: "fail",
-			result: TaskResult{
+			result: RunResult{
 				Status:        "blocked",
 				Comment:       "provider unavailable",
 				SessionID:     "ses-fail",
@@ -3422,7 +3422,7 @@ func TestReportTaskResult_CancelledParentStillReportsTerminalState(t *testing.T)
 			cancel()
 
 			d := &Daemon{client: NewClient(srv.URL), logger: slog.Default()}
-			d.reportTaskResult(ctx, "task-cancelled-parent", tc.result, slog.Default())
+			d.reportRunResult(ctx, "task-cancelled-parent", tc.result, slog.Default())
 
 			if got := calls.Load(); got != 1 {
 				t.Fatalf("terminal callback calls = %d, want 1", got)
@@ -3436,7 +3436,7 @@ func TestReportTaskResult_CancelledParentStillReportsTerminalState(t *testing.T)
 // future status we forget to enumerate) MUST go through FailTask, so
 // the UI never shows a green "Completed" badge for a run that didn't
 // actually do anything (e.g. provider 429 / out-of-credit).
-func TestReportTaskResult_NonCompletedHitsFailEndpoint(t *testing.T) {
+func TestReportRunResult_NonCompletedHitsFailEndpoint(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -3490,12 +3490,12 @@ func TestReportTaskResult_NonCompletedHitsFailEndpoint(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := &reportTaskResultRecorder{}
+			rec := &reportRunResultRecorder{}
 			srv := httptest.NewServer(rec.handler(t))
 			t.Cleanup(srv.Close)
 
 			d := &Daemon{client: NewClient(srv.URL), logger: slog.Default()}
-			d.reportTaskResult(context.Background(), "task-x", TaskResult{
+			d.reportRunResult(context.Background(), "task-x", RunResult{
 				Status:        tc.status,
 				Comment:       tc.comment,
 				SessionID:     "ses-x",
@@ -3505,7 +3505,7 @@ func TestReportTaskResult_NonCompletedHitsFailEndpoint(t *testing.T) {
 
 			rec.mu.Lock()
 			defer rec.mu.Unlock()
-			if rec.path != "/api/daemon/tasks/task-x/fail" {
+			if rec.path != "/api/daemon/runs/task-x/fail" {
 				t.Fatalf("expected /fail endpoint for status=%q, got %s", tc.status, rec.path)
 			}
 			if rec.payload["error"] != tc.comment {
@@ -3526,7 +3526,7 @@ func TestReportTaskResult_NonCompletedHitsFailEndpoint(t *testing.T) {
 // (b) wrongly fall back to /fail, surfacing a successful run as red.
 // With the retry helper in place, a transient 502 followed by a 200 must
 // resolve via /complete without ever touching /fail.
-func TestReportTaskResult_RetriesTransientCompleteThenSucceeds(t *testing.T) {
+func TestReportRunResult_RetriesTransientCompleteThenSucceeds(t *testing.T) {
 	defer noSleepRetry(t)()
 
 	var completeCalls, failCalls atomic.Int32
@@ -3549,7 +3549,7 @@ func TestReportTaskResult_RetriesTransientCompleteThenSucceeds(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	d := &Daemon{client: NewClient(srv.URL), logger: slog.Default()}
-	d.reportTaskResult(context.Background(), "task-retry", TaskResult{
+	d.reportRunResult(context.Background(), "task-retry", RunResult{
 		Status:  "completed",
 		Comment: "ok",
 	}, slog.Default())
@@ -3567,7 +3567,7 @@ func TestReportTaskResult_RetriesTransientCompleteThenSucceeds(t *testing.T) {
 // NOT fall through to /fail — that would surface a real success as a
 // failure in the UI. The task is left in running for a future recovery
 // path to pick up.
-func TestReportTaskResult_TransientCompleteExhaustedDoesNotFallback(t *testing.T) {
+func TestReportRunResult_TransientCompleteExhaustedDoesNotFallback(t *testing.T) {
 	defer noSleepRetry(t)()
 
 	prevSchedule := defaultTerminalRetrySchedule
@@ -3590,7 +3590,7 @@ func TestReportTaskResult_TransientCompleteExhaustedDoesNotFallback(t *testing.T
 	t.Cleanup(srv.Close)
 
 	d := &Daemon{client: NewClient(srv.URL), logger: slog.Default()}
-	d.reportTaskResult(context.Background(), "task-stuck", TaskResult{
+	d.reportRunResult(context.Background(), "task-stuck", RunResult{
 		Status:  "completed",
 		Comment: "ok",
 	}, slog.Default())
@@ -3603,10 +3603,10 @@ func TestReportTaskResult_TransientCompleteExhaustedDoesNotFallback(t *testing.T
 	}
 }
 
-// On permanent 4xx from /complete (e.g. 400 bad body, 404 task not found)
+// On permanent 4xx from /complete (e.g. 400 bad body, 404 run not found)
 // the helper bails immediately and the daemon falls back to /fail so the
 // UI shows a concrete failure rather than a perpetually-running task.
-func TestReportTaskResult_PermanentCompleteFallsBackToFail(t *testing.T) {
+func TestReportRunResult_PermanentCompleteFallsBackToFail(t *testing.T) {
 	defer noSleepRetry(t)()
 
 	var completeCalls, failCalls atomic.Int32
@@ -3625,7 +3625,7 @@ func TestReportTaskResult_PermanentCompleteFallsBackToFail(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	d := &Daemon{client: NewClient(srv.URL), logger: slog.Default()}
-	d.reportTaskResult(context.Background(), "task-bad", TaskResult{
+	d.reportRunResult(context.Background(), "task-bad", RunResult{
 		Status:  "completed",
 		Comment: "ok",
 	}, slog.Default())
@@ -3638,7 +3638,7 @@ func TestReportTaskResult_PermanentCompleteFallsBackToFail(t *testing.T) {
 	}
 }
 
-func TestReportTaskResult_CancelledParentStillRunsPermanentFailureFallback(t *testing.T) {
+func TestReportRunResult_CancelledParentStillRunsPermanentFailureFallback(t *testing.T) {
 	defer noSleepRetry(t)()
 
 	var completeCalls, failCalls atomic.Int32
@@ -3660,7 +3660,7 @@ func TestReportTaskResult_CancelledParentStillRunsPermanentFailureFallback(t *te
 	cancel()
 
 	d := &Daemon{client: NewClient(srv.URL), logger: slog.Default()}
-	d.reportTaskResult(ctx, "task-cancelled-fallback", TaskResult{
+	d.reportRunResult(ctx, "task-cancelled-fallback", RunResult{
 		Status:  "completed",
 		Comment: "ok",
 	}, slog.Default())
@@ -3673,7 +3673,7 @@ func TestReportTaskResult_CancelledParentStillRunsPermanentFailureFallback(t *te
 	}
 }
 
-func TestHandleTask_BareErrorReportsFailureWithCancelledParent(t *testing.T) {
+func TestHandleRun_BareErrorReportsFailureWithCancelledParent(t *testing.T) {
 	t.Parallel()
 
 	var failCalls atomic.Int32
@@ -3692,16 +3692,16 @@ func TestHandleTask_BareErrorReportsFailureWithCancelledParent(t *testing.T) {
 		runtimeIndex:       map[string]Runtime{"rt-1": {ID: "rt-1", Provider: "codex"}},
 		cancelPollInterval: time.Hour,
 	}
-	d.runner = taskRunnerFunc(func(runCtx context.Context, _ Task, _ string, _ int, _ *slog.Logger) (TaskResult, error) {
+	d.runner = runRunnerFunc(func(runCtx context.Context, _ AgentRun, _ string, _ int, _ *slog.Logger) (RunResult, error) {
 		if !errors.Is(runCtx.Err(), context.Canceled) {
 			t.Errorf("runner context error = %v, want context.Canceled", runCtx.Err())
 		}
-		return TaskResult{}, errors.New("runner exited during shutdown")
+		return RunResult{}, errors.New("runner exited during shutdown")
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	d.handleTask(ctx, Task{ID: "task-bare-error", RuntimeID: "rt-1"}, 0)
+	d.handleRun(ctx, AgentRun{ID: "task-bare-error", RuntimeID: "rt-1"}, 0)
 
 	if got := failCalls.Load(); got != 1 {
 		t.Fatalf("fail callback calls = %d, want 1", got)
@@ -3712,7 +3712,7 @@ func TestHandleTask_BareErrorReportsFailureWithCancelledParent(t *testing.T) {
 // even when the server marks the task as cancelled during the post-run status
 // check. Regression test for the ordering bug where the cancel check ran before
 // usage was reported, silently discarding accumulated tokens.
-func TestHandleTask_ReportsUsageBeforeCancel(t *testing.T) {
+func TestHandleRun_ReportsUsageBeforeCancel(t *testing.T) {
 	t.Parallel()
 
 	var callOrder []string
@@ -3754,23 +3754,23 @@ func TestHandleTask_ReportsUsageBeforeCancel(t *testing.T) {
 
 	// Inject a fake runner that returns a result with usage tokens, bypassing
 	// real agent process execution.
-	d.runner = taskRunnerFunc(func(_ context.Context, _ Task, _ string, _ int, _ *slog.Logger) (TaskResult, error) {
-		return TaskResult{
+	d.runner = runRunnerFunc(func(_ context.Context, _ AgentRun, _ string, _ int, _ *slog.Logger) (RunResult, error) {
+		return RunResult{
 			Status: "completed",
-			Usage: []TaskUsageEntry{
+			Usage: []AgentRunUsageEntry{
 				{Provider: "anthropic", Model: "claude-opus-4-6", InputTokens: 100, OutputTokens: 50},
 			},
 		}, nil
 	})
 
-	task := Task{
+	agentRun := AgentRun{
 		ID:        "task-abc",
 		RuntimeID: "rt-1",
-		IssueID:   "issue-xyz",
+		TaskID:    "task-xyz",
 		Agent:     &AgentData{Name: "test-agent"},
 	}
 
-	d.handleTask(context.Background(), task, 0)
+	d.handleRun(context.Background(), agentRun, 0)
 
 	mu.Lock()
 	order := make([]string, len(callOrder))
@@ -3803,7 +3803,7 @@ func TestHandleTask_ReportsUsageBeforeCancel(t *testing.T) {
 // called even when the task is cancelled mid-execution by the poll goroutine.
 // Regression test for the cancelledByPoll early-return path that previously
 // discarded accumulated usage before calling ReportTaskUsage.
-func TestHandleTask_ReportsUsageWhenCancelledByPoll(t *testing.T) {
+func TestHandleRun_ReportsUsageWhenCancelledByPoll(t *testing.T) {
 	t.Parallel()
 
 	var callOrder []string
@@ -3856,24 +3856,24 @@ func TestHandleTask_ReportsUsageWhenCancelledByPoll(t *testing.T) {
 
 	// Inject a runner that blocks until runCtx is cancelled (simulating a real
 	// agent being interrupted), then returns usage tokens as claude.go does.
-	d.runner = taskRunnerFunc(func(runCtx context.Context, _ Task, _ string, _ int, _ *slog.Logger) (TaskResult, error) {
+	d.runner = runRunnerFunc(func(runCtx context.Context, _ AgentRun, _ string, _ int, _ *slog.Logger) (RunResult, error) {
 		<-runCtx.Done()
-		return TaskResult{
+		return RunResult{
 			Status: "aborted",
-			Usage: []TaskUsageEntry{
+			Usage: []AgentRunUsageEntry{
 				{Provider: "anthropic", Model: "claude-opus-4-6", InputTokens: 200, OutputTokens: 80},
 			},
 		}, nil
 	})
 
-	task := Task{
+	agentRun := AgentRun{
 		ID:        "task-poll",
 		RuntimeID: "rt-1",
-		IssueID:   "issue-poll",
+		TaskID:    "task-poll",
 		Agent:     &AgentData{Name: "test-agent"},
 	}
 
-	d.handleTask(context.Background(), task, 0)
+	d.handleRun(context.Background(), agentRun, 0)
 
 	mu.Lock()
 	order := make([]string, len(callOrder))
@@ -3914,7 +3914,7 @@ func TestHandleTask_ReportsUsageWhenCancelledByPoll(t *testing.T) {
 // invisible until the next tick fires. The test sets the ticker to a long
 // interval (so a tick would fail the test) and asserts the watcher reacts to
 // reconcile.broadcast() sub-second.
-func TestWatchTaskCancellation_ReconcileBroadcastTriggersImmediateCheck(t *testing.T) {
+func TestWatchRunCancellation_ReconcileBroadcastTriggersImmediateCheck(t *testing.T) {
 	t.Parallel()
 
 	var status atomic.Value
@@ -3942,7 +3942,7 @@ func TestWatchTaskCancellation_ReconcileBroadcastTriggersImmediateCheck(t *testi
 
 	// 30s ticker: if the watcher only reacts to its own ticker the test will
 	// time out at 2s, which is exactly the failure we want to catch.
-	cancelled := d.watchTaskCancellation(ctx, "task-reconcile", 30*time.Second, slog.Default())
+	cancelled := d.watchRunCancellation(ctx, "task-reconcile", 30*time.Second, slog.Default())
 
 	// Simulate the gap: status flips during the WS disconnect.
 	status.Store("cancelled")
@@ -3968,7 +3968,7 @@ func TestWatchTaskCancellation_ReconcileBroadcastTriggersImmediateCheck(t *testi
 // TestWatchTaskCancellation_ReconcileWithRunningTaskStaysAlive ensures the
 // reconcile path does not falsely interrupt a still-running task. The watcher
 // must call GetTaskStatus on broadcast, see status=running, and continue.
-func TestWatchTaskCancellation_ReconcileWithRunningTaskStaysAlive(t *testing.T) {
+func TestWatchRunCancellation_ReconcileWithRunningRunStaysAlive(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
@@ -3988,7 +3988,7 @@ func TestWatchTaskCancellation_ReconcileWithRunningTaskStaysAlive(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	cancelled := d.watchTaskCancellation(ctx, "task-still-running", 30*time.Second, slog.Default())
+	cancelled := d.watchRunCancellation(ctx, "task-still-running", 30*time.Second, slog.Default())
 
 	// Three broadcasts back-to-back: watcher should call GetTaskStatus at
 	// least once and NOT close the cancelled channel.
@@ -4265,7 +4265,7 @@ func TestWorkspaceSyncLoop_ReplaysBroadcastFromBeforeStart(t *testing.T) {
 // fix scales: a single WS reconnect that fires broadcast() must drive every
 // in-flight task's watcher to re-check the server. Without fan-out, a busy
 // daemon with N tasks would still hit a wall of sequential 5s gaps.
-func TestWatchTaskCancellation_BroadcastWakesAllConcurrentWatchers(t *testing.T) {
+func TestWatchRunCancellation_BroadcastWakesAllConcurrentWatchers(t *testing.T) {
 	t.Parallel()
 
 	var status atomic.Value
@@ -4296,7 +4296,7 @@ func TestWatchTaskCancellation_BroadcastWakesAllConcurrentWatchers(t *testing.T)
 	chans := make([]<-chan struct{}, watchers)
 	for i := 0; i < watchers; i++ {
 		// 30s ticker: only the broadcast path can satisfy the assertion.
-		chans[i] = d.watchTaskCancellation(ctx, fmt.Sprintf("task-%d", i), 30*time.Second, slog.Default())
+		chans[i] = d.watchRunCancellation(ctx, fmt.Sprintf("task-%d", i), 30*time.Second, slog.Default())
 	}
 
 	// Server state flips during the WS gap; broadcast lands the news to
@@ -4319,7 +4319,7 @@ func TestWatchTaskCancellation_BroadcastWakesAllConcurrentWatchers(t *testing.T)
 // TestWatchTaskCancellation_ReconcileDoesNotPanicAfterCtxCancel ensures
 // teardown order is safe: even if a broadcast arrives after ctx is cancelled,
 // the watcher must exit cleanly without panic or double-close of cancelled.
-func TestWatchTaskCancellation_ReconcileDoesNotPanicAfterCtxCancel(t *testing.T) {
+func TestWatchRunCancellation_ReconcileDoesNotPanicAfterCtxCancel(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -4336,7 +4336,7 @@ func TestWatchTaskCancellation_ReconcileDoesNotPanicAfterCtxCancel(t *testing.T)
 	d.reconcile.minBroadcastInterval = 0
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancelled := d.watchTaskCancellation(ctx, "task-ctx-cancelled", 30*time.Second, slog.Default())
+	cancelled := d.watchRunCancellation(ctx, "task-ctx-cancelled", 30*time.Second, slog.Default())
 
 	cancel()
 	// Give the watcher a beat to observe ctx.Done() and exit.
@@ -4359,7 +4359,7 @@ func TestWatchTaskCancellation_ReconcileDoesNotPanicAfterCtxCancel(t *testing.T)
 // TestWatchTaskCancellation_ReconcileRunningKeepsTickerAlive proves that a
 // reconcile broadcast that sees status=running does not disturb the ticker;
 // a subsequent ticker fire still detects a later cancellation.
-func TestWatchTaskCancellation_ReconcileRunningKeepsTickerAlive(t *testing.T) {
+func TestWatchRunCancellation_ReconcileRunningKeepsTickerAlive(t *testing.T) {
 	t.Parallel()
 
 	var status atomic.Value
@@ -4386,7 +4386,7 @@ func TestWatchTaskCancellation_ReconcileRunningKeepsTickerAlive(t *testing.T) {
 	t.Cleanup(cancel)
 
 	// Short ticker so the test stays fast.
-	cancelled := d.watchTaskCancellation(ctx, "task-runs-then-cancelled", 50*time.Millisecond, slog.Default())
+	cancelled := d.watchRunCancellation(ctx, "task-runs-then-cancelled", 50*time.Millisecond, slog.Default())
 
 	// First broadcast: server still reports running — watcher must NOT
 	// close cancelled.
@@ -4476,7 +4476,7 @@ func TestHermesLaunchArgsAndEnvByScenario(t *testing.T) {
 // cancel-ack when the poll goroutine interrupts the run — by then
 // runner.run has returned, so the transcript flush is complete and the
 // server may settle its deferred chat finalization (#5219).
-func TestHandleTask_AcksCancelAfterPollCancelled(t *testing.T) {
+func TestHandleRun_AcksCancelAfterPollCancelled(t *testing.T) {
 	t.Parallel()
 
 	var callOrder []string
@@ -4519,19 +4519,19 @@ func TestHandleTask_AcksCancelAfterPollCancelled(t *testing.T) {
 		cancelPollInterval: 10 * time.Millisecond,
 	}
 
-	d.runner = taskRunnerFunc(func(runCtx context.Context, _ Task, _ string, _ int, _ *slog.Logger) (TaskResult, error) {
+	d.runner = runRunnerFunc(func(runCtx context.Context, _ AgentRun, _ string, _ int, _ *slog.Logger) (RunResult, error) {
 		<-runCtx.Done()
-		return TaskResult{Status: "aborted"}, nil
+		return RunResult{Status: "aborted"}, nil
 	})
 
-	task := Task{
+	agentRun := AgentRun{
 		ID:        "task-ack-poll",
 		RuntimeID: "rt-1",
-		IssueID:   "issue-ack-poll",
+		TaskID:    "task-ack-poll",
 		Agent:     &AgentData{Name: "test-agent"},
 	}
 
-	d.handleTask(context.Background(), task, 0)
+	d.handleRun(context.Background(), agentRun, 0)
 
 	mu.Lock()
 	order := make([]string, len(callOrder))
@@ -4561,7 +4561,7 @@ func TestHandleTask_AcksCancelAfterPollCancelled(t *testing.T) {
 // TestHandleTask_AcksCancelOnPostRunStatusCheck verifies cancel-ack is also
 // posted when the cancellation is only discovered by the pre-completion
 // status check (the run finished before the poll noticed).
-func TestHandleTask_AcksCancelOnPostRunStatusCheck(t *testing.T) {
+func TestHandleRun_AcksCancelOnPostRunStatusCheck(t *testing.T) {
 	t.Parallel()
 
 	var ackCalls atomic.Int64
@@ -4589,18 +4589,18 @@ func TestHandleTask_AcksCancelOnPostRunStatusCheck(t *testing.T) {
 		cancelPollInterval: time.Hour, // disable the poll path; exercise the post-run check
 	}
 
-	d.runner = taskRunnerFunc(func(_ context.Context, _ Task, _ string, _ int, _ *slog.Logger) (TaskResult, error) {
-		return TaskResult{Status: "completed"}, nil
+	d.runner = runRunnerFunc(func(_ context.Context, _ AgentRun, _ string, _ int, _ *slog.Logger) (RunResult, error) {
+		return RunResult{Status: "completed"}, nil
 	})
 
-	task := Task{
+	agentRun := AgentRun{
 		ID:        "task-ack-postrun",
 		RuntimeID: "rt-1",
-		IssueID:   "issue-ack-postrun",
+		TaskID:    "task-ack-postrun",
 		Agent:     &AgentData{Name: "test-agent"},
 	}
 
-	d.handleTask(context.Background(), task, 0)
+	d.handleRun(context.Background(), agentRun, 0)
 
 	if got := ackCalls.Load(); got != 1 {
 		t.Fatalf("cancel-ack calls = %d, want 1", got)

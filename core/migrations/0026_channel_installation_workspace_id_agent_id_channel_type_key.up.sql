@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY channel_installation_workspace_id_agent_id_channel_type_key ON public.channel_installation (workspace_id, agent_id, channel_type);

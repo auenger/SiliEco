@@ -96,7 +96,7 @@ const mkWs = (id: string, slug: string) => ({
   context: null,
   settings: {},
   repos: [],
-  issue_prefix: slug.toUpperCase(),
+  task_prefix: slug.toUpperCase(),
   avatar_url: null,
   created_at: "",
   updated_at: "",
@@ -160,7 +160,7 @@ describe("InvitationsPage", () => {
         workspace_id: "ws-1",
       });
       expect(refreshMe).toHaveBeenCalled();
-      expect(navigate).toHaveBeenCalledWith("/acme/issues");
+      expect(navigate).toHaveBeenCalledWith("/acme/tasks");
     });
   });
 

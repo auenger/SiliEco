@@ -1,13 +1,13 @@
 /**
  * Mobile-owned mirror of the boolean shim
- * `packages/views/issues/components/pickers/assignee-picker.tsx:canAssignAgent`
- * — which in turn forwards to `packages/core/permissions/rules.ts:canAssignAgentToIssue`.
+ * `packages/views/tasks/components/pickers/assignee-picker.tsx:canAssignAgent`
+ * — which in turn forwards to `packages/core/permissions/rules.ts:canAssignAgentToTask`.
  *
  * We mirror (not import) per the apps/mobile/CLAUDE.md sharing rule: only
  * `import type` from @silieco/core; logic is duplicated to keep mobile
  * independent. Any rule change must be applied here too.
  *
- * Rule (mirrors backend `core/internal/handler/issue.go:1471-1490`):
+ * Rule (mirrors backend `core/internal/handler/task.go:1471-1490`):
  *   - Workspace-visibility agents → assignable by any workspace member
  *   - Private agents               → only owner + workspace admins/owners
  *

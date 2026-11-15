@@ -371,9 +371,9 @@ func (s *ChannelStore) ConsumeLarkBindingToken(ctx context.Context, tokenHash st
 
 // ---- outbound card ----
 
-func (s *ChannelStore) GetLarkOutboundCardByTask(ctx context.Context, taskID pgtype.UUID) (OutboundCardMessage, error) {
-	row, err := s.Queries.GetChannelOutboundCardByTask(ctx, db.GetChannelOutboundCardByTaskParams{
-		TaskID:      taskID,
+func (s *ChannelStore) GetLarkOutboundCardByRun(ctx context.Context, runID pgtype.UUID) (OutboundCardMessage, error) {
+	row, err := s.Queries.GetChannelOutboundCardByRun(ctx, db.GetChannelOutboundCardByRunParams{
+		RunID:      runID,
 		ChannelType: channelTypeFeishu,
 	})
 	if err != nil {
@@ -389,7 +389,7 @@ func (s *ChannelStore) CreateLarkOutboundCardMessage(ctx context.Context, arg Cr
 		ChannelChatID:        arg.ChannelChatID,
 		ChannelCardMessageID: arg.ChannelCardMessageID,
 		Status:               arg.Status,
-		TaskID:               arg.TaskID,
+		RunID:               arg.RunID,
 	})
 	if err != nil {
 		return OutboundCardMessage{}, err

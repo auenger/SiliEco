@@ -88,8 +88,8 @@ body`,
 func TestRenderedSkillListsHideDisableModelInvocationSkills(t *testing.T) {
 	t.Parallel()
 
-	ctx := TaskContextForEnv{
-		IssueID:           "issue-1",
+	ctx := RunContextForEnv{
+		TaskID:            "task-1",
 		QuickCreatePrompt: "create something",
 		AutopilotRunID:    "run-1",
 		AgentName:         "Eve",
@@ -118,21 +118,21 @@ Hidden body.`,
 	}
 
 	rendered := map[string]string{
-		"runtime config": buildMetaSkillContent("codex", TaskContextForEnv{
-			IssueID:     ctx.IssueID,
+		"runtime config": buildMetaSkillContent("codex", RunContextForEnv{
+			TaskID:      ctx.TaskID,
 			AgentName:   ctx.AgentName,
 			AgentID:     ctx.AgentID,
 			AgentSkills: ctx.AgentSkills,
 		}),
-		"issue context": renderIssueContext("codex", TaskContextForEnv{
-			IssueID:     ctx.IssueID,
+		"task context": renderTaskContext("codex", RunContextForEnv{
+			TaskID:      ctx.TaskID,
 			AgentSkills: ctx.AgentSkills,
 		}),
-		"quick create": renderQuickCreateContext(TaskContextForEnv{
+		"quick create": renderQuickCreateContext(RunContextForEnv{
 			QuickCreatePrompt: ctx.QuickCreatePrompt,
 			AgentSkills:       ctx.AgentSkills,
 		}),
-		"autopilot": renderAutopilotContext(TaskContextForEnv{
+		"autopilot": renderAutopilotContext(RunContextForEnv{
 			AutopilotRunID: ctx.AutopilotRunID,
 			AgentSkills:    ctx.AgentSkills,
 		}),
@@ -151,8 +151,8 @@ Hidden body.`,
 func TestRenderedSkillListsOmitSectionWhenOnlyDisabledSkills(t *testing.T) {
 	t.Parallel()
 
-	ctx := TaskContextForEnv{
-		IssueID: "issue-1",
+	ctx := RunContextForEnv{
+		TaskID: "task-1",
 		AgentSkills: []SkillContextForEnv{
 			{
 				Name: "Hidden Skill",
@@ -171,9 +171,9 @@ Hidden body.`,
 		t.Errorf("runtime config should omit Skills section when every skill disables model invocation:\n%s", runtimeConfig)
 	}
 
-	issueContext := renderIssueContext("codex", ctx)
-	if strings.Contains(issueContext, "## Agent Skills") {
-		t.Errorf("issue context should omit Agent Skills section when every skill disables model invocation:\n%s", issueContext)
+	taskContext := renderTaskContext("codex", ctx)
+	if strings.Contains(taskContext, "## Agent Skills") {
+		t.Errorf("task context should omit Agent Skills section when every skill disables model invocation:\n%s", taskContext)
 	}
 }
 
@@ -181,8 +181,8 @@ func TestWriteContextFilesHydratesDisableModelInvocationSkillButDoesNotAdvertise
 	t.Parallel()
 
 	dir := t.TempDir()
-	ctx := TaskContextForEnv{
-		IssueID: "issue-1",
+	ctx := RunContextForEnv{
+		TaskID: "task-1",
 		AgentSkills: []SkillContextForEnv{
 			{
 				Name: "Visible Skill",
@@ -208,12 +208,12 @@ Hidden body.`,
 		t.Fatalf("writeContextFiles failed: %v", err)
 	}
 
-	issueContext, err := os.ReadFile(filepath.Join(dir, ".agent_context", "issue_context.md"))
+	taskContext, err := os.ReadFile(filepath.Join(dir, ".agent_context", "task_context.md"))
 	if err != nil {
-		t.Fatalf("read issue_context.md: %v", err)
+		t.Fatalf("read task_context.md: %v", err)
 	}
-	if strings.Contains(string(issueContext), "Hidden Skill") {
-		t.Fatalf("issue_context.md advertised hidden skill:\n%s", string(issueContext))
+	if strings.Contains(string(taskContext), "Hidden Skill") {
+		t.Fatalf("task_context.md advertised hidden skill:\n%s", string(taskContext))
 	}
 
 	hiddenSkill, err := os.ReadFile(filepath.Join(dir, ".agent_context", "skills", "hidden-skill", "SKILL.md"))

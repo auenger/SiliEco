@@ -18,9 +18,9 @@ func TestDispatchFailReasonCode(t *testing.T) {
 	if got := dispatchFailReasonCode(ErrAttributionFailClosed); got != dispatch.ReasonAttributionBlocked {
 		t.Errorf("bare fail-closed: got %q, want attribution_blocked", got)
 	}
-	// The real dispatch path wraps the sentinel (create_issue enqueue → %w);
+	// The real dispatch path wraps the sentinel (create_task enqueue → %w);
 	// errors.Is must still see through the wrap.
-	wrapped := fmt.Errorf("dispatch create_issue: enqueue task for issue: %w", ErrAttributionFailClosed)
+	wrapped := fmt.Errorf("dispatch create_task: enqueue task for task: %w", ErrAttributionFailClosed)
 	if got := dispatchFailReasonCode(wrapped); got != dispatch.ReasonAttributionBlocked {
 		t.Errorf("wrapped fail-closed: got %q, want attribution_blocked", got)
 	}

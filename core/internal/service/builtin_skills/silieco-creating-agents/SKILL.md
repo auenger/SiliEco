@@ -1,6 +1,6 @@
 ---
 name: silieco-creating-agents
-description: "Use when creating, inspecting, or debugging a Silieco agent through the `silieco agent` CLI or `POST /api/agents` — what each field is, its persisted shape, whether it is metadata-only or consumed by the daemon at claim time, which inputs are validated/rejected, how custom_env secrets are gated, and how skill binding behaves. Not for assigning issues to existing agents or for runtime task prompts."
+description: "Use when creating, inspecting, or debugging a Silieco agent through the `silieco agent` CLI or `POST /api/agents` — what each field is, its persisted shape, whether it is metadata-only or consumed by the daemon at claim time, which inputs are validated/rejected, how custom_env secrets are gated, and how skill binding behaves. Not for assigning tasks to existing agents or for runtime task prompts."
 user-invocable: false
 allowed-tools: Bash(silieco *)
 ---
@@ -26,6 +26,19 @@ silieco agent env get <agent-id> --output json  # plaintext env (agent owner or 
 `agent get` returns the persisted agent including `runtime_id`, `model`,
 `thinking_level`, `service_tier`, `custom_args`, `has_custom_env`,
 `custom_env_key_count`, and `skills`. It never returns plaintext `custom_env`.
+
+## Connecting a self-hosted runtime
+
+Use the install and setup commands shown by the target deployment's onboarding
+or Connect Remote dialog. They derive the download and server URLs from that
+instance; do not reuse another server's commands. On macOS/Linux the installer
+uses `~/.local/bin` and adds it to the user's shell profile.
+
+A runtime appears after its daemon authenticates to the instance and registers
+with the workspace. Installing an agent CLI alone does not register a runtime.
+For an SSH host reachable over Tailscale, `silieco login --callback-host <mini-ip>`
+lets the browser complete login directly using the shared `100.64.0.0/10` range.
+Model-provider credentials must also be configured on that execution host.
 
 ## Core model
 
@@ -60,7 +73,7 @@ adds a key when its flag was provided — `description`/`instructions` on a
 non-empty value, the rest (`runtime-config`, `custom-args`, `model`,
 `thinking-level`, `service-tier`, `visibility`, …) on the flag being `Changed`
 — so omitted flags fall through to server defaults rather than sending empty
-strings. `--max-concurrent-tasks` is validated as 1–50 before the request is
+strings. `--max-concurrent-runs` is validated as 1–50 before the request is
 sent.
 
 The HTTP body (`CreateAgentRequest`) accepts: `name`, `description`,
@@ -90,7 +103,7 @@ silieco agent copy <source-agent-id> --runtime-id <target> --model <model>  # cr
 - A copied `max_concurrent_tasks` is included only when the source value is
   within 1–50. Historical out-of-range values are omitted so the new agent
   receives the server default (`6`); an explicit out-of-range
-  `--max-concurrent-tasks` override is rejected before any API request.
+  `--max-concurrent-runs` override is rejected before any API request.
 - Runtime-specific fields (`model`, `thinking_level`, `service_tier`) are copied
   ONLY when the target runtime is unchanged. `--runtime-id` selecting a
   different runtime drops them and REQUIRES `--model` (pass `--model ""` to

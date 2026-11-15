@@ -44,11 +44,11 @@ vi.mock("@silieco/core/runtimes", () => ({
   },
 }));
 
-const mockUpdate = vi.fn().mockResolvedValue({ id: "issue-1" });
+const mockUpdate = vi.fn().mockResolvedValue({ id: "task-1" });
 const mockBatch = vi.fn().mockResolvedValue({ updated: 2 });
-vi.mock("@silieco/core/issues/mutations", () => ({
-  useUpdateIssue: () => ({ mutateAsync: mockUpdate }),
-  useBatchUpdateIssues: () => ({ mutateAsync: mockBatch }),
+vi.mock("@silieco/core/tasks/mutations", () => ({
+  useUpdateTask: () => ({ mutateAsync: mockUpdate }),
+  useBatchUpdateTasks: () => ({ mutateAsync: mockBatch }),
 }));
 
 vi.mock("@silieco/core/workspace/hooks", () => ({
@@ -108,7 +108,7 @@ const mockToast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast: mockToast }));
 
 beforeEach(() => {
-  mockUpdate.mockClear().mockResolvedValue({ id: "issue-1" });
+  mockUpdate.mockClear().mockResolvedValue({ id: "task-1" });
   mockBatch.mockClear().mockResolvedValue({ updated: 2 });
   mockToast.error.mockClear();
   mockToast.success.mockClear();
@@ -118,7 +118,7 @@ beforeEach(() => {
 });
 
 const single = {
-  issueIds: ["issue-1"],
+  taskIds: ["task-1"],
   mode: "assign" as const,
   assigneeType: "agent" as const,
   assigneeId: "agent-1",
@@ -141,7 +141,7 @@ describe("RunConfirmModal", () => {
     fireEvent.click(screen.getByText("Confirm assignment"));
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(1));
     expect(mockUpdate).toHaveBeenCalledWith({
-      id: "issue-1",
+      id: "task-1",
       assignee_type: "agent",
       assignee_id: "agent-1",
       handoff_note: "only login",
@@ -151,7 +151,7 @@ describe("RunConfirmModal", () => {
 
   it("completes silently on success — closes with no result toast", async () => {
     // Final scope: the dialog only confirms the assignment. The assignee and any
-    // run surface through the issue's normal updates, so submit adds no toast.
+    // run surface through the task's normal updates, so submit adds no toast.
     const onClose = vi.fn();
     render(<RunConfirmModal onClose={onClose} data={single} />);
     fireEvent.click(screen.getByText("Confirm assignment"));
@@ -203,7 +203,7 @@ describe("RunConfirmModal", () => {
 
   it("batch assign (N ids) applies via batchUpdate", async () => {
     const { container } = render(
-      <RunConfirmModal onClose={vi.fn()} data={{ ...single, issueIds: ["i1", "i2"] }} />,
+      <RunConfirmModal onClose={vi.fn()} data={{ ...single, taskIds: ["i1", "i2"] }} />,
     );
     expect(container.textContent).toContain("assign 2 to Walt");
     fireEvent.click(screen.getByText("Confirm assignment"));

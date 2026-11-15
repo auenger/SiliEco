@@ -4,7 +4,7 @@ import type { InboxItem } from "@silieco/core/types";
 import en from "../../locales/en/inbox.json";
 import { InboxDetailLabel } from "./inbox-detail-label";
 
-vi.mock("../../issues/components", () => ({
+vi.mock("../../tasks/components", () => ({
   StatusIcon: () => null,
   PriorityIcon: () => null,
 }));
@@ -35,10 +35,10 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
     actor_id: "agent-1",
     type: "new_comment",
     severity: "info",
-    issue_id: null,
+    task_id: null,
     title: "Quick create needs a check",
     body: null,
-    issue_status: null,
+    task_status: null,
     read: false,
     archived: false,
     created_at: "2026-07-27T08:00:00Z",
@@ -48,7 +48,7 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
 }
 
 describe("InboxDetailLabel quick-create outcomes", () => {
-  const detail = "Couldn't confirm whether the issue was created.";
+  const detail = "Couldn't confirm whether the task was created.";
 
   it("does not frame an unconfirmed outcome as a failure", () => {
     // GH #5885 follow-up: reusing quick_create_failed rendered this row as
@@ -66,13 +66,13 @@ describe("InboxDetailLabel quick-create outcomes", () => {
       <InboxDetailLabel
         item={item({
           type: "quick_create_failed",
-          details: { error: "an active issue already exists: JKY-30 (blocked)" },
+          details: { error: "an active task already exists: JKY-30 (blocked)" },
         })}
       />,
     );
 
     expect(container.textContent).toBe(
-      "Failed: an active issue already exists: JKY-30 (blocked)",
+      "Failed: an active task already exists: JKY-30 (blocked)",
     );
   });
 

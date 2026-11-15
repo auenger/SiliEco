@@ -1206,7 +1206,7 @@ func TestPrepareOpenclawSkillWriteMatchesScanPath(t *testing.T) {
 	})
 
 	skills := []SkillContextForEnv{
-		{Name: "Issue Review", Content: "Review issues thoroughly."},
+		{Name: "Task Review", Content: "Review tasks thoroughly."},
 		{Name: "Local Dev", Content: "Spin up the local dev env."},
 	}
 
@@ -1215,8 +1215,8 @@ func TestPrepareOpenclawSkillWriteMatchesScanPath(t *testing.T) {
 		t.Fatalf("prepareOpenclawConfig: %v", err)
 	}
 	cfgPath := result.ConfigPath
-	if err := writeContextFiles(workDir, "openclaw", TaskContextForEnv{
-		IssueID:     "issue-1",
+	if err := writeContextFiles(workDir, "openclaw", RunContextForEnv{
+		TaskID:      "task-1",
 		AgentSkills: skills,
 	}, nil); err != nil {
 		t.Fatalf("writeContextFiles: %v", err)
@@ -1247,12 +1247,12 @@ func TestPrepareEnvironmentOpenclawWiresConfigPath(t *testing.T) {
 	env, err := Prepare(PrepareParams{
 		WorkspacesRoot: wsRoot,
 		WorkspaceID:    "ws-1",
-		TaskID:         "11111111-2222-3333-4444-555555555555",
+		RunID:          "11111111-2222-3333-4444-555555555555",
 		AgentName:      "scout",
 		Provider:       "openclaw",
 		OpenclawBin:    stub.bin,
-		Task: TaskContextForEnv{
-			IssueID: "issue-1",
+		AgentRun: RunContextForEnv{
+			TaskID: "task-1",
 		},
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -1295,11 +1295,11 @@ func TestPrepareEnvironmentOpenclawWiresIncludeRoot(t *testing.T) {
 	env, err := Prepare(PrepareParams{
 		WorkspacesRoot: wsRoot,
 		WorkspaceID:    "ws-1",
-		TaskID:         "33333333-2222-3333-4444-555555555555",
+		RunID:          "33333333-2222-3333-4444-555555555555",
 		AgentName:      "scout",
 		Provider:       "openclaw",
 		OpenclawBin:    stub.bin,
-		Task:           TaskContextForEnv{IssueID: "issue-1"},
+		AgentRun:       RunContextForEnv{TaskID: "task-1"},
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -1322,11 +1322,11 @@ func TestPrepareEnvironmentOpenclawFailsClosed(t *testing.T) {
 	_, err := Prepare(PrepareParams{
 		WorkspacesRoot: wsRoot,
 		WorkspaceID:    "ws-1",
-		TaskID:         "22222222-2222-3333-4444-555555555555",
+		RunID:          "22222222-2222-3333-4444-555555555555",
 		AgentName:      "scout",
 		Provider:       "openclaw",
 		OpenclawBin:    stub.bin,
-		Task:           TaskContextForEnv{IssueID: "issue-1"},
+		AgentRun:       RunContextForEnv{TaskID: "task-1"},
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("Prepare(openclaw) succeeded when CLI errored; expected fail closed")
@@ -1346,21 +1346,21 @@ func TestPrepareEnvironmentNonOpenclawSkipsConfig(t *testing.T) {
 
 	stub := installOpenclawStub(t, map[string]openclawResponse{})
 
-	taskIDs := map[string]string{
+	runIDs := map[string]string{
 		"claude":   "aaaaaaaa-1111-2222-3333-444444444444",
 		"opencode": "bbbbbbbb-1111-2222-3333-444444444444",
 		"hermes":   "cccccccc-1111-2222-3333-444444444444",
 		"kiro":     "dddddddd-1111-2222-3333-444444444444",
 	}
-	for provider, taskID := range taskIDs {
+	for provider, runID := range runIDs {
 		t.Run(provider, func(t *testing.T) {
 			env, err := Prepare(PrepareParams{
 				WorkspacesRoot: wsRoot,
 				WorkspaceID:    "ws-1",
-				TaskID:         taskID,
+				RunID:          runID,
 				AgentName:      "scout",
 				Provider:       provider,
-				Task:           TaskContextForEnv{IssueID: "issue-1"},
+				AgentRun:       RunContextForEnv{TaskID: "task-1"},
 			}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 			if err != nil {
 				t.Fatalf("Prepare(%s): %v", provider, err)
@@ -1378,7 +1378,7 @@ func TestPrepareEnvironmentNonOpenclawSkipsConfig(t *testing.T) {
 	}
 }
 
-// ── Gateway endpoint pinning (issue #3260) ──
+// ── Gateway endpoint pinning (task #3260) ──
 //
 // When a silieco agent is configured for gateway-mode openclaw and the
 // runtime_config carries a Gateway endpoint, the per-task wrapper must pin
@@ -1386,10 +1386,10 @@ func TestPrepareEnvironmentNonOpenclawSkipsConfig(t *testing.T) {
 // keys after $include, so the wrapper's `gateway.*` settings override
 // whatever the user's global openclaw.json carried.
 
-func TestBuildPerTaskOpenclawConfigOmitsGatewayWhenZero(t *testing.T) {
+func TestBuildPerRunOpenclawConfigOmitsGatewayWhenZero(t *testing.T) {
 	t.Parallel()
 
-	cfg := buildPerTaskOpenclawConfig(
+	cfg := buildPerRunOpenclawConfig(
 		"", false, "", nil, false, "/workdir", nil, false,
 		OpenclawGatewayPin{},
 	)
@@ -1398,7 +1398,7 @@ func TestBuildPerTaskOpenclawConfigOmitsGatewayWhenZero(t *testing.T) {
 	}
 }
 
-func TestBuildPerTaskOpenclawConfigWritesGatewayBlock(t *testing.T) {
+func TestBuildPerRunOpenclawConfigWritesGatewayBlock(t *testing.T) {
 	t.Parallel()
 
 	pin := OpenclawGatewayPin{
@@ -1407,7 +1407,7 @@ func TestBuildPerTaskOpenclawConfigWritesGatewayBlock(t *testing.T) {
 		Token: "secret-token",
 		TLS:   true,
 	}
-	cfg := buildPerTaskOpenclawConfig(
+	cfg := buildPerRunOpenclawConfig(
 		"", false, "", nil, false, "/workdir", nil, false,
 		pin,
 	)
@@ -1439,14 +1439,14 @@ func TestBuildPerTaskOpenclawConfigWritesGatewayBlock(t *testing.T) {
 	}
 }
 
-func TestBuildPerTaskOpenclawConfigPartialGatewayOmitsZeroFields(t *testing.T) {
+func TestBuildPerRunOpenclawConfigPartialGatewayOmitsZeroFields(t *testing.T) {
 	t.Parallel()
 
 	// Users may pin only host/port and rely on the user's local openclaw.json
 	// for the token (which still flows in via the $include). Zero-valued
 	// fields must not land in the wrapper as empty strings/zeros — that
 	// would override the user's value with junk.
-	cfg := buildPerTaskOpenclawConfig(
+	cfg := buildPerRunOpenclawConfig(
 		"", false, "", nil, false, "/workdir", nil, false,
 		OpenclawGatewayPin{Host: "gw.internal", Port: 18789},
 	)

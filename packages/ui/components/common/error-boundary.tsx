@@ -14,7 +14,7 @@ export interface ErrorBoundaryProps {
   onError?: (error: Error, info: ErrorInfo) => void;
   /** When any value in this array changes between renders, the boundary
    *  resets. Use this to auto-recover when navigating to a new resource
-   *  (e.g. a different issueId) without forcing the user to click "retry". */
+   *  (e.g. a different taskId) without forcing the user to click "retry". */
   resetKeys?: ReadonlyArray<unknown>;
 }
 

@@ -1,5 +1,5 @@
 /**
- * Shared message composer used by both the issue-comment thread and the
+ * Shared message composer used by both the task-comment thread and the
  * chat tab. Two visual states:
  *
  *   collapsed → pill button (configurable label / icon). Minimal vertical
@@ -63,7 +63,7 @@ import {
   ComposerAttachmentRow,
   type ComposerAttachmentItem,
   type MentionChip,
-} from "@/components/issue/composer-attachment-row";
+} from "@/components/task/composer-attachment-row";
 
 export interface MessageComposerReplyTarget {
   actorName: string;
@@ -86,9 +86,9 @@ interface Props {
   mentionPickerPath: Href;
 
   /** Attachment upload context — forwarded to `api.uploadFile`. Comment
-   *  passes `issueId`; chat omits both (uploads are session-scoped via
+   *  passes `taskId`; chat omits both (uploads are session-scoped via
    *  the message id assigned by the server post-send). */
-  uploadContext?: { issueId?: string; commentId?: string };
+  uploadContext?: { taskId?: string; commentId?: string };
 
   placeholder?: string;
   pillLabel?: string;
@@ -144,7 +144,7 @@ function serializeMentions(chips: MentionChip[]): string {
   return chips
     .map((m) => {
       const label =
-        m.type === "issue"
+        m.type === "task"
           ? m.name
           : m.type === "all"
             ? "@all"
@@ -549,7 +549,7 @@ export function MessageComposer({
         <View className="flex-row items-center px-2 pb-2 pt-1">
           {/* @ leads the toolbar — highest-signal attachment (only one
            *  that drives notifications) and cross-resource (people +
-           *  issues), pride-of-place left. */}
+           *  tasks), pride-of-place left. */}
           <IconButton
             name="at"
             iconSize={20}

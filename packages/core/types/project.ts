@@ -13,12 +13,12 @@ export interface Project {
   lead_type: "member" | "agent" | null;
   lead_id: string | null;
   // Calendar days ("YYYY-MM-DD"), no time-of-day or timezone — same contract as
-  // issue.start_date / issue.due_date.
+  // task.start_date / task.due_date.
   start_date: string | null;
   due_date: string | null;
   created_at: string;
   updated_at: string;
-  issue_count: number;
+  task_count: number;
   done_count: number;
   resource_count: number;
 }

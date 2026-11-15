@@ -11,19 +11,19 @@ import (
 
 // taskRetrySettings reads immutable execution configuration, never live stage
 // settings. Non-workflow calls retain the ordinary reason-specific defaults.
-func taskRetrySettings(ctx context.Context, q *db.Queries, task db.AgentTaskQueue, reason string) (int32, time.Duration, error) {
-	ceiling := retryAttemptCeiling(reason, task.MaxAttempts)
-	delay := retryDelayForAttempt(reason, task.Attempt)
-	if !task.WorkflowStageExecutionID.Valid && !task.WorkflowReviewRequestID.Valid {
+func runRetrySettings(ctx context.Context, q *db.Queries, agentRun db.AgentRun, reason string) (int32, time.Duration, error) {
+	ceiling := retryAttemptCeiling(reason, agentRun.MaxAttempts)
+	delay := retryDelayForAttempt(reason, agentRun.Attempt)
+	if !agentRun.WorkflowStageExecutionID.Valid && !agentRun.WorkflowReviewRequestID.Valid {
 		return ceiling, delay, nil
 	}
-	agent, err := q.GetAgent(ctx, task.AgentID)
+	agent, err := q.GetAgent(ctx, agentRun.AgentID)
 	if err != nil {
 		return 0, 0, err
 	}
-	executionID := task.WorkflowStageExecutionID
-	if task.WorkflowReviewRequestID.Valid {
-		request, err := q.GetWorkflowReviewRequest(ctx, db.GetWorkflowReviewRequestParams{WorkspaceID: agent.WorkspaceID, ID: task.WorkflowReviewRequestID})
+	executionID := agentRun.WorkflowStageExecutionID
+	if agentRun.WorkflowReviewRequestID.Valid {
+		request, err := q.GetWorkflowReviewRequest(ctx, db.GetWorkflowReviewRequestParams{WorkspaceID: agent.WorkspaceID, ID: agentRun.WorkflowReviewRequestID})
 		if err != nil {
 			return 0, 0, err
 		}
@@ -43,11 +43,11 @@ func taskRetrySettings(ctx context.Context, q *db.Queries, task db.AgentTaskQueu
 	if err != nil {
 		return 0, 0, err
 	}
-	if task.WorkflowReviewRequestID.Valid && policy.MaxAttempts != nil {
+	if agentRun.WorkflowReviewRequestID.Valid && policy.MaxAttempts != nil {
 		// Review task budgets also include explicit member recovery grants.
-		ceiling = task.MaxAttempts
+		ceiling = agentRun.MaxAttempts
 	} else {
 		ceiling = policy.AttemptCeiling(ceiling)
 	}
-	return ceiling, policy.RetryDelay(task.Attempt, delay), nil
+	return ceiling, policy.RetryDelay(agentRun.Attempt, delay), nil
 }

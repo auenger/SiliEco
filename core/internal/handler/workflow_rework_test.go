@@ -20,7 +20,7 @@ func testWorkflowReworkAPI(t *testing.T, runID string) {
 	post := func(body any, agent bool) *httptest.ResponseRecorder {
 		r := workflowRequest(http.MethodPost, "/rework", body, params)
 		if agent {
-			r.Header.Set("X-Task-ID", sourceID)
+			r.Header.Set("X-Run-ID", sourceID)
 		}
 		w := httptest.NewRecorder()
 		testHandler.ReworkWorkflowExecution(w, r)
@@ -70,9 +70,9 @@ func testWorkflowReworkAPI(t *testing.T, runID string) {
 
 func TestWorkflowInvalidationResponsesPreserveHistoryMarker(t *testing.T) {
 	source := parseUUID("11111111-1111-4111-8111-111111111111")
-	issue := issueToResponse(db.Issue{WorkflowInvalidatedByReworkID: source}, "T")
-	if issue.WorkflowInvalidatedByReworkID == nil || *issue.WorkflowInvalidatedByReworkID != uuidToString(source) {
-		t.Fatal("issue invalidation marker omitted")
+	task := taskToResponse(db.Task{WorkflowInvalidatedByReworkID: source}, "T")
+	if task.WorkflowInvalidatedByReworkID == nil || *task.WorkflowInvalidatedByReworkID != uuidToString(source) {
+		t.Fatal("task invalidation marker omitted")
 	}
 	decision := workflowDecisionToResponse(db.WorkflowGateDecision{InvalidatedByReworkID: source, Outcome: "approved"})
 	if decision.InvalidatedByReworkID == nil || *decision.InvalidatedByReworkID != uuidToString(source) || decision.Outcome != "approved" {
@@ -80,30 +80,30 @@ func TestWorkflowInvalidationResponsesPreserveHistoryMarker(t *testing.T) {
 	}
 }
 
-func TestWorkflowInvalidationSurvivesIssueListAndSearch(t *testing.T) {
+func TestWorkflowInvalidationSurvivesTaskListAndSearch(t *testing.T) {
 	create := httptest.NewRecorder()
-	testHandler.CreateIssue(create, newRequest(http.MethodPost, "/api/issues", map[string]any{"title": "rework-marker-visibility", "status": "todo", "priority": "none"}))
+	testHandler.CreateTask(create, newRequest(http.MethodPost, "/api/tasks", map[string]any{"title": "rework-marker-visibility", "status": "todo", "priority": "none"}))
 	if create.Code != http.StatusCreated {
-		t.Fatalf("create issue: %d %s", create.Code, create.Body.String())
+		t.Fatalf("create task: %d %s", create.Code, create.Body.String())
 	}
-	var created IssueResponse
+	var created TaskResponse
 	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM issue WHERE id=$1 AND workspace_id=$2`, created.ID, testWorkspaceID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM task WHERE id=$1 AND workspace_id=$2`, created.ID, testWorkspaceID)
 	})
 	const source = "11111111-1111-4111-8111-111111111111"
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET workflow_instance_id=$2,workflow_stage_id=$2,workflow_invalidated_by_rework_id=$2 WHERE id=$1`, created.ID, source); err != nil {
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET workflow_instance_id=$2,workflow_stage_id=$2,workflow_invalidated_by_rework_id=$2 WHERE id=$1`, created.ID, source); err != nil {
 		t.Fatal(err)
 	}
 	for _, route := range []struct {
 		name, path string
 		handler    http.HandlerFunc
 	}{
-		{"list", "/api/issues?q=rework-marker-visibility", testHandler.ListIssues},
-		{"grouped", "/api/issues/grouped?group_by=assignee&limit=100", testHandler.ListGroupedIssues},
-		{"search", "/api/issues/search?q=rework-marker-visibility", testHandler.SearchIssues},
+		{"list", "/api/tasks?q=rework-marker-visibility", testHandler.ListTasks},
+		{"grouped", "/api/tasks/grouped?group_by=assignee&limit=100", testHandler.ListGroupedTasks},
+		{"search", "/api/tasks/search?q=rework-marker-visibility", testHandler.SearchTasks},
 	} {
 		t.Run(route.name, func(t *testing.T) {
 			response := httptest.NewRecorder()
@@ -137,7 +137,7 @@ func TestWorkflowInvalidationSurvivesIssueListAndSearch(t *testing.T) {
 			}
 			walk(body)
 			if !found {
-				t.Fatal("test issue absent from response")
+				t.Fatal("test task absent from response")
 			}
 		})
 	}

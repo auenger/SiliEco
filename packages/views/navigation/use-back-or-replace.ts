@@ -7,8 +7,8 @@ import { useNavigation } from "./context";
  * Leave a page whose subject no longer exists, returning the user to wherever
  * they came from.
  *
- * Deleting an issue from its detail page is the canonical case: the user may
- * have opened it from My Issues, a project's list, a search result or a pin,
+ * Deleting an task from its detail page is the canonical case: the user may
+ * have opened it from My Tasks, a project's list, a search result or a pin,
  * and every one of those is a better destination than a hardcoded workspace
  * list. Going back is the only thing that knows which — no caller has to
  * thread a "source view" through the URL or a store.
@@ -18,7 +18,7 @@ import { useNavigation } from "./context";
  * leave Silieco entirely, so we navigate to `fallback` instead.
  *
  * It also covers every platform that cannot answer the question — the desktop
- * issue window, test stubs, and browsers with no Navigation API. That branch
+ * task window, test stubs, and browsers with no Navigation API. That branch
  * is the behaviour those surfaces had before this hook existed, so a platform
  * going quiet costs the user a better destination and nothing more. Only ever
  * answer `canGoBack` from something that knows; a hopeful guess here is what

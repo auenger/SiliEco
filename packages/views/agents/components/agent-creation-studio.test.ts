@@ -464,7 +464,7 @@ const sourceAgent = (overrides: Partial<Agent> = {}): Agent =>
     permission_mode: "private",
     invocation_targets: [],
     status: "idle",
-    max_concurrent_tasks: 9,
+    max_concurrent_runs: 9,
     model: "gpt-5.6-sol",
     thinking_level: "high",
     service_tier: "priority",
@@ -523,23 +523,23 @@ describe("Agent creation studio execution overrides", () => {
     });
 
     expect(request.custom_args).toEqual(["--verbose"]);
-    expect(request.max_concurrent_tasks).toBe(9);
+    expect(request.max_concurrent_runs).toBe(9);
     expect(request.thinking_level).toBe("high");
   });
 
   it.each([0, -1, 51])(
     "omits an invalid historical duplicate concurrency of %i",
-    (maxConcurrentTasks) => {
+    (maxConcurrentRuns) => {
       const request = buildCreateAgentRequest({
         draft: draft(),
         runtimeId: "runtime-1",
         duplicateSource: sourceAgent({
-          max_concurrent_tasks: maxConcurrentTasks,
+          max_concurrent_runs: maxConcurrentRuns,
         }),
       });
 
-      expect(request.max_concurrent_tasks).toBeUndefined();
-      expect(request).not.toHaveProperty("max_concurrent_tasks");
+      expect(request.max_concurrent_runs).toBeUndefined();
+      expect(request).not.toHaveProperty("max_concurrent_runs");
     },
   );
 

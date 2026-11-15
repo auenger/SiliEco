@@ -11,7 +11,7 @@ import type { AgentVisibility } from "@silieco/core/types";
 import {
   PickerItem,
   PropertyPicker,
-} from "../../../issues/components/pickers";
+} from "../../../tasks/components/pickers";
 import { VisibilityBadge } from "../visibility-badge";
 import { CHIP_CLASS } from "./chip";
 

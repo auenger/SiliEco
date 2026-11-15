@@ -4,13 +4,13 @@ import "strings"
 
 const codexThreadNameMaxRunes = 120
 
-func deriveTaskThreadName(task Task) string {
+func deriveRunThreadName(agentRun AgentRun) string {
 	candidates := []string{
-		task.ThreadName,
-		task.AutopilotTitle,
-		task.QuickCreatePrompt,
-		task.ChatMessage,
-		task.TriggerCommentContent,
+		agentRun.ThreadName,
+		agentRun.AutopilotTitle,
+		agentRun.QuickCreatePrompt,
+		agentRun.ChatMessage,
+		agentRun.TriggerCommentContent,
 	}
 	for _, candidate := range candidates {
 		if name := normalizeThreadName(candidate, codexThreadNameMaxRunes); name != "" {

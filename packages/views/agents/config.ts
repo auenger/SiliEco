@@ -6,7 +6,7 @@ import {
   Play,
 } from "lucide-react";
 
-export const taskStatusConfig: Record<string, { label: string; icon: typeof CheckCircle2; color: string }> = {
+export const runStatusConfig: Record<string, { label: string; icon: typeof CheckCircle2; color: string }> = {
   queued: { label: "Queued", icon: Clock, color: "text-muted-foreground" },
   dispatched: { label: "Dispatched", icon: Play, color: "text-info" },
   running: { label: "Running", icon: Loader2, color: "text-brand" },

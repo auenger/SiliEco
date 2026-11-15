@@ -92,7 +92,7 @@ const SETTINGS_CONTROL_WIDTHS = {
   "select-wide": "sm:w-72",
   /** Compact enum selects (theme, language). */
   select: "sm:w-48",
-  /** Short fixed-format codes (issue prefix). */
+  /** Short fixed-format codes (task prefix). */
   code: "sm:w-40",
   /** Unconstrained — non-input content like avatar uploads. */
   none: "sm:max-w-none",

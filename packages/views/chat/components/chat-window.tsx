@@ -17,7 +17,7 @@ import { useWorkspaceId } from "@silieco/core/hooks";
 import { useAuthStore } from "@silieco/core/auth";
 import { agentListOptions, memberListOptions } from "@silieco/core/workspace/queries";
 import { projectListOptions } from "@silieco/core/projects/queries";
-import { canAssignAgent } from "@silieco/views/issues/components";
+import { canAssignAgent } from "@silieco/views/tasks/components";
 import { api } from "@silieco/core/api";
 import { useAgentPresenceDetail, useWorkspaceAgentAvailability } from "@silieco/core/agents";
 import { ActorAvatar } from "../../common/actor-avatar";
@@ -27,7 +27,7 @@ import {
   PickerItem,
   PickerSection,
   PropertyPicker,
-} from "../../issues/components/pickers/property-picker";
+} from "../../tasks/components/pickers/property-picker";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import { OfflineBanner } from "./offline-banner";
 import { NoAgentBanner } from "./no-agent-banner";
@@ -35,10 +35,10 @@ import { ArchivedAgentBanner } from "./archived-agent-banner";
 import {
   chatSessionsOptions,
   chatMessagesPageOptions,
-  pendingChatTaskOptions,
-  pendingChatTasksOptions,
+  pendingChatRunOptions,
+  pendingChatRunsOptions,
   chatKeys,
-  isTaskMessageTaskId,
+  isAgentRunMessageRunId,
 } from "@silieco/core/chat/queries";
 import {
   useCreateChatSession,
@@ -50,19 +50,20 @@ import {
 import { useChatStore } from "@silieco/core/chat";
 import { removeChatMessageFromCaches } from "@silieco/core/realtime";
 import { useChatDraftRestore } from "./use-chat-draft-restore";
+import { ChatGroupAvatar } from "./chat-group-avatar";
 import { ChatMessageList, ChatMessageSkeleton } from "./chat-message-list";
 import { ChatInput } from "./chat-input";
 import { ChatResizeHandles } from "./chat-resize-handles";
 import { useChatContextItems } from "./use-chat-context-items";
 import { useChatResize } from "./use-chat-resize";
 import {
-  hasInFlightPendingTask,
+  hasInFlightPendingRun,
   isStillOnComposeTarget,
   planProjectContextChange,
 } from "./use-chat-controller";
 import { useChatProjectContextSupport } from "./use-chat-project-context-support";
 import { createLogger } from "@silieco/core/logger";
-import type { Agent, Attachment, ChatMessage, ChatMessagesPage, ChatPendingTask, ChatSession, PendingChatTasksResponse } from "@silieco/core/types";
+import type { Agent, Attachment, ChatMessage, ChatMessagesPage, ChatPendingRun, ChatSession, PendingChatRunsResponse } from "@silieco/core/types";
 import { useT } from "../../i18n";
 
 import { useWorkflowChatEditorStore, prepareWorkflowChat, acceptWorkflowChat, failWorkflowChat, finishWorkflowChat } from "@silieco/core/workflows";
@@ -155,21 +156,21 @@ export function ChatWindow() {
   // keeps isLoading false so the starter prompts aren't hidden.
   const showSkeleton = !!activeSessionId && messagesLoading;
 
-  // Server-authoritative pending task. Survives refresh / reopen / session
+  // Server-authoritative pending run. Survives refresh / reopen / session
   // switch because it's keyed on sessionId in the Query cache; WS events
-  // (chat:message / chat:done / task:*) keep it invalidated in real time.
+  // (chat:message / chat:done / run:*) keep it invalidated in real time.
   //
-  // This is the SOLE source for pendingTaskId — no mirror in the store.
-  const { data: pendingTask, isSuccess: pendingTaskLoaded } = useQuery(
-    pendingChatTaskOptions(activeSessionId ?? ""),
+  // This is the SOLE source for pendingRunId — no mirror in the store.
+  const { data: pendingRun, isSuccess: pendingRunLoaded } = useQuery(
+    pendingChatRunOptions(activeSessionId ?? ""),
   );
-  const pendingTaskId = pendingTask?.task_id ?? null;
+  const pendingRunId = pendingRun?.run_id ?? null;
   useEffect(() => {
-    if (!workflowRequest?.taskId || !pendingTaskLoaded || pendingTaskId || !activeSessionId) return;
-    const response = [...rawMessages].reverse().find((m) => m.role === "assistant" && m.task_id === workflowRequest.taskId);
-    if (response) finishWorkflowChat(wsId, activeSessionId, workflowRequest.taskId, response.content);
-  }, [wsId, activeSessionId, pendingTaskLoaded, pendingTaskId, rawMessages, workflowRequest]);
-  const stopRequestedBeforeTaskRef = useRef(false);
+    if (!workflowRequest?.runId || !pendingRunLoaded || pendingRunId || !activeSessionId) return;
+    const response = [...rawMessages].reverse().find((m) => m.role === "assistant" && m.run_id === workflowRequest.runId);
+    if (response) finishWorkflowChat(wsId, activeSessionId, workflowRequest.runId, response.content);
+  }, [wsId, activeSessionId, pendingRunLoaded, pendingRunId, rawMessages, workflowRequest]);
+  const stopRequestedBeforeRunRef = useRef(false);
   // Durable deferred-cancellation draft restores (#5219). Same hook as the chat
   // page controller — the skip/apply/consume/reconcile state machine must not
   // diverge between the two composers.
@@ -268,7 +269,7 @@ export function ChatWindow() {
   const noAgent = !isGroupSession && agentAvailability === "none";
 
   // Presence drives both the avatar status dot (via ActorAvatar) and the
-  // OfflineBanner / TaskStatusPill availability copy. `useAgentPresenceDetail`
+  // OfflineBanner / RunStatusPill availability copy. `useAgentPresenceDetail`
   // returns "loading" while queries are still resolving — pass `undefined`
   // downstream so banners and pill copy stay silent during loading rather
   // than flash speculative offline text.
@@ -282,14 +283,14 @@ export function ChatWindow() {
     uiLogger.info("ChatWindow mount", {
       isOpen,
       activeSessionId,
-      pendingTaskId,
+      pendingRunId,
       selectedAgentId,
       wsId,
     });
     return () => {
       uiLogger.info("ChatWindow unmount", {
         activeSessionId,
-        pendingTaskId,
+        pendingRunId,
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount
@@ -298,18 +299,18 @@ export function ChatWindow() {
   // Self-heal a dangling `activeSessionId` (persisted / restored from storage)
   // that points at a session which was deleted or lost access: once the
   // sessions list has loaded and doesn't contain it — with no in-flight
-  // pending task exempting a just-created session — clear it so the
+  // pending run exempting a just-created session — clear it so the
   // floating window shows the new-chat state instead of an editable empty chat
   // whose send would POST into a nonexistent session. Same fix the shared
-  // controller applies for the tab (kept in sync via `hasInFlightPendingTask`).
+  // controller applies for the tab (kept in sync via `hasInFlightPendingRun`).
   // The earlier "no self-heal" note was about a naive version keyed on stale
-  // `allSessions`; the in-flight-pending-task signal here exempts the
-  // freshly-created session (handleSend seeds its pending task from the send
+  // `allSessions`; the in-flight-pending-run signal here exempts the
+  // freshly-created session (handleSend seeds its pending run from the send
   // response BEFORE setActiveSession), so it is never mistaken for stale.
   useEffect(() => {
     if (!activeSessionId || !sessionsLoaded) return;
     if (sessions.some((s) => s.id === activeSessionId)) return;
-    if (hasInFlightPendingTask(qc, activeSessionId)) return;
+    if (hasInFlightPendingRun(qc, activeSessionId)) return;
     uiLogger.info("clearing dangling activeSessionId (floating)", { sessionId: activeSessionId });
     setActiveSession(null);
   }, [activeSessionId, sessionsLoaded, sessions, qc, setActiveSession]);
@@ -351,7 +352,7 @@ export function ChatWindow() {
   // titleSeed is the first 50 chars of the user's message when called from
   // send; the upload path passes "" and we leave the title empty so the
   // session-dropdown's existing localized `window.untitled` fallback kicks
-  // in. A follow-up task may back-fill the real title from the first user
+  // in. A follow-up run may back-fill the real title from the first user
   // message — until then this keeps the session list scannable across locales.
   //
   // NOTE: ensureSession does NOT flip `activeSessionId` itself. Callers must
@@ -370,7 +371,7 @@ export function ChatWindow() {
         activeSessionId &&
         (!sessionsLoaded ||
           sessions.some((s) => s.id === activeSessionId) ||
-          hasInFlightPendingTask(qc, activeSessionId))
+          hasInFlightPendingRun(qc, activeSessionId))
       ) {
         return activeSessionId;
       }
@@ -408,21 +409,21 @@ export function ChatWindow() {
   // remain workspace-scoped drafts — sending is still the point where a
   // session is created (if needed) and attachment_ids bind to the message.
 
-  const cancelChatTask = useCallback(
+  const cancelChatRun = useCallback(
     async (
-      taskId: string,
+      runId: string,
       sessionId: string,
       options: { restoreDraftToInput: boolean; source: string },
     ) => {
-      apiLogger.info("cancelTask.start", {
-        taskId,
+      apiLogger.info("cancelRun.start", {
+        runId,
         sessionId,
         source: options.source,
       });
-      qc.setQueryData(chatKeys.pendingTask(sessionId), {});
+      qc.setQueryData(chatKeys.pendingRun(sessionId), {});
 
       try {
-        const result = await api.cancelTaskById(taskId);
+        const result = await api.cancelRunById(runId);
         const restored = result.cancelled_chat_message;
         if (restored?.restore_to_input) {
           removeChatMessageFromCaches(qc, restored.chat_session_id, restored.message_id);
@@ -437,15 +438,15 @@ export function ChatWindow() {
         }
         qc.invalidateQueries({ queryKey: chatKeys.messages(sessionId) });
         qc.invalidateQueries({ queryKey: chatKeys.messagesPage(sessionId) });
-        apiLogger.info("cancelTask.success", {
-          taskId,
+        apiLogger.info("cancelRun.success", {
+          runId,
           sessionId,
           restoredToInput: !!restored?.restore_to_input && options.restoreDraftToInput,
         });
         return result;
       } catch (err) {
-        apiLogger.warn("cancelTask.error (task may have already finished)", {
-          taskId,
+        apiLogger.warn("cancelRun.error (run may have already finished)", {
+          runId,
           sessionId,
           err,
         });
@@ -469,7 +470,7 @@ export function ChatWindow() {
         return false;
       }
       // Read-only conversation: the agent is retired and can no longer pick up
-      // work, so refuse to enqueue a task that would sit orphaned forever. The
+      // work, so refuse to enqueue a run that would sit orphaned forever. The
       // input is disabled in this state; this is the belt-and-braces guard.
       if (!isGroupSession && isAgentArchived) {
         apiLogger.warn("sendChatMessage skipped: agent is archived", {
@@ -515,7 +516,7 @@ export function ChatWindow() {
       try {
         result = await api.sendChatMessage(sessionId, workflowSend?.content ?? finalContent, attachmentIds);
         if (workflowSend) {
-          if (result.task_id) acceptWorkflowChat(workflowSend.request, result.task_id);
+          if (result.run_id) acceptWorkflowChat(workflowSend.request, result.run_id);
           else failWorkflowChat(workflowSend.request);
         }
       } catch (err) {
@@ -527,10 +528,10 @@ export function ChatWindow() {
       apiLogger.info("sendChatMessage.success", {
         sessionId,
         messageId: result.message_id,
-        taskId: result.task_id,
+        runId: result.run_id,
       });
-      if (!isGroupSession && !result.task_id) {
-        apiLogger.error("direct chat send returned no task id", { sessionId });
+      if (!isGroupSession && !result.run_id) {
+        apiLogger.error("direct chat send returned no run id", { sessionId });
         toast.error(t(($) => $.input.send_failed_toast));
         return false;
       }
@@ -541,7 +542,7 @@ export function ChatWindow() {
       // and renders ChatMessageSkeleton for one frame — the "new-chat
       // first-message" white flash. Priming the cache first means the very first
       // read after activeSessionId flips hits data synchronously and
-      // ChatMessageList mounts directly. Seed the pending-task from the server's
+      // ChatMessageList mounts directly. Seed the pending-run from the server's
       // real id + created_at so the StatusPill mounts anchored to the true clock
       // (no local-clock drift, no backwards snap) and the stale-session self-heal
       // exempts this just-created session until the sessions-list refetch lands.
@@ -550,7 +551,7 @@ export function ChatWindow() {
         chat_session_id: sessionId,
         role: "user",
         content: finalContent,
-        task_id: result.task_id ?? null,
+        run_id: result.run_id ?? null,
         created_at: result.created_at,
         sender_user_id: user?.id ?? null,
         attachments: draftAttachments,
@@ -560,9 +561,9 @@ export function ChatWindow() {
         chatKeys.messages(sessionId),
         (old) => (old ? [...old, sent] : [sent]),
       );
-      if (result.task_id) {
-        qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(sessionId), {
-          task_id: result.task_id,
+      if (result.run_id) {
+        qc.setQueryData<ChatPendingRun>(chatKeys.pendingRun(sessionId), {
+          run_id: result.run_id,
           status: "queued",
           created_at: result.created_at,
         });
@@ -580,9 +581,9 @@ export function ChatWindow() {
       }
       commitInput?.({ extraDraftKeys: [sessionId], clearEditor: stillOnSourceSession });
 
-      if (result.task_id && stopRequestedBeforeTaskRef.current) {
-        stopRequestedBeforeTaskRef.current = false;
-        await cancelChatTask(result.task_id, sessionId, {
+      if (result.run_id && stopRequestedBeforeRunRef.current) {
+        stopRequestedBeforeRunRef.current = false;
+        await cancelChatRun(result.run_id, sessionId, {
           restoreDraftToInput: true,
           source: "deferred-send",
         });
@@ -615,7 +616,7 @@ export function ChatWindow() {
       isGroupSession,
       isAgentArchived,
       ensureSession,
-      cancelChatTask,
+      cancelChatRun,
       qc,
       setActiveSession,
       t,
@@ -625,23 +626,23 @@ export function ChatWindow() {
   );
 
   const handleStop = useCallback(() => {
-    if (!pendingTaskId || !activeSessionId) {
-      apiLogger.debug("cancelTask skipped: no pending task");
+    if (!pendingRunId || !activeSessionId) {
+      apiLogger.debug("cancelRun skipped: no pending run");
       return;
     }
-    if (!isTaskMessageTaskId(pendingTaskId)) {
-      stopRequestedBeforeTaskRef.current = true;
-      apiLogger.info("cancelTask.deferred until server task id", {
-        taskId: pendingTaskId,
+    if (!isAgentRunMessageRunId(pendingRunId)) {
+      stopRequestedBeforeRunRef.current = true;
+      apiLogger.info("cancelRun.deferred until server run id", {
+        runId: pendingRunId,
         sessionId: activeSessionId,
       });
       return;
     }
-    void cancelChatTask(pendingTaskId, activeSessionId, {
+    void cancelChatRun(pendingRunId, activeSessionId, {
       restoreDraftToInput: true,
       source: "active-input",
     });
-  }, [pendingTaskId, activeSessionId, cancelChatTask]);
+  }, [pendingRunId, activeSessionId, cancelChatRun]);
 
   const handleSelectAgent = useCallback(
     (agent: Agent) => {
@@ -680,14 +681,14 @@ export function ChatWindow() {
   const handleNewChat = useCallback(() => {
     uiLogger.info("newChat", {
       previousSessionId: activeSessionId,
-      previousPendingTask: pendingTaskId,
+      previousPendingRun: pendingRunId,
     });
     setSelectedProjectId(null);
     setActiveSession(null);
     requestInputFocus();
   }, [
     activeSessionId,
-    pendingTaskId,
+    pendingRunId,
     setSelectedProjectId,
     setActiveSession,
     requestInputFocus,
@@ -726,6 +727,9 @@ export function ChatWindow() {
       switch (plan.kind) {
         case "awaitSession":
           return;
+        case "updateGroup":
+          setSessionProject.mutate({ sessionId: plan.sessionId, projectId: plan.projectId });
+          break;
         case "detachCurrent":
           setSessionProject.mutate({ sessionId: plan.sessionId, projectId: null });
           break;
@@ -754,10 +758,10 @@ export function ChatWindow() {
   const handleMinimize = useCallback(() => {
     uiLogger.info("minimize (close)", {
       activeSessionId,
-      pendingTaskId,
+      pendingRunId,
     });
     setOpen(false);
-  }, [activeSessionId, pendingTaskId, setOpen]);
+  }, [activeSessionId, pendingRunId, setOpen]);
 
   const isExpanded = useChatStore((s) => s.isExpanded);
 
@@ -765,8 +769,8 @@ export function ChatWindow() {
   const { renderWidth, renderHeight, isAtMax, boundsReady, isDragging, toggleExpand, startDrag } = useChatResize(windowRef);
 
   // Show the list (vs empty state) as soon as there's anything to display —
-  // a real message, or a pending task whose timeline will stream in.
-  const hasMessages = messages.length > 0 || !!pendingTaskId;
+  // a real message, or a pending run whose timeline will stream in.
+  const hasMessages = messages.length > 0 || !!pendingRunId;
 
   const isVisible = isOpen && (isExpanded || boundsReady);
 
@@ -889,12 +893,12 @@ export function ChatWindow() {
         <ChatMessageList
           key={activeSessionId}
           messages={messages}
-          renderMessageAction={(message) => message.role === "assistant" && message.task_id && activeSessionId ? (
-            <WorkflowChatReplyAction wsId={wsId} sessionId={activeSessionId} taskId={message.task_id}
-              content={message.content} pending={!!pendingTaskId}
-              prompt={messages.find((item) => item.role === "user" && item.task_id === message.task_id)?.content ?? ""} />
+          renderMessageAction={(message) => message.role === "assistant" && message.run_id && activeSessionId ? (
+            <WorkflowChatReplyAction wsId={wsId} sessionId={activeSessionId} runId={message.run_id}
+              content={message.content} pending={!!pendingRunId}
+              prompt={messages.find((item) => item.role === "user" && item.run_id === message.run_id)?.content ?? ""} />
           ) : null}
-          pendingTask={pendingTask}
+          pendingRun={pendingRun}
           availability={availability}
           firstItemIndex={firstItemIndex}
           hasOlderMessages={!!hasOlderMessages}
@@ -902,6 +906,7 @@ export function ChatWindow() {
           onLoadOlderMessages={() => void fetchOlderMessages()}
           groupMode={isGroupSession}
           currentUserId={user?.id}
+          agentId={activeAgent?.id}
           members={groupParticipantMembers}
           agents={groupParticipantAgents}
         />
@@ -928,7 +933,7 @@ export function ChatWindow() {
       {/* Status banner above the input — single mutually-exclusive slot.
        *  Priority: no-agent > offline / unstable. Agent presence is the
        *  hard prerequisite (you can't send anything without one), so it
-       *  always wins over a presence hint. Recent issue/project navigation
+       *  always wins over a presence hint. Recent task/project navigation
        *  lives in the input action row; it is not message/session state.
        *
        *  We key off `noAgent` (the resolved-empty state) rather than
@@ -951,7 +956,7 @@ export function ChatWindow() {
         onRestoreDraftApplied={handleRestoreDraftApplied}
         uploadEnabled={isGroupSession || !!activeAgent}
         onStop={handleStop}
-        isRunning={!isGroupSession && !!pendingTaskId}
+        isRunning={!isGroupSession && !!pendingRunId}
         disabled={isSessionArchived || isAgentArchived}
         noAgent={noAgent}
         agentArchived={isAgentArchived}
@@ -1149,7 +1154,7 @@ function SessionDropdown({
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [confirmingStopId, setConfirmingStopId] = useState<string | null>(null);
-  const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
+  const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
   const [completedFlashIds, setCompletedFlashIds] = useState<Set<string>>(() => new Set());
   const previousInFlightRef = useRef<Set<string>>(new Set());
   const completedFlashTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -1163,17 +1168,17 @@ function SessionDropdown({
   const queryClient = useQueryClient();
   const formatTimeAgo = useFormatTimeAgo();
 
-  // Aggregate "which sessions have an in-flight task right now". Reuses
+  // Aggregate "which sessions have an in-flight run right now". Reuses
   // the same workspace-scoped query the FAB consumes, so toggling the chat
   // window doesn't fire a second request — TanStack dedupes by key.
-  const { data: pending } = useQuery(pendingChatTasksOptions(wsId));
-  const pendingTaskBySessionId = useMemo(
-    () => new Map((pending?.tasks ?? []).map((task) => [task.chat_session_id, task])),
+  const { data: pending } = useQuery(pendingChatRunsOptions(wsId));
+  const pendingRunBySessionId = useMemo(
+    () => new Map((pending?.runs ?? []).map((run) => [run.chat_session_id, run])),
     [pending],
   );
   const inFlightSessionIds = useMemo(
-    () => new Set(pendingTaskBySessionId.keys()),
-    [pendingTaskBySessionId],
+    () => new Set(pendingRunBySessionId.keys()),
+    [pendingRunBySessionId],
   );
 
   useEffect(() => {
@@ -1215,9 +1220,9 @@ function SessionDropdown({
   }, []);
 
   useEffect(() => {
-    if (!confirmingStopId || pendingTaskBySessionId.has(confirmingStopId)) return;
+    if (!confirmingStopId || pendingRunBySessionId.has(confirmingStopId)) return;
     setConfirmingStopId(null);
-  }, [confirmingStopId, pendingTaskBySessionId]);
+  }, [confirmingStopId, pendingRunBySessionId]);
 
   // Header state split:
   // - inside the trigger: the current chat's own live state
@@ -1266,44 +1271,44 @@ function SessionDropdown({
     setIsHistoryOpen(false);
   };
 
-  const handleConfirmStop = (session: ChatSession, task: PendingChatTasksResponse["tasks"][number]) => {
-    setStoppingTaskId(task.task_id);
+  const handleConfirmStop = (session: ChatSession, run: PendingChatRunsResponse["runs"][number]) => {
+    setStoppingRunId(run.run_id);
     previousInFlightRef.current = new Set(
       [...previousInFlightRef.current].filter((sessionId) => sessionId !== session.id),
     );
 
     // Same optimistic behavior as the active chat Stop button: remove the
-    // running affordance immediately, then let task:cancelled / refetches
+    // running affordance immediately, then let run:cancelled / refetches
     // converge every open surface on the server truth.
-    queryClient.setQueryData<PendingChatTasksResponse>(chatKeys.pendingTasks(wsId), (current) => {
+    queryClient.setQueryData<PendingChatRunsResponse>(chatKeys.pendingRuns(wsId), (current) => {
       if (!current) return current;
       return {
         ...current,
-        tasks: current.tasks.filter((item) => item.task_id !== task.task_id),
+        runs: current.runs.filter((item) => item.run_id !== run.run_id),
       };
     });
-    queryClient.setQueryData(chatKeys.pendingTask(session.id), {});
+    queryClient.setQueryData(chatKeys.pendingRun(session.id), {});
     queryClient.invalidateQueries({ queryKey: chatKeys.messages(session.id) });
     queryClient.invalidateQueries({ queryKey: chatKeys.messagesPage(session.id) });
 
-    api.cancelTaskById(task.task_id).then(
+    api.cancelRunById(run.run_id).then(
       (result) => {
         const restored = result.cancelled_chat_message;
         if (restored?.restore_to_input) {
           removeChatMessageFromCaches(queryClient, restored.chat_session_id, restored.message_id);
         }
-        apiLogger.info("cancelTask.success (history row)", { taskId: task.task_id, sessionId: session.id });
+        apiLogger.info("cancelRun.success (history row)", { runId: run.run_id, sessionId: session.id });
       },
       (err) =>
-        apiLogger.warn("cancelTask.error (history row; task may have already finished)", {
-          taskId: task.task_id,
+        apiLogger.warn("cancelRun.error (history row; run may have already finished)", {
+          runId: run.run_id,
           sessionId: session.id,
           err,
         }),
     ).finally(() => {
-      queryClient.invalidateQueries({ queryKey: chatKeys.pendingTasks(wsId) });
-      queryClient.invalidateQueries({ queryKey: chatKeys.pendingTask(session.id) });
-      setStoppingTaskId(null);
+      queryClient.invalidateQueries({ queryKey: chatKeys.pendingRuns(wsId) });
+      queryClient.invalidateQueries({ queryKey: chatKeys.pendingRun(session.id) });
+      setStoppingRunId(null);
       setConfirmingStopId(null);
     });
   };
@@ -1311,12 +1316,12 @@ function SessionDropdown({
   const renderRow = (session: ChatSession) => {
     const isCurrent = session.id === activeSessionId;
     const agent = agentById.get(session.agent_id) ?? null;
-    const pendingTask = pendingTaskBySessionId.get(session.id);
-    const isRunning = !!pendingTask;
+    const pendingRun = pendingRunBySessionId.get(session.id);
+    const isRunning = !!pendingRun;
     const showCompleted = completedFlashIds.has(session.id) && !isCurrent;
     const showUnread = session.has_unread && !isCurrent;
     const isRenaming = renamingId === session.id;
-    const isConfirmingStop = confirmingStopId === session.id && !!pendingTask;
+    const isConfirmingStop = confirmingStopId === session.id && !!pendingRun;
     const isConfirmingAction = isConfirmingStop;
     const titleText = session.title?.trim() || t(($) => $.window.untitled);
     const trailingStatus = isRunning
@@ -1350,9 +1355,7 @@ function SessionDropdown({
       >
         {isCurrent && <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-brand" />}
         {session.kind === "group" ? (
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-            <UsersRound className="size-3.5" />
-          </span>
+          <ChatGroupAvatar participants={session.participants} title={session.title} />
         ) : agent ? (
           <ActorAvatar
             actorType="agent"
@@ -1388,7 +1391,7 @@ function SessionDropdown({
           )}
         </div>
         {!isRenaming && (
-          isConfirmingStop && pendingTask ? (
+          isConfirmingStop && pendingRun ? (
             <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
@@ -1401,7 +1404,7 @@ function SessionDropdown({
                   e.preventDefault();
                   setConfirmingStopId(null);
                 }}
-                disabled={stoppingTaskId === pendingTask.task_id}
+                disabled={stoppingRunId === pendingRun.run_id}
                 className="inline-flex h-7 items-center rounded px-2 text-micro font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
               >
                 {t(($) => $.session_history.stop_dialog.cancel)}
@@ -1415,12 +1418,12 @@ function SessionDropdown({
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  handleConfirmStop(session, pendingTask);
+                  handleConfirmStop(session, pendingRun);
                 }}
-                disabled={stoppingTaskId === pendingTask.task_id}
+                disabled={stoppingRunId === pendingRun.run_id}
                 className="inline-flex h-7 items-center rounded px-2 text-micro font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
               >
-                {stoppingTaskId === pendingTask.task_id
+                {stoppingRunId === pendingRun.run_id
                   ? t(($) => $.session_history.stop_dialog.confirming)
                   : t(($) => $.session_history.stop_dialog.confirm)}
               </button>
@@ -1440,7 +1443,7 @@ function SessionDropdown({
                 <span className={cn("truncate", (showUnread || showCompleted || isRunning) && "font-medium text-foreground")}>{trailingStatus}</span>
               </div>
               <div className="hidden h-7 items-center gap-0.5 group-hover/history-row:flex">
-                {isRunning && pendingTask && session.kind !== "group" && (
+                {isRunning && pendingRun && session.kind !== "group" && (
                   <button
                     type="button"
                     onPointerDown={(e) => {
@@ -1512,9 +1515,7 @@ function SessionDropdown({
         <div className="flex min-w-0 items-center gap-1">
           <PopoverTrigger className="flex max-w-96 min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors hover:bg-accent data-[popup-open]:bg-accent data-open:bg-accent">
             {activeSession?.kind === "group" ? (
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-                <UsersRound className="size-3.5" />
-              </span>
+              <ChatGroupAvatar participants={activeSession.participants} title={activeSession.title} />
             ) : triggerAgent && (
               <ActorAvatar
                 actorType="agent"

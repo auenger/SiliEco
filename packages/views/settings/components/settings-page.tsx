@@ -26,7 +26,7 @@ import { useNavigation } from "../../navigation";
 import { AccountTab } from "./account-tab";
 import { PreferencesTab } from "./preferences-tab";
 import { ChatTab } from "./chat-tab";
-import { IssueTab } from "./issue-tab";
+import { TaskTab } from "./task-tab";
 import { TokensTab } from "./tokens-tab";
 import { WorkspaceTab } from "./workspace-tab";
 import { MembersTab } from "./members-tab";
@@ -42,12 +42,12 @@ import { useT } from "../../i18n";
 import { RuntimesPage } from "../../runtimes";
 import { SkillsPage } from "../../skills";
 
-const ACCOUNT_TAB_KEYS = ["profile", "preferences", "shortcuts", "issue", "chat", "notifications", "tokens"] as const;
+const ACCOUNT_TAB_KEYS = ["profile", "preferences", "shortcuts", "task", "chat", "notifications", "tokens"] as const;
 const ACCOUNT_TAB_ICONS = {
   profile: User,
   preferences: SlidersHorizontal,
   shortcuts: Keyboard,
-  issue: ListTodo,
+  task: ListTodo,
   chat: MessageCircle,
   notifications: Bell,
   tokens: Key,
@@ -221,7 +221,7 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
           <TabsContent value="profile"><AccountTab /></TabsContent>
           <TabsContent value="preferences"><PreferencesTab /></TabsContent>
           <TabsContent value="shortcuts"><KeyboardShortcutsTab /></TabsContent>
-          <TabsContent value="issue"><IssueTab /></TabsContent>
+          <TabsContent value="task"><TaskTab /></TabsContent>
           <TabsContent value="chat"><ChatTab /></TabsContent>
           <TabsContent value="notifications"><NotificationsTab /></TabsContent>
           <TabsContent value="tokens"><TokensTab /></TabsContent>

@@ -22,7 +22,7 @@ var ErrWorkflowReviewAccess = errors.New("workflow review is not authorized")
 type WorkflowReviewBasis struct {
 	Hash           string
 	ResultRevision int32
-	Issues         []db.Issue
+	Tasks          []db.Task
 	Calls          []db.LockWorkflowReviewCallsRow
 	Snapshot       json.RawMessage
 	execution      db.WorkflowStageExecution
@@ -244,7 +244,7 @@ func (s *WorkflowExecutionService) captureWorkflowReviewBasis(ctx context.Contex
 	if err := json.Unmarshal(execution.ConfigSnapshot, &config); err != nil {
 		return empty, err
 	}
-	issues, err := q.LockWorkflowReviewIssues(ctx, db.LockWorkflowReviewIssuesParams{WorkspaceID: workspaceID, WorkflowInstanceID: instanceID, WorkflowStageID: execution.WorkflowStageID, WorkflowStageExecutionID: execution.ID})
+	tasks, err := q.LockWorkflowReviewTasks(ctx, db.LockWorkflowReviewTasksParams{WorkspaceID: workspaceID, WorkflowInstanceID: instanceID, WorkflowStageID: execution.WorkflowStageID, WorkflowStageExecutionID: execution.ID})
 	if err != nil {
 		return empty, err
 	}
@@ -263,7 +263,7 @@ func (s *WorkflowExecutionService) captureWorkflowReviewBasis(ctx context.Contex
 	if !workflowCompletionConditions(readiness).ReadyForReview {
 		return empty, ErrWorkflowExecutionConflict
 	}
-	// Independently include bound calls whose issue was deleted or moved.
+	// Independently include bound calls whose task was deleted or moved.
 	for _, call := range calls {
 		switch call.Status {
 		case "queued", "dispatched", "running", "waiting_local_directory", "deferred":
@@ -311,29 +311,29 @@ func (s *WorkflowExecutionService) captureWorkflowReviewBasis(ctx context.Contex
 	fingerprintExecution.UpdatedAt = pgtype.Timestamptz{}
 	fingerprintExecution.FinishedAt = pgtype.Timestamptz{}
 	fingerprintExecution.Acceptance = nil
-	// Membership is scoped by execution before hashing. Keep the v3 issue
+	// Membership is scoped by execution before hashing. Keep the v3 task
 	// projection stable so adding the binding column does not invalidate
 	// already accepted evidence during migration.
-	type fingerprintIssue struct {
-		db.Issue
+	type fingerprintTask struct {
+		db.Task
 		WorkflowStageExecutionID      *struct{} `json:"workflow_stage_execution_id,omitempty"`
 		WorkflowInvalidatedByReworkID *struct{} `json:"workflow_invalidated_by_rework_id,omitempty"`
 	}
-	fingerprintIssues := make([]fingerprintIssue, len(issues))
-	for i, issue := range issues {
-		fingerprintIssues[i] = fingerprintIssue{Issue: issue}
+	fingerprintTasks := make([]fingerprintTask, len(tasks))
+	for i, task := range tasks {
+		fingerprintTasks[i] = fingerprintTask{Task: task}
 	}
 	snapshot, err := json.Marshal(struct {
 		Version   string                              `json:"version"`
 		Execution any                                 `json:"execution"`
-		Issues    []fingerprintIssue                  `json:"issues"`
+		Tasks     []fingerprintTask                   `json:"tasks"`
 		Calls     []db.LockWorkflowReviewCallsRow     `json:"calls"`
 		Result    db.WorkflowExecutionResult          `json:"result"`
 		Artifacts []db.ListWorkflowResultArtifactsRow `json:"artifacts"`
-	}{"silieco.review/v3", fingerprintExecution, fingerprintIssues, calls, result, artifacts})
+	}{"silieco.review/v3", fingerprintExecution, fingerprintTasks, calls, result, artifacts})
 	if err != nil {
 		return empty, err
 	}
 	digest := sha256.Sum256(snapshot)
-	return WorkflowReviewBasis{Hash: hex.EncodeToString(digest[:]), ResultRevision: execution.ResultRevision, Snapshot: snapshot, Issues: issues, Calls: calls, execution: execution}, nil
+	return WorkflowReviewBasis{Hash: hex.EncodeToString(digest[:]), ResultRevision: execution.ResultRevision, Snapshot: snapshot, Tasks: tasks, Calls: calls, execution: execution}, nil
 }

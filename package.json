@@ -25,7 +25,8 @@
     "lint": "turbo lint --filter=!@silieco/mobile",
     "clean": "turbo clean && rm -rf node_modules",
     "ui:add": "cd packages/ui && npx shadcn@latest add",
-    "generate:reserved-slugs": "node scripts/generate-reserved-slugs.mjs"
+    "generate:reserved-slugs": "node scripts/generate-reserved-slugs.mjs",
+    "check:task-domain": "node scripts/check-task-domain.mjs"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {

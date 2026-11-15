@@ -3,20 +3,20 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { defaultStorage } from "../platform/storage";
-import type { IssueStatus, ProjectStatus } from "../types";
+import type { TaskStatus, ProjectStatus } from "../types";
 
 const MAX_RECENT_CONTEXTS = 20;
 const MAX_WORKSPACES = 50;
 const EMPTY: RecentContextEntry[] = [];
 
-export type RecentContextType = "issue" | "project";
+export type RecentContextType = "task" | "project";
 
 export interface RecentContextEntry {
   type: RecentContextType;
   id: string;
   label?: string;
   subtitle?: string;
-  status?: IssueStatus;
+  status?: TaskStatus;
   projectStatus?: ProjectStatus;
   icon?: string | null;
   visitedAt: number;
@@ -100,7 +100,7 @@ export const useRecentContextStore = create<RecentContextState>()(
         }),
     }),
     {
-      name: "silieco_recent_contexts",
+      name: "silieco_tr1_recent_contexts",
       storage: createJSONStorage(() => defaultStorage),
       partialize: (state) => ({ byWorkspace: state.byWorkspace }),
       version: 1,

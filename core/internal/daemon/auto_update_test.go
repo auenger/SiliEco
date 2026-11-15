@@ -51,9 +51,9 @@ func TestTryAutoUpdate_SkipsWhenUpdating(t *testing.T) {
 	}
 }
 
-func TestTryAutoUpdate_SkipsWhenTasksRunning(t *testing.T) {
+func TestTryAutoUpdate_SkipsWhenRunsRunning(t *testing.T) {
 	d, restartCalls := newAutoUpdateTestDaemon(t, "v0.1.13")
-	d.activeTasks.Store(1)
+	d.activeRuns.Store(1)
 	withStubRelease(t, &cli.GitHubRelease{TagName: "v0.1.14"}, nil)
 
 	d.tryAutoUpdate(context.Background())

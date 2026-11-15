@@ -6,7 +6,7 @@ export const githubKeys = {
   installations: (wsId: string) => [...githubKeys.all(wsId), "installations"] as const,
   repositories: (wsId: string, installationId: string) =>
     [...githubKeys.all(wsId), "installations", installationId, "repositories"] as const,
-  pullRequests: (issueId: string) => ["github", "pull-requests", issueId] as const,
+  pullRequests: (taskId: string) => ["github", "pull-requests", taskId] as const,
 };
 
 export const githubInstallationsOptions = (wsId: string) =>
@@ -32,9 +32,9 @@ export const githubInstallationRepositoriesOptions = (
     enabled: !!wsId && !!installationId,
   });
 
-export const issuePullRequestsOptions = (issueId: string) =>
+export const taskPullRequestsOptions = (taskId: string) =>
   queryOptions({
-    queryKey: githubKeys.pullRequests(issueId),
-    queryFn: () => api.listIssuePullRequests(issueId),
-    enabled: !!issueId,
+    queryKey: githubKeys.pullRequests(taskId),
+    queryFn: () => api.listTaskPullRequests(taskId),
+    enabled: !!taskId,
   });

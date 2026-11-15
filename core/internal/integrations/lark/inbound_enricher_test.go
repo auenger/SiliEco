@@ -132,14 +132,14 @@ func TestEnrichQuotedReply(t *testing.T) {
 	t.Parallel()
 	fake := newEnricherFake()
 	fake.byID["om_parent"] = []LarkMessage{
-		textMsg("om_parent", "ou_jiayuan", "做一个删除 issue 的按钮吧", "1000"),
+		textMsg("om_parent", "ou_jiayuan", "做一个删除 task 的按钮吧", "1000"),
 	}
 	in := InboundMessage{MessageType: "text", MessageID: "om_child", Body: "去实现", ParentID: "om_parent"}
 
 	out := enrich(t, fake, in, InboundEnricherConfig{})
 
 	want := `<quoted_message message_id="om_parent" sender="User 1" type="text">
-做一个删除 issue 的按钮吧
+做一个删除 task 的按钮吧
 </quoted_message>
 
 去实现`
@@ -393,32 +393,32 @@ func TestEnrichSkipsWhenClientUnconfigured(t *testing.T) {
 	}
 }
 
-// TestEnrichPreservesCommandBodyForIssueParsing is the regression guard
-// for the quote-reply + /issue interaction: enrichment prepends a
+// TestEnrichPreservesCommandBodyForTaskParsing is the regression guard
+// for the quote-reply + /task interaction: enrichment prepends a
 // <quoted_message> block (so the enriched Body no longer parses as a
 // command), but CommandBody is left untouched and still parses, so
-// `/issue` keeps working when typed as a quote-reply.
-func TestEnrichPreservesCommandBodyForIssueParsing(t *testing.T) {
+// `/task` keeps working when typed as a quote-reply.
+func TestEnrichPreservesCommandBodyForTaskParsing(t *testing.T) {
 	t.Parallel()
 	fake := newEnricherFake()
 	fake.byID["om_parent"] = []LarkMessage{textMsg("om_parent", "ou_j", "做个删除按钮", "1000")}
 	in := InboundMessage{
 		MessageType: "text",
 		MessageID:   "om_child",
-		Body:        "/issue 删除 issue 按钮",
-		CommandBody: "/issue 删除 issue 按钮",
+		Body:        "/task 删除 task 按钮",
+		CommandBody: "/task 删除 task 按钮",
 		ParentID:    "om_parent",
 	}
 	out := enrich(t, fake, in, InboundEnricherConfig{})
 
 	// Enriched Body now starts with the quoted block → no longer a command.
-	if _, ok := engine.ParseIssueCommand(out.Body); ok {
-		t.Errorf("enriched Body should not parse as /issue (it is prefixed): %q", out.Body)
+	if _, ok := engine.ParseTaskCommand(out.Body); ok {
+		t.Errorf("enriched Body should not parse as /task (it is prefixed): %q", out.Body)
 	}
 	// CommandBody is untouched and still parses with the right title.
-	cmd, ok := engine.ParseIssueCommand(out.CommandBody)
-	if !ok || cmd.Title != "删除 issue 按钮" {
-		t.Errorf("CommandBody should still parse /issue: cmd=%+v ok=%v", cmd, ok)
+	cmd, ok := engine.ParseTaskCommand(out.CommandBody)
+	if !ok || cmd.Title != "删除 task 按钮" {
+		t.Errorf("CommandBody should still parse /task: cmd=%+v ok=%v", cmd, ok)
 	}
 	// And the quoted context did land in the stored Body.
 	if !strings.Contains(out.Body, "做个删除按钮") {

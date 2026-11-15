@@ -7,13 +7,13 @@
     "commands": "명령어",
     "members": "멤버",
     "projects": "프로젝트",
-    "issues": "Task",
+    "tasks": "Task",
     "recent": "최근 항목"
   },
   "pages": {
     "inbox": "인박스",
-    "my_issues": "내 Task",
-    "issues": "Task",
+    "my_tasks": "내 Task",
+    "tasks": "Task",
     "projects": "프로젝트",
     "agents": "에이전트",
     "runtimes": "런타임",
@@ -22,9 +22,9 @@
   },
   "commands": {
     "current_theme_aria": "현재 테마",
-    "new_issue": "새 Task",
+    "new_task": "새 Task",
     "new_project": "새 프로젝트",
-    "copy_issue_link": "Task 링크 복사",
+    "copy_task_link": "Task 링크 복사",
     "copy_identifier": "식별자 복사 ({{identifier}})",
     "fold_all_comments": "모든 댓글 접기",
     "unfold_all_comments": "모든 댓글 펼치기",

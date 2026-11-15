@@ -7,8 +7,8 @@
  * horizontal real estate for a side-by-side header + properties layout.
  *
  * Progress section mirrors web `packages/views/projects/components/project-detail.tsx:596-620`:
- * horizontal bar driven by `Project.done_count / Project.issue_count` plus a
- * "X / Y" label and a percentage. Hidden when there are zero issues — empty
+ * horizontal bar driven by `Project.done_count / Project.task_count` plus a
+ * "X / Y" label and a percentage. Hidden when there are zero tasks — empty
  * bar gives no information and creates a divide-by-zero hazard.
  */
 import { Pressable, View } from "react-native";
@@ -48,10 +48,10 @@ export function ProjectHeaderCard({ project, onEdit }: Props) {
             Add a description
           </Text>
         ) : null}
-        {project.issue_count > 0 ? (
+        {project.task_count > 0 ? (
           <ProgressSection
             done={project.done_count}
-            total={project.issue_count}
+            total={project.task_count}
           />
         ) : null}
       </View>

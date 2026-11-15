@@ -59,15 +59,15 @@ func (f *fakeBroadcaster) Broadcast(message []byte) {
 // workspace fanout. Routing them via BroadcastToScope("task"|"chat", ...)
 // with no client-side subscriber would silently drop every chat / task
 // message and break the live timeline + chat unread badges.
-func TestRegisterListeners_TaskChatGoToWorkspace(t *testing.T) {
+func TestRegisterListeners_RunChatGoToWorkspace(t *testing.T) {
 	cases := []struct {
 		name      string
 		eventType string
-		taskID    string
+		runID     string
 		chatID    string
 	}{
-		{"task:message with TaskID", protocol.EventTaskMessage, "task-1", ""},
-		{"task:progress with TaskID", protocol.EventTaskProgress, "task-2", ""},
+		{"run:message with TaskID", protocol.EventAgentRunMessage, "task-1", ""},
+		{"run:progress with TaskID", protocol.EventRunProgress, "task-2", ""},
 		{"chat:message with ChatSessionID", protocol.EventChatMessage, "", "chat-1"},
 		{"chat:done with ChatSessionID", protocol.EventChatDone, "", "chat-2"},
 		{"chat:session_read with ChatSessionID", protocol.EventChatSessionRead, "", "chat-3"},
@@ -81,7 +81,7 @@ func TestRegisterListeners_TaskChatGoToWorkspace(t *testing.T) {
 			bus.Publish(events.Event{
 				Type:          tc.eventType,
 				WorkspaceID:   "ws-1",
-				TaskID:        tc.taskID,
+				RunID:         tc.runID,
 				ChatSessionID: tc.chatID,
 				Payload:       map[string]any{"hello": "world"},
 			})

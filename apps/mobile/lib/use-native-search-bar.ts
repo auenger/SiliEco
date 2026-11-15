@@ -2,7 +2,7 @@
  * Hook for wiring an iOS native `UISearchController` (via react-native-screens
  * `headerSearchBarOptions`) into a route. Returns the current query string.
  *
- * Used by every search-enabled picker route on mobile (issue/project/label/
+ * Used by every search-enabled picker route on mobile (task/project/label/
  * lead). Pair with `useScrollToTopOnChange` in the body to reset the list
  * scroll position when the filter changes.
  *

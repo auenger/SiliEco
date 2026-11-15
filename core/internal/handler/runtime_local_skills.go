@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/silieco-ai/silieco/core/internal/util"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
@@ -967,7 +968,7 @@ func (h *Handler) ReportLocalSkillImportResult(w http.ResponseWriter, r *http.Re
 		// side-effects so the retry lands on a clean slate.
 		slog.Error("local skill import Complete failed — rolling back created skill",
 			"error", err, "request_id", requestID, "skill_id", resp.ID)
-		if delErr := h.Queries.DeleteSkill(r.Context(), db.DeleteSkillParams{
+		if delErr := h.rollbackImportedSkill(r.Context(), db.DeleteSkillParams{
 			ID:          parseUUID(resp.ID),
 			WorkspaceID: rt.WorkspaceID,
 		}); delErr != nil {
@@ -1040,4 +1041,24 @@ func (h *Handler) lookupSkillByName(ctx context.Context, workspaceID pgtype.UUID
 		return db.Skill{}, false, err
 	}
 	return skill, true, nil
+}
+
+// rollbackImportedSkill keeps failed import cleanup atomic with its dependencies.
+func (h *Handler) rollbackImportedSkill(ctx context.Context, params db.DeleteSkillParams) error {
+	tx, err := h.TxStarter.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := relational.LockForDelete(ctx, tx, relational.DeleteSkill, params.ID, params.WorkspaceID); err != nil {
+		return err
+	}
+	qtx := h.Queries.WithTx(tx)
+	if err := qtx.DeleteSkillLabelAssignmentsBySkill(ctx, params.ID); err != nil {
+		return err
+	}
+	if err := qtx.DeleteSkill(ctx, params); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

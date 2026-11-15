@@ -27,8 +27,8 @@
  *
  * Optimistic send burst mirrors web's chat-window.tsx send sequence
  * (packages/views/chat/components/chat-window.tsx ~262-345):
- *   seed messages → seed pendingTask → flip activeSessionId → POST →
- *   patch pendingTask with server task_id + created_at.
+ *   seed messages → seed pendingRun → flip activeSessionId → POST →
+ *   patch pendingRun with server run_id + created_at.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -43,7 +43,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Agent,
   ChatMessage,
-  ChatPendingTask,
+  ChatPendingRun,
 } from "@silieco/core/types";
 import { api } from "@/data/api";
 import { useAuthStore } from "@/data/auth-store";
@@ -54,8 +54,8 @@ import {
   chatKeys,
   chatMessagesOptions,
   chatSessionsOptions,
-  pendingChatTaskOptions,
-  taskMessagesOptions,
+  pendingChatRunOptions,
+  runMessagesOptions,
 } from "@/data/queries/chat";
 import {
   useCreateChatSession,
@@ -128,16 +128,16 @@ export default function ChatTab() {
   const { data: messages = [], isLoading: messagesLoading } = useQuery(
     chatMessagesOptions(activeSessionId),
   );
-  const { data: pendingTask } = useQuery(
-    pendingChatTaskOptions(activeSessionId),
+  const { data: pendingRun } = useQuery(
+    pendingChatRunOptions(activeSessionId),
   );
-  // Live execution trace for the in-flight task. `task:message` WS events
-  // append rows to this same cache key via `appendTaskMessage`, so the
+  // Live execution trace for the in-flight task. `run:message` WS events
+  // append rows to this same cache key via `appendRunMessage`, so the
   // list/pill stay in sync without a polling fetch. `enabled` is gated by
-  // `isTaskMessageTaskId` inside taskMessagesOptions — optimistic ids
+  // `isRunMessageRunId` inside runMessagesOptions — optimistic ids
   // never hit the network.
-  const { data: liveTaskMessages = [] } = useQuery(
-    taskMessagesOptions(pendingTask?.task_id),
+  const { data: liveRunMessages = [] } = useQuery(
+    runMessagesOptions(pendingRun?.run_id),
   );
 
   // ── Derived ────────────────────────────────────────────────────────────
@@ -176,7 +176,7 @@ export default function ChatTab() {
   const presenceAvailability =
     presenceDetail === "loading" ? undefined : presenceDetail.availability;
   const isArchived = activeSession?.status === "archived";
-  const sending = !!pendingTask?.task_id;
+  const sending = !!pendingRun?.run_id;
 
   // ── Drafts ─────────────────────────────────────────────────────────────
   const draftKey = activeSessionId ?? DRAFT_NEW_SESSION;
@@ -252,14 +252,14 @@ export default function ChatTab() {
         chat_session_id: sessionId,
         role: "user",
         content,
-        task_id: null,
+        run_id: null,
         created_at: sentAt,
       };
       qc.setQueryData<ChatMessage[]>(chatKeys.messages(sessionId), (old) =>
         old ? [...old, optimistic] : [optimistic],
       );
-      qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(sessionId), {
-        task_id: `optimistic-${optimistic.id}`,
+      qc.setQueryData<ChatPendingRun>(chatKeys.pendingRun(sessionId), {
+        run_id: `optimistic-${optimistic.id}`,
         status: "queued",
         created_at: sentAt,
       });
@@ -272,8 +272,8 @@ export default function ChatTab() {
         const result = await api.sendChatMessage(sessionId, content, {
           attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
         });
-        qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(sessionId), {
-          task_id: result.task_id,
+        qc.setQueryData<ChatPendingRun>(chatKeys.pendingRun(sessionId), {
+          run_id: result.run_id,
           status: "queued",
           created_at: result.created_at,
         });
@@ -283,7 +283,7 @@ export default function ChatTab() {
         qc.setQueryData<ChatMessage[]>(chatKeys.messages(sessionId), (old) =>
           old ? old.filter((m) => m.id !== optimistic.id) : old,
         );
-        qc.setQueryData(chatKeys.pendingTask(sessionId), {});
+        qc.setQueryData(chatKeys.pendingRun(sessionId), {});
         throw err;
       }
     },
@@ -299,12 +299,12 @@ export default function ChatTab() {
 
   // ── Cancel in-flight ───────────────────────────────────────────────────
   const handleStop = useCallback(() => {
-    if (!pendingTask?.task_id || !activeSessionId) return;
-    qc.setQueryData(chatKeys.pendingTask(activeSessionId), {});
-    void api.cancelTaskById(pendingTask.task_id).catch(() => {
+    if (!pendingRun?.run_id || !activeSessionId) return;
+    qc.setQueryData(chatKeys.pendingRun(activeSessionId), {});
+    void api.cancelRunById(pendingRun.run_id).catch(() => {
       // Silent — task may have already terminated server-side.
     });
-  }, [pendingTask?.task_id, activeSessionId, qc]);
+  }, [pendingRun?.run_id, activeSessionId, qc]);
 
   // ── Header / sheet actions ─────────────────────────────────────────────
   const handleNewChat = useCallback(() => {
@@ -397,8 +397,8 @@ export default function ChatTab() {
           hasSessions={sessions.length > 0}
           agentName={currentAgent?.name}
           onPickPrompt={(text) => setDraft(draftKey, text)}
-          pendingTask={pendingTask}
-          liveTaskMessages={liveTaskMessages}
+          pendingRun={pendingRun}
+          liveRunMessages={liveRunMessages}
           availability={presenceAvailability}
         />
         <OfflineBanner

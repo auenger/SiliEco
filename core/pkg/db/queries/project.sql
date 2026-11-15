@@ -31,9 +31,19 @@ FOR UPDATE;
 INSERT INTO project (
     workspace_id, title, description, icon, status,
     lead_type, lead_id, priority, start_date, due_date
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING *;
+) SELECT
+    $1 AS workspace_id,
+    $2 AS title,
+    $3 AS description,
+    $4 AS icon,
+    $5 AS status,
+    $6 AS lead_type,
+    $7 AS lead_id,
+    $8 AS priority,
+    $9 AS start_date,
+    $10 AS due_date
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+ RETURNING *;
 
 -- name: UpdateProject :one
 UPDATE project SET
@@ -51,11 +61,29 @@ WHERE id = $1
 RETURNING *;
 
 -- name: DeleteProject :exec
--- Defense-in-depth: workspace_id is a SQL-layer tenant guard. See DeleteIssue.
-DELETE FROM project WHERE id = $1 AND workspace_id = $2;
+-- Defense-in-depth: workspace_id is a SQL-layer tenant guard. See DeleteTask.
+WITH RECURSIVE cleanup_target_project AS MATERIALIZED (
+    SELECT project.* FROM "project" project WHERE project.id = $1 AND project.workspace_id = $2
+),
+cleanup_target_project_resource AS MATERIALIZED (
+    SELECT child.* FROM "project_resource" child WHERE EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id")
+),
+cleanup_delete_project_resource AS (
+    DELETE FROM "project_resource" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_project_resource)
+),
+cleanup_detach_autopilot AS (
+    UPDATE "autopilot" child SET "project_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id") THEN NULL ELSE child."project_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id"))
+),
+cleanup_detach_task AS (
+    UPDATE "task" child SET "project_id" = CASE WHEN EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id") THEN NULL ELSE child."project_id" END
+    WHERE (EXISTS (SELECT 1 FROM cleanup_target_project parent WHERE child."project_id" = parent."id"))
+)
+DELETE FROM "project" project WHERE (project."id") IN (SELECT "id" FROM cleanup_target_project) ;
+
 
 -- name: ClearProjectWorkflowTasks :exec
-UPDATE issue SET
+UPDATE task SET
     workflow_instance_id = NULL,
     workflow_stage_id = NULL,
     workflow_stage_execution_id = NULL,
@@ -66,14 +94,14 @@ WHERE project_id = sqlc.arg('project_id')
 
 -- name: DeleteProjectWorkflowGateDecisions :exec
 WITH cleared_review_recoveries AS (
- DELETE FROM workflow_review_recovery WHERE workspace_id=sqlc.arg('workspace_id')
- AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=sqlc.arg('project_id') AND workspace_id=sqlc.arg('workspace_id'))
+ DELETE FROM workflow_review_recovery WHERE workflow_review_recovery.workspace_id=sqlc.arg('workspace_id')
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE workflow_instance.project_id=sqlc.arg('project_id') AND workspace_id=sqlc.arg('workspace_id'))
 ), cleared_reworks AS (
- DELETE FROM workflow_rework WHERE workspace_id=sqlc.arg('workspace_id')
- AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=sqlc.arg('project_id') AND workspace_id=sqlc.arg('workspace_id'))
+ DELETE FROM workflow_rework WHERE workflow_rework.workspace_id=sqlc.arg('workspace_id')
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE workflow_instance.project_id=sqlc.arg('project_id') AND workspace_id=sqlc.arg('workspace_id'))
 ), cleared_requests AS (
- DELETE FROM workflow_review_request WHERE workspace_id=sqlc.arg('workspace_id')
- AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE project_id=sqlc.arg('project_id') AND workspace_id=sqlc.arg('workspace_id'))
+ DELETE FROM workflow_review_request WHERE workflow_review_request.workspace_id=sqlc.arg('workspace_id')
+ AND workflow_instance_id IN (SELECT id FROM workflow_instance WHERE workflow_instance.project_id=sqlc.arg('project_id') AND workspace_id=sqlc.arg('workspace_id'))
 )
 DELETE FROM workflow_gate_decision AS decision
 WHERE decision.workspace_id = sqlc.arg('workspace_id')
@@ -132,14 +160,14 @@ DELETE FROM workflow
 WHERE project_id = sqlc.arg('project_id')
   AND workspace_id = sqlc.arg('workspace_id');
 
--- name: CountIssuesByProject :one
-SELECT count(*) FROM issue
+-- name: CountTasksByProject :one
+SELECT count(*) FROM task
 WHERE project_id = $1;
 
--- name: GetProjectIssueStats :many
+-- name: GetProjectTaskStats :many
 SELECT project_id,
        count(*)::bigint AS total_count,
        count(*) FILTER (WHERE status IN ('done', 'cancelled'))::bigint AS done_count
-FROM issue
+FROM task
 WHERE project_id = ANY(sqlc.arg('project_ids')::uuid[])
 GROUP BY project_id;

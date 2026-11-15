@@ -161,7 +161,7 @@ func TestWorkflowHumanReviewCommands(t *testing.T) {
 			if r.Method != http.MethodGet {
 				t.Error("review must use GET")
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"execution_id": executionID, "result_revision": 3, "basis_hash": basis, "issues": []any{}, "calls": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"execution_id": executionID, "result_revision": 3, "basis_hash": basis, "tasks": []any{}, "calls": []any{}})
 		case base + "/decisions":
 			if r.Method != http.MethodPost {
 				t.Error("decision must use POST")
@@ -304,7 +304,7 @@ func TestWorkflowAgentReviewCommands(t *testing.T) {
 	conflict := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
-		if r.Header.Get("Authorization") != "Bearer mat_review-test" || r.Header.Get("X-Agent-ID") != "reviewer" || r.Header.Get("X-Task-ID") != "review-call" {
+		if r.Header.Get("Authorization") != "Bearer mat_review-test" || r.Header.Get("X-Agent-ID") != "reviewer" || r.Header.Get("X-Run-ID") != "review-call" {
 			t.Error("lost reviewer authentication")
 		}
 		base := "/api/workflow-instances/" + runID + "/executions/" + executionID + "/reviews/" + requestID
@@ -334,7 +334,7 @@ func TestWorkflowAgentReviewCommands(t *testing.T) {
 	setCLITestServerEnv(t, server.URL)
 	t.Setenv("SILIECO_TOKEN", "mat_review-test")
 	t.Setenv("SILIECO_AGENT_ID", "reviewer")
-	t.Setenv("SILIECO_TASK_ID", "review-call")
+	t.Setenv("SILIECO_RUN_ID", "review-call")
 	execute := func(args ...string) (string, error) {
 		cmd := newWorkflowCmd()
 		var output bytes.Buffer
@@ -370,7 +370,7 @@ func TestWorkflowAgentReviewCommands(t *testing.T) {
 	}
 	for _, identity := range [][2]string{{"", ""}, {"reviewer", ""}, {"", "review-call"}} {
 		t.Setenv("SILIECO_AGENT_ID", identity[0])
-		t.Setenv("SILIECO_TASK_ID", identity[1])
+		t.Setenv("SILIECO_RUN_ID", identity[1])
 		if _, err := execute("agent-review", runID, executionID, requestID); err == nil {
 			t.Fatal("missing call identity accepted")
 		}

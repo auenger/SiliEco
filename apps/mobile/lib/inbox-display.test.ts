@@ -12,10 +12,10 @@ function item(overrides: Partial<InboxItem>): InboxItem {
     actor_id: "agent-1",
     type: "new_comment",
     severity: "info",
-    issue_id: "issue-1",
-    title: "Issue title",
+    task_id: "task-1",
+    title: "Task title",
     body: null,
-    issue_status: null,
+    task_status: null,
     read: false,
     archived: false,
     created_at: "2026-06-15T08:00:00Z",
@@ -25,7 +25,7 @@ function item(overrides: Partial<InboxItem>): InboxItem {
 }
 
 describe("deduplicateInboxItems", () => {
-  it("keeps the newest issue row while preserving an older comment anchor", () => {
+  it("keeps the newest task row while preserving an older comment anchor", () => {
     const merged = deduplicateInboxItems([
       item({
         id: "comment-notification",

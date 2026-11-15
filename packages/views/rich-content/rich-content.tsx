@@ -4,13 +4,13 @@
  * RichContent — the ONE product-level readonly content renderer (SILI-4922).
  *
  * Chat (user message, live assistant, persisted assistant, timeline text),
- * Issue descriptions and Comments all render through this component. There is
+ * Task descriptions and Comments all render through this component. There is
  * no second product Markdown renderer: `packages/ui/markdown` stays a generic
  * primitive for terminal/raw output and must not grow product concerns
  * (Mention, Attachment, Mermaid, HTML preview) again.
  *
  * Surfaces differ only in the shell they wrap around this component:
- *   - Comment / Issue: edit, reply, menu, thread chrome — outside.
+ *   - Comment / Task: edit, reply, menu, thread chrome — outside.
  *   - Chat: timeline, thinking, tool, failure, copy chrome — outside.
  *
  * The public API is deliberately narrow. There is no `surface` prop, no
@@ -44,13 +44,13 @@ import { useConfigStore } from "@silieco/core/config";
 import type { Attachment } from "@silieco/core/types";
 import {
   isAllowedFileCardHref,
-  isIssueIdentifier,
+  isTaskIdentifier,
   markdownSanitizeSchema,
   markdownUrlTransform,
 } from "@silieco/ui/markdown";
 import { AppLink, useAppOrigin } from "../navigation";
-import { IssueMentionCard } from "../issues/components/issue-mention-card";
-import { useResolveIssueIdentifier } from "../issues/hooks";
+import { TaskMentionCard } from "../tasks/components/task-mention-card";
+import { useResolveTaskIdentifier } from "../tasks/hooks";
 import { ProjectChip } from "../projects/components/project-chip";
 import { useLinkHover, LinkHoverCard } from "../editor/link-hover-card";
 import { openLink, isMentionHref } from "../editor/utils/link-handler";
@@ -97,35 +97,35 @@ function useIsFenceClosed(offset: number | undefined): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Issue mention chip. Navigation — plain click, modifier click, and the
- * "open issue links in new tab" preference — is owned by the AppLink inside
- * IssueMentionCard; the wrapper only shields surrounding click handlers
+ * Task mention chip. Navigation — plain click, modifier click, and the
+ * "open task links in new tab" preference — is owned by the AppLink inside
+ * TaskMentionCard; the wrapper only shields surrounding click handlers
  * (e.g. collapsed-comment expanders) from mention clicks.
  */
-function IssueMentionLink({ issueId, label }: { issueId: string; label?: string }) {
+function TaskMentionLink({ taskId, label }: { taskId: string; label?: string }) {
   return (
     <span className="inline align-middle" onClick={(e) => e.stopPropagation()}>
-      <IssueMentionCard issueId={issueId} fallbackLabel={label} />
+      <TaskMentionCard taskId={taskId} fallbackLabel={label} />
     </span>
   );
 }
 
 /**
  * Autolinked bare identifier (e.g. `SILI-123`) routed through
- * `mention://issue/<identifier>` by the preprocessor. Resolves to a real issue
+ * `mention://task/<identifier>` by the preprocessor. Resolves to a real task
  * in the current workspace; renders a navigable mention on a hit, plain text on
  * a miss / while loading / cross-workspace.
  */
-function AutolinkedIssueMentionLink({ identifier }: { identifier: string }) {
-  const issue = useResolveIssueIdentifier(identifier);
-  if (!issue) return <>{identifier}</>;
-  return <IssueMentionLink issueId={issue.id} label={identifier} />;
+function AutolinkedTaskMentionLink({ identifier }: { identifier: string }) {
+  const task = useResolveTaskIdentifier(identifier);
+  if (!task) return <>{identifier}</>;
+  return <TaskMentionLink taskId={task.id} label={identifier} />;
 }
 
 /**
  * Project mention chip.
  *
- * Rendered as a real anchor via AppLink, matching IssueMentionCard: a mention is
+ * Rendered as a real anchor via AppLink, matching TaskMentionCard: a mention is
  * a link, so it must be reachable by Tab and activatable by Enter, and expose a
  * URL to copy / open in a new tab. A `<span onClick>` looks identical and works
  * for a mouse, which is exactly why the regression is easy to miss — the readonly
@@ -170,14 +170,14 @@ function RichLink({ href, children }: { href?: string; children?: ReactNode }) {
   }
 
   if (isMentionHref(href)) {
-    const match = href.match(/^mention:\/\/(member|agent|issue|project|all)\/(.+)$/);
-    if (match?.[1] === "issue" && match[2]) {
+    const match = href.match(/^mention:\/\/(member|agent|task|project|all)\/(.+)$/);
+    if (match?.[1] === "task" && match[2]) {
       // A bare identifier (from the autolink preprocessor) is carried as the id
       // segment; a real mention carries a UUID. Dispatch on the id shape.
-      if (isIssueIdentifier(match[2])) {
-        return <AutolinkedIssueMentionLink identifier={match[2]} />;
+      if (isTaskIdentifier(match[2])) {
+        return <AutolinkedTaskMentionLink identifier={match[2]} />;
       }
-      return <IssueMentionLink issueId={match[2]} label={childrenToLabel(children)} />;
+      return <TaskMentionLink taskId={match[2]} label={childrenToLabel(children)} />;
     }
     if (match?.[1] === "project" && match[2]) {
       return <ProjectMentionLink projectId={match[2]} label={childrenToLabel(children)} />;
@@ -394,7 +394,7 @@ const REHYPE_PLUGINS = [
 export interface RichContentProps {
   content: string;
   /**
-   * Attachments associated with the surrounding entity (comment / issue body /
+   * Attachments associated with the surrounding entity (comment / task body /
    * chat message). Inline `<img>` and file-card URLs matching one of these get
    * their download URL re-signed at click time instead of using the possibly
    * stale link embedded in the markdown.
@@ -431,7 +431,7 @@ export const RichContent = memo(function RichContent({
   const processed = useMemo(
     () =>
       highlightToHtml(
-        preprocessMarkdown(content, { cdnDomain, autolinkIssueIdentifiers: true }),
+        preprocessMarkdown(content, { cdnDomain, autolinkTaskIdentifiers: true }),
       ),
     [content, cdnDomain],
   );

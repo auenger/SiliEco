@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.vcs_connection_workspace_id_instance_url_key;

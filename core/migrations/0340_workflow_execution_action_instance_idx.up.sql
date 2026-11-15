@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY workflow_execution_action_instance_idx ON public.workflow_execution_action USING btree (workspace_id, workflow_instance_id);

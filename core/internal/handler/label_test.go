@@ -102,22 +102,22 @@ func TestLabelCRUD(t *testing.T) {
 	}
 }
 
-// TestIssueLabelAttachDetach exercises attach/detach + the issue-scoped endpoints.
-func TestIssueLabelAttachDetach(t *testing.T) {
-	// Create issue
+// TestTaskLabelAttachDetach exercises attach/detach + the task-scoped endpoints.
+func TestTaskLabelAttachDetach(t *testing.T) {
+	// Create task
 	w := httptest.NewRecorder()
-	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":    "Issue for label attach test",
+	req := newRequest("POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
+		"title":    "Task for label attach test",
 		"status":   "todo",
 		"priority": "medium",
 	})
-	testHandler.CreateIssue(w, req)
+	testHandler.CreateTask(w, req)
 	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("CreateTask: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var issue IssueResponse
-	json.NewDecoder(w.Body).Decode(&issue)
-	issueID := issue.ID
+	var task TaskResponse
+	json.NewDecoder(w.Body).Decode(&task)
+	taskID := task.ID
 
 	// Create label
 	w = httptest.NewRecorder()
@@ -139,10 +139,10 @@ func TestIssueLabelAttachDetach(t *testing.T) {
 
 	// Attach
 	w = httptest.NewRecorder()
-	req = newRequest("POST", "/api/issues/"+issueID+"/labels", map[string]any{
+	req = newRequest("POST", "/api/tasks/"+taskID+"/labels", map[string]any{
 		"label_id": labelID,
 	})
-	req = withURLParam(req, "id", issueID)
+	req = withURLParam(req, "id", taskID)
 	testHandler.AttachLabel(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("AttachLabel: expected 200, got %d: %s", w.Code, w.Body.String())
@@ -150,38 +150,38 @@ func TestIssueLabelAttachDetach(t *testing.T) {
 
 	// Attach again (idempotent — ON CONFLICT DO NOTHING)
 	w = httptest.NewRecorder()
-	req = newRequest("POST", "/api/issues/"+issueID+"/labels", map[string]any{
+	req = newRequest("POST", "/api/tasks/"+taskID+"/labels", map[string]any{
 		"label_id": labelID,
 	})
-	req = withURLParam(req, "id", issueID)
+	req = withURLParam(req, "id", taskID)
 	testHandler.AttachLabel(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("AttachLabel (second): expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// List labels for issue
+	// List labels for task
 	w = httptest.NewRecorder()
-	req = newRequest("GET", "/api/issues/"+issueID+"/labels", nil)
-	req = withURLParam(req, "id", issueID)
-	testHandler.ListLabelsForIssue(w, req)
+	req = newRequest("GET", "/api/tasks/"+taskID+"/labels", nil)
+	req = withURLParam(req, "id", taskID)
+	testHandler.ListLabelsForTask(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("ListLabelsForIssue: expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("ListLabelsForTask: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	var issueLabels struct {
+	var taskLabels struct {
 		Labels []LabelResponse `json:"labels"`
 	}
-	json.NewDecoder(w.Body).Decode(&issueLabels)
-	if len(issueLabels.Labels) != 1 {
-		t.Fatalf("ListLabelsForIssue: expected 1 label, got %d", len(issueLabels.Labels))
+	json.NewDecoder(w.Body).Decode(&taskLabels)
+	if len(taskLabels.Labels) != 1 {
+		t.Fatalf("ListLabelsForTask: expected 1 label, got %d", len(taskLabels.Labels))
 	}
-	if issueLabels.Labels[0].ID != labelID {
-		t.Fatalf("ListLabelsForIssue: wrong label returned: %+v", issueLabels.Labels[0])
+	if taskLabels.Labels[0].ID != labelID {
+		t.Fatalf("ListLabelsForTask: wrong label returned: %+v", taskLabels.Labels[0])
 	}
 
 	// Detach
 	w = httptest.NewRecorder()
-	req = newRequest("DELETE", "/api/issues/"+issueID+"/labels/"+labelID, nil)
-	req = withURLParams(req, "id", issueID, "labelId", labelID)
+	req = newRequest("DELETE", "/api/tasks/"+taskID+"/labels/"+labelID, nil)
+	req = withURLParams(req, "id", taskID, "labelId", labelID)
 	testHandler.DetachLabel(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("DetachLabel: expected 200, got %d: %s", w.Code, w.Body.String())
@@ -189,30 +189,30 @@ func TestIssueLabelAttachDetach(t *testing.T) {
 
 	// Confirm detached
 	w = httptest.NewRecorder()
-	req = newRequest("GET", "/api/issues/"+issueID+"/labels", nil)
-	req = withURLParam(req, "id", issueID)
-	testHandler.ListLabelsForIssue(w, req)
-	json.NewDecoder(w.Body).Decode(&issueLabels)
-	if len(issueLabels.Labels) != 0 {
-		t.Fatalf("after Detach: expected 0 labels, got %d", len(issueLabels.Labels))
+	req = newRequest("GET", "/api/tasks/"+taskID+"/labels", nil)
+	req = withURLParam(req, "id", taskID)
+	testHandler.ListLabelsForTask(w, req)
+	json.NewDecoder(w.Body).Decode(&taskLabels)
+	if len(taskLabels.Labels) != 0 {
+		t.Fatalf("after Detach: expected 0 labels, got %d", len(taskLabels.Labels))
 	}
 }
 
-func TestIssueLabelRejectsNonIssueScope(t *testing.T) {
+func TestTaskLabelRejectsNonTaskScope(t *testing.T) {
 	withResourceLabelsFlag(t, testHandler, true)
 	w := httptest.NewRecorder()
-	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":    "Issue rejects agent label",
+	req := newRequest("POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
+		"title":    "Task rejects agent label",
 		"status":   "todo",
 		"priority": "medium",
 	})
-	testHandler.CreateIssue(w, req)
+	testHandler.CreateTask(w, req)
 	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("CreateTask: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var issue IssueResponse
-	if err := json.NewDecoder(w.Body).Decode(&issue); err != nil {
-		t.Fatalf("decode issue: %v", err)
+	var task TaskResponse
+	if err := json.NewDecoder(w.Body).Decode(&task); err != nil {
+		t.Fatalf("decode task: %v", err)
 	}
 
 	w = httptest.NewRecorder()
@@ -237,18 +237,18 @@ func TestIssueLabelRejectsNonIssueScope(t *testing.T) {
 	})
 
 	w = httptest.NewRecorder()
-	req = newRequest("POST", "/api/issues/"+issue.ID+"/labels", map[string]any{
+	req = newRequest("POST", "/api/tasks/"+task.ID+"/labels", map[string]any{
 		"label_id": label.ID,
 	})
-	req = withURLParam(req, "id", issue.ID)
+	req = withURLParam(req, "id", task.ID)
 	testHandler.AttachLabel(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("AttachLabel with agent label: expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 
 	w = httptest.NewRecorder()
-	req = newRequest("DELETE", "/api/issues/"+issue.ID+"/labels/"+label.ID, nil)
-	req = withURLParams(req, "id", issue.ID, "labelId", label.ID)
+	req = newRequest("DELETE", "/api/tasks/"+task.ID+"/labels/"+label.ID, nil)
+	req = withURLParams(req, "id", task.ID, "labelId", label.ID)
 	testHandler.DetachLabel(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("DetachLabel with agent label: expected 404, got %d: %s", w.Code, w.Body.String())
@@ -344,19 +344,19 @@ func TestUpdateLabelCrossWorkspace(t *testing.T) {
 // Directly exercises the GetLabel workspace precheck and the SQL-layer
 // defense-in-depth guard.
 func TestAttachLabelCrossWorkspaceLabel(t *testing.T) {
-	// Issue in the test workspace
+	// Task in the test workspace
 	w := httptest.NewRecorder()
-	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":    "cross-ws-attach-issue",
+	req := newRequest("POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
+		"title":    "cross-ws-attach-task",
 		"status":   "todo",
 		"priority": "medium",
 	})
-	testHandler.CreateIssue(w, req)
+	testHandler.CreateTask(w, req)
 	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateIssue: expected 201, got %d", w.Code)
+		t.Fatalf("CreateTask: expected 201, got %d", w.Code)
 	}
-	var issue IssueResponse
-	json.NewDecoder(w.Body).Decode(&issue)
+	var task TaskResponse
+	json.NewDecoder(w.Body).Decode(&task)
 
 	// Label in a second workspace — insert directly via the pool to avoid
 	// the public API (which would require creating a full second workspace
@@ -365,7 +365,7 @@ func TestAttachLabelCrossWorkspaceLabel(t *testing.T) {
 	otherWorkspaceID := createOtherTestWorkspace(t)
 	var otherLabelID string
 	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO issue_label (workspace_id, name, color)
+		INSERT INTO task_label (workspace_id, name, color)
 		VALUES ($1, 'foreign-label', '#000000')
 		RETURNING id
 	`, otherWorkspaceID).Scan(&otherLabelID)
@@ -373,12 +373,12 @@ func TestAttachLabelCrossWorkspaceLabel(t *testing.T) {
 		t.Fatalf("insert foreign label: %v", err)
 	}
 
-	// Try to attach the foreign label to the test-workspace issue.
+	// Try to attach the foreign label to the test-workspace task.
 	w = httptest.NewRecorder()
-	req = newRequest("POST", "/api/issues/"+issue.ID+"/labels", map[string]any{
+	req = newRequest("POST", "/api/tasks/"+task.ID+"/labels", map[string]any{
 		"label_id": otherLabelID,
 	})
-	req = withURLParam(req, "id", issue.ID)
+	req = withURLParam(req, "id", task.ID)
 	testHandler.AttachLabel(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("AttachLabel cross-workspace label: expected 404, got %d: %s", w.Code, w.Body.String())
@@ -386,15 +386,15 @@ func TestAttachLabelCrossWorkspaceLabel(t *testing.T) {
 
 	// Confirm nothing was attached.
 	w = httptest.NewRecorder()
-	req = newRequest("GET", "/api/issues/"+issue.ID+"/labels", nil)
-	req = withURLParam(req, "id", issue.ID)
-	testHandler.ListLabelsForIssue(w, req)
+	req = newRequest("GET", "/api/tasks/"+task.ID+"/labels", nil)
+	req = withURLParam(req, "id", task.ID)
+	testHandler.ListLabelsForTask(w, req)
 	var list struct {
 		Labels []LabelResponse `json:"labels"`
 	}
 	json.NewDecoder(w.Body).Decode(&list)
 	if len(list.Labels) != 0 {
-		t.Fatalf("expected 0 labels on issue, got %d", len(list.Labels))
+		t.Fatalf("expected 0 labels on task, got %d", len(list.Labels))
 	}
 }
 
@@ -501,7 +501,7 @@ func TestLabelNameAllowsEmoji(t *testing.T) {
 func TestLabelResourceTypesHaveIndependentNamespaces(t *testing.T) {
 	withResourceLabelsFlag(t, testHandler, true)
 	name := "shared-scope-label-" + uuid.NewString()[:8]
-	for _, resourceType := range []string{"issue", "agent", "skill"} {
+	for _, resourceType := range []string{"task", "agent", "skill"} {
 		w := httptest.NewRecorder()
 		req := newRequest("POST", "/api/labels", map[string]any{
 			"resource_type": resourceType,
@@ -666,7 +666,7 @@ func createOtherTestWorkspace(t *testing.T) string {
 	ctx := context.Background()
 	var wsID string
 	err := testPool.QueryRow(ctx, `
-		INSERT INTO workspace (name, slug, description, issue_prefix)
+		INSERT INTO workspace (name, slug, description, task_prefix)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id
 	`, "Other Handler Tests", handlerTestWorkspaceSlug+"-other", "temp second workspace", "OTH").Scan(&wsID)

@@ -18,7 +18,7 @@ function makeAdapter(overrides: Partial<NavigationAdapter> = {}): NavigationAdap
 
 function renderLink(
   adapter: NavigationAdapter,
-  props: React.ComponentProps<typeof AppLink> = { href: "/issues" },
+  props: React.ComponentProps<typeof AppLink> = { href: "/tasks" },
 ) {
   return render(
     <NavigationProvider value={adapter}>
@@ -34,7 +34,7 @@ describe("AppLink", () => {
       push: vi.fn(() => order.push("push")),
     });
     renderLink(adapter, {
-      href: "/issues",
+      href: "/tasks",
       onClick: () => order.push("onClick"),
     });
 
@@ -48,12 +48,12 @@ describe("AppLink", () => {
     const adapter = makeAdapter({ prefetch });
 
     renderLink(adapter, {
-      href: "/issues",
+      href: "/tasks",
       onMouseEnter: callerMouseEnter,
     });
 
     fireEvent.mouseEnter(screen.getByText("go"));
-    expect(prefetch).toHaveBeenCalledWith("/issues");
+    expect(prefetch).toHaveBeenCalledWith("/tasks");
     expect(callerMouseEnter).toHaveBeenCalledTimes(1);
   });
 
@@ -63,12 +63,12 @@ describe("AppLink", () => {
     const adapter = makeAdapter({ prefetch });
 
     renderLink(adapter, {
-      href: "/issues",
+      href: "/tasks",
       onFocus: callerFocus,
     });
 
     fireEvent.focus(screen.getByText("go"));
-    expect(prefetch).toHaveBeenCalledWith("/issues");
+    expect(prefetch).toHaveBeenCalledWith("/tasks");
     expect(callerFocus).toHaveBeenCalledTimes(1);
   });
 
@@ -86,7 +86,7 @@ describe("AppLink", () => {
 
     renderLink(adapter);
     fireEvent.click(screen.getByText("go"), { metaKey: true });
-    expect(openInNewTab).toHaveBeenCalledWith("/issues", undefined);
+    expect(openInNewTab).toHaveBeenCalledWith("/tasks", undefined);
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -94,9 +94,9 @@ describe("AppLink", () => {
     const openInNewTab = vi.fn();
     const adapter = makeAdapter({ openInNewTab });
 
-    renderLink(adapter, { href: "/issues", newTabTitle: "SILI-7" });
+    renderLink(adapter, { href: "/tasks", newTabTitle: "SILI-7" });
     fireEvent.click(screen.getByText("go"), { metaKey: true });
-    expect(openInNewTab).toHaveBeenCalledWith("/issues", "SILI-7");
+    expect(openInNewTab).toHaveBeenCalledWith("/tasks", "SILI-7");
   });
 
   describe("target=_blank (open-in-new-tab links)", () => {
@@ -106,12 +106,12 @@ describe("AppLink", () => {
       const adapter = makeAdapter({ push, openInNewTab });
 
       renderLink(adapter, {
-        href: "/issues",
+        href: "/tasks",
         target: "_blank",
         newTabTitle: "SILI-7",
       });
       fireEvent.click(screen.getByText("go"));
-      expect(openInNewTab).toHaveBeenCalledWith("/issues", "SILI-7", {
+      expect(openInNewTab).toHaveBeenCalledWith("/tasks", "SILI-7", {
         activate: true,
       });
       expect(push).not.toHaveBeenCalled();
@@ -121,7 +121,7 @@ describe("AppLink", () => {
       const push = vi.fn();
       const adapter = makeAdapter({ push });
 
-      renderLink(adapter, { href: "/issues", target: "_blank" });
+      renderLink(adapter, { href: "/tasks", target: "_blank" });
       // fireEvent returns false when preventDefault was called.
       const defaultNotPrevented = fireEvent.click(screen.getByText("go"));
       expect(defaultNotPrevented).toBe(true);
@@ -135,7 +135,7 @@ describe("AppLink", () => {
       });
 
       renderLink(adapter, {
-        href: "/issues",
+        href: "/tasks",
         target: "_blank",
         onClick: () => order.push("onClick"),
       });
@@ -144,7 +144,7 @@ describe("AppLink", () => {
     });
 
     it("renders the target and a rel guard on the anchor", () => {
-      renderLink(makeAdapter(), { href: "/issues", target: "_blank" });
+      renderLink(makeAdapter(), { href: "/tasks", target: "_blank" });
       const anchor = screen.getByText("go");
       expect(anchor).toHaveAttribute("target", "_blank");
       expect(anchor).toHaveAttribute("rel", "noopener noreferrer");
@@ -181,7 +181,7 @@ describe("AppLink", () => {
       const event = auxClick(screen.getByText("go"));
 
       // No `activate` — a middle click means "keep me where I am".
-      expect(openInNewTab).toHaveBeenCalledWith("/issues", undefined);
+      expect(openInNewTab).toHaveBeenCalledWith("/tasks", undefined);
       expect(push).not.toHaveBeenCalled();
       // The native window-open must be suppressed: on desktop it is a dead
       // end (denied by setWindowOpenHandler, then dropped by the http/https
@@ -193,9 +193,9 @@ describe("AppLink", () => {
       const openInNewTab = vi.fn();
       const adapter = makeAdapter({ openInNewTab });
 
-      renderLink(adapter, { href: "/issues", newTabTitle: "SILI-7" });
+      renderLink(adapter, { href: "/tasks", newTabTitle: "SILI-7" });
       auxClick(screen.getByText("go"));
-      expect(openInNewTab).toHaveBeenCalledWith("/issues", "SILI-7");
+      expect(openInNewTab).toHaveBeenCalledWith("/tasks", "SILI-7");
     });
 
     it("without an adapter (web) neither pushes nor prevents default, so the browser's native background tab still opens", () => {
@@ -214,12 +214,12 @@ describe("AppLink", () => {
       const adapter = makeAdapter({ openInNewTab });
 
       renderLink(adapter, {
-        href: "/issues",
+        href: "/tasks",
         target: "_blank",
         newTabTitle: "SILI-7",
       });
       auxClick(screen.getByText("go"));
-      expect(openInNewTab).toHaveBeenCalledWith("/issues", "SILI-7");
+      expect(openInNewTab).toHaveBeenCalledWith("/tasks", "SILI-7");
     });
 
     it.each([
@@ -244,7 +244,7 @@ describe("AppLink", () => {
       const callerAuxClick = vi.fn((e: React.MouseEvent) => e.preventDefault());
       const adapter = makeAdapter({ openInNewTab });
 
-      renderLink(adapter, { href: "/issues", onAuxClick: callerAuxClick });
+      renderLink(adapter, { href: "/tasks", onAuxClick: callerAuxClick });
       auxClick(screen.getByText("go"));
 
       expect(callerAuxClick).toHaveBeenCalledTimes(1);
@@ -256,11 +256,11 @@ describe("AppLink", () => {
       const callerAuxClick = vi.fn();
       const adapter = makeAdapter({ openInNewTab });
 
-      renderLink(adapter, { href: "/issues", onAuxClick: callerAuxClick });
+      renderLink(adapter, { href: "/tasks", onAuxClick: callerAuxClick });
       auxClick(screen.getByText("go"));
 
       expect(callerAuxClick).toHaveBeenCalledTimes(1);
-      expect(openInNewTab).toHaveBeenCalledWith("/issues", undefined);
+      expect(openInNewTab).toHaveBeenCalledWith("/tasks", undefined);
     });
 
     it("a caller-supplied onAuxClick passed via spread cannot silently override the aux handler", () => {
@@ -270,7 +270,7 @@ describe("AppLink", () => {
 
       render(
         <NavigationProvider value={adapter}>
-          <AppLink href="/issues" {...{ onAuxClick: spreadAuxClick }}>
+          <AppLink href="/tasks" {...{ onAuxClick: spreadAuxClick }}>
             go
           </AppLink>
         </NavigationProvider>,
@@ -278,7 +278,7 @@ describe("AppLink", () => {
 
       auxClick(screen.getByText("go"));
       expect(spreadAuxClick).toHaveBeenCalled();
-      expect(openInNewTab).toHaveBeenCalledWith("/issues", undefined);
+      expect(openInNewTab).toHaveBeenCalledWith("/tasks", undefined);
     });
   });
 
@@ -290,7 +290,7 @@ describe("AppLink", () => {
     render(
       <NavigationProvider value={adapter}>
         {/* simulate a caller that passes onClick through a spread bag */}
-        <AppLink href="/issues" {...{ onClick: spreadOnClick }}>
+        <AppLink href="/tasks" {...{ onClick: spreadOnClick }}>
           go
         </AppLink>
       </NavigationProvider>,
@@ -299,6 +299,6 @@ describe("AppLink", () => {
     fireEvent.click(screen.getByText("go"));
     // Caller still runs (it was hoisted into the named param), but push runs too.
     expect(spreadOnClick).toHaveBeenCalled();
-    expect(push).toHaveBeenCalledWith("/issues");
+    expect(push).toHaveBeenCalledWith("/tasks");
   });
 });

@@ -9,8 +9,8 @@ test("manual review rejects an old Run state and reopens a fresh review", async 
     const token = api.getToken();
     if (!token) throw new Error("Missing test login");
     await page.addInitScript((token) => {
-      localStorage.setItem("silieco_token",token);
-      localStorage.setItem("silieco:chat:isOpen","false");
+      localStorage.setItem("silieco_tr1_token",token);
+      localStorage.setItem("silieco:tr1:chat:isOpen","false");
     },token);
     await page.setViewportSize({width:1440,height:1000});
     await page.goto(`/${api.getWorkspaceSlug()}/projects/${run.projectId}?run=${run.runId}`,{waitUntil:"domcontentloaded"});

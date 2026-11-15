@@ -1,23 +1,23 @@
 /**
  * Workspace-level mention picker route — formSheet, opened from any
- * composer that has an `@` button (currently the issue-comment composer
+ * composer that has an `@` button (currently the task-comment composer
  * and the chat composer).
  *
  * `?mode=` controls which sections render:
- *   - "comment" (default) — @all + People + Agents + Squads + Issues.
+ *   - "comment" (default) — @all + People + Agents + Squads + Tasks.
  *     The comment composer offers the full surface; mentions notify the
  *     mentioned actor.
- *   - "chat" — Issues only. Chat is user ↔ single agent, so member /
+ *   - "chat" — Tasks only. Chat is user ↔ single agent, so member /
  *     agent / squad / @all mentions are noise (and would generate
- *     unintended notifications). Issues remain useful as "reference this
+ *     unintended notifications). Tasks remain useful as "reference this
  *     ticket for the agent's context".
  *
- * Lives at workspace level (not nested under issue/[id]) because the chat
+ * Lives at workspace level (not nested under task/[id]) because the chat
  * tab has no per-session route to nest under; making it workspace-level
  * keeps a single route file serving both contexts.
  */
 import { useLocalSearchParams } from "expo-router";
-import { MentionPickerBody } from "@/components/issue/pickers/mention-picker-body";
+import { MentionPickerBody } from "@/components/task/pickers/mention-picker-body";
 import { useNativeSearchBar } from "@/lib/use-native-search-bar";
 
 type Mode = "comment" | "chat";

@@ -24,20 +24,20 @@ type executionMCPRef struct {
 	Revision string `json:"revision,omitempty"`
 }
 
-func (h *Handler) resolveWorkspaceMCPForTask(ctx context.Context, task db.AgentTaskQueue, workspaceID pgtype.UUID) (json.RawMessage, []executionMCPRef, error) {
-	rows, err := h.Queries.ListAgentMCPServers(ctx, db.ListAgentMCPServersParams{AgentID: task.AgentID, WorkspaceID: workspaceID})
+func (h *Handler) resolveWorkspaceMCPForRun(ctx context.Context, agentRun db.AgentRun, workspaceID pgtype.UUID) (json.RawMessage, []executionMCPRef, error) {
+	rows, err := h.Queries.ListAgentMCPServers(ctx, db.ListAgentMCPServersParams{AgentID: agentRun.AgentID, WorkspaceID: workspaceID})
 	if err != nil {
 		return nil, nil, err
 	}
 	var allowed []pgtype.UUID
 	stageRestricted := false
-	if task.IssueID.Valid {
-		issue, err := h.Queries.GetIssue(ctx, task.IssueID)
+	if agentRun.TaskID.Valid {
+		task, err := h.Queries.GetTask(ctx, agentRun.TaskID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("load task SOP scope: %w", err)
 		}
-		if issue.WorkflowInstanceID.Valid && issue.WorkflowStageID.Valid {
-			stage, err := h.Queries.GetWorkflowInstanceStage(ctx, db.GetWorkflowInstanceStageParams{ID: issue.WorkflowStageID, WorkflowInstanceID: issue.WorkflowInstanceID, WorkspaceID: workspaceID})
+		if task.WorkflowInstanceID.Valid && task.WorkflowStageID.Valid {
+			stage, err := h.Queries.GetWorkflowInstanceStage(ctx, db.GetWorkflowInstanceStageParams{ID: task.WorkflowStageID, WorkflowInstanceID: task.WorkflowInstanceID, WorkspaceID: workspaceID})
 			if err != nil {
 				return nil, nil, err
 			}

@@ -30,5 +30,13 @@
     "description": "该工作区不存在，或你没有访问权限。",
     "go_to_workspaces": "前往我的工作区",
     "sign_in_different": "使用其他账号登录"
+  },
+  "empty": {
+    "title": "暂无工作空间",
+    "description": "账号已就绪。你可以等待团队邀请，也可以随时创建自己的工作空间。",
+    "invitations": "查看邀请（{{count}}）",
+    "refresh": "刷新邀请状态",
+    "hint": "请联系工作空间管理员，邀请上方显示的邮箱。此页面会自动检查更新。",
+    "load_failed": "无法获取工作空间或邀请，请重试。"
   }
 }

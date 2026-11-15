@@ -29,7 +29,7 @@ vi.mock("@silieco/core/api", () => ({
 function makeUpload(overrides: Partial<UploadResult> & { id: string; link: string; filename: string }): UploadResult {
   return {
     workspace_id: "ws-1",
-    issue_id: null,
+    task_id: null,
     comment_id: null,
     chat_session_id: null,
     chat_message_id: null,
@@ -495,9 +495,9 @@ describe("ChatInput focusRequest", () => {
 });
 
 describe("ChatInput @ context wiring", () => {
-  it("configures chat @ with current/recent issue/project context", () => {
+  it("configures chat @ with current/recent task/project context", () => {
     const contextItems = [
-      { id: "issue-1", label: "SILI-1", type: "issue" as const, group: "current" as const },
+      { id: "task-1", label: "SILI-1", type: "task" as const, group: "current" as const },
     ];
 
     renderInput({ contextItems });
@@ -525,7 +525,7 @@ describe("ChatInput project context", () => {
     due_date: null,
     created_at: new Date(0).toISOString(),
     updated_at: new Date(0).toISOString(),
-    issue_count: 0,
+    task_count: 0,
     done_count: 0,
     resource_count: 0,
   };
@@ -662,7 +662,7 @@ describe("ChatInput attachment wiring", () => {
     const file = new File(["x"], "drop.png", { type: "image/png" });
     await act(async () => {
       dropHandlers.onDrop?.([file]);
-      // Microtask: the mock editor awaits onUploadFile before mutating its value.
+      // Microrun: the mock editor awaits onUploadFile before mutating its value.
       await Promise.resolve();
       await Promise.resolve();
     });

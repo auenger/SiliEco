@@ -19,7 +19,7 @@ import (
 
 // queryActiveUsers fills snap.activeUsers with a count of distinct user_ids
 // that have either sent a chat message or had an agent task created for one
-// of their issues inside the short rolling window. We deliberately skip
+// of their tasks inside the short rolling window. We deliberately skip
 // Postgres `now() - interval '$1'` substitution and instead pass a typed
 // interval as a bind parameter so the caller cannot inject SQL via the
 // window string.
@@ -43,11 +43,11 @@ SELECT count(DISTINCT user_id) FROM (
   )
   UNION ALL
   SELECT i.creator_id AS user_id
-  FROM issue i
+  FROM task i
   WHERE i.creator_type = 'member'
     AND EXISTS (
-      SELECT 1 FROM agent_task_queue atq
-      WHERE atq.issue_id = i.id
+      SELECT 1 FROM agent_run atq
+      WHERE atq.task_id = i.id
         AND atq.created_at > now() - $1::interval
     )
 ) u
@@ -80,10 +80,10 @@ SELECT count(DISTINCT workspace_id) FROM (
   )
   UNION ALL
   SELECT i.workspace_id
-  FROM issue i
+  FROM task i
   WHERE EXISTS (
-    SELECT 1 FROM agent_task_queue atq
-    WHERE atq.issue_id = i.id
+    SELECT 1 FROM agent_run atq
+    WHERE atq.task_id = i.id
       AND atq.created_at > now() - $1::interval
   )
 ) w
@@ -98,10 +98,10 @@ SELECT count(DISTINCT workspace_id) FROM (
 	return nil
 }
 
-// queryTaskQueued counts agent_task_queue rows in `queued` status, grouped
+// queryTaskQueued counts agent_run rows in `queued` status, grouped
 // by inferred source. The CASE expression here mirrors the source
 // derivation in service/task.go so sampler and event-time metrics agree.
-func (c *BusinessSamplerCollector) queryTaskQueued(
+func (c *BusinessSamplerCollector) queryRunQueued(
 	ctx context.Context, tx pgx.Tx, snap *samplerSnapshot,
 ) error {
 	const stmt = `
@@ -109,36 +109,36 @@ SELECT
   CASE
     WHEN chat_session_id IS NOT NULL THEN 'chat'
     WHEN autopilot_run_id IS NOT NULL THEN 'autopilot'
-    WHEN issue_id IS NOT NULL THEN 'issue'
+    WHEN task_id IS NOT NULL THEN 'task'
     ELSE 'other'
   END AS source,
   count(*) AS n
-FROM agent_task_queue
+FROM agent_run
 WHERE status = 'queued'
 GROUP BY 1
 LIMIT 100
 `
 	rows, err := tx.Query(ctx, stmt)
 	if err != nil {
-		return fmt.Errorf("task_queued: %w", err)
+		return fmt.Errorf("run_queued: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var rawSource string
 		var n int64
 		if err := rows.Scan(&rawSource, &n); err != nil {
-			return fmt.Errorf("task_queued scan: %w", err)
+			return fmt.Errorf("run_queued scan: %w", err)
 		}
-		snap.taskQueued[NormalizeTaskSource(rawSource)] += float64(n)
+		snap.runQueued[NormalizeRunSource(rawSource)] += float64(n)
 	}
 	return rows.Err()
 }
 
-// queryTaskRunning counts agent_task_queue rows in `dispatched` or
+// queryTaskRunning counts agent_run rows in `dispatched` or
 // `running` status, grouped by source × runtime_mode. runtime_mode comes
 // from the joined agent_runtime row; values outside the allow-list collapse
 // to "unknown".
-func (c *BusinessSamplerCollector) queryTaskRunning(
+func (c *BusinessSamplerCollector) queryRunRunning(
 	ctx context.Context, tx pgx.Tx, snap *samplerSnapshot,
 ) error {
 	// Keep dispatched and running in separate UNION ALL branches so
@@ -146,19 +146,19 @@ func (c *BusinessSamplerCollector) queryTaskRunning(
 	// running-only partial index from migration 114 independently.
 	const stmt = `
 WITH in_flight AS (
-  SELECT chat_session_id, autopilot_run_id, issue_id, runtime_id
-  FROM agent_task_queue
+  SELECT chat_session_id, autopilot_run_id, task_id, runtime_id
+  FROM agent_run
   WHERE status = 'dispatched'
   UNION ALL
-  SELECT chat_session_id, autopilot_run_id, issue_id, runtime_id
-  FROM agent_task_queue
+  SELECT chat_session_id, autopilot_run_id, task_id, runtime_id
+  FROM agent_run
   WHERE status = 'running'
 )
 SELECT
   CASE
     WHEN atq.chat_session_id IS NOT NULL THEN 'chat'
     WHEN atq.autopilot_run_id IS NOT NULL THEN 'autopilot'
-    WHEN atq.issue_id IS NOT NULL THEN 'issue'
+    WHEN atq.task_id IS NOT NULL THEN 'task'
     ELSE 'other'
   END AS source,
   COALESCE(ar.runtime_mode, 'unknown') AS runtime_mode,
@@ -170,27 +170,27 @@ LIMIT 100
 `
 	rows, err := tx.Query(ctx, stmt)
 	if err != nil {
-		return fmt.Errorf("task_running: %w", err)
+		return fmt.Errorf("run_running: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var rawSource, rawMode string
 		var n int64
 		if err := rows.Scan(&rawSource, &rawMode, &n); err != nil {
-			return fmt.Errorf("task_running scan: %w", err)
+			return fmt.Errorf("run_running scan: %w", err)
 		}
-		key := taskRunningKey{
-			source:      NormalizeTaskSource(rawSource),
+		key := runRunningKey{
+			source:      NormalizeRunSource(rawSource),
 			runtimeMode: NormalizeRuntimeMode(rawMode),
 		}
-		snap.taskRunning[key] += float64(n)
+		snap.runRunning[key] += float64(n)
 	}
 	return rows.Err()
 }
 
-// queryTaskStuck counts `running` agent_task_queue rows whose started_at
+// queryTaskStuck counts `running` agent_run rows whose started_at
 // crosses the stuck threshold, grouped by inferred source.
-func (c *BusinessSamplerCollector) queryTaskStuck(
+func (c *BusinessSamplerCollector) queryRunStuck(
 	ctx context.Context, tx pgx.Tx, snap *samplerSnapshot,
 ) error {
 	stmt := `
@@ -198,11 +198,11 @@ SELECT
   CASE
     WHEN chat_session_id IS NOT NULL THEN 'chat'
     WHEN autopilot_run_id IS NOT NULL THEN 'autopilot'
-    WHEN issue_id IS NOT NULL THEN 'issue'
+    WHEN task_id IS NOT NULL THEN 'task'
     ELSE 'other'
   END AS source,
   count(*) AS n
-FROM agent_task_queue
+FROM agent_run
 WHERE status = 'running'
   AND started_at IS NOT NULL
   AND started_at < now() - interval '` + stuckRunningInterval + `'
@@ -220,7 +220,7 @@ LIMIT 100
 		if err := rows.Scan(&rawSource, &n); err != nil {
 			return fmt.Errorf("task_stuck scan: %w", err)
 		}
-		snap.taskStuck[NormalizeTaskSource(rawSource)] += float64(n)
+		snap.runStuck[NormalizeRunSource(rawSource)] += float64(n)
 	}
 	return rows.Err()
 }

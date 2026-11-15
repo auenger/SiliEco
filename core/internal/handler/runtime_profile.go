@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -12,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/silieco-ai/silieco/core/pkg/agent"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
@@ -359,10 +361,18 @@ func (h *Handler) DeleteRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to begin transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
 	// Confirm the profile exists in this workspace. If the profile row is
 	// already gone but runtime rows still carry this workspace/profile pair,
 	// treat them as orphaned instances and clean them up below.
-	_, profileErr := h.Queries.GetRuntimeProfileForWorkspace(r.Context(), db.GetRuntimeProfileForWorkspaceParams{
+	_, profileErr := qtx.LockRuntimeProfileForDelete(r.Context(), db.LockRuntimeProfileForDeleteParams{
 		ID:          profileUUID,
 		WorkspaceID: wsUUID,
 	})
@@ -376,7 +386,7 @@ func (h *Handler) DeleteRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 	// this workspace. The workspace predicate is important because profile_id has
 	// no FK and should never let a malformed row in another workspace be cleaned
 	// up from this workspace's profile endpoint.
-	runtimeIDs, err := h.Queries.ListAgentRuntimeIDsByProfile(r.Context(), db.ListAgentRuntimeIDsByProfileParams{
+	runtimeIDs, err := qtx.ListAgentRuntimeIDsByProfile(r.Context(), db.ListAgentRuntimeIDsByProfileParams{
 		ProfileID:   profileUUID,
 		WorkspaceID: wsUUID,
 	})
@@ -389,15 +399,41 @@ func (h *Handler) DeleteRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The profile-delete cascade must run the SAME teardown the runtime-delete
-	// path uses for each one: agent.runtime_id is ON DELETE RESTRICT, so an
-	// archived agent still pointing at one of these rows would turn a bare
-	// delete into a 500. We refuse active agents (409) and clean archived
-	// agents / their archived squad+autopilot references before deleting.
+	// Registration holds the profile row; agent binding holds the runtime row.
+	// Lock runtimes in a stable order before inspecting their dependents.
+	sort.Slice(runtimeIDs, func(i, j int) bool {
+		return uuidToString(runtimeIDs[i]) < uuidToString(runtimeIDs[j])
+	})
+	for _, runtimeID := range runtimeIDs {
+		if _, err := qtx.LockAgentRuntime(r.Context(), runtimeID); err != nil {
+			writeError(w, http.StatusConflict, "runtime set changed; reload and try again")
+			return
+		}
+	}
+
+	if err := relational.LockForDelete(r.Context(), tx, relational.DeleteAgentRuntimesByProfile, profileUUID, wsUUID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock deletion dependencies")
+		return
+	}
+
+	for _, runtimeID := range runtimeIDs {
+		if err := relational.LockForDelete(r.Context(), tx, relational.DeleteArchivedAgentsByRuntime, runtimeID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to lock archived agent deletion dependencies")
+			return
+		}
+		if err := relational.LockForDelete(r.Context(), tx, relational.DeleteSquadsByArchivedAgentsOnRuntime, runtimeID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to lock squad deletion dependencies")
+			return
+		}
+	}
+
+	// Preserve runtime deletion restrictions explicitly: refuse active agents
+	// (409), then remove archived agents and their archived squad/autopilot
+	// references before deleting the runtime rows.
 	// Guard 1: refuse while any active (non-archived) agent is bound to one of
 	// the profile's runtimes. Keep this a 409 — deleting would orphan live
 	// agents.
-	agentCount, err := h.Queries.CountAgentsByProfile(r.Context(), db.CountAgentsByProfileParams{
+	agentCount, err := qtx.CountAgentsByProfile(r.Context(), db.CountAgentsByProfileParams{
 		ProfileID:   profileUUID,
 		WorkspaceID: wsUUID,
 	})
@@ -415,7 +451,7 @@ func (h *Handler) DeleteRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 	// runtime-delete path enforces. Checked per runtime up front so we never
 	// half-tear-down and then 409.
 	for _, rid := range runtimeIDs {
-		activeSquadCount, err := h.Queries.CountActiveSquadsWithArchivedLeadersByRuntime(r.Context(), rid)
+		activeSquadCount, err := qtx.CountActiveSquadsWithArchivedLeadersByRuntime(r.Context(), rid)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to check runtime squad dependencies")
 			return
@@ -426,18 +462,9 @@ func (h *Handler) DeleteRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tx, err := h.TxStarter.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to begin transaction")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	qtx := h.Queries.WithTx(tx)
-
-	// App-layer cascade, per runtime, mirroring DeleteAgentRuntime: pause
-	// autopilots pointing at the archived agents, drop archived squads led by
-	// them, then hard-delete the archived agents so the RESTRICT FK on
-	// agent.runtime_id no longer blocks removing the runtime row.
+	// Clean dependents per runtime: pause autopilots pointing at archived agents,
+	// drop archived squads led by them, then hard-delete the archived agents
+	// before removing the runtime row.
 	for _, rid := range runtimeIDs {
 		archivedAgentIDs, err := qtx.ListArchivedAgentIDsByRuntime(r.Context(), rid)
 		if err != nil {
@@ -474,9 +501,8 @@ func (h *Handler) DeleteRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to clean up agent label assignments")
 			return
 		}
-		// chat_session cascades from agent, and chat_draft_restore has no FK to
-		// follow it (#5219). This path deletes only archived agents, so the prune
-		// is scoped to them too — system agents keep their sessions here.
+		// Agent cleanup removes chat sessions; prune their draft restores as well.
+		// This path deletes only archived agents, so the prune has the same scope.
 		if err := pruneRuntimeAgentChatDraftRestores(r.Context(), qtx, rid, false); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to clean up chat draft restores")
 			return

@@ -180,7 +180,7 @@ function FancyView({
 
   // Skip is always available — regardless of phase. Hitting Skip routes
   // through the runtime-less branch, which creates one focused self-serve
-  // onboarding issue instead of seeding the old starter project.
+  // onboarding task instead of seeding the old starter project.
   const handleSkip = async () => {
     if (submitting) return;
     setSubmitting(true);

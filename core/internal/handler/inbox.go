@@ -20,13 +20,13 @@ type InboxItemResponse struct {
 	RecipientID   string          `json:"recipient_id"`
 	Type          string          `json:"type"`
 	Severity      string          `json:"severity"`
-	IssueID       *string         `json:"issue_id"`
+	TaskID        *string         `json:"task_id"`
 	Title         string          `json:"title"`
 	Body          *string         `json:"body"`
 	Read          bool            `json:"read"`
 	Archived      bool            `json:"archived"`
 	CreatedAt     string          `json:"created_at"`
-	IssueStatus   *string         `json:"issue_status"`
+	TaskStatus    *string         `json:"task_status"`
 	ActorType     *string         `json:"actor_type"`
 	ActorID       *string         `json:"actor_id"`
 	Details       json.RawMessage `json:"details"`
@@ -40,7 +40,7 @@ func inboxToResponse(i db.InboxItem) InboxItemResponse {
 		RecipientID:   uuidToString(i.RecipientID),
 		Type:          i.Type,
 		Severity:      i.Severity,
-		IssueID:       uuidToPtr(i.IssueID),
+		TaskID:        uuidToPtr(i.TaskID),
 		Title:         i.Title,
 		Body:          textToPtr(i.Body),
 		Read:          i.Read,
@@ -60,13 +60,13 @@ func inboxRowToResponse(r db.ListInboxItemsRow) InboxItemResponse {
 		RecipientID:   uuidToString(r.RecipientID),
 		Type:          r.Type,
 		Severity:      r.Severity,
-		IssueID:       uuidToPtr(r.IssueID),
+		TaskID:        uuidToPtr(r.TaskID),
 		Title:         r.Title,
 		Body:          textToPtr(r.Body),
 		Read:          r.Read,
 		Archived:      r.Archived,
 		CreatedAt:     timestampToString(r.CreatedAt),
-		IssueStatus:   textToPtr(r.IssueStatus),
+		TaskStatus:    textToPtr(r.TaskStatus),
 		ActorType:     textToPtr(r.ActorType),
 		ActorID:       uuidToPtr(r.ActorID),
 		Details:       json.RawMessage(r.Details),
@@ -74,21 +74,21 @@ func inboxRowToResponse(r db.ListInboxItemsRow) InboxItemResponse {
 }
 
 // ListArchivedInboxItemsRow carries the same columns as ListInboxItemsRow (both
-// queries select `inbox_item.*` plus the joined issue status), so the archived
+// queries select `inbox_item.*` plus the joined task status), so the archived
 // row converts to the active one and reuses its mapper. If either query's
 // column list drifts, this conversion stops compiling — which is the point.
 func archivedInboxRowToResponse(r db.ListArchivedInboxItemsRow) InboxItemResponse {
 	return inboxRowToResponse(db.ListInboxItemsRow(r))
 }
 
-func (h *Handler) enrichInboxResponse(ctx context.Context, resp InboxItemResponse, issueID pgtype.UUID) InboxItemResponse {
-	if !issueID.Valid {
+func (h *Handler) enrichInboxResponse(ctx context.Context, resp InboxItemResponse, taskID pgtype.UUID) InboxItemResponse {
+	if !taskID.Valid {
 		return resp
 	}
-	issue, err := h.Queries.GetIssue(ctx, issueID)
+	task, err := h.Queries.GetTask(ctx, taskID)
 	if err == nil {
-		s := issue.Status
-		resp.IssueStatus = &s
+		s := task.Status
+		resp.TaskStatus = &s
 	}
 	return resp
 }
@@ -127,8 +127,8 @@ func (h *Handler) ListInbox(w http.ResponseWriter, r *http.Request) {
 // ListInbox so installed clients keep their current contract, and so the
 // unbounded archive never rides along with the main list.
 //
-// The query drops any issue that also has an active row, keeping this list and
-// the main inbox mutually exclusive per issue group, and caps the response at
+// The query drops any task that also has an active row, keeping this list and
+// the main inbox mutually exclusive per task group, and caps the response at
 // 200 rows — see the query comment for both.
 func (h *Handler) ListArchivedInbox(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
@@ -178,7 +178,7 @@ func (h *Handler) MarkInboxRead(w http.ResponseWriter, r *http.Request) {
 		"recipient_id": uuidToString(item.RecipientID),
 	})
 
-	resp := h.enrichInboxResponse(r.Context(), inboxToResponse(item), item.IssueID)
+	resp := h.enrichInboxResponse(r.Context(), inboxToResponse(item), item.TaskID)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -194,13 +194,13 @@ func (h *Handler) ArchiveInboxItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Archive all sibling inbox items for the same issue (issue-level archive)
-	if item.IssueID.Valid {
-		h.Queries.ArchiveInboxByIssue(r.Context(), db.ArchiveInboxByIssueParams{
+	// Archive all sibling inbox items for the same task (task-level archive)
+	if item.TaskID.Valid {
+		h.Queries.ArchiveInboxByTask(r.Context(), db.ArchiveInboxByTaskParams{
 			WorkspaceID:   item.WorkspaceID,
 			RecipientType: item.RecipientType,
 			RecipientID:   item.RecipientID,
-			IssueID:       item.IssueID,
+			TaskID:        item.TaskID,
 		})
 	}
 
@@ -208,17 +208,17 @@ func (h *Handler) ArchiveInboxItem(w http.ResponseWriter, r *http.Request) {
 	workspaceID := uuidToString(item.WorkspaceID)
 	h.publish(protocol.EventInboxArchived, workspaceID, "member", userID, map[string]any{
 		"item_id":      uuidToString(item.ID),
-		"issue_id":     uuidToPtr(item.IssueID),
+		"task_id":      uuidToPtr(item.TaskID),
 		"recipient_id": uuidToString(item.RecipientID),
 	})
 
-	resp := h.enrichInboxResponse(r.Context(), inboxToResponse(item), item.IssueID)
+	resp := h.enrichInboxResponse(r.Context(), inboxToResponse(item), item.TaskID)
 	writeJSON(w, http.StatusOK, resp)
 }
 
 // UnarchiveInboxItem restores an archived notification to the main inbox. It is
-// the inverse of ArchiveInboxItem and mirrors its issue-level scope: archiving
-// one item archives every sibling for the same issue, so restoring brings the
+// the inverse of ArchiveInboxItem and mirrors its task-level scope: archiving
+// one item archives every sibling for the same task, so restoring brings the
 // whole group back.
 //
 // `read` is untouched on purpose. An item archived while unread comes back
@@ -236,13 +236,13 @@ func (h *Handler) UnarchiveInboxItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Restore all sibling inbox items for the same issue (issue-level restore).
-	if item.IssueID.Valid {
-		h.Queries.UnarchiveInboxByIssue(r.Context(), db.UnarchiveInboxByIssueParams{
+	// Restore all sibling inbox items for the same task (task-level restore).
+	if item.TaskID.Valid {
+		h.Queries.UnarchiveInboxByTask(r.Context(), db.UnarchiveInboxByTaskParams{
 			WorkspaceID:   item.WorkspaceID,
 			RecipientType: item.RecipientType,
 			RecipientID:   item.RecipientID,
-			IssueID:       item.IssueID,
+			TaskID:        item.TaskID,
 		})
 	}
 
@@ -250,11 +250,11 @@ func (h *Handler) UnarchiveInboxItem(w http.ResponseWriter, r *http.Request) {
 	workspaceID := uuidToString(item.WorkspaceID)
 	h.publish(protocol.EventInboxUnarchived, workspaceID, "member", userID, map[string]any{
 		"item_id":      uuidToString(item.ID),
-		"issue_id":     uuidToPtr(item.IssueID),
+		"task_id":      uuidToPtr(item.TaskID),
 		"recipient_id": uuidToString(item.RecipientID),
 	})
 
-	resp := h.enrichInboxResponse(r.Context(), inboxToResponse(item), item.IssueID)
+	resp := h.enrichInboxResponse(r.Context(), inboxToResponse(item), item.TaskID)
 	writeJSON(w, http.StatusOK, resp)
 }
 

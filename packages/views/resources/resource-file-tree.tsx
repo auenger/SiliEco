@@ -34,10 +34,10 @@ export function ResourceFileTree({ files, renderFiles }: { files: FileResource[]
         project = { title: file.source_project_title, tasks: new Map() };
         groups.set(projectId, project);
       }
-      const taskId = file.issue_id ?? "direct";
+      const taskId = file.task_id ?? "direct";
       let task = project.tasks.get(taskId);
       if (!task) {
-        task = { title: file.source_issue_title, number: file.source_issue_number, files: [] };
+        task = { title: file.source_task_title, number: file.source_task_number, files: [] };
         project.tasks.set(taskId, task);
       }
       task.files.push(file);

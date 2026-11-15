@@ -287,7 +287,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
         onAssign={() =>
           useModalStore
             .getState()
-            .open("quick-create-issue", { agent_id: agent.id })
+            .open("quick-create-task", { agent_id: agent.id })
         }
         onArchive={() => setConfirmArchive(true)}
       />

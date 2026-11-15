@@ -9,11 +9,11 @@ test("manual rollback invalidates history and the Run can complete again", async
     const first=await api.transitionWorkflowRun(run.runId,run.stateToken,"approved");
     expect(first.status,await first.text()).toBe(200);
     const before=await api.getWorkflowRun(run.runId);
-    const oldIssue=await api.createIssue("Previous review delivery",{status:"done",project_id:run.projectId,workflow_instance_id:run.runId,workflow_stage_id:before.current_stage_id});
-    expect(oldIssue.id).toBeTruthy();
+    const oldTask=await api.createTask("Previous review delivery",{status:"done",project_id:run.projectId,workflow_instance_id:run.runId,workflow_stage_id:before.current_stage_id});
+    expect(oldTask.id).toBeTruthy();
     const token=api.getToken();
     if (!token) throw new Error("Missing test login");
-    await page.addInitScript((token)=>{localStorage.setItem("silieco_token",token);localStorage.setItem("silieco:chat:isOpen","false");},token);
+    await page.addInitScript((token)=>{localStorage.setItem("silieco_tr1_token",token);localStorage.setItem("silieco:tr1:chat:isOpen","false");},token);
     await page.setViewportSize({width:1440,height:1000});
     await page.goto(`/${api.getWorkspaceSlug()}/projects/${run.projectId}?run=${run.runId}`,{waitUntil:"domcontentloaded"});
     await page.getByRole("button",{name:"Review Stage",exact:true}).click();
@@ -38,11 +38,11 @@ test("manual rollback invalidates history and the Run can complete again", async
     expect(after.current_stage_id).not.toBe(before.current_stage_id);
     expect(after.reworks).toHaveLength(1);
     expect(after.reworks[0]).toMatchObject({source_execution_id:null,source_stage_id:before.current_stage_id,target_stage_id:after.current_stage_id,reason:"Rebuild with the corrected requirements"});
-    expect(after.tasks.find((task:{id:string})=>task.id===oldIssue.id)).toMatchObject({status:"done",workflow_invalidated_by_rework_id:after.reworks[0].id});
+    expect(after.tasks.find((run:{id:string})=>task.id===oldTask.id)).toMatchObject({status:"done",workflow_invalidated_by_rework_id:after.reworks[0].id});
     expect(after.decisions.some((decision:{invalidated_by_rework_id:string|null})=>decision.invalidated_by_rework_id===after.reworks[0].id)).toBe(true);
     await expect(dialog).not.toBeVisible();
     await expect(page.getByText("Previous review delivery",{exact:true})).not.toBeVisible();
-    await api.createIssue("Fresh Build delivery",{status:"done",project_id:run.projectId,workflow_instance_id:run.runId,workflow_stage_id:after.current_stage_id});
+    await api.createTask("Fresh Build delivery",{status:"done",project_id:run.projectId,workflow_instance_id:run.runId,workflow_stage_id:after.current_stage_id});
     await page.setViewportSize({width:1440,height:1000});
     await page.reload({waitUntil:"domcontentloaded"});
     await page.getByRole("button",{name:"Review Stage",exact:true}).click();

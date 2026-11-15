@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@silieco/core/i18n/react";
 import type { Agent, ChatSession } from "@silieco/core/types";
 import enChat from "../../locales/en/chat.json";
-import enIssues from "../../locales/en/issues.json";
+import enTasks from "../../locales/en/tasks.json";
 
 // --- Mocks ------------------------------------------------------------------
 // The list no longer owns the archive-advance behavior — the parent (ChatPage)
@@ -33,7 +33,7 @@ vi.mock("@silieco/core/agents", () => ({
 }));
 
 vi.mock("@silieco/core/api", () => ({
-  api: { cancelTaskById: vi.fn() },
+  api: { cancelRunById: vi.fn() },
 }));
 
 vi.mock("@silieco/core/chat", () => ({
@@ -51,14 +51,14 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
   return {
     ...actual,
-    useQuery: () => ({ data: { tasks: [] } }),
+    useQuery: () => ({ data: { runs: [] } }),
     useQueryClient: () => ({ setQueryData: vi.fn(), invalidateQueries: vi.fn() }),
   };
 });
 
 import { ChatThreadList } from "./chat-thread-list";
 
-const TEST_RESOURCES = { en: { chat: enChat, issues: enIssues } };
+const TEST_RESOURCES = { en: { chat: enChat, tasks: enTasks } };
 
 function makeSession(overrides: Partial<ChatSession> & Pick<ChatSession, "id">): ChatSession {
   return {

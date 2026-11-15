@@ -61,7 +61,7 @@ function machine(runtimes: AgentRuntime[]): RuntimeMachine {
     health: "online",
     runtimes,
     onlineCount: runtimes.filter((item) => item.status === "online").length,
-    issueCount: 0,
+    taskCount: 0,
     runningCount: 0,
     queuedCount: 0,
     providerNames: runtimes.map((item) => item.provider),

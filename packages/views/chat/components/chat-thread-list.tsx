@@ -13,20 +13,20 @@ import {
   PinOff,
   Square,
   Trash2,
-  UsersRound,
 } from "lucide-react";
 import { cn } from "@silieco/ui/lib/utils";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { useWorkspacePresenceMap } from "@silieco/core/agents";
 import { api } from "@silieco/core/api";
-import { pendingChatTasksOptions, chatKeys, sortChatSessions } from "@silieco/core/chat/queries";
+import { pendingChatRunsOptions, chatKeys, sortChatSessions } from "@silieco/core/chat/queries";
 import {
   useDeleteChatSession,
   useSetChatSessionArchived,
   useSetChatSessionPinned,
 } from "@silieco/core/chat/mutations";
 import { useChatStore } from "@silieco/core/chat";
-import type { Agent, ChatSession, PendingChatTasksResponse } from "@silieco/core/types";
+import type { Agent, ChatSession, PendingChatRunsResponse } from "@silieco/core/types";
+import { ChatGroupAvatar } from "./chat-group-avatar";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { createLogger } from "@silieco/core/logger";
 import { removeChatMessageFromCaches } from "@silieco/core/realtime";
@@ -114,29 +114,29 @@ export function ChatThreadList({
 
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [confirmingStopId, setConfirmingStopId] = useState<string | null>(null);
-  const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
+  const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
   const deleteSession = useDeleteChatSession();
   const setPinned = useSetChatSessionPinned();
   const setArchived = useSetChatSessionArchived();
   const setActiveSession = useChatStore((s) => s.setActiveSession);
   const queryClient = useQueryClient();
 
-  const { data: pending } = useQuery(pendingChatTasksOptions(wsId));
-  const pendingTaskBySessionId = useMemo(
-    () => new Map((pending?.tasks ?? []).map((task) => [task.chat_session_id, task])),
+  const { data: pending } = useQuery(pendingChatRunsOptions(wsId));
+  const pendingRunBySessionId = useMemo(
+    () => new Map((pending?.runs ?? []).map((run) => [run.chat_session_id, run])),
     [pending],
   );
 
-  // Per-agent presence, so a pending task on an OFFLINE agent shows "waiting"
-  // rather than a misleading "typing…" (the task is queued until the agent is
+  // Per-agent presence, so a pending run on an OFFLINE agent shows "waiting"
+  // rather than a misleading "typing…" (the run is queued until the agent is
   // back). Same availability source the conversation pane's status pill uses,
   // keeping the two surfaces consistent.
   const presence = useWorkspacePresenceMap(wsId);
 
   useEffect(() => {
-    if (!confirmingStopId || pendingTaskBySessionId.has(confirmingStopId)) return;
+    if (!confirmingStopId || pendingRunBySessionId.has(confirmingStopId)) return;
     setConfirmingStopId(null);
-  }, [confirmingStopId, pendingTaskBySessionId]);
+  }, [confirmingStopId, pendingRunBySessionId]);
 
   const handleConfirmDelete = (session: ChatSession) => {
     const sessionId = session.id;
@@ -148,38 +148,38 @@ export function ChatThreadList({
 
   const handleConfirmStop = (
     session: ChatSession,
-    task: PendingChatTasksResponse["tasks"][number],
+    run: PendingChatRunsResponse["runs"][number],
   ) => {
-    setStoppingTaskId(task.task_id);
-    queryClient.setQueryData<PendingChatTasksResponse>(chatKeys.pendingTasks(wsId), (current) => {
+    setStoppingRunId(run.run_id);
+    queryClient.setQueryData<PendingChatRunsResponse>(chatKeys.pendingRuns(wsId), (current) => {
       if (!current) return current;
       return {
         ...current,
-        tasks: current.tasks.filter((item) => item.task_id !== task.task_id),
+        runs: current.runs.filter((item) => item.run_id !== run.run_id),
       };
     });
-    queryClient.setQueryData(chatKeys.pendingTask(session.id), {});
+    queryClient.setQueryData(chatKeys.pendingRun(session.id), {});
     queryClient.invalidateQueries({ queryKey: chatKeys.messages(session.id) });
     queryClient.invalidateQueries({ queryKey: chatKeys.messagesPage(session.id) });
 
-    api.cancelTaskById(task.task_id).then(
+    api.cancelRunById(run.run_id).then(
       (result) => {
         const restored = result.cancelled_chat_message;
         if (restored?.restore_to_input) {
           removeChatMessageFromCaches(queryClient, restored.chat_session_id, restored.message_id);
         }
-        apiLogger.info("cancelTask.success (list row)", { taskId: task.task_id, sessionId: session.id });
+        apiLogger.info("cancelRun.success (list row)", { runId: run.run_id, sessionId: session.id });
       },
       (err) =>
-        apiLogger.warn("cancelTask.error (list row; task may have already finished)", {
-          taskId: task.task_id,
+        apiLogger.warn("cancelRun.error (list row; run may have already finished)", {
+          runId: run.run_id,
           sessionId: session.id,
           err,
         }),
     ).finally(() => {
-      queryClient.invalidateQueries({ queryKey: chatKeys.pendingTasks(wsId) });
-      queryClient.invalidateQueries({ queryKey: chatKeys.pendingTask(session.id) });
-      setStoppingTaskId(null);
+      queryClient.invalidateQueries({ queryKey: chatKeys.pendingRuns(wsId) });
+      queryClient.invalidateQueries({ queryKey: chatKeys.pendingRun(session.id) });
+      setStoppingRunId(null);
       setConfirmingStopId(null);
     });
   };
@@ -187,8 +187,8 @@ export function ChatThreadList({
   const renderRow = (session: ChatSession) => {
     const isCurrent = session.id === activeSessionId;
     const agent = agentById.get(session.agent_id) ?? null;
-    const pendingTask = pendingTaskBySessionId.get(session.id);
-    const isRunning = !!pendingTask;
+    const pendingRun = pendingRunBySessionId.get(session.id);
+    const isRunning = !!pendingRun;
     // Only "offline" (definitively long-offline) downgrades typing → waiting.
     // Unknown/loading presence keeps the optimistic "typing…" so we never
     // suppress it just because presence data hasn't landed yet.
@@ -197,7 +197,7 @@ export function ChatThreadList({
       : false;
     const unread = isCurrent ? 0 : (session.unread_count ?? 0);
     const isConfirmingDelete = confirmingDeleteId === session.id;
-    const isConfirmingStop = confirmingStopId === session.id && !!pendingTask;
+    const isConfirmingStop = confirmingStopId === session.id && !!pendingRun;
     const isConfirmingAction = isConfirmingDelete || isConfirmingStop;
     const titleText = session.title?.trim() || t(($) => $.window.untitled);
     const last = session.last_message ?? null;
@@ -269,9 +269,7 @@ export function ChatThreadList({
         {/* Thin ring keeps photo + fallback avatars reading as the same circle
             (the fallback's faint bg otherwise looks smaller). */}
         {session.kind === "group" ? (
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand ring-1 ring-inset ring-brand/15">
-            <UsersRound className="size-4" />
-          </span>
+          <ChatGroupAvatar participants={session.participants} title={session.title} />
         ) : agent ? (
           <ActorAvatar actorType="agent" actorId={agent.id} size="lg" enableHoverCard className="ring-1 ring-inset ring-border" />
         ) : (
@@ -308,18 +306,18 @@ export function ChatThreadList({
                   onCancel={() => setConfirmingDeleteId(null)}
                   onConfirm={() => handleConfirmDelete(session)}
                 />
-              ) : isConfirmingStop && pendingTask ? (
+              ) : isConfirmingStop && pendingRun ? (
                 <ConfirmRow
                   label={t(($) => $.session_history.stop_dialog.title)}
                   cancelText={t(($) => $.session_history.stop_dialog.cancel)}
                   confirmText={
-                    stoppingTaskId === pendingTask.task_id
+                    stoppingRunId === pendingRun.run_id
                       ? t(($) => $.session_history.stop_dialog.confirming)
                       : t(($) => $.session_history.stop_dialog.confirm)
                   }
-                  pending={stoppingTaskId === pendingTask.task_id}
+                  pending={stoppingRunId === pendingRun.run_id}
                   onCancel={() => setConfirmingStopId(null)}
-                  onConfirm={() => handleConfirmStop(session, pendingTask)}
+                  onConfirm={() => handleConfirmStop(session, pendingRun)}
                 />
               ) : (
                 <>

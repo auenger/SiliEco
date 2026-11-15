@@ -2,7 +2,7 @@
 // (github.com/openai/openai-go). It exists so the rest of the server has a
 // single, well-typed entry point for "just call an LLM" needs that do NOT
 // require the full agent runtime — e.g. generating a chat title or drafting a
-// quick-create issue (SILI-4238).
+// quick-create task (SILI-4238).
 //
 // The wrapper is intentionally small:
 //

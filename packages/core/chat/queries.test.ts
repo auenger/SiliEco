@@ -1,50 +1,50 @@
 import { describe, expect, it } from "vitest";
 
-import type { TaskMessagePayload } from "../types/events";
+import type { AgentRunMessagePayload } from "../types/events";
 import type { ChatSession } from "../types/chat";
 import {
   countUnreadChatSessions,
-  isTaskMessageTaskId,
-  mergeTaskMessagesBySeq,
+  isAgentRunMessageRunId,
+  mergeAgentRunMessagesBySeq,
   sortChatSessions,
-  taskMessagesOptions,
+  agentRunMessagesOptions,
 } from "./queries";
 
-const msg = (seq: number): TaskMessagePayload => ({
+const msg = (seq: number): AgentRunMessagePayload => ({
+  run_id: "run-1",
   task_id: "task-1",
-  issue_id: "issue-1",
   seq,
   type: "text",
   content: `m${seq}`,
 });
 
-describe("taskMessagesOptions", () => {
-  it("fetches task messages for persisted UUID task ids", () => {
-    const taskId = "4a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
+describe("agentRunMessagesOptions", () => {
+  it("fetches run messages for persisted UUID run ids", () => {
+    const runId = "4a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
 
-    expect(isTaskMessageTaskId(taskId)).toBe(true);
-    expect(taskMessagesOptions(taskId).enabled).toBe(true);
+    expect(isAgentRunMessageRunId(runId)).toBe(true);
+    expect(agentRunMessagesOptions(runId).enabled).toBe(true);
   });
 
-  it("does not fetch task messages for optimistic task ids", () => {
-    const taskId = "optimistic-optimistic-1778739487737";
+  it("does not fetch run messages for optimistic run ids", () => {
+    const runId = "optimistic-optimistic-1778739487737";
 
-    expect(isTaskMessageTaskId(taskId)).toBe(false);
-    expect(taskMessagesOptions(taskId).enabled).toBe(false);
+    expect(isAgentRunMessageRunId(runId)).toBe(false);
+    expect(agentRunMessagesOptions(runId).enabled).toBe(false);
   });
 });
 
-describe("mergeTaskMessagesBySeq", () => {
+describe("mergeAgentRunMessagesBySeq", () => {
   it("backfills missing seqs and keeps the list seq-ordered", () => {
     const existing = [msg(1), msg(3)];
-    const merged = mergeTaskMessagesBySeq(existing, [msg(2), msg(4)]);
+    const merged = mergeAgentRunMessagesBySeq(existing, [msg(2), msg(4)]);
 
     expect(merged.map((m) => m.seq)).toEqual([1, 2, 3, 4]);
   });
 
   it("drops duplicate seqs and lets the existing entry win", () => {
     const existing = [{ ...msg(1), content: "ws" }];
-    const merged = mergeTaskMessagesBySeq(existing, [
+    const merged = mergeAgentRunMessagesBySeq(existing, [
       { ...msg(1), content: "refetch" },
       msg(2),
     ]);
@@ -58,8 +58,8 @@ describe("mergeTaskMessagesBySeq", () => {
 
     // Empty incoming and fully-duplicate incoming must both no-op so React
     // Query observers don't re-render on replayed events.
-    expect(mergeTaskMessagesBySeq(existing, [])).toBe(existing);
-    expect(mergeTaskMessagesBySeq(existing, [msg(1), msg(2)])).toBe(existing);
+    expect(mergeAgentRunMessagesBySeq(existing, [])).toBe(existing);
+    expect(mergeAgentRunMessagesBySeq(existing, [msg(1), msg(2)])).toBe(existing);
   });
 });
 

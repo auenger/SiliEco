@@ -14,8 +14,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
 import { configStore } from "@silieco/core/config";
 
-vi.mock("../issues/hooks", () => ({
-  useResolveIssueIdentifier: () => null,
+vi.mock("../tasks/hooks", () => ({
+  useResolveTaskIdentifier: () => null,
 }));
 
 vi.mock("../i18n", async () => {
@@ -36,7 +36,7 @@ vi.mock("@silieco/core/api", () => ({
 
 vi.mock("@silieco/core/paths", () => ({
   useWorkspacePaths: () => ({
-    issueDetail: (id: string) => `/acme/issues/${id}`,
+    taskDetail: (id: string) => `/acme/tasks/${id}`,
     projectDetail: (id: string) => `/acme/projects/${id}`,
   }),
   useWorkspaceSlug: () => "acme",
@@ -50,8 +50,8 @@ vi.mock("../navigation", () => ({
   ),
 }));
 
-vi.mock("../issues/components/issue-mention-card", () => ({
-  IssueMentionCard: ({ issueId }: { issueId: string }) => <span>{issueId}</span>,
+vi.mock("../tasks/components/task-mention-card", () => ({
+  TaskMentionCard: ({ taskId }: { taskId: string }) => <span>{taskId}</span>,
 }));
 
 vi.mock("../projects/components/project-chip", () => ({

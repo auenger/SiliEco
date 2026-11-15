@@ -14,7 +14,7 @@ import (
 // default, exposing spawn_agent / send_input / wait / resume_agent /
 // close_agent tools to the model so a Codex thread can fan out into nested
 // subagents. The Silieco daemon currently models only the parent Codex
-// thread per task: when the parent emits `turn/completed`, the task is
+// thread per run: when the parent emits `turn/completed`, the task is
 // marked terminal even if spawned children are still running or have not
 // flushed their output. The result is a class of premature-completion
 // failures where useful child-agent work is dropped.

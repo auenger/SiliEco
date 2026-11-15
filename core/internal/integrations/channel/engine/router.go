@@ -21,7 +21,7 @@ import (
 // channel.InboundMessage and calls Handle, which routes by ChannelType to that
 // platform's registered resolver set and runs the same ordered pipeline for
 // every platform — installation route → two-phase dedup → group @bot filter →
-// identity + membership → ensure session → append+mark → /issue → durable
+// identity + membership → ensure session → append+mark → /task → durable
 // debounced run trigger + detached media binding — then drives the detached
 // outbound replier + typing indicator.
 //
@@ -33,8 +33,8 @@ type Router struct {
 	mu   sync.RWMutex
 	sets map[channel.Type]ResolverSet
 
-	issues IssueCreator
-	tasks  TaskEnqueuer
+	tasks TaskCreator
+	agentRuns  RunEnqueuer
 	reader SessionReader
 
 	batcher *pendingBatcher
@@ -78,10 +78,10 @@ type RouterConfig struct {
 }
 
 // NewRouter builds a Router around the shared (platform-agnostic) services:
-// the IssueCreator + TaskEnqueuer that /issue and chat runs go through, and a
+// the TaskCreator + TaskEnqueuer that /task and chat runs go through, and a
 // SessionReader for the debounced flush. Register a platform's ResolverSet
 // with Register before Handle is called.
-func NewRouter(issues IssueCreator, tasks TaskEnqueuer, reader SessionReader, cfg RouterConfig) *Router {
+func NewRouter(tasks TaskCreator, agentRuns RunEnqueuer, reader SessionReader, cfg RouterConfig) *Router {
 	if cfg.ReplyTimeout == 0 {
 		cfg.ReplyTimeout = 2500 * time.Millisecond
 	}
@@ -97,8 +97,8 @@ func NewRouter(issues IssueCreator, tasks TaskEnqueuer, reader SessionReader, cf
 	mediaCtx, mediaCancel := context.WithCancel(context.Background())
 	return &Router{
 		sets:         make(map[channel.Type]ResolverSet),
-		issues:       issues,
-		tasks:        tasks,
+		tasks:       tasks,
+		agentRuns:        agentRuns,
 		reader:       reader,
 		replyTimeout: cfg.ReplyTimeout,
 		mediaTimeout: cfg.MediaTimeout,
@@ -366,20 +366,20 @@ func (r *Router) processClaimed(ctx context.Context, set ResolverSet, msg channe
 		Sender:         msg.Source.SenderID,
 	}
 
-	// 7. /issue command, if present. chat_message is already durable; all
+	// 7. /task command, if present. chat_message is already durable; all
 	//    error returns from here signal finalizeNone (or the defensive Mark).
-	if appendRes.IssueCommand != nil {
-		issueRes, err := r.createIssue(ctx, inst, set.OriginType, identity.UserID, sessionID, *appendRes.IssueCommand)
+	if appendRes.TaskCommand != nil {
+		taskRes, err := r.createTask(ctx, inst, set.OriginType, identity.UserID, sessionID, *appendRes.TaskCommand)
 		if err != nil {
-			return Result{}, postAppendFinalize, fmt.Errorf("create issue from command: %w", err)
+			return Result{}, postAppendFinalize, fmt.Errorf("create task from command: %w", err)
 		}
-		res.IssueID = issueRes.Issue.ID
-		res.IssueNumber = issueRes.Issue.Number
-		res.IssueTitle = issueRes.Issue.Title
-		if ws, werr := r.reader.GetWorkspace(ctx, inst.WorkspaceID); werr == nil && ws.IssuePrefix != "" {
-			res.IssueIdentifier = fmt.Sprintf("%s-%d", ws.IssuePrefix, issueRes.Issue.Number)
+		res.TaskID = taskRes.Task.ID
+		res.TaskNumber = taskRes.Task.Number
+		res.TaskTitle = taskRes.Task.Title
+		if ws, werr := r.reader.GetWorkspace(ctx, inst.WorkspaceID); werr == nil && ws.TaskPrefix != "" {
+			res.TaskIdentifier = fmt.Sprintf("%s-%d", ws.TaskPrefix, taskRes.Task.Number)
 		} else {
-			res.IssueIdentifier = fmt.Sprintf("#%d", issueRes.Issue.Number)
+			res.TaskIdentifier = fmt.Sprintf("#%d", taskRes.Task.Number)
 		}
 	}
 
@@ -502,7 +502,7 @@ func (r *Router) resolveAndBindMedia(set ResolverSet, inst ResolvedInstallation,
 			"message_id", msg.MessageID,
 			"err", err)
 	}
-	if err := r.tasks.PromoteChannelChatTasksIfMediaReady(finalizeCtx, sessionID); err != nil {
+	if err := r.agentRuns.PromoteChannelChatRunsIfMediaReady(finalizeCtx, sessionID); err != nil {
 		r.logger.Warn("channel router: media-ready task promotion failed",
 			"channel_type", string(msg.Source.ChannelType),
 			"event_id", msg.EventID,
@@ -557,16 +557,16 @@ func (r *Router) flushChatRun(set ResolverSet, inst ResolvedInstallation, msg ch
 		r.clearTyping(ctx, set, sessionID)
 		return
 	}
-	if _, err := r.tasks.EnqueueChatTask(ctx, session, initiatorUserID, forceFresh); err != nil {
+	if _, err := r.agentRuns.EnqueueChatRun(ctx, session, initiatorUserID, forceFresh); err != nil {
 		// No task was enqueued, so no task lifecycle event will ever publish and
 		// the platform's bus-driven typing clear can never fire. Clear the
 		// indicator here (before any notice) so the "processing" reaction does
 		// not stick on the user's message.
 		r.clearTyping(ctx, set, sessionID)
 		switch {
-		case errors.Is(err, service.ErrChatTaskAgentNoRuntime):
+		case errors.Is(err, service.ErrChatRunAgentNoRuntime):
 			r.emitFlushReply(ctx, set, inst, msg, sessionID, OutcomeAgentOffline)
-		case errors.Is(err, service.ErrChatTaskAgentArchived):
+		case errors.Is(err, service.ErrChatRunAgentArchived):
 			r.emitFlushReply(ctx, set, inst, msg, sessionID, OutcomeAgentArchived)
 		default:
 			r.logger.Error("channel router: flush enqueue chat task failed",
@@ -655,11 +655,11 @@ func (r *Router) drop(ctx context.Context, set ResolverSet, msg channel.InboundM
 	return Result{Outcome: OutcomeDropped, DropReason: reason, InstallationID: instID}
 }
 
-func (r *Router) createIssue(ctx context.Context, inst ResolvedInstallation, originType string, creatorUserID, sessionID pgtype.UUID, cmd IssueCommand) (service.IssueCreateResult, error) {
+func (r *Router) createTask(ctx context.Context, inst ResolvedInstallation, originType string, creatorUserID, sessionID pgtype.UUID, cmd TaskCommand) (service.TaskCreateResult, error) {
 	if cmd.Title == "" {
-		return service.IssueCreateResult{}, ErrEmptyIssueTitle
+		return service.TaskCreateResult{}, ErrEmptyTaskTitle
 	}
-	params := service.IssueCreateParams{
+	params := service.TaskCreateParams{
 		WorkspaceID:  inst.WorkspaceID,
 		Title:        cmd.Title,
 		Description:  pgtype.Text{String: cmd.Description, Valid: cmd.Description != ""},
@@ -672,11 +672,11 @@ func (r *Router) createIssue(ctx context.Context, inst ResolvedInstallation, ori
 		OriginType:   pgtype.Text{String: originType, Valid: originType != ""},
 		OriginID:     sessionID,
 	}
-	return r.issues.Create(ctx, params, service.IssueCreateOpts{})
+	return r.tasks.Create(ctx, params, service.TaskCreateOpts{})
 }
 
-// ErrEmptyIssueTitle is returned by createIssue when /issue has no title and
+// ErrEmptyTaskTitle is returned by createTask when /task has no title and
 // the binder's previous-message fallback found nothing usable.
-var ErrEmptyIssueTitle = errors.New("issue title is empty")
+var ErrEmptyTaskTitle = errors.New("task title is empty")
 
 var _ channel.InboundHandler = (*Router)(nil).Handle

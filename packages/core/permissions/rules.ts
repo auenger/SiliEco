@@ -42,7 +42,7 @@ export function canEditAgent(agent: Agent, ctx: PermissionContext): Decision {
 }
 
 /**
- * Invoke an agent — assign it to an issue, @mention it, chat with it, or
+ * Invoke an agent — assign it to an task, @mention it, chat with it, or
  * otherwise trigger a run. Mirrors the SILI-3963 backend invocation gate,
  * which reads `permission_mode` + `invocation_targets` (NOT the derived
  * `visibility` field):
@@ -54,7 +54,7 @@ export function canEditAgent(agent: Agent, ctx: PermissionContext): Decision {
  *   - permission_mode "public_to" + member target: only the matching user
  *   - team target: reserved, INERT in v1 (never grants)
  */
-export function canAssignAgentToIssue(
+export function canAssignAgentToTask(
   agent: Agent,
   ctx: PermissionContext,
 ): Decision {

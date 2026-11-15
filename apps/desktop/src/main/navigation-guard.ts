@@ -6,7 +6,7 @@
  *
  * Client-side routing never fires `will-navigate`: React Router pushes history
  * entries without a document load. So an in-app path — a good one like
- * `/acme/issues/1` or a bad one like `/Users/me/shot.png` pasted by an agent —
+ * `/acme/tasks/1` or a bad one like `/Users/me/shot.png` pasted by an agent —
  * never reaches this guard at all. Bad in-app paths are a routing concern,
  * answered by the renderer's 404 page. Trying to police application paths here
  * would be both ineffective (the hook does not see them) and wrong (it would

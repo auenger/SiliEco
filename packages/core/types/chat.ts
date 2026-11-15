@@ -1,4 +1,4 @@
-import type { AgentTask } from "./agent";
+import type { AgentRun } from "./agent";
 
 /** A user's pinned "quick agent" for the Chat list top bar. */
 export interface ChatPinnedAgent {
@@ -60,22 +60,22 @@ export interface ChatParticipant {
   id: string;
 }
 
-export interface PendingChatTaskItem {
-  task_id: string;
+export interface PendingChatRunItem {
+  run_id: string;
   status: string;
   chat_session_id: string;
 }
 
-export interface PendingChatTasksResponse {
-  tasks: PendingChatTaskItem[];
+export interface PendingChatRunsResponse {
+  runs: PendingChatRunItem[];
 }
 
 /**
  * Boolean fast-path payload for the FAB "running" indicator — returned by
- * GET /api/chat/pending-tasks/has-any. The FAB only needs to know whether any
- * in-flight chat task exists, so it avoids fetching the full task list.
+ * GET /api/chat/pending-runs/has-any. The FAB only needs to know whether any
+ * in-flight chat run exists, so it avoids fetching the full run list.
  */
-export interface HasPendingChatTasksResponse {
+export interface HasPendingChatRunsResponse {
   has_pending: boolean;
 }
 
@@ -84,7 +84,7 @@ export interface ChatMessage {
   chat_session_id: string;
   role: "user" | "assistant";
   content: string;
-  task_id: string | null;
+  run_id: string | null;
   created_at: string;
   /** Group-chat author identity. Optional for legacy/direct-chat rows. */
   sender_user_id?: string | null;
@@ -101,7 +101,7 @@ export interface ChatMessage {
   attachments?: import("./attachment").Attachment[];
   /**
    * When set, this is an assistant message synthesized by the server's
-   * FailTask fallback (mirrors the issue path's failure system comment).
+   * FailTask fallback (mirrors the task path's failure system comment).
    * `content` carries the raw daemon-reported errMsg; the front-end maps
    * `failure_reason` (an enum like "agent_error" / "connection_error" /
    * "timeout") to a user-facing label and renders a destructive bubble.
@@ -109,7 +109,7 @@ export interface ChatMessage {
    */
   failure_reason?: string | null;
   /**
-   * Wall-clock duration from `task.created_at` (user hit send) to terminal
+   * Wall-clock duration from `run.created_at` (user hit send) to terminal
    * state (completed/failed). Set by the server on assistant messages
    * synthesized by CompleteTask/FailTask. UI renders it as "Replied in
    * 38s" / "Failed after 12s" beneath the bubble. Null on user messages
@@ -139,11 +139,11 @@ export interface ChatMessagesPage {
 export interface SendChatMessageResponse {
   message_id: string;
   /** Empty/absent for an ordinary group message with no @Agent trigger. */
-  task_id?: string;
+  run_id?: string;
   /** One id per explicitly mentioned agent in a group message. */
-  task_ids?: string[];
+  run_ids?: string[];
   /**
-   * Server-authoritative task creation time. Optimistic StatusPill seed
+   * Server-authoritative run creation time. Optimistic StatusPill seed
    * uses this as its anchor so the timer starts from the real `0s` —
    * without it the front-end falls back to its local clock and the
    * timer "snaps backwards" later when WS events update the cache.
@@ -170,7 +170,7 @@ export interface CancelledChatMessage {
   attachments?: import("./attachment").Attachment[];
 }
 
-export interface CancelTaskResponse extends AgentTask {
+export interface CancelRunResponse extends AgentRun {
   cancelled_chat_message?: CancelledChatMessage;
 }
 
@@ -186,7 +186,7 @@ export interface ChatDraftRestore {
   /** The deleted user chat message id — stable dedup and consume key. */
   id: string;
   chat_session_id: string;
-  task_id?: string;
+  run_id?: string;
   content: string;
   /**
    * Attachments detached from the deleted message so a restored draft can
@@ -201,16 +201,16 @@ export interface ChatDraftRestoresResponse {
 }
 
 /**
- * Response from GET /api/chat/sessions/{id}/pending-task.
- * All fields are absent when the session has no in-flight task.
+ * Response from GET /api/chat/sessions/{id}/pending-run.
+ * All fields are absent when the session has no in-flight run.
  *
  * `created_at` is the server-authoritative anchor for the chat StatusPill's
  * elapsed-seconds timer — the optimistic seed in chat-window.tsx fills in
- * task_id/status only, then this query catches up with the real created_at
+ * run_id/status only, then this query catches up with the real created_at
  * so the timer survives refresh / reopen without "resetting to 0s".
  */
-export interface ChatPendingTask {
-  task_id?: string;
+export interface ChatPendingRun {
+  run_id?: string;
   status?: string;
   created_at?: string;
 }

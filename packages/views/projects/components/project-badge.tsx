@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@silieco/ui/components/ui/dropdown-menu";
 import type { Project, ProjectStatus, ProjectPriority, UpdateProjectRequest } from "@silieco/core/types";
-import { PriorityIcon } from "../../issues/components/priority-icon";
+import { PriorityIcon } from "../../tasks/components/priority-icon";
 import { useProjectStatusLabels, useProjectPriorityLabels } from "./labels";
 
 export function ProjectStatusBadge({ project, handleUpdate, triggerClassName, align = "end" }: { project: Project; handleUpdate: (data: UpdateProjectRequest) => void; triggerClassName?: string; align?: "start" | "end" | "center" }) {

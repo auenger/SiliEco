@@ -214,7 +214,7 @@ func TestIsTransientError(t *testing.T) {
 	}
 }
 
-func TestIsIssueGCBatchUnsupported(t *testing.T) {
+func TestIsTaskGCBatchUnsupported(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
@@ -239,8 +239,8 @@ func TestIsIssueGCBatchUnsupported(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isIssueGCBatchUnsupported(tt.err); got != tt.want {
-				t.Fatalf("isIssueGCBatchUnsupported() = %v, want %v", got, tt.want)
+			if got := isTaskGCBatchUnsupported(tt.err); got != tt.want {
+				t.Fatalf("isTaskGCBatchUnsupported() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -276,7 +276,7 @@ func TestPostJSONWithRetry_TransientThenSuccess(t *testing.T) {
 // server returns a transient 5xx (the terminal tx rolled back), the daemon MUST
 // retry until it lands — a 400 would make it bail immediately
 // (TestPostJSONWithRetry_PermanentBailsImmediately) and drop the gap forever.
-func TestFailTask_RetriesOnTransient5xxThenSucceeds(t *testing.T) {
+func TestFailRun_RetriesOnTransient5xxThenSucceeds(t *testing.T) {
 	defer noSleepRetry(t)()
 
 	var calls atomic.Int32
@@ -290,7 +290,7 @@ func TestFailTask_RetriesOnTransient5xxThenSucceeds(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL)
-	if err := c.FailTask(context.Background(), "task-1", "boom", "", "", "timeout", true, ""); err != nil {
+	if err := c.FailRun(context.Background(), "task-1", "boom", "", "", "timeout", true, ""); err != nil {
 		t.Fatalf("FailTask: %v", err)
 	}
 	if got := calls.Load(); got != 3 {
@@ -418,16 +418,16 @@ func TestTerminalReportsCarryRetiredSessionID(t *testing.T) {
 	}{
 		{
 			name:     "complete",
-			endpoint: "/api/daemon/tasks/task-1/complete",
+			endpoint: "/api/daemon/runs/task-1/complete",
 			call: func(c *Client) error {
-				return c.CompleteTask(context.Background(), "task-1", "done", "", "", "/tmp/wd", false, "POISONED-S")
+				return c.CompleteRun(context.Background(), "task-1", "done", "", "", "/tmp/wd", false, "POISONED-S")
 			},
 		},
 		{
 			name:     "fail",
-			endpoint: "/api/daemon/tasks/task-1/fail",
+			endpoint: "/api/daemon/runs/task-1/fail",
 			call: func(c *Client) error {
-				return c.FailTask(context.Background(), "task-1", "boom", "", "/tmp/wd", "api_invalid_request", false, "POISONED-S")
+				return c.FailRun(context.Background(), "task-1", "boom", "", "/tmp/wd", "api_invalid_request", false, "POISONED-S")
 			},
 		},
 	} {
@@ -463,7 +463,7 @@ func TestTerminalReportsOmitEmptyRetiredSessionID(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := NewClient(srv.URL).CompleteTask(context.Background(), "task-1", "done", "", "sess-1", "/tmp/wd", false, ""); err != nil {
+	if err := NewClient(srv.URL).CompleteRun(context.Background(), "task-1", "done", "", "sess-1", "/tmp/wd", false, ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 	if _, present := body["retired_session_id"]; present {

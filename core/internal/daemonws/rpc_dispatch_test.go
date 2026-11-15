@@ -79,14 +79,14 @@ func TestRPCDispatch_RoundTrip(t *testing.T) {
 
 	resp := sendRPCRequest(t, conn, protocol.RPCRequestPayload{
 		RequestID: "req-1",
-		Method:    "tasks.claim",
-		Body:      json.RawMessage(`{"max_tasks":3}`),
+		Method:    "runs.claim",
+		Body:      json.RawMessage(`{"max_runs":3}`),
 	})
 	if resp.RequestID != "req-1" || resp.Status != http.StatusOK || string(resp.Body) != `{"ok":true}` {
 		t.Fatalf("resp = %+v, want req-1/200/{ok:true}", resp)
 	}
-	if gotMethod != "tasks.claim" || gotDaemonID != "daemon-1" {
-		t.Fatalf("handler saw method=%q daemon=%q, want tasks.claim/daemon-1", gotMethod, gotDaemonID)
+	if gotMethod != "runs.claim" || gotDaemonID != "daemon-1" {
+		t.Fatalf("handler saw method=%q daemon=%q, want runs.claim/daemon-1", gotMethod, gotDaemonID)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestRPCDispatch_HandlerError(t *testing.T) {
 		return 0, nil, context.DeadlineExceeded
 	})
 	conn := dialRPCTestConn(t, hub, ClientIdentity{DaemonID: "daemon-1", RuntimeIDs: []string{"rt-1"}})
-	resp := sendRPCRequest(t, conn, protocol.RPCRequestPayload{RequestID: "req-2", Method: "tasks.claim"})
+	resp := sendRPCRequest(t, conn, protocol.RPCRequestPayload{RequestID: "req-2", Method: "runs.claim"})
 	if resp.RequestID != "req-2" || resp.Status < 400 || resp.Error == "" {
 		t.Fatalf("resp = %+v, want req-2 with 5xx + error", resp)
 	}
@@ -109,7 +109,7 @@ func TestRPCDispatch_HandlerError(t *testing.T) {
 func TestRPCDispatch_NoHandler(t *testing.T) {
 	hub := NewHub()
 	conn := dialRPCTestConn(t, hub, ClientIdentity{DaemonID: "daemon-1", RuntimeIDs: []string{"rt-1"}})
-	resp := sendRPCRequest(t, conn, protocol.RPCRequestPayload{RequestID: "req-3", Method: "tasks.claim"})
+	resp := sendRPCRequest(t, conn, protocol.RPCRequestPayload{RequestID: "req-3", Method: "runs.claim"})
 	if resp.RequestID != "req-3" || resp.Status != http.StatusServiceUnavailable {
 		t.Fatalf("resp = %+v, want req-3 with 503", resp)
 	}
@@ -136,7 +136,7 @@ func TestRPCDispatch_DisconnectDuringHandlerNoPanic(t *testing.T) {
 
 	frame, _ := json.Marshal(protocol.Message{
 		Type:    protocol.EventDaemonRPCRequest,
-		Payload: mustMarshalRaw(protocol.RPCRequestPayload{RequestID: "req-1", Method: "tasks.claim"}),
+		Payload: mustMarshalRaw(protocol.RPCRequestPayload{RequestID: "req-1", Method: "runs.claim"}),
 	})
 	if err := conn.WriteMessage(websocket.TextMessage, frame); err != nil {
 		t.Fatalf("write: %v", err)
@@ -177,7 +177,7 @@ func TestRPCDispatch_ServerTimeoutCancelsHandler(t *testing.T) {
 
 	resp := sendRPCRequest(t, conn, protocol.RPCRequestPayload{
 		RequestID: "req-timeout",
-		Method:    "tasks.claim",
+		Method:    "runs.claim",
 		TimeoutMs: 100,
 	})
 	if resp.RequestID != "req-timeout" || resp.Status < 400 || resp.Error == "" {

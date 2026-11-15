@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.user_composio_connection_user_id_connected_account_id_key;

@@ -18,6 +18,7 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/service"
 	"github.com/silieco-ai/silieco/core/internal/util"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
@@ -37,16 +38,16 @@ type AutopilotResponse struct {
 	// AssigneeType is "agent" or "squad". Path A from SILI-2429: when set
 	// to "squad", AssigneeID points at squad(id) rather than agent(id) and
 	// dispatch resolves to squad.leader_id at run time.
-	AssigneeType       string  `json:"assignee_type"`
-	AssigneeID         string  `json:"assignee_id"`
-	Status             string  `json:"status"`
-	ExecutionMode      string  `json:"execution_mode"`
-	IssueTitleTemplate *string `json:"issue_title_template"`
-	CreatedByType      string  `json:"created_by_type"`
-	CreatedByID        string  `json:"created_by_id"`
-	LastRunAt          *string `json:"last_run_at"`
-	CreatedAt          string  `json:"created_at"`
-	UpdatedAt          string  `json:"updated_at"`
+	AssigneeType      string  `json:"assignee_type"`
+	AssigneeID        string  `json:"assignee_id"`
+	Status            string  `json:"status"`
+	ExecutionMode     string  `json:"execution_mode"`
+	TaskTitleTemplate *string `json:"task_title_template"`
+	CreatedByType     string  `json:"created_by_type"`
+	CreatedByID       string  `json:"created_by_id"`
+	LastRunAt         *string `json:"last_run_at"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
 
 	// List-endpoint-only derived fields (absent on the detail/create/update
 	// responses and on older servers — clients must treat them as optional).
@@ -147,8 +148,8 @@ type AutopilotRunResponse struct {
 	TriggerID     *string `json:"trigger_id"`
 	Source        string  `json:"source"`
 	Status        string  `json:"status"`
-	IssueID       *string `json:"issue_id"`
 	TaskID        *string `json:"task_id"`
+	RunID         *string `json:"run_id"`
 	TriggeredAt   string  `json:"triggered_at"`
 	CompletedAt   *string `json:"completed_at"`
 	FailureReason *string `json:"failure_reason"`
@@ -182,22 +183,22 @@ func autopilotToResponse(a db.Autopilot, subscribers []db.AutopilotSubscriber) A
 		}
 	}
 	return AutopilotResponse{
-		ID:                 uuidToString(a.ID),
-		WorkspaceID:        uuidToString(a.WorkspaceID),
-		Title:              a.Title,
-		Description:        textToPtr(a.Description),
-		ProjectID:          uuidToPtr(a.ProjectID),
-		AssigneeType:       assigneeType,
-		AssigneeID:         uuidToString(a.AssigneeID),
-		Status:             a.Status,
-		ExecutionMode:      a.ExecutionMode,
-		IssueTitleTemplate: textToPtr(a.IssueTitleTemplate),
-		CreatedByType:      a.CreatedByType,
-		CreatedByID:        uuidToString(a.CreatedByID),
-		LastRunAt:          timestampToPtr(a.LastRunAt),
-		CreatedAt:          timestampToString(a.CreatedAt),
-		UpdatedAt:          timestampToString(a.UpdatedAt),
-		Subscribers:        subResp,
+		ID:                uuidToString(a.ID),
+		WorkspaceID:       uuidToString(a.WorkspaceID),
+		Title:             a.Title,
+		Description:       textToPtr(a.Description),
+		ProjectID:         uuidToPtr(a.ProjectID),
+		AssigneeType:      assigneeType,
+		AssigneeID:        uuidToString(a.AssigneeID),
+		Status:            a.Status,
+		ExecutionMode:     a.ExecutionMode,
+		TaskTitleTemplate: textToPtr(a.TaskTitleTemplate),
+		CreatedByType:     a.CreatedByType,
+		CreatedByID:       uuidToString(a.CreatedByID),
+		LastRunAt:         timestampToPtr(a.LastRunAt),
+		CreatedAt:         timestampToString(a.CreatedAt),
+		UpdatedAt:         timestampToString(a.UpdatedAt),
+		Subscribers:       subResp,
 	}
 }
 
@@ -265,7 +266,7 @@ func webhookPathForToken(token string) string {
 	return "/api/webhooks/autopilots/" + token
 }
 
-func runToResponse(r db.AutopilotRun) AutopilotRunResponse {
+func autopilotRunToResponse(r db.AutopilotRun) AutopilotRunResponse {
 	var payload any
 	if r.TriggerPayload != nil {
 		json.Unmarshal(r.TriggerPayload, &payload)
@@ -280,8 +281,8 @@ func runToResponse(r db.AutopilotRun) AutopilotRunResponse {
 		TriggerID:     uuidToPtr(r.TriggerID),
 		Source:        r.Source,
 		Status:        r.Status,
-		IssueID:       uuidToPtr(r.IssueID),
 		TaskID:        uuidToPtr(r.TaskID),
+		RunID:         uuidToPtr(r.RunID),
 		TriggeredAt:   timestampToString(r.TriggeredAt),
 		CompletedAt:   timestampToPtr(r.CompletedAt),
 		FailureReason: textToPtr(r.FailureReason),
@@ -295,13 +296,13 @@ func runToResponse(r db.AutopilotRun) AutopilotRunResponse {
 	}
 }
 
-// runToResponseSlim mirrors runToResponse but omits TriggerPayload, intended
+// autopilotRunToResponseSlim mirrors autopilotRunToResponse but omits TriggerPayload, intended
 // for list endpoints where echoing the full webhook envelope (up to
 // 256 KiB × N rows) would dominate response size. Clients fetch the full
 // payload via GET /api/autopilots/{id}/runs/{runId} when the user opens
 // the run detail dialog.
-func runToResponseSlim(r db.AutopilotRun) AutopilotRunResponse {
-	resp := runToResponse(r)
+func autopilotRunToResponseSlim(r db.AutopilotRun) AutopilotRunResponse {
+	resp := autopilotRunToResponse(r)
 	resp.TriggerPayload = nil
 	return resp
 }
@@ -314,22 +315,22 @@ type CreateAutopilotRequest struct {
 	ProjectID   *string `json:"project_id"`
 	// AssigneeType is optional and defaults to "agent" — preserves backward
 	// compatibility with desktop clients shipped before SILI-2429.
-	AssigneeType       *string           `json:"assignee_type"`
-	AssigneeID         string            `json:"assignee_id"`
-	ExecutionMode      string            `json:"execution_mode"`
-	IssueTitleTemplate *string           `json:"issue_title_template"`
-	Subscribers        []SubscriberInput `json:"subscribers"`
+	AssigneeType      *string           `json:"assignee_type"`
+	AssigneeID        string            `json:"assignee_id"`
+	ExecutionMode     string            `json:"execution_mode"`
+	TaskTitleTemplate *string           `json:"task_title_template"`
+	Subscribers       []SubscriberInput `json:"subscribers"`
 }
 
 type UpdateAutopilotRequest struct {
-	Title              *string `json:"title"`
-	Description        *string `json:"description"`
-	ProjectID          *string `json:"project_id"`
-	AssigneeType       *string `json:"assignee_type"`
-	AssigneeID         *string `json:"assignee_id"`
-	Status             *string `json:"status"`
-	ExecutionMode      *string `json:"execution_mode"`
-	IssueTitleTemplate *string `json:"issue_title_template"`
+	Title             *string `json:"title"`
+	Description       *string `json:"description"`
+	ProjectID         *string `json:"project_id"`
+	AssigneeType      *string `json:"assignee_type"`
+	AssigneeID        *string `json:"assignee_id"`
+	Status            *string `json:"status"`
+	ExecutionMode     *string `json:"execution_mode"`
+	TaskTitleTemplate *string `json:"task_title_template"`
 	// Wholesale replacement when present; omit to leave subscribers untouched.
 	Subscribers []SubscriberInput `json:"subscribers"`
 }
@@ -613,12 +614,12 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "execution_mode is required")
 		return
 	}
-	if req.ExecutionMode != "create_issue" && req.ExecutionMode != "run_only" {
-		writeError(w, http.StatusBadRequest, "execution_mode must be create_issue or run_only")
+	if req.ExecutionMode != "create_task" && req.ExecutionMode != "run_only" {
+		writeError(w, http.StatusBadRequest, "execution_mode must be create_task or run_only")
 		return
 	}
-	if req.IssueTitleTemplate != nil {
-		if err := service.ValidateIssueTitleTemplate(*req.IssueTitleTemplate); err != nil {
+	if req.TaskTitleTemplate != nil {
+		if err := service.ValidateTaskTitleTemplate(*req.TaskTitleTemplate); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -670,17 +671,17 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 	qtx := h.Queries.WithTx(tx)
 
 	autopilot, err := qtx.CreateAutopilot(r.Context(), db.CreateAutopilotParams{
-		WorkspaceID:        wsUUID,
-		Title:              req.Title,
-		AssigneeType:       assigneeType,
-		AssigneeID:         assigneeUUID,
-		Status:             "active",
-		ExecutionMode:      req.ExecutionMode,
-		CreatedByType:      "member",
-		CreatedByID:        parseUUID(userID),
-		Description:        ptrToText(req.Description),
-		IssueTitleTemplate: ptrToText(req.IssueTitleTemplate),
-		ProjectID:          projectID,
+		WorkspaceID:       wsUUID,
+		Title:             req.Title,
+		AssigneeType:      assigneeType,
+		AssigneeID:        assigneeUUID,
+		Status:            "active",
+		ExecutionMode:     req.ExecutionMode,
+		CreatedByType:     "member",
+		CreatedByID:       parseUUID(userID),
+		Description:       ptrToText(req.Description),
+		TaskTitleTemplate: ptrToText(req.TaskTitleTemplate),
+		ProjectID:         projectID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create autopilot")
@@ -797,11 +798,11 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal(bodyBytes, &rawFields)
 
 	params := db.UpdateAutopilotParams{
-		ID:                 prev.ID,
-		Description:        prev.Description,
-		AssigneeID:         prev.AssigneeID,
-		IssueTitleTemplate: prev.IssueTitleTemplate,
-		ProjectID:          prev.ProjectID,
+		ID:                prev.ID,
+		Description:       prev.Description,
+		AssigneeID:        prev.AssigneeID,
+		TaskTitleTemplate: prev.TaskTitleTemplate,
+		ProjectID:         prev.ProjectID,
 	}
 	if req.Title != nil {
 		params.Title = pgtype.Text{String: *req.Title, Valid: true}
@@ -815,14 +816,14 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 	if _, ok := rawFields["description"]; ok {
 		params.Description = ptrToText(req.Description)
 	}
-	if _, ok := rawFields["issue_title_template"]; ok {
-		if req.IssueTitleTemplate != nil {
-			if err := service.ValidateIssueTitleTemplate(*req.IssueTitleTemplate); err != nil {
+	if _, ok := rawFields["task_title_template"]; ok {
+		if req.TaskTitleTemplate != nil {
+			if err := service.ValidateTaskTitleTemplate(*req.TaskTitleTemplate); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
 		}
-		params.IssueTitleTemplate = ptrToText(req.IssueTitleTemplate)
+		params.TaskTitleTemplate = ptrToText(req.TaskTitleTemplate)
 	}
 	if _, ok := rawFields["project_id"]; ok {
 		projectID, ok := h.parseAutopilotProjectID(w, r, req.ProjectID, prev.WorkspaceID)
@@ -967,16 +968,16 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 //
 //   - assignee_type / assignee_id — who (agent / squad leader) executes;
 //   - status — enabled state (active / paused / archived);
-//   - execution_mode — run_only vs create_issue;
+//   - execution_mode — run_only vs create_task;
 //   - description — the product surfaces this as the run PROMPT, i.e. the task
 //     instruction itself, so editing it must transfer responsibility (the gap Elon
 //     flagged: a fresh publisher of the instructions is the accountable human);
-//   - issue_title_template — templates the created issue in create_issue mode; part
+//   - task_title_template — templates the created task in create_task mode; part
 //     of the instruction / output spec the run produces.
 //
 // Deliberately NOT substantive (cosmetic / routing — they change neither the
 // instruction nor the executor): title (display label) and project_id (which project
-// created issues are filed under). The comparison is faithful because UpdateAutopilot
+// created tasks are filed under). The comparison is faithful because UpdateAutopilot
 // seeds every param from prev, so an omitted field round-trips unchanged.
 //
 // Trigger-table edits (cron / timezone / enabled / event_filters) are substantive PER
@@ -988,7 +989,7 @@ func autopilotRuleSubstantiveChange(prev, next db.Autopilot) bool {
 		prev.Status != next.Status ||
 		prev.ExecutionMode != next.ExecutionMode ||
 		prev.Description != next.Description ||
-		prev.IssueTitleTemplate != next.IssueTitleTemplate
+		prev.TaskTitleTemplate != next.TaskTitleTemplate
 }
 
 // recordAutopilotRuleVersion appends one rule-version snapshot for a substantive
@@ -1752,6 +1753,11 @@ func (h *Handler) DeleteAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
+	if err := relational.LockForDelete(r.Context(), tx, relational.DeleteAutopilotTrigger, triggerUUID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock deletion dependencies")
+		return
+	}
+
 	if err := qtx.DeleteAutopilotTrigger(r.Context(), triggerUUID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete trigger")
 		return
@@ -1772,7 +1778,7 @@ func (h *Handler) DeleteAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// RotateAutopilotTriggerWebhookToken issues a fresh bearer token for an
+// RotateAutopilotTriggerWebhookToken mints a fresh bearer token for an
 // existing webhook trigger. The old token stops working immediately because
 // the unique-index lookup in the public ingress route is keyed on the
 // current row value.
@@ -1950,7 +1956,7 @@ func (h *Handler) ListAutopilotRuns(w http.ResponseWriter, r *http.Request) {
 		// can be up to 256 KiB and `limit` defaults to 20, so the full
 		// list would be a ~5 MB worst case. Detail dialog fetches the
 		// full payload from GetAutopilotRun.
-		resp[i] = runToResponseSlim(run)
+		resp[i] = autopilotRunToResponseSlim(run)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"runs": resp, "total": len(resp)})
 }
@@ -1987,7 +1993,7 @@ func (h *Handler) GetAutopilotRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, runToResponse(run))
+	writeJSON(w, http.StatusOK, autopilotRunToResponse(run))
 }
 
 // ── Manual trigger ──────────────────────────────────────────────────────────
@@ -2027,7 +2033,7 @@ func (h *Handler) TriggerAutopilot(w http.ResponseWriter, r *http.Request) {
 	// Carry the typed admission reason (decided at its source, SILI-4525) straight
 	// into the response — no reverse-engineering from failure_reason text. The
 	// UI branches on run status + this code for the "run now" toast.
-	resp := runToResponse(*run)
+	resp := autopilotRunToResponse(*run)
 	if reasonCode != "" {
 		c := string(reasonCode)
 		resp.ReasonCode = &c

@@ -81,7 +81,7 @@ const (
 
 // WebhookEnvelope is the canonical shape stored in autopilot_run.trigger_payload
 // and surfaced to the agent. The handler normalises arbitrary JSON bodies into
-// this shape so downstream consumers (run_only daemon prompt, create_issue
+// this shape so downstream consumers (run_only daemon prompt, create_task
 // description appendix) can rely on a stable schema regardless of which
 // provider sent the webhook.
 type WebhookEnvelope struct {

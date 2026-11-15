@@ -35,7 +35,7 @@ func TestBuildSearchQuery_SingleTerm(t *testing.T) {
 		t.Error("exact title rank should compare LOWER(i.title) = $1 directly")
 	}
 
-	// Should exclude closed issues by default.
+	// Should exclude closed tasks by default.
 	if !strings.Contains(query, "NOT IN ('done', 'cancelled')") {
 		t.Error("query should exclude done/cancelled when includeClosed=false")
 	}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Agent, AgentRuntime, AgentTask } from "../types";
+import type { Agent, AgentRuntime, AgentRun } from "../types";
 import {
   buildPresenceMap,
   deriveAgentAvailability,
@@ -24,7 +24,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     permission_mode: "public_to",
     invocation_targets: [{ target_type: "workspace", target_id: null }],
     status: "idle",
-    max_concurrent_tasks: 6,
+    max_concurrent_runs: 6,
     model: "",
     owner_id: null,
     skills: [],
@@ -62,12 +62,12 @@ function makeRuntime(overrides: Partial<AgentRuntime> = {}): AgentRuntime {
 // looks fresh by default.
 const NOW = new Date("2026-04-27T12:00:00Z").getTime();
 
-function makeTask(overrides: Partial<AgentTask> = {}): AgentTask {
+function makeTask(overrides: Partial<AgentRun> = {}): AgentRun {
   return {
-    id: "task-1",
+    id: "run-1",
     agent_id: "agent-1",
     runtime_id: "rt-1",
-    issue_id: "",
+    task_id: "",
     status: "queued",
     priority: 0,
     dispatched_at: null,
@@ -81,7 +81,7 @@ function makeTask(overrides: Partial<AgentTask> = {}): AgentTask {
 }
 
 describe("deriveAgentAvailability", () => {
-  // Reachability dimension only — runtime + clock decide it; tasks are
+  // Reachability dimension only — runtime + clock decide it; runs are
   // irrelevant to this axis.
 
   it("returns online when runtime is fresh-online", () => {
@@ -122,7 +122,7 @@ describe("deriveAgentAvailability", () => {
 });
 
 describe("deriveWorkload", () => {
-  // Atomic 3-way classifier — used by both Agent (per-agent task counts)
+  // Atomic 3-way classifier — used by both Agent (per-agent run counts)
   // and Runtime (per-runtime aggregated counts). Pure functional mapping
   // from a count pair to a workload label.
 
@@ -142,25 +142,25 @@ describe("deriveWorkload", () => {
 });
 
 describe("deriveWorkloadDetail", () => {
-  // Aggregates a task list into running/queued counts before classifying.
+  // Aggregates a run list into running/queued counts before classifying.
   // Terminal statuses (completed / failed / cancelled) are silently
   // ignored — workload is "what's on the plate right now", not history.
 
-  it("returns idle when no tasks at all", () => {
+  it("returns idle when no runs at all", () => {
     const r = deriveWorkloadDetail([]);
     expect(r.workload).toBe("idle");
     expect(r.runningCount).toBe(0);
     expect(r.queuedCount).toBe(0);
   });
 
-  it("returns working when at least one task is running", () => {
+  it("returns working when at least one run is running", () => {
     const r = deriveWorkloadDetail([makeTask({ status: "running" })]);
     expect(r.workload).toBe("working");
     expect(r.runningCount).toBe(1);
     expect(r.queuedCount).toBe(0);
   });
 
-  it("returns queued when only queued / dispatched tasks exist (no running)", () => {
+  it("returns queued when only queued / dispatched runs exist (no running)", () => {
     // The "stuck on offline runtime" scenario in isolation: runningCount=0,
     // queuedCount>0 surfaces as `queued` so the UI can honestly say
     // "Queued · N" instead of misleading "Running 0/3 +Nq".
@@ -202,7 +202,7 @@ describe("deriveWorkloadDetail", () => {
   });
 
   it("ignores terminal statuses entirely (no historical state in workload)", () => {
-    // Failed / completed / cancelled tasks contribute no count and don't
+    // Failed / completed / cancelled runs contribute no count and don't
     // change the verdict — Recent Work + Inbox handle history, not workload.
     const r = deriveWorkloadDetail([
       makeTask({
@@ -244,7 +244,7 @@ describe("deriveAgentPresenceDetail", () => {
     const detail = deriveAgentPresenceDetail({
       agent: makeAgent(),
       runtime: makeRuntime(),
-      tasks: [
+      runs: [
         makeTask({ status: "running" }),
         makeTask({ id: "t2", status: "queued" }),
       ],
@@ -258,7 +258,7 @@ describe("deriveAgentPresenceDetail", () => {
   });
 
   it("composes offline + queued — the canonical 'stuck' case (was previously misleading 'running 0/N')", () => {
-    // The motivation for the redesign: runtime offline + queued tasks
+    // The motivation for the redesign: runtime offline + queued runs
     // used to surface as `running` with `0/3 +2q` counts (literally false).
     // Workload now returns `queued` honestly, paired with offline
     // availability — UI reads "Offline · Queued · 2".
@@ -268,7 +268,7 @@ describe("deriveAgentPresenceDetail", () => {
         status: "offline",
         last_seen_at: "2026-04-27T11:50:00Z",
       }),
-      tasks: [
+      runs: [
         makeTask({ status: "queued" }),
         makeTask({ id: "t2", status: "queued" }),
       ],
@@ -280,8 +280,8 @@ describe("deriveAgentPresenceDetail", () => {
     expect(detail.queuedCount).toBe(2);
   });
 
-  it("composes unstable + working — runtime hiccup with tasks still in flight", () => {
-    // Recently-lost runtime, but a task is still recorded as running.
+  it("composes unstable + working — runtime hiccup with runs still in flight", () => {
+    // Recently-lost runtime, but a run is still recorded as running.
     // Both signals surface independently — amber dot AND working chip —
     // so the user sees "connection wobbling" alongside "agent is busy".
     const detail = deriveAgentPresenceDetail({
@@ -290,43 +290,43 @@ describe("deriveAgentPresenceDetail", () => {
         status: "offline",
         last_seen_at: "2026-04-27T11:59:00Z",
       }),
-      tasks: [makeTask({ status: "running" })],
+      runs: [makeTask({ status: "running" })],
       now: NOW,
     });
     expect(detail.availability).toBe("unstable");
     expect(detail.workload).toBe("working");
   });
 
-  it("composes offline + idle for an unreachable agent with no tasks pending", () => {
+  it("composes offline + idle for an unreachable agent with no runs pending", () => {
     const detail = deriveAgentPresenceDetail({
       agent: makeAgent(),
       runtime: makeRuntime({
         status: "offline",
         last_seen_at: "2026-04-27T11:50:00Z",
       }),
-      tasks: [],
+      runs: [],
       now: NOW,
     });
     expect(detail.availability).toBe("offline");
     expect(detail.workload).toBe("idle");
   });
 
-  it("handles a missing runtime by reporting offline + the task-driven workload", () => {
+  it("handles a missing runtime by reporting offline + the run-driven workload", () => {
     const detail = deriveAgentPresenceDetail({
       agent: makeAgent(),
       runtime: null,
-      tasks: [makeTask({ status: "running" })],
+      runs: [makeTask({ status: "running" })],
       now: NOW,
     });
     expect(detail.availability).toBe("offline");
     expect(detail.workload).toBe("working");
   });
 
-  it("returns idle workload when only terminal tasks are present (history doesn't bleed in)", () => {
+  it("returns idle workload when only terminal runs are present (history doesn't bleed in)", () => {
     const detail = deriveAgentPresenceDetail({
       agent: makeAgent(),
       runtime: makeRuntime(),
-      tasks: [
+      runs: [
         makeTask({
           status: "failed",
           completed_at: "2026-04-27T11:30:00Z",
@@ -338,26 +338,26 @@ describe("deriveAgentPresenceDetail", () => {
     expect(detail.workload).toBe("idle");
   });
 
-  it("mirrors agent.max_concurrent_tasks into capacity", () => {
+  it("mirrors agent.max_concurrent_runs into capacity", () => {
     const detail = deriveAgentPresenceDetail({
-      agent: makeAgent({ max_concurrent_tasks: 3 }),
+      agent: makeAgent({ max_concurrent_runs: 3 }),
       runtime: makeRuntime(),
-      tasks: [],
+      runs: [],
       now: NOW,
     });
     expect(detail.capacity).toBe(3);
   });
 
-  it("reports archived over any runtime/task signal for an archived agent", () => {
+  it("reports archived over any runtime/run signal for an archived agent", () => {
     // Archived wins over presence: a leftover online runtime and a running
-    // task must never make a retired agent read as live. Availability
+    // run must never make a retired agent read as live. Availability
     // collapses to "archived" and workload is forced idle with zero counts
     // so no consumer (dot, hover card, list row) can surface "Online" or
     // "Working" for an archived agent.
     const detail = deriveAgentPresenceDetail({
       agent: makeAgent({ archived_at: "2026-04-27T10:00:00Z" }),
       runtime: makeRuntime(),
-      tasks: [makeTask({ status: "running" })],
+      runs: [makeTask({ status: "running" })],
       now: NOW,
     });
     expect(detail.availability).toBe("archived");
@@ -368,7 +368,7 @@ describe("deriveAgentPresenceDetail", () => {
 });
 
 describe("buildPresenceMap", () => {
-  it("returns one entry per agent, sourcing tasks by agent_id from a flat list", () => {
+  it("returns one entry per agent, sourcing runs by agent_id from a flat list", () => {
     const agentA = makeAgent({ id: "a", runtime_id: "rt-1" });
     const agentB = makeAgent({ id: "b", runtime_id: "rt-1" });
     const map = buildPresenceMap({
@@ -398,7 +398,7 @@ describe("buildPresenceMap", () => {
     });
     const o = map.get("orphan");
     expect(o?.availability).toBe("offline");
-    // Workload still resolves independently — running task counts.
+    // Workload still resolves independently — running run counts.
     expect(o?.workload).toBe("working");
   });
 
@@ -429,9 +429,9 @@ describe("buildPresenceMap", () => {
     expect(map.get("b")?.workload).toBe("working");
   });
 
-  it("ignores terminal tasks in the snapshot when building per-agent workload", () => {
+  it("ignores terminal runs in the snapshot when building per-agent workload", () => {
     // Snapshot intentionally still includes each agent's most recent
-    // terminal task (back-end SQL didn't change); the front-end now
+    // terminal run (back-end SQL didn't change); the front-end now
     // filters them out at the workload-derivation step.
     const agentA = makeAgent({ id: "a", runtime_id: "rt-1" });
     const map = buildPresenceMap({

@@ -5,20 +5,20 @@
  *   - **Controlled text**: parent (chat.tsx) owns the draft via
  *     `useChatDraftsStore` so switching sessions rehydrates the right
  *     draft. Pass `value` + `onChangeText` through.
- *   - **Stop button**: while an agent task is running for the active
+ *   - **Stop button**: while an agent run is running for the active
  *     session, `sending` flips true and we replace the Send button slot
  *     with a Stop affordance (filled foreground bg + stop glyph). Tap →
- *     `onStop()` cancels the in-flight task.
+ *     `onStop()` cancels the in-flight run.
  *   - **Mention picker mode=chat**: chat is user ↔ single agent so
  *     @member / @agent / @squad / @all are noise + would notify the
  *     wrong people. Picker route honors `?mode=chat` and surfaces only
- *     Issues (useful for "reference this ticket for context").
+ *     Tasks (useful for "reference this ticket for context").
  *   - **No reply target**: chat is a flat conversation; passes no
  *     reply chip.
  *   - **No upload context**: chat attachments are session-scoped; the
  *     server back-fills `chat_message_id` on each row when the message
  *     persists (server-side). `MessageComposer` calls `api.uploadFile`
- *     without `{ issueId, commentId }`.
+ *     without `{ taskId, commentId }`.
  *   - **Parent owns keyboard**: chat.tsx wraps in KeyboardAvoidingView +
  *     SafeAreaView, so `manageKeyboard={false}` prevents the composer
  *     from double-stacking its own keyboard handling.
@@ -45,9 +45,9 @@ interface Props {
    *  server ids. Caller resets the input by setting `value=""` after a
    *  successful send. */
   onSend: (content: string, attachmentIds: string[]) => Promise<void> | void;
-  /** Cancel the in-flight agent task. Only callable while `sending===true`. */
+  /** Cancel the in-flight agent run. Only callable while `sending===true`. */
   onStop: () => void;
-  /** True while an agent task is running for the active session. The
+  /** True while an agent run is running for the active session. The
    *  composer swaps Send for Stop. */
   sending: boolean;
   /** Hard-disable typing + send. Used when there's no usable agent in the

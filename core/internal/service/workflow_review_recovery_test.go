@@ -28,10 +28,10 @@ func workflowReviewRecoveryFixture(t *testing.T, retryPolicy ...string) (*pgxpoo
 	if _, err := pool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=jsonb_set(config_snapshot,'{gate}',$2::jsonb) WHERE id=$1`, e.ID, gate); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, e.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, e.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, e.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, e.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	if len(retryPolicy) > 0 {
@@ -47,26 +47,26 @@ func workflowReviewRecoveryFixture(t *testing.T, retryPolicy ...string) (*pgxpoo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='running',attempt=3,max_attempts=3,session_id='failed-review-session',work_dir='/old-review-workdir' WHERE id=$1`, request.TaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='running',attempt=3,max_attempts=3,session_id='failed-review-session',work_dir='/old-review-workdir' WHERE id=$1`, request.RunID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.RecordAgentDecision(ctx, RecordWorkflowAgentDecisionParams{WorkspaceID: result.WorkspaceID, RequestID: request.ID, ActorID: e.ExecutorID, TaskID: request.TaskID, ExpectedResultRevision: request.ResultRevision, ExpectedBasisHash: request.BasisHash, Outcome: "approved"}); err != nil {
+	if _, err := svc.RecordAgentDecision(ctx, RecordWorkflowAgentDecisionParams{WorkspaceID: result.WorkspaceID, RequestID: request.ID, ActorID: e.ExecutorID, RunID: request.RunID, ExpectedResultRevision: request.ResultRevision, ExpectedBasisHash: request.BasisHash, Outcome: "approved"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.TaskService.FailTask(ctx, request.TaskID, "Connection closed mid-response", "", "", "agent_error.provider_network", false, ""); err != nil {
+	if _, err := svc.AgentRunService.FailRun(ctx, request.RunID, "Connection closed mid-response", "", "", "agent_error.provider_network", false, ""); err != nil {
 		t.Fatal(err)
 	}
-	return pool, svc, RecoverWorkflowAgentReviewParams{WorkspaceID: result.WorkspaceID, InstanceID: result.InstanceID, ExecutionID: e.ID, RequestID: request.ID, FailedTaskID: request.TaskID, ActorID: result.ActorID, ExpectedResultRevision: request.ResultRevision, ExpectedBasisHash: request.BasisHash, Reason: "Network repaired; review the same delivery again"}
+	return pool, svc, RecoverWorkflowAgentReviewParams{WorkspaceID: result.WorkspaceID, InstanceID: result.InstanceID, ExecutionID: e.ID, RequestID: request.ID, FailedRunID: request.RunID, ActorID: result.ActorID, ExpectedResultRevision: request.ResultRevision, ExpectedBasisHash: request.BasisHash, Reason: "Network repaired; review the same delivery again"}
 }
 
 func TestWorkflowReviewRecoveryIsAuditedIdempotentAndRequiresNewApproval(t *testing.T) {
 	pool, svc, p := workflowReviewRecoveryFixture(t)
 	ctx := context.Background()
-	parent, err := svc.Queries.GetAgentTask(ctx, p.FailedTaskID)
+	parent, err := svc.Queries.GetAgentRun(ctx, p.FailedRunID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO task_token(token_hash,task_id,agent_id,workspace_id,user_id,expires_at) VALUES($5,$1,$2,$3,$4,now()+interval '1 hour')`, parent.ID, parent.AgentID, p.WorkspaceID, p.ActorID, "recover-review-"+util.UUIDToString(parent.ID)); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO agent_run_token(token_hash,run_id,agent_id,workspace_id,user_id,expires_at) VALUES($5,$1,$2,$3,$4,now()+interval '1 hour')`, parent.ID, parent.AgentID, p.WorkspaceID, p.ActorID, "recover-review-"+util.UUIDToString(parent.ID)); err != nil {
 		t.Fatal(err)
 	}
 	status, err := svc.InspectAgentReviewStatus(ctx, p.WorkspaceID, p.InstanceID, p.ExecutionID, p.ActorID)
@@ -99,28 +99,28 @@ func TestWorkflowReviewRecoveryIsAuditedIdempotentAndRequiresNewApproval(t *test
 	if !recovered.ID.Valid || recovered.AllowedAttempts != 3 || recovered.MaxAttempts != 6 || recovered.ActorID != p.ActorID || recovered.Reason != p.Reason {
 		t.Fatalf("recovery audit missing: %+v", recovered)
 	}
-	child, err := svc.Queries.GetAgentTask(ctx, recovered.NewTaskID)
-	if err != nil || child.Attempt != 4 || child.MaxAttempts != 6 || child.SessionID.Valid || !child.ForceFreshSession || child.WorkflowReviewRequestID != p.RequestID || child.ParentTaskID != p.FailedTaskID {
+	child, err := svc.Queries.GetAgentRun(ctx, recovered.NewRunID)
+	if err != nil || child.Attempt != 4 || child.MaxAttempts != 6 || child.SessionID.Valid || !child.ForceFreshSession || child.WorkflowReviewRequestID != p.RequestID || child.ParentRunID != p.FailedRunID {
 		t.Fatalf("invalid recovery call: %+v %v", child, err)
 	}
 	var tokens, children int
-	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM task_token WHERE task_id=$1),(SELECT count(*) FROM agent_task_queue WHERE retry_of_task_id=$1)`, parent.ID).Scan(&tokens, &children); err != nil || tokens != 0 || children != 1 {
+	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_run_token WHERE run_id=$1),(SELECT count(*) FROM agent_run WHERE retry_of_run_id=$1)`, parent.ID).Scan(&tokens, &children); err != nil || tokens != 0 || children != 1 {
 		t.Fatalf("old credentials or duplicate calls: %d %d %v", tokens, children, err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, child.ID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, child.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.AcceptAgentReviewedExecution(ctx, p.WorkspaceID, p.InstanceID, p.ExecutionID); !errors.Is(err, ErrWorkflowExecutionConflict) {
 		t.Fatalf("old failed approval accepted new call: %v", err)
 	}
-	if _, err := svc.RecordAgentDecision(ctx, RecordWorkflowAgentDecisionParams{WorkspaceID: p.WorkspaceID, RequestID: p.RequestID, ActorID: child.AgentID, TaskID: child.ID, ExpectedResultRevision: p.ExpectedResultRevision, ExpectedBasisHash: p.ExpectedBasisHash, Outcome: "approved"}); err != nil {
+	if _, err := svc.RecordAgentDecision(ctx, RecordWorkflowAgentDecisionParams{WorkspaceID: p.WorkspaceID, RequestID: p.RequestID, ActorID: child.AgentID, RunID: child.ID, ExpectedResultRevision: p.ExpectedResultRevision, ExpectedBasisHash: p.ExpectedBasisHash, Outcome: "approved"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.AcceptAgentReviewedExecution(ctx, p.WorkspaceID, p.InstanceID, p.ExecutionID); err != nil {
 		t.Fatal(err)
 	}
 	replay, err := svc.RecoverAgentReview(ctx, p)
-	if err != nil || replay.NewTaskID != child.ID {
+	if err != nil || replay.NewRunID != child.ID {
 		t.Fatalf("completed recovery replay dispatched again: %+v %v", replay, err)
 	}
 }
@@ -142,7 +142,7 @@ func TestWorkflowReviewRecoveryRejectsUnsafeRequests(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "automatic_pending":
-				if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET attempt=1,max_attempts=3 WHERE id=$1`, p.FailedTaskID); err != nil {
+				if _, err := pool.Exec(ctx, `UPDATE agent_run SET attempt=1,max_attempts=3 WHERE id=$1`, p.FailedRunID); err != nil {
 					t.Fatal(err)
 				}
 			case "archived":
@@ -154,7 +154,7 @@ func TestWorkflowReviewRecoveryRejectsUnsafeRequests(t *testing.T) {
 				t.Fatal("unsafe recovery accepted")
 			}
 			var children, records int
-			if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_task_queue WHERE retry_of_task_id=$1),(SELECT count(*) FROM workflow_review_recovery WHERE failed_task_id=$1)`, p.FailedTaskID).Scan(&children, &records); err != nil || children != 0 || records != 0 {
+			if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_run WHERE retry_of_run_id=$1),(SELECT count(*) FROM workflow_review_recovery WHERE failed_run_id=$1)`, p.FailedRunID).Scan(&children, &records); err != nil || children != 0 || records != 0 {
 				t.Fatalf("rejected recovery left writes: %d %d %v", children, records, err)
 			}
 		})
@@ -169,14 +169,14 @@ func TestWorkflowReviewRecoveryCanRebindRuntimeWithoutOldWorkdir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET runtime_id=$2,attempt=1,max_attempts=3 WHERE id=$1`, p.FailedTaskID, otherAgent.RuntimeID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET runtime_id=$2,attempt=1,max_attempts=3 WHERE id=$1`, p.FailedRunID, otherAgent.RuntimeID); err != nil {
 		t.Fatal(err)
 	}
 	recovered, err := svc.RecoverAgentReview(ctx, p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := svc.Queries.GetAgentTask(ctx, recovered.NewTaskID)
+	child, err := svc.Queries.GetAgentRun(ctx, recovered.NewRunID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,15 +191,15 @@ func TestWorkflowReviewRecoveryCompletedCallRequiresMissingDecision(t *testing.T
 		t.Run(outcome, func(t *testing.T) {
 			pool, svc, p := workflowReviewRecoveryFixture(t)
 			ctx := context.Background()
-			if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, p.FailedTaskID); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, p.FailedRunID); err != nil {
 				t.Fatal(err)
 			}
 			if outcome == "missing" {
-				if _, err := pool.Exec(ctx, `DELETE FROM workflow_gate_decision WHERE review_task_id=$1`, p.FailedTaskID); err != nil {
+				if _, err := pool.Exec(ctx, `DELETE FROM workflow_gate_decision WHERE review_run_id=$1`, p.FailedRunID); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				if _, err := pool.Exec(ctx, `UPDATE workflow_gate_decision SET outcome=$2 WHERE review_task_id=$1`, p.FailedTaskID, outcome); err != nil {
+				if _, err := pool.Exec(ctx, `UPDATE workflow_gate_decision SET outcome=$2 WHERE review_run_id=$1`, p.FailedRunID, outcome); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -214,14 +214,14 @@ func TestWorkflowReviewRecoveryCompletedCallRequiresMissingDecision(t *testing.T
 				}
 				return
 			}
-			if err != nil || status.Phase != "missing_decision" || !status.CanRecover || !result.NewTaskID.Valid {
+			if err != nil || status.Phase != "missing_decision" || !status.CanRecover || !result.NewRunID.Valid {
 				t.Fatalf("incomplete review cannot recover: %+v %+v %v", status, result, err)
 			}
-			parent, err := svc.Queries.GetAgentTask(ctx, p.FailedTaskID)
+			parent, err := svc.Queries.GetAgentRun(ctx, p.FailedRunID)
 			if err != nil || parent.Status != "completed" {
 				t.Fatalf("historical completion rewritten: %+v %v", parent, err)
 			}
-			child, err := svc.Queries.GetAgentTask(ctx, result.NewTaskID)
+			child, err := svc.Queries.GetAgentRun(ctx, result.NewRunID)
 			if err != nil || child.Status != "queued" || child.SessionID.Valid || !child.ForceFreshSession {
 				t.Fatalf("invalid new review: %+v %v", child, err)
 			}
@@ -236,16 +236,16 @@ func TestWorkflowReviewRecoveryCompletedCallRequiresMissingDecision(t *testing.T
 func TestWorkflowReviewRecoveryRacesLateDecision(t *testing.T) {
 	pool, svc, p := workflowReviewRecoveryFixture(t)
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `DELETE FROM workflow_gate_decision WHERE review_task_id=$1`, p.FailedTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `DELETE FROM workflow_gate_decision WHERE review_run_id=$1`, p.FailedRunID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, p.FailedTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, p.FailedRunID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE workflow_review_request SET status='queued' WHERE id=$1`, p.RequestID); err != nil {
 		t.Fatal(err)
 	}
-	parent, err := svc.Queries.GetAgentTask(ctx, p.FailedTaskID)
+	parent, err := svc.Queries.GetAgentRun(ctx, p.FailedRunID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestWorkflowReviewRecoveryRacesLateDecision(t *testing.T) {
 	go func() { <-start; _, err := svc.RecoverAgentReview(ctx, p); results <- err }()
 	go func() {
 		<-start
-		_, err := svc.RecordAgentDecision(ctx, RecordWorkflowAgentDecisionParams{WorkspaceID: p.WorkspaceID, RequestID: p.RequestID, TaskID: p.FailedTaskID, ActorID: parent.AgentID, ExpectedResultRevision: p.ExpectedResultRevision, ExpectedBasisHash: p.ExpectedBasisHash, Outcome: "approved"})
+		_, err := svc.RecordAgentDecision(ctx, RecordWorkflowAgentDecisionParams{WorkspaceID: p.WorkspaceID, RequestID: p.RequestID, RunID: p.FailedRunID, ActorID: parent.AgentID, ExpectedResultRevision: p.ExpectedResultRevision, ExpectedBasisHash: p.ExpectedBasisHash, Outcome: "approved"})
 		results <- err
 	}()
 	close(start)
@@ -282,11 +282,11 @@ func TestWorkflowReviewRecoveryGrantSurvivesExplicitRetryPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := svc.Queries.GetAgentTask(ctx, request.TaskID)
+	child, err := svc.Queries.GetAgentRun(ctx, request.RunID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ceiling, _, err := taskRetrySettings(ctx, svc.Queries, child, "agent_error.provider_network")
+	ceiling, _, err := runRetrySettings(ctx, svc.Queries, child, "agent_error.provider_network")
 	if err != nil || ceiling != child.MaxAttempts || ceiling <= child.Attempt {
 		t.Fatalf("manual grant lost: ceiling=%d attempt=%d max=%d err=%v", ceiling, child.Attempt, child.MaxAttempts, err)
 	}

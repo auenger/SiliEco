@@ -14,18 +14,18 @@ import { View } from "react-native";
 import type {
   InboxItem,
   InboxItemType,
-  IssueStatus,
-  IssuePriority,
+  TaskStatus,
+  TaskPriority,
 } from "@silieco/core/types";
-import { formatDateOnly } from "@silieco/core/issues/date";
+import { formatDateOnly } from "@silieco/core/tasks/date";
 import { Text } from "@/components/ui/text";
 import { StatusIcon } from "@/components/ui/status-icon";
 import { PriorityIcon } from "@/components/ui/priority-icon";
 import { useActorLookup } from "@/data/use-actor-name";
 import { cn } from "@/lib/utils";
 
-// Mirrors STATUS_CONFIG.label in packages/core/issues/config/status.ts
-const STATUS_LABEL: Record<IssueStatus, string> = {
+// Mirrors STATUS_CONFIG.label in packages/core/tasks/config/status.ts
+const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: "Backlog",
   todo: "Todo",
   in_progress: "In Progress",
@@ -35,8 +35,8 @@ const STATUS_LABEL: Record<IssueStatus, string> = {
   cancelled: "Cancelled",
 };
 
-// Mirrors PRIORITY_CONFIG.label in packages/core/issues/config/priority.ts
-const PRIORITY_LABEL: Record<IssuePriority, string> = {
+// Mirrors PRIORITY_CONFIG.label in packages/core/tasks/config/priority.ts
+const PRIORITY_LABEL: Record<TaskPriority, string> = {
   urgent: "Urgent",
   high: "High",
   medium: "Medium",
@@ -46,8 +46,8 @@ const PRIORITY_LABEL: Record<IssuePriority, string> = {
 
 // Mirrors useTypeLabels in packages/views/inbox/components/inbox-detail-label.tsx
 const TYPE_LABEL: Record<InboxItemType, string> = {
-  issue_assigned: "Assigned",
-  issue_subscribed: "Subscribed",
+  task_assigned: "Assigned",
+  task_subscribed: "Subscribed",
   unassigned: "Unassigned",
   assignee_changed: "Reassigned",
   status_changed: "Status changed",
@@ -57,8 +57,8 @@ const TYPE_LABEL: Record<InboxItemType, string> = {
   new_comment: "New comment",
   mentioned: "Mentioned",
   review_requested: "Review requested",
-  task_completed: "Task completed",
-  task_failed: "Task failed",
+  run_completed: "Task completed",
+  run_failed: "Task failed",
   agent_blocked: "Agent blocked",
   agent_completed: "Agent completed",
   reaction_added: "Reaction added",
@@ -88,7 +88,7 @@ export function InboxDetailLabel({
 
   // Cases with inline icons → Row layout.
   if (item.type === "status_changed" && details.to) {
-    const status = details.to as IssueStatus;
+    const status = details.to as TaskStatus;
     return (
       <View className={cn("flex-row items-center gap-1", className)}>
         <Text className="text-xs text-muted-foreground">Set status to</Text>
@@ -101,7 +101,7 @@ export function InboxDetailLabel({
   }
 
   if (item.type === "priority_changed" && details.to) {
-    const priority = details.to as IssuePriority;
+    const priority = details.to as TaskPriority;
     return (
       <View className={cn("flex-row items-center gap-1", className)}>
         <Text className="text-xs text-muted-foreground">Set priority to</Text>
@@ -116,7 +116,7 @@ export function InboxDetailLabel({
   // Single-string cases.
   const text = (() => {
     switch (item.type) {
-      case "issue_assigned":
+      case "task_assigned":
       case "assignee_changed":
         if (details.new_assignee_id) {
           const name = getName(
@@ -148,7 +148,7 @@ export function InboxDetailLabel({
       }
       // Mirrors packages/views/inbox/components/inbox-detail-label.tsx: the
       // unconfirmed outcome deliberately drops the "Failed:" prefix, because
-      // the issue may actually have been created.
+      // the task may actually have been created.
       case "quick_create_unconfirmed": {
         const detail = singleLine(details.error) || singleLine(item.body);
         return detail || TYPE_LABEL[item.type];

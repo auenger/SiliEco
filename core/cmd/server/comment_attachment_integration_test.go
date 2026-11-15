@@ -7,15 +7,15 @@ import (
 )
 
 // createTestAttachment inserts a test attachment row directly into the DB,
-// linked to the given issue with no comment_id. Returns the attachment UUID.
-func createTestAttachment(t *testing.T, issueID string) string {
+// linked to the given task with no comment_id. Returns the attachment UUID.
+func createTestAttachment(t *testing.T, taskID string) string {
 	t.Helper()
 	var id string
 	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO attachment (workspace_id, issue_id, uploader_type, uploader_id, filename, url, content_type, size_bytes)
+		INSERT INTO attachment (workspace_id, task_id, uploader_type, uploader_id, filename, url, content_type, size_bytes)
 		VALUES ($1::uuid, $2::uuid, 'member', $3::uuid, 'test.txt', 'https://example.com/test.txt', 'text/plain', 42)
 		RETURNING id::text
-	`, testWorkspaceID, issueID, testUserID).Scan(&id)
+	`, testWorkspaceID, taskID, testUserID).Scan(&id)
 	if err != nil {
 		t.Fatalf("createTestAttachment: %v", err)
 	}
@@ -46,19 +46,19 @@ func listCommentAttachmentIDs(t *testing.T, commentID string) []string {
 }
 
 func TestUpdateCommentAttachments(t *testing.T) {
-	issueID := createIssue(t, "Attachment edit integration test")
+	taskID := createTask(t, "Attachment edit integration test")
 	t.Cleanup(func() {
-		resp := authRequest(t, "DELETE", "/api/issues/"+issueID, nil)
+		resp := authRequest(t, "DELETE", "/api/tasks/"+taskID, nil)
 		resp.Body.Close()
 	})
 
 	t.Run("edit to remove some attachments keeps the rest", func(t *testing.T) {
-		att1 := createTestAttachment(t, issueID)
-		att2 := createTestAttachment(t, issueID)
-		att3 := createTestAttachment(t, issueID)
+		att1 := createTestAttachment(t, taskID)
+		att2 := createTestAttachment(t, taskID)
+		att3 := createTestAttachment(t, taskID)
 
 		// Create comment with all three attachments.
-		resp := authRequest(t, "POST", "/api/issues/"+issueID+"/comments", map[string]any{
+		resp := authRequest(t, "POST", "/api/tasks/"+taskID+"/comments", map[string]any{
 			"content":        "comment with three attachments",
 			"type":           "comment",
 			"attachment_ids": []string{att1, att2, att3},
@@ -100,9 +100,9 @@ func TestUpdateCommentAttachments(t *testing.T) {
 	})
 
 	t.Run("edit to remove all attachments", func(t *testing.T) {
-		att1 := createTestAttachment(t, issueID)
+		att1 := createTestAttachment(t, taskID)
 
-		resp := authRequest(t, "POST", "/api/issues/"+issueID+"/comments", map[string]any{
+		resp := authRequest(t, "POST", "/api/tasks/"+taskID+"/comments", map[string]any{
 			"content":        "comment with one attachment",
 			"type":           "comment",
 			"attachment_ids": []string{att1},
@@ -137,9 +137,9 @@ func TestUpdateCommentAttachments(t *testing.T) {
 	})
 
 	t.Run("old client omitting attachment_ids preserves existing attachments", func(t *testing.T) {
-		att1 := createTestAttachment(t, issueID)
+		att1 := createTestAttachment(t, taskID)
 
-		resp := authRequest(t, "POST", "/api/issues/"+issueID+"/comments", map[string]any{
+		resp := authRequest(t, "POST", "/api/tasks/"+taskID+"/comments", map[string]any{
 			"content":        "comment with attachment",
 			"type":           "comment",
 			"attachment_ids": []string{att1},

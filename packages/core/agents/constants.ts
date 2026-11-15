@@ -5,5 +5,5 @@ export const AGENT_DESCRIPTION_MAX_LENGTH = 255;
 
 // Valid range for the per-agent scheduler cap. Kept here so creation,
 // duplication, and settings editing cannot silently drift.
-export const AGENT_MAX_CONCURRENT_TASKS_MIN = 1;
-export const AGENT_MAX_CONCURRENT_TASKS_MAX = 50;
+export const AGENT_MAX_CONCURRENT_RUNS_MIN = 1;
+export const AGENT_MAX_CONCURRENT_RUNS_MAX = 50;

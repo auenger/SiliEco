@@ -61,12 +61,13 @@ var corsAllowedHeaders = []string{
 	"X-Workspace-Slug",
 	"X-Request-ID",
 	"X-Agent-ID",
-	"X-Task-ID",
+	"X-Run-ID",
 	"X-CSRF-Token",
 	"X-Client-Platform",
 	"X-Client-Version",
 	"X-Client-OS",
 	"X-Client-Capabilities",
+	"X-Silieco-Protocol",
 }
 
 func allowedOrigins() []string {
@@ -160,7 +161,7 @@ type RouterOptions struct {
 	HTTPMetrics     *obsmetrics.HTTPMetrics
 	BusinessMetrics *obsmetrics.BusinessMetrics
 	DaemonHub       *daemonws.Hub
-	DaemonWakeup    service.TaskWakeupNotifier
+	DaemonWakeup    service.RunWakeupNotifier
 	FeatureFlags    *featureflag.Service
 	// HeartbeatScheduler, when non-nil, replaces the default synchronous
 	// passthrough scheduler on the constructed Handler. main.go injects a
@@ -220,9 +221,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
 	h.Metrics = opts.BusinessMetrics
 	h.FeatureFlags = opts.FeatureFlags
-	h.TaskService.FeatureFlags = opts.FeatureFlags
+	h.AgentRunService.FeatureFlags = opts.FeatureFlags
+	h.AgentRunService.Metrics = opts.BusinessMetrics
 	h.TaskService.Metrics = opts.BusinessMetrics
-	h.IssueService.Metrics = opts.BusinessMetrics
 	if opts.BusinessMetrics != nil {
 		// Wire the BusinessMetrics receiver into the cloud runtime client
 		// so every outbound Fleet/Gateway request feeds the
@@ -232,7 +233,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		}
 	}
 	if opts.DaemonWakeup != nil {
-		h.TaskService.Wakeup = opts.DaemonWakeup
+		h.AgentRunService.Wakeup = opts.DaemonWakeup
 		if notifier, ok := opts.DaemonWakeup.(handler.RuntimeProfileRefreshNotifier); ok {
 			h.DaemonProfileRefresh = notifier
 		}
@@ -267,7 +268,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// connection of its own outside the per-installation supervisor. The Router
 	// is the single shared inbound handler injected into every Channel.
 	channelRegistry := channel.NewRegistry()
-	channelRouter := engine.NewRouter(h.IssueService, h.TaskService, queries, engine.RouterConfig{Logger: slog.Default()})
+	channelRouter := engine.NewRouter(h.TaskService, h.AgentRunService, queries, engine.RouterConfig{Logger: slog.Default()})
 	// Debounce the per-session run trigger so a burst of messages collapses
 	// into one agent run instead of one per message (SILI-2968).
 	channelRouter.EnableRunBatching(engine.DefaultChatRunBatchWindow)
@@ -356,8 +357,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				// Inbound pipeline seams: lark_inbound_audit logger and the
 				// shared channel-agnostic chat-session service. They back the
 				// Feishu ResolverSet that the engine.Router runs through,
-				// sharing the same IssueService + TaskService that back HTTP, so
-				// /issue-created issues share counter, dup guard, project
+				// sharing the same TaskService + TaskService that back HTTP, so
+				// /task-created tasks share counter, dup guard, project
 				// boundary, broadcast, analytics and agent-enqueue with the rest
 				// of the product. Feishu is just another consumer of the shared
 				// engine.ChatSession (channel_type-keyed); the Lark session
@@ -370,7 +371,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				})
 
 				// OutcomeReplier wires the outbound side: NeedsBinding /
-				// AgentOffline / AgentArchived / issue-created translate to a
+				// AgentOffline / AgentArchived / task-created translate to a
 				// Lark-side reply card. Requires the real APIClient and the
 				// binding token service; otherwise it falls back to the noop
 				// replier (outcomes logged, not delivered). We only register
@@ -493,7 +494,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	//     keep flowing, but no new events are received).
 	//
 	// The ResolverSet/Outbound share the same engine.ChatSession, channel_*
-	// tables, IssueService and TaskService as Feishu, so /issue, dedup, and
+	// tables, TaskService and TaskService as Feishu, so /task, dedup, and
 	// run-triggering behave identically. Feishu is untouched. Each Slack
 	// installation is a bring-your-own-app (BYO) install carrying its OWN
 	// app-level token, so a per-installation Slack Factory is registered and the
@@ -504,7 +505,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			slog.Error("slack: secretbox.New failed; slack integration disabled", "error", err)
 		} else {
 			// Outbound replier (SILI-3666): delivers NeedsBinding prompt /
-			// AgentOffline / AgentArchived / issue-created notices. The binding
+			// AgentOffline / AgentArchived / task-created notices. The binding
 			// token service mints the single-use token embedded in the prompt's
 			// redeem link; the redeem endpoint (registered below, public) binds
 			// the Slack user to their Silieco account.
@@ -536,16 +537,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// agent asks, instead of force-assembling it on every inbound.
 			h.SlackHistory = slack.NewHistory(queries, box.Open, slog.Default())
 
-			// `/issue` slash command (SILI-3908): a real Slack slash command,
+			// `/task` slash command (SILI-3908): a real Slack slash command,
 			// delivered over the same Socket Mode connection. It is a quick-create
 			// entry point — the invoker's natural-language description is enqueued as
 			// a quick-create task (no chat session or chat run) and the agent authors
-			// the well-formed issue in the background — reusing the shared TaskService
+			// the well-formed task in the background — reusing the shared TaskService
 			// + binding service. The invoker gets a private ephemeral acknowledgement
-			// and a Silieco notification when the issue lands.
+			// and a Silieco notification when the task lands.
 			slackSlash := slack.NewSlashCommandProcessor(slack.SlashCommandConfig{
 				Queries: queries,
-				Tasks:   h.TaskService,
+				Runs:    h.AgentRunService,
 				Binding: slackBindingSvc,
 				AppURL:  appURLFromEnv(),
 				Logger:  slog.Default(),
@@ -617,8 +618,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 						// constructed inside NewHandler — and exposes its
 						// Composio field for exactly this kind of late wiring,
 						// so no Handler-level mutation is needed.
-						if h.TaskService != nil {
-							h.TaskService.Composio = svc
+						if h.AgentRunService != nil {
+							h.AgentRunService.Composio = svc
 						}
 						slog.Info("composio integration enabled")
 					}
@@ -674,13 +675,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// scan when a recent check confirmed the runtime had no queued
 	// task. Returns nil when rdb is nil — TaskService treats that
 	// as "no cache, always hit DB" (existing behavior).
-	h.TaskService.EmptyClaim = service.NewEmptyClaimCache(rdb)
+	h.AgentRunService.EmptyClaim = service.NewEmptyClaimCache(rdb)
 
 	// Wire WS heartbeat after stores are finalized so the WS path uses the
 	// same (possibly Redis-backed) stores as the HTTP path.
 	daemonHub.SetHeartbeatHandler(h.HandleDaemonWSHeartbeat)
 	// WS-first claim (SILI-4257): route daemon:rpc_request frames (e.g.
-	// tasks.claim) through the same handlers as the HTTP endpoints.
+	// runs.claim) through the same handlers as the HTTP endpoints.
 	daemonHub.SetRPCHandler(h.DaemonRPCHandler)
 	health := newServerHealth(pool)
 
@@ -829,6 +830,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// Daemon API routes (require daemon token or valid user token)
 	r.Route("/api/daemon", func(r chi.Router) {
 		r.Use(middleware.DaemonAuth(queries, patCache, daemonTokenCache, cloudPATVerifier))
+		r.Use(middleware.RequireProtocol)
 
 		r.Post("/register", h.DaemonRegister)
 		r.Post("/deregister", h.DaemonDeregister)
@@ -838,44 +840,44 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Get("/workspaces/{workspaceId}/repos", h.GetDaemonWorkspaceRepos)
 		r.Get("/workspaces/{workspaceId}/runtime-profiles", h.DaemonListRuntimeProfiles)
 
-		r.Post("/runtimes/{runtimeId}/tasks/claim", h.ClaimTaskByRuntime)
+		r.Post("/runtimes/{runtimeId}/runs/claim", h.ClaimRunByRuntime)
 		// Canonical machine-level batch claim (SILI-4257). `/claim` is a
 		// transitional alias; the daemon coordinator targets the canonical
 		// path.
-		r.Post("/tasks/claim", h.ClaimTasksByRuntime)
-		r.Post("/claim", h.ClaimTasksByRuntime)
-		r.Post("/runtimes/{runtimeId}/tasks/{taskId}/prepare-lease", h.ExtendTaskPrepareLease)
-		r.Post("/runtimes/{runtimeId}/tasks/{taskId}/skill-bundles/resolve", h.ResolveTaskSkillBundles)
-		r.Get("/runtimes/{runtimeId}/tasks/pending", h.ListPendingTasksByRuntime)
+		r.Post("/runs/claim", h.ClaimRunsByRuntime)
+		r.Post("/runtimes/{runtimeId}/runs/{runId}/prepare-lease", h.ExtendRunPrepareLease)
+		r.Post("/runtimes/{runtimeId}/runs/{runId}/skill-bundles/resolve", h.ResolveRunSkillBundles)
+		r.Get("/runtimes/{runtimeId}/runs/pending", h.ListPendingRunsByRuntime)
 		r.Post("/runtimes/{runtimeId}/update/{updateId}/result", h.ReportUpdateResult)
 		r.Post("/runtimes/{runtimeId}/models/{requestId}/result", h.ReportModelListResult)
 		r.Post("/runtimes/{runtimeId}/local-skills/{requestId}/result", h.ReportLocalSkillListResult)
 		r.Post("/runtimes/{runtimeId}/local-skills/import/{requestId}/result", h.ReportLocalSkillImportResult)
 
-		r.Get("/tasks/{taskId}/status", h.GetTaskStatus)
-		r.Post("/tasks/{taskId}/start", h.StartTask)
-		r.Post("/tasks/{taskId}/wait-local-directory", h.MarkTaskWaitingLocalDirectory)
-		r.Post("/tasks/{taskId}/progress", h.ReportTaskProgress)
-		r.Post("/tasks/{taskId}/complete", h.CompleteTask)
-		r.Post("/tasks/{taskId}/fail", h.FailTask)
-		r.Post("/tasks/{taskId}/usage", h.ReportTaskUsage)
-		r.Post("/tasks/{taskId}/messages", h.ReportTaskMessages)
-		r.Get("/tasks/{taskId}/messages", h.ListTaskMessages)
-		r.Post("/tasks/{taskId}/cancel-ack", h.AckTaskCancelled)
+		r.Get("/runs/{runId}/status", h.GetRunStatus)
+		r.Post("/runs/{runId}/start", h.StartRun)
+		r.Post("/runs/{runId}/wait-local-directory", h.MarkRunWaitingLocalDirectory)
+		r.Post("/runs/{runId}/progress", h.ReportRunProgress)
+		r.Post("/runs/{runId}/complete", h.CompleteRun)
+		r.Post("/runs/{runId}/fail", h.FailRun)
+		r.Post("/runs/{runId}/usage", h.ReportAgentRunUsage)
+		r.Post("/runs/{runId}/messages", h.ReportAgentRunMessages)
+		r.Get("/runs/{runId}/messages", h.ListAgentRunMessages)
+		r.Post("/runs/{runId}/cancel-ack", h.AckRunCancelled)
 
-		r.Post("/workspaces/{workspaceId}/issues/gc-check", h.BatchIssueGCCheck)
-		r.Get("/issues/{issueId}/gc-check", h.GetIssueGCCheck)
+		r.Post("/workspaces/{workspaceId}/tasks/gc-check", h.BatchTaskGCCheck)
+		r.Get("/tasks/{taskId}/gc-check", h.GetTaskGCCheck)
 		r.Get("/chat-sessions/{sessionId}/gc-check", h.GetChatSessionGCCheck)
 		r.Get("/autopilot-runs/{runId}/gc-check", h.GetAutopilotRunGCCheck)
-		r.Get("/tasks/{taskId}/gc-check", h.GetTaskGCCheck)
+		r.Get("/runs/{runId}/gc-check", h.GetRunGCCheck)
 
-		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
-		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
+		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedRuns)
+		r.Post("/runs/{runId}/session", h.PinRunSession)
 	})
 
 	// Protected API routes
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(queries, patCache, cloudPATVerifier))
+		r.Use(middleware.RequireProtocol)
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
 
 		// --- User-scoped routes (no workspace context required) ---
@@ -885,14 +887,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/api/me/onboarding/complete", h.CompleteOnboarding)
 		r.Post("/api/me/onboarding/cloud-waitlist", h.JoinCloudWaitlist)
 		// DEPRECATED — shim routes for desktop < v3 during the rollout
-		// window. v3 frontend creates the Helper agent + starter issue
-		// via generic CreateAgent / CreateIssue and only calls /complete
+		// window. v3 frontend creates the Helper agent + starter task
+		// via generic CreateAgent / CreateTask and only calls /complete
 		// here. Remove once X-Client-Version telemetry confirms zero
 		// pre-v3 desktops are still calling these. Handlers live in
 		// core/internal/handler/onboarding_shim.go.
 		r.Post("/api/me/onboarding/runtime-bootstrap", h.BootstrapOnboardingRuntime)
 		r.Post("/api/me/onboarding/no-runtime-bootstrap", h.BootstrapOnboardingNoRuntime)
-		r.Post("/api/cli-token", h.IssueCliToken)
+		r.Post("/api/cli-token", h.MintCLIToken)
 		r.Post("/api/upload-file", h.UploadFile)
 		r.Post("/api/feedback", h.CreateFeedback)
 		r.With(handler.RequireHumanActor).Post("/api/client-usage", h.UpsertClientUsage)
@@ -1077,7 +1079,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		//
 		// IMPORTANT — task-token actors are blocked here. The Auth
 		// middleware happily turns an mat_ task token into a normal
-		// X-User-ID stamp (so agents can comment, claim issues, etc.
+		// X-User-ID stamp (so agents can comment, claim tasks, etc.
 		// as their owner), but billing is account-level and a running
 		// agent reading its owner's balance / opening a checkout
 		// session is the kind of lateral-movement we're explicitly
@@ -1105,81 +1107,70 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// Assignee frequency
 			r.Get("/api/assignee-frequency", h.GetAssigneeFrequency)
 
-			// Tasks are Silieco's canonical work item. `/api/issues` remains a
-			// wire-compatible alias for older clients and existing integrations.
-			mountTaskRoutes := func(r chi.Router, canonical bool) {
-				r.Post("/table/groups", h.ListIssueTableGroups)
-				r.Post("/table/rows", h.ListIssueTableRows)
-				r.Post("/table/facets", h.ListIssueTableFacets)
-				r.Get("/search", h.SearchIssues)
-				r.Get("/child-progress", h.ChildIssueProgress)
+			// Business tasks and Agent runs have distinct resource identities.
+			mountTaskRoutes := func(r chi.Router) {
+				r.Post("/table/groups", h.ListTaskTableGroups)
+				r.Post("/table/rows", h.ListTaskTableRows)
+				r.Post("/table/facets", h.ListTaskTableFacets)
+				r.Get("/search", h.SearchTasks)
+				r.Get("/child-progress", h.ChildTaskProgress)
 				r.Get("/children", h.ListChildrenByParents)
-				r.Get("/grouped", h.ListGroupedIssues)
-				r.Get("/", h.ListIssues)
+				r.Get("/grouped", h.ListGroupedTasks)
+				r.Get("/", h.ListTasks)
 				// POST twin of GET list for oversized filter sets
-				// (agents-working ids facet) — see QueryIssues.
-				r.Post("/query", h.QueryIssues)
-				r.Post("/", h.CreateIssue)
-				r.Post("/quick-create", h.QuickCreateIssue)
-				r.Post("/preview-trigger", h.PreviewIssueTrigger)
-				r.Post("/batch-update", h.BatchUpdateIssues)
-				r.Post("/batch-delete", h.BatchDeleteIssues)
+				// (agents-working ids facet) — see QueryTasks.
+				r.Post("/query", h.QueryTasks)
+				r.Post("/", h.CreateTask)
+				r.Post("/quick-create", h.QuickCreateTask)
+				r.Post("/preview-trigger", h.PreviewTaskTrigger)
+				r.Post("/batch-update", h.BatchUpdateTasks)
+				r.Post("/batch-delete", h.BatchDeleteTasks)
 				r.Route("/{id}", func(r chi.Router) {
-					r.Get("/", h.GetIssue)
-					r.Put("/", h.UpdateIssue)
-					r.Post("/move", h.MoveIssue)
-					r.Delete("/", h.DeleteIssue)
+					r.Get("/", h.GetTask)
+					r.Put("/", h.UpdateTask)
+					r.Post("/move", h.MoveTask)
+					r.Delete("/", h.DeleteTask)
 					r.Post("/comments/trigger-preview", h.PreviewCommentTriggers)
 					r.Post("/comments", h.CreateComment)
 					r.Get("/comments", h.ListComments)
 					r.Get("/timeline", h.ListTimeline)
-					r.Get("/subscribers", h.ListIssueSubscribers)
-					r.Post("/subscribe", h.SubscribeToIssue)
-					r.Post("/unsubscribe", h.UnsubscribeFromIssue)
-					if canonical {
-						r.Get("/active-run", h.GetActiveTaskForIssue)
-						r.Post("/runs/{taskId}/cancel", h.CancelTask)
-						r.Get("/runs", h.ListTasksByIssue)
-					} else {
-						r.Get("/active-task", h.GetActiveTaskForIssue)
-						r.Post("/tasks/{taskId}/cancel", h.CancelTask)
-						r.Get("/task-runs", h.ListTasksByIssue)
-					}
-					r.Post("/rerun", h.RerunIssue)
-					r.Get("/usage", h.GetIssueUsage)
-					r.Post("/reactions", h.AddIssueReaction)
-					r.Delete("/reactions", h.RemoveIssueReaction)
+					r.Get("/subscribers", h.ListTaskSubscribers)
+					r.Post("/subscribe", h.SubscribeToTask)
+					r.Post("/unsubscribe", h.UnsubscribeFromTask)
+					r.Get("/active-run", h.GetActiveRunForTask)
+					r.Post("/runs/{runId}/cancel", h.CancelRun)
+					r.Get("/runs", h.ListRunsByTask)
+					r.Post("/rerun", h.RerunTask)
+					r.Get("/usage", h.GetTaskUsage)
+					r.Post("/reactions", h.AddTaskReaction)
+					r.Delete("/reactions", h.RemoveTaskReaction)
 					r.Get("/attachments", h.ListAttachments)
-					r.Get("/attachment-references", h.ListIssueAttachmentReferences)
-					r.Post("/attachment-references", h.CreateIssueAttachmentReference)
-					r.Delete("/attachment-references/{attachmentId}", h.DeleteIssueAttachmentReference)
-					r.Get("/children", h.ListChildIssues)
-					r.Get("/labels", h.ListLabelsForIssue)
+					r.Get("/attachment-references", h.ListTaskAttachmentReferences)
+					r.Post("/attachment-references", h.CreateTaskAttachmentReference)
+					r.Delete("/attachment-references/{attachmentId}", h.DeleteTaskAttachmentReference)
+					r.Get("/children", h.ListChildTasks)
+					r.Get("/labels", h.ListLabelsForTask)
 					r.Post("/labels", h.AttachLabel)
 					r.Delete("/labels/{labelId}", h.DetachLabel)
-					r.Get("/metadata", h.ListIssueMetadata)
-					r.Put("/metadata/{key}", h.SetIssueMetadataKey)
-					r.Delete("/metadata/{key}", h.DeleteIssueMetadataKey)
-					r.Put("/properties/{propertyId}", h.SetIssueProperty)
-					r.Delete("/properties/{propertyId}", h.DeleteIssueProperty)
-					r.Get("/pull-requests", h.ListPullRequestsForIssue)
+					r.Get("/metadata", h.ListTaskMetadata)
+					r.Put("/metadata/{key}", h.SetTaskMetadataKey)
+					r.Delete("/metadata/{key}", h.DeleteTaskMetadataKey)
+					r.Put("/properties/{propertyId}", h.SetTaskProperty)
+					r.Delete("/properties/{propertyId}", h.DeleteTaskProperty)
+					r.Get("/pull-requests", h.ListPullRequestsForTask)
 				})
 			}
 			r.Route("/api/tasks", func(r chi.Router) {
-				mountTaskRoutes(r, true)
-			})
-			r.Route("/api/issues", func(r chi.Router) {
-				mountTaskRoutes(r, false)
+				mountTaskRoutes(r)
 			})
 			r.Get("/api/files", h.ListWorkspaceFileResources)
 			r.Get("/api/files/references", h.ListWorkspaceAttachmentReferences)
 
 			// Agent execution messages. `/api/tasks` is retained for old clients;
 			// new clients call the unambiguous Run route.
-			r.Get("/api/runs/{taskId}/messages", h.ListTaskMessagesByUser)
-			r.Get("/api/tasks/{taskId}/messages", h.ListTaskMessagesByUser)
+			r.Get("/api/runs/{runId}/messages", h.ListAgentRunMessagesByUser)
 
-			// Custom issue properties (definitions; values live under /api/issues/{id}/properties)
+			// Custom task properties (definitions; values live under /api/tasks/{id}/properties)
 			r.Route("/api/properties", func(r chi.Router) {
 				r.Get("/", h.ListProperties)
 				r.Post("/", h.CreateProperty)
@@ -1210,6 +1201,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/", h.UpdateProject)
 					r.Delete("/", h.DeleteProject)
 					r.Get("/resources", h.ListProjectResources)
+					r.Get("/resources/{resourceId}/directory", h.BrowseProjectDirectory)
+					r.Post("/directory/check", h.CheckProjectDirectory)
 					r.Post("/resources", h.CreateProjectResource)
 					r.Put("/resources/{resourceId}", h.UpdateProjectResource)
 					r.Delete("/resources/{resourceId}", h.DeleteProjectResource)
@@ -1285,7 +1278,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			})
 
 			// Squad leader evaluation (writes to activity_log)
-			r.Post("/api/issues/{id}/squad-evaluated", h.RecordSquadLeaderEvaluation)
+			r.Post("/api/tasks/{id}/squad-evaluated", h.RecordSquadLeaderEvaluation)
 
 			// Autopilots
 			r.Route("/api/autopilots", func(r chi.Router) {
@@ -1357,8 +1350,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/", h.UpdateAgent)
 					r.Post("/archive", h.ArchiveAgent)
 					r.Post("/restore", h.RestoreAgent)
-					r.Post("/cancel-tasks", h.CancelAgentTasks)
-					r.Get("/tasks", h.ListAgentTasks)
+					r.Post("/cancel-runs", h.CancelAgentRuns)
+					r.Get("/runs", h.ListAgentRuns)
 					r.Get("/skills", h.ListAgentSkills)
 					r.Put("/skills", h.SetAgentSkills)
 					r.Post("/skills/add", h.AddAgentSkills)
@@ -1440,7 +1433,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/usage", h.GetRuntimeUsage)
 					r.Get("/usage/by-agent", h.GetRuntimeUsageByAgent)
 					r.Get("/usage/by-hour", h.GetRuntimeUsageByHour)
-					r.Get("/activity", h.GetRuntimeTaskActivity)
+					r.Get("/activity", h.GetRuntimeRunActivity)
 					r.Post("/update", h.InitiateUpdate)
 					r.Get("/update/{updateId}", h.GetUpdate)
 					r.Post("/models", h.InitiateListModels)
@@ -1477,14 +1470,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			})
 
 			// Tasks (user-facing, with ownership check)
-			r.Post("/api/runs/{taskId}/cancel", h.CancelTaskByUser)
-			r.Post("/api/tasks/{taskId}/cancel", h.CancelTaskByUser)
+			r.Post("/api/runs/{runId}/cancel", h.CancelRunByUser)
 
 			// Workspace-wide agent task snapshot for presence derivation:
 			// every active task + each agent's most recent terminal task.
-			r.Get("/api/agent-task-snapshot", h.ListWorkspaceAgentTaskSnapshot)
+			r.Get("/api/agent-run-snapshot", h.ListWorkspaceAgentRunSnapshot)
 
-			// Independent workspace-level list backing the issues-header
+			// Independent workspace-level list backing the tasks-header
 			// "agents working" chip and its assignee-id Table filter.
 			r.Get("/api/working-agents", h.ListWorkspaceWorkingAgents)
 
@@ -1509,7 +1501,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/messages", h.SendChatMessage)
 					r.Get("/messages", h.ListChatMessages)
 					r.Get("/messages/page", h.ListChatMessagesPage)
-					r.Get("/pending-task", h.GetPendingChatTask)
+					r.Get("/pending-run", h.GetPendingChatRun)
 					r.Post("/read", h.MarkChatSessionRead)
 					// Deferred-cancellation draft restores (#5219):
 					// creator-only fetch + idempotent consume.
@@ -1517,8 +1509,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Delete("/draft-restores/{restoreId}", h.ConsumeChatDraftRestore)
 				})
 			})
-			r.Get("/api/chat/pending-tasks", h.ListPendingChatTasks)
-			r.Get("/api/chat/pending-tasks/has-any", h.HasPendingChatTasks)
+			r.Get("/api/chat/pending-runs", h.ListPendingChatRuns)
+			r.Get("/api/chat/pending-runs/has-any", h.HasPendingChatRuns)
 
 			// Quick-agent bar: per-user pinned agents for one-tap new chats.
 			r.Get("/api/chat/pinned-agents", h.ListChatPinnedAgents)
@@ -1685,7 +1677,7 @@ func (pr *patResolver) ResolveToken(ctx context.Context, token string) (string, 
 }
 
 // parseUUID is a thin alias for util.MustParseUUID. Call sites here are all
-// internal round-trips of DB-sourced UUIDs (e.g. issue.ID, e.ActorID), so an
+// internal round-trips of DB-sourced UUIDs (e.g. task.ID, e.ActorID), so an
 // invalid value indicates a programming error and should panic loudly.
 func parseUUID(s string) pgtype.UUID {
 	return util.MustParseUUID(s)

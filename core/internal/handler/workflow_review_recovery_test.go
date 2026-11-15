@@ -11,7 +11,7 @@ import (
 
 func testWorkflowReviewRecoveryAPI(t *testing.T, runID, executionID, requestID, failedID string, revision int32, basis, agentID string) {
 	t.Helper()
-	if _, err := testPool.Exec(context.Background(), `UPDATE agent_task_queue SET status='failed',attempt=3,max_attempts=3,completed_at=now(),failure_reason='agent_error.provider_network',error='PRIVATE_REVIEW_ERROR',session_id='PRIVATE_REVIEW_SESSION' WHERE id=$1`, failedID); err != nil {
+	if _, err := testPool.Exec(context.Background(), `UPDATE agent_run SET status='failed',attempt=3,max_attempts=3,completed_at=now(),failure_reason='agent_error.provider_network',error='PRIVATE_REVIEW_ERROR',session_id='PRIVATE_REVIEW_SESSION' WHERE id=$1`, failedID); err != nil {
 		t.Fatal(err)
 	}
 	params := map[string]string{"id": runID, "executionId": executionID, "requestId": requestID}
@@ -43,12 +43,12 @@ func testWorkflowReviewRecoveryAPI(t *testing.T, runID, executionID, requestID, 
 			t.Fatalf("review status exposed %s", secret)
 		}
 	}
-	body := map[string]any{"failed_task_id": failedID, "expected_result_revision": revision, "expected_basis_hash": basis, "reason": "Runtime repaired; review again"}
+	body := map[string]any{"failed_run_id": failedID, "expected_result_revision": revision, "expected_basis_hash": basis, "reason": "Runtime repaired; review again"}
 	post := func(payload any, agent bool) *httptest.ResponseRecorder {
 		r := workflowRequest(http.MethodPost, "/recover", payload, params)
 		if agent {
 			r.Header.Set("X-Agent-ID", agentID)
-			r.Header.Set("X-Task-ID", failedID)
+			r.Header.Set("X-Run-ID", failedID)
 		}
 		w := httptest.NewRecorder()
 		testHandler.RecoverWorkflowAgentReview(w, r)
@@ -60,7 +60,7 @@ func testWorkflowReviewRecoveryAPI(t *testing.T, runID, executionID, requestID, 
 	if invalid := post(map[string]any{"actor_id": agentID}, false); invalid.Code != http.StatusBadRequest {
 		t.Fatalf("client actor accepted: %d", invalid.Code)
 	}
-	stale := map[string]any{"failed_task_id": failedID, "expected_result_revision": revision + 1, "expected_basis_hash": basis, "reason": "Runtime repaired"}
+	stale := map[string]any{"failed_run_id": failedID, "expected_result_revision": revision + 1, "expected_basis_hash": basis, "reason": "Runtime repaired"}
 	if response := post(stale, false); response.Code != http.StatusConflict {
 		t.Fatalf("stale recovery accepted: %d %s", response.Code, response.Body.String())
 	}
@@ -70,13 +70,13 @@ func testWorkflowReviewRecoveryAPI(t *testing.T, runID, executionID, requestID, 
 	}
 	var result struct {
 		RecoveryID      string `json:"recovery_id"`
-		TaskID          string `json:"task_id"`
+		RunID           string `json:"run_id"`
 		AllowedAttempts int32  `json:"allowed_attempts"`
 	}
 	if err := json.Unmarshal(recovered.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.RecoveryID == "" || result.TaskID == "" || result.TaskID == failedID || result.AllowedAttempts != 3 {
+	if result.RecoveryID == "" || result.RunID == "" || result.RunID == failedID || result.AllowedAttempts != 3 {
 		t.Fatalf("fresh recovery identity missing: %+v", result)
 	}
 	if replay := post(body, false); replay.Code != http.StatusOK || replay.Body.String() != recovered.Body.String() {
@@ -84,17 +84,17 @@ func testWorkflowReviewRecoveryAPI(t *testing.T, runID, executionID, requestID, 
 	}
 	queued := statusRequest(false)
 	var after WorkflowReviewStatusResponse
-	if err := json.Unmarshal(queued.Body.Bytes(), &after); err != nil || queued.Code != http.StatusOK || after.Phase != "queued" || after.CanRecover || after.Call == nil || after.Call.ID != result.TaskID {
+	if err := json.Unmarshal(queued.Body.Bytes(), &after); err != nil || queued.Code != http.StatusOK || after.Phase != "queued" || after.CanRecover || after.Call == nil || after.Call.ID != result.RunID {
 		t.Fatalf("fresh review status wrong: %d %+v %v", queued.Code, after, err)
 	}
-	if _, err := testPool.Exec(context.Background(), `UPDATE agent_task_queue SET status='completed',completed_at=now() WHERE id=$1`, result.TaskID); err != nil {
+	if _, err := testPool.Exec(context.Background(), `UPDATE agent_run SET status='completed',completed_at=now() WHERE id=$1`, result.RunID); err != nil {
 		t.Fatal(err)
 	}
 	missing := statusRequest(false)
 	if err := json.Unmarshal(missing.Body.Bytes(), &after); err != nil || after.Phase != "missing_decision" || !after.CanRecover {
 		t.Fatalf("missing decision not recoverable: %s %v", missing.Body.String(), err)
 	}
-	body["failed_task_id"] = result.TaskID
+	body["failed_run_id"] = result.RunID
 	body["reason"] = "The completed review did not submit a decision"
 	if fresh := post(body, false); fresh.Code != http.StatusOK {
 		t.Fatalf("recover incomplete review: %d %s", fresh.Code, fresh.Body.String())

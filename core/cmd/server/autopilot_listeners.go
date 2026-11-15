@@ -10,14 +10,14 @@ import (
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
-// registerAutopilotListeners hooks into issue and task events to keep
-// autopilot runs in sync with their linked issues and tasks.
+// registerAutopilotListeners hooks into task and run events to keep
+// autopilot runs in sync with their linked tasks and agent runs.
 func registerAutopilotListeners(bus *events.Bus, svc *service.AutopilotService) {
 	ctx := context.Background()
 
-	// When an issue with origin_type='autopilot' reaches a terminal status,
+	// When a task with origin_type='autopilot' reaches a terminal status,
 	// update the corresponding autopilot run.
-	bus.Subscribe(protocol.EventIssueUpdated, func(e events.Event) {
+	bus.Subscribe(protocol.EventTaskUpdated, func(e events.Event) {
 		payload, ok := e.Payload.(map[string]any)
 		if !ok {
 			return
@@ -26,53 +26,53 @@ func registerAutopilotListeners(bus *events.Bus, svc *service.AutopilotService) 
 		if !statusChanged {
 			return
 		}
-		issue, ok := payload["issue"].(handler.IssueResponse)
+		task, ok := payload["task"].(handler.TaskResponse)
 		if !ok {
 			return
 		}
 		// Only handle statuses that finalize an autopilot run.
-		if issue.Status != "done" && issue.Status != "in_review" && issue.Status != "cancelled" && issue.Status != "blocked" {
+		if task.Status != "done" && task.Status != "in_review" && task.Status != "cancelled" && task.Status != "blocked" {
 			return
 		}
-		// Load the full issue from DB to check origin_type.
-		dbIssue, err := svc.Queries.GetIssue(ctx, parseUUID(issue.ID))
+		// Load the full task from DB to check origin_type.
+		dbTask, err := svc.Queries.GetTask(ctx, parseUUID(task.ID))
 		if err != nil {
-			slog.Debug("autopilot listener: failed to load issue", "issue_id", issue.ID, "error", err)
+			slog.Debug("autopilot listener: failed to load task", "task_id", task.ID, "error", err)
 			return
 		}
-		svc.SyncRunFromIssue(ctx, dbIssue)
+		svc.SyncRunFromTask(ctx, dbTask)
 	})
 
 	// When a task completes or fails, check if it's an autopilot run_only task.
-	bus.Subscribe(protocol.EventTaskCompleted, func(e events.Event) {
-		syncRunFromTaskEvent(ctx, svc, e)
+	bus.Subscribe(protocol.EventRunCompleted, func(e events.Event) {
+		syncRunFromRunEvent(ctx, svc, e)
 	})
-	bus.Subscribe(protocol.EventTaskFailed, func(e events.Event) {
-		syncRunFromTaskEvent(ctx, svc, e)
+	bus.Subscribe(protocol.EventRunFailed, func(e events.Event) {
+		syncRunFromRunEvent(ctx, svc, e)
 	})
-	bus.Subscribe(protocol.EventTaskCancelled, func(e events.Event) {
-		syncRunFromTaskEvent(ctx, svc, e)
+	bus.Subscribe(protocol.EventRunCancelled, func(e events.Event) {
+		syncRunFromRunEvent(ctx, svc, e)
 	})
 }
 
-func syncRunFromTaskEvent(ctx context.Context, svc *service.AutopilotService, e events.Event) {
+func syncRunFromRunEvent(ctx context.Context, svc *service.AutopilotService, e events.Event) {
 	payload, ok := e.Payload.(map[string]any)
 	if !ok {
 		return
 	}
-	taskID, ok := payload["task_id"].(string)
-	if !ok || taskID == "" {
+	runID, ok := payload["run_id"].(string)
+	if !ok || runID == "" {
 		return
 	}
-	task, err := svc.Queries.GetAgentTask(ctx, parseUUID(taskID))
+	agentRun, err := svc.Queries.GetAgentRun(ctx, parseUUID(runID))
 	if err != nil {
 		return
 	}
-	if task.AutopilotRunID.Valid {
-		svc.SyncRunFromTask(ctx, task)
+	if agentRun.AutopilotRunID.Valid {
+		svc.SyncRunFromRun(ctx, agentRun)
 		return
 	}
-	if e.Type == protocol.EventTaskFailed {
-		svc.SyncRunFromLinkedIssueTask(ctx, task)
+	if e.Type == protocol.EventRunFailed {
+		svc.SyncRunFromLinkedTaskRun(ctx, agentRun)
 	}
 }

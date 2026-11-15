@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/silieco-ai/silieco/core/pkg/taskfailure"
+	"github.com/silieco-ai/silieco/core/pkg/runfailure"
 )
 
 const (
@@ -35,22 +35,22 @@ const (
 )
 
 var businessMetricLabels = map[string][]string{
-	"silieco_agent_task_enqueued_total":     {labelSource, labelRuntimeMode},
-	"silieco_agent_task_dispatched_total":   {labelSource, labelRuntimeMode},
-	"silieco_agent_task_started_total":      {labelSource, labelRuntimeMode, labelProvider},
-	"silieco_agent_task_terminal_total":     {labelSource, labelRuntimeMode, labelTerminalStatus},
-	"silieco_agent_task_failed_total":       {labelSource, labelRuntimeMode, labelFailureReason},
-	"silieco_agent_task_queue_wait_seconds": {labelSource, labelRuntimeMode},
-	"silieco_agent_task_run_seconds":        {labelSource, labelRuntimeMode, labelTerminalStatus},
-	"silieco_agent_task_total_seconds":      {labelSource, labelRuntimeMode, labelTerminalStatus},
-	"silieco_agent_task_in_progress":        {labelSource, labelRuntimeMode},
-	"silieco_agent_task_iteration_count":    {labelSource, labelTerminalStatus},
-	"silieco_llm_tokens_total":              {labelProvider, labelModel, labelTokenType, labelRuntimeMode, labelSource},
-	"silieco_llm_cost_usd_total":            {labelProvider, labelModel, labelTokenType, labelRuntimeMode, labelSource},
-	"silieco_llm_unpriced_tokens_total":     {labelProvider, labelModelAlias, labelTokenType},
-	"silieco_llm_request_total":             {labelProvider, labelModel, labelRuntimeMode},
-	"silieco_task_queued_expired_total":     {labelSource, labelRuntimeMode},
-	"silieco_task_lease_expired_total":      {labelSource},
+	"silieco_agent_run_enqueued_total":     {labelSource, labelRuntimeMode},
+	"silieco_agent_run_dispatched_total":   {labelSource, labelRuntimeMode},
+	"silieco_agent_run_started_total":      {labelSource, labelRuntimeMode, labelProvider},
+	"silieco_agent_run_terminal_total":     {labelSource, labelRuntimeMode, labelTerminalStatus},
+	"silieco_agent_run_failed_total":       {labelSource, labelRuntimeMode, labelFailureReason},
+	"silieco_agent_run_queue_wait_seconds": {labelSource, labelRuntimeMode},
+	"silieco_agent_run_run_seconds":        {labelSource, labelRuntimeMode, labelTerminalStatus},
+	"silieco_agent_run_total_seconds":      {labelSource, labelRuntimeMode, labelTerminalStatus},
+	"silieco_agent_run_in_progress":        {labelSource, labelRuntimeMode},
+	"silieco_agent_run_iteration_count":    {labelSource, labelTerminalStatus},
+	"silieco_llm_tokens_total":             {labelProvider, labelModel, labelTokenType, labelRuntimeMode, labelSource},
+	"silieco_llm_cost_usd_total":           {labelProvider, labelModel, labelTokenType, labelRuntimeMode, labelSource},
+	"silieco_llm_unpriced_tokens_total":    {labelProvider, labelModelAlias, labelTokenType},
+	"silieco_llm_request_total":            {labelProvider, labelModel, labelRuntimeMode},
+	"silieco_run_queued_expired_total":     {labelSource, labelRuntimeMode},
+	"silieco_run_lease_expired_total":      {labelSource},
 
 	// PR3 funnel / community / commercial.
 	"silieco_signup_total":                             {labelSignupSource},
@@ -62,12 +62,12 @@ var businessMetricLabels = map[string][]string{
 	"silieco_onboarding_source_submitted_total":        {},
 	"silieco_onboarding_completed_total":               {labelPath},
 	"silieco_cloud_waitlist_joined_total":              {},
-	"silieco_issue_created_total":                      {labelSource, labelPlatform},
+	"silieco_task_created_total":                       {labelSource, labelPlatform},
 	"silieco_chat_message_sent_total":                  {labelPlatform},
 	"silieco_agent_created_total":                      {labelRuntimeMode, labelSource},
 	"silieco_squad_created_total":                      {},
 	"silieco_autopilot_created_total":                  {labelCadence},
-	"silieco_issue_executed_total":                     {labelSource},
+	"silieco_task_executed_total":                      {labelSource},
 	"silieco_runtime_registered_total":                 {labelRuntimeMode, labelProvider},
 	"silieco_runtime_ready_total":                      {labelRuntimeMode, labelProvider},
 	"silieco_runtime_ready_seconds":                    {labelRuntimeMode, labelProvider},
@@ -92,8 +92,8 @@ var forbiddenMetricLabels = map[string]struct{}{
 	"workspace_id": {},
 	"user_id":      {},
 	"agent_id":     {},
+	"run_id":       {},
 	"task_id":      {},
-	"issue_id":     {},
 	"runtime_id":   {},
 	"session_id":   {},
 	"ip":           {},
@@ -101,14 +101,14 @@ var forbiddenMetricLabels = map[string]struct{}{
 
 var (
 	knownSources = map[string]string{
-		"issue":           "issue",
-		"chat":            "chat",
-		"autopilot":       "autopilot",
-		"autopilot_issue": "autopilot_issue",
-		"quick_create":    "quick_create",
-		"manual":          "manual",
-		"api":             "api",
-		"other":           "other",
+		"task":           "task",
+		"chat":           "chat",
+		"autopilot":      "autopilot",
+		"autopilot_task": "autopilot_task",
+		"quick_create":   "quick_create",
+		"manual":         "manual",
+		"api":            "api",
+		"other":          "other",
 	}
 	knownRuntimeModes = map[string]string{
 		"local":   "local",
@@ -153,7 +153,7 @@ var (
 )
 
 func init() {
-	for _, reason := range taskfailure.AllReasons() {
+	for _, reason := range runfailure.AllReasons() {
 		knownFailureReasons[reason.String()] = reason.String()
 	}
 }
@@ -176,7 +176,7 @@ func metricLabels(metric string) []string {
 	return labels
 }
 
-func NormalizeTaskSource(value string) string {
+func NormalizeRunSource(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if normalized, ok := knownSources[value]; ok {
 		return normalized
@@ -213,7 +213,7 @@ func NormalizeFailureReason(value string) string {
 	if normalized, ok := knownFailureReasons[value]; ok {
 		return normalized
 	}
-	return taskfailure.Classify(value).String()
+	return runfailure.Classify(value).String()
 }
 
 func NormalizeTokenType(value string) string {

@@ -231,9 +231,9 @@
     "name_placeholder": "Acme Inc, 내 연구실, 사이드 프로젝트...",
     "url_label": "URL",
     "slug_placeholder": "acme",
-    "issue_prefix_label": "Task 접두사",
-    "issue_prefix_prefix": "Task는 ",
-    "issue_prefix_suffix": "처럼 표시됩니다. 나중에 설정에서 바꿀 수 있습니다.",
+    "task_prefix_label": "Task 접두사",
+    "task_prefix_prefix": "Task는 ",
+    "task_prefix_suffix": "처럼 표시됩니다. 나중에 설정에서 바꿀 수 있습니다.",
     "create_new_title": "새 워크스페이스 만들기",
     "create_new_subtitle": "새로 시작합니다. 다른 업무 영역을 위한 별도 공간입니다.",
     "hint_opening": "{{name}} 여는 중.",
@@ -267,8 +267,8 @@
     "preview": {
       "inbox_label": "인박스",
       "inbox_meta": "내 알림",
-      "issues_label": "Task",
-      "issues_meta": "공유 작업 보드",
+      "tasks_label": "Task",
+      "tasks_meta": "공유 작업 보드",
       "agents_label": "에이전트",
       "agents_meta": "AI 팀원",
       "projects_label": "프로젝트",
@@ -355,5 +355,7 @@
   },
   "errors": {
     "skip_failed": "온보딩을 마치지 못했습니다"
-  }
+  },
+  "skip_all": "모두 건너뛰고 나중에 설정",
+  "skip_all_pending": "건너뛰는 중…"
 }

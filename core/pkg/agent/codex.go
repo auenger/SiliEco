@@ -952,7 +952,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		codexVersion = "unknown"
 	}
 
-	b.cfg.Logger.Info("codex lifecycle", "phase", "spawn", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "process_group", cmd.Process.Pid, "cwd", opts.Cwd, "attempt", attempt, "active_launches", activeLaunches, "codex_version", codexVersion, "daemon_version", b.cfg.DaemonVersion)
+	b.cfg.Logger.Info("codex lifecycle", "phase", "spawn", "run_id", b.cfg.RunID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "process_group", cmd.Process.Pid, "cwd", opts.Cwd, "attempt", attempt, "active_launches", activeLaunches, "codex_version", codexVersion, "daemon_version", b.cfg.DaemonVersion)
 
 	msgCh := make(chan Message, 256)
 	resCh := make(chan Result, 1)
@@ -1165,7 +1165,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 			b.cfg.Logger.Info("codex lifecycle",
 				"phase", "cleanup",
-				"task_id", b.cfg.TaskID,
+				"run_id", b.cfg.RunID,
 				"runtime_id", b.cfg.RuntimeID,
 				"pid", cmd.Process.Pid,
 				"process_group", cmd.Process.Pid,
@@ -1197,7 +1197,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 
 		// 1. Initialize handshake
 		initializeStarted := time.Now()
-		b.cfg.Logger.Info("codex lifecycle", "phase", "initialize_sent", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "active_launches", activeLaunches)
+		b.cfg.Logger.Info("codex lifecycle", "phase", "initialize_sent", "run_id", b.cfg.RunID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "active_launches", activeLaunches)
 		_, err := c.request(runCtx, "initialize", map[string]any{
 			"clientInfo": map[string]any{
 				"name":    "silieco-agent-sdk",
@@ -1237,14 +1237,14 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			} else if timedOut && cleanupConfirmed && !codexInitializeRetrySupported() {
 				finalError += "; retry suppressed: process-tree cleanup cannot be confirmed on this platform"
 			}
-			b.cfg.Logger.Warn("codex lifecycle", "phase", "initialize_failure", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", initializeLatency.Round(time.Millisecond).String(), "semantic_activity", semanticObserved.Load(), "cleanup_confirmed", cleanupConfirmed, "retry_safe", retrySafe)
+			b.cfg.Logger.Warn("codex lifecycle", "phase", "initialize_failure", "run_id", b.cfg.RunID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", initializeLatency.Round(time.Millisecond).String(), "semantic_activity", semanticObserved.Load(), "cleanup_confirmed", cleanupConfirmed, "retry_safe", retrySafe)
 			resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds(), codexInitializeRetrySafe: retrySafe}
 			return
 		}
-		b.cfg.Logger.Info("codex lifecycle", "phase", "initialize_response", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", time.Since(initializeStarted).Round(time.Millisecond).String())
+		b.cfg.Logger.Info("codex lifecycle", "phase", "initialize_response", "run_id", b.cfg.RunID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", time.Since(initializeStarted).Round(time.Millisecond).String())
 		c.notify("initialized")
 
-		// 2. Start a new thread, or resume the prior one for this issue. When
+		// 2. Start a new thread, or resume the prior one for this task. When
 		// resume fails (thread GCed on the server, schema drift, etc.) we fall
 		// back to a fresh thread so the task still makes progress.
 		threadID, resumed, err := c.startOrResumeThread(runCtx, opts, b.cfg.Logger)
@@ -1265,7 +1265,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 				classification := classifyCodexStartupStderr(stderrTail, timedOut)
 				b.cfg.Logger.Warn("codex lifecycle",
 					"phase", "thread_start_failure",
-					"task_id", b.cfg.TaskID,
+					"run_id", b.cfg.RunID,
 					"runtime_id", b.cfg.RuntimeID,
 					"pid", cmd.Process.Pid,
 					"attempt", attempt,
@@ -1503,8 +1503,8 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		// scan this backend's per-task CODEX_HOME, since sessions are isolated
 		// there rather than in the shared ~/.codex/sessions (SILI-4424).
 		if u.InputTokens == 0 && u.OutputTokens == 0 {
-			taskCodexHome := strings.TrimSpace(b.cfg.Env["CODEX_HOME"])
-			if scanned := scanCodexSessionUsage(startTime, taskCodexHome, threadID, resumed); scanned != nil {
+			runCodexHome := strings.TrimSpace(b.cfg.Env["CODEX_HOME"])
+			if scanned := scanCodexSessionUsage(startTime, runCodexHome, threadID, resumed); scanned != nil {
 				u = scanned.usage
 				if scanned.model != "" && opts.Model == "" {
 					opts.Model = scanned.model
@@ -1539,7 +1539,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 // daemon brief's Session Continuity Notice so the disclosure is identical
 // whether the loss is detected pre-launch (daemon gate) or only by the live
 // thread/resume RPC (SILI-4424).
-const codexResumeUnavailableNotice = "[System notice] You were expected to continue an earlier conversation, but restoring that session failed and this is a fresh thread with no memory of the previous turns. Rebuild context from the issue/thread, and when you reply, tell the user up front (one short sentence) that the previous conversation context could not be restored and this is a new session.\n\n"
+const codexResumeUnavailableNotice = "[System notice] You were expected to continue an earlier conversation, but restoring that session failed and this is a fresh thread with no memory of the previous turns. Rebuild context from the task/thread, and when you reply, tell the user up front (one short sentence) that the previous conversation context could not be restored and this is a new session.\n\n"
 
 // codexTurnInput builds the input content for the first turn/start. When a
 // resume was expected (resumeExpected) but the backend landed on a fresh thread
@@ -1624,7 +1624,7 @@ func (c *codexClient) startOrResumeThread(ctx context.Context, opts ExecOptions,
 	c.threadStartStarted = time.Now()
 	logger.Info("codex lifecycle",
 		"phase", "thread_start_sent",
-		"task_id", c.cfg.TaskID,
+		"run_id", c.cfg.RunID,
 		"runtime_id", c.cfg.RuntimeID,
 		"pid", c.pid,
 		"attempt", c.attempt,
@@ -1641,7 +1641,7 @@ func (c *codexClient) startOrResumeThread(ctx context.Context, opts ExecOptions,
 	}
 	logger.Info("codex lifecycle",
 		"phase", "thread_start_response",
-		"task_id", c.cfg.TaskID,
+		"run_id", c.cfg.RunID,
 		"runtime_id", c.cfg.RuntimeID,
 		"pid", c.pid,
 		"attempt", c.attempt,

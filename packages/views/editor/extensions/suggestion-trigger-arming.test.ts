@@ -189,7 +189,7 @@ describe("suggestion trigger arming", () => {
       expect(picker(editor, slashKey)).toEqual({ active: true, query: "shi" });
     });
 
-    it("keeps multi-word queries alive, so allowSpaces issue search survives", () => {
+    it("keeps multi-word queries alive, so allowSpaces task search survives", () => {
       const editor = makeEditor();
       editor.commands.focus("end");
 

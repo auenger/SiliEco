@@ -11,21 +11,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const getRuntimeTaskHourlyActivity = `-- name: GetRuntimeTaskHourlyActivity :many
+const getRuntimeRunHourlyActivity = `-- name: GetRuntimeRunHourlyActivity :many
 SELECT EXTRACT(HOUR FROM started_at AT TIME ZONE $2::text)::int AS hour,
        COUNT(*)::int AS count
-FROM agent_task_queue
+FROM agent_run
 WHERE runtime_id = $1 AND started_at IS NOT NULL
 GROUP BY hour
 ORDER BY hour
 `
 
-type GetRuntimeTaskHourlyActivityParams struct {
+type GetRuntimeRunHourlyActivityParams struct {
 	RuntimeID pgtype.UUID `json:"runtime_id"`
 	Tz        string      `json:"tz"`
 }
 
-type GetRuntimeTaskHourlyActivityRow struct {
+type GetRuntimeRunHourlyActivityRow struct {
 	Hour  int32 `json:"hour"`
 	Count int32 `json:"count"`
 }
@@ -33,15 +33,15 @@ type GetRuntimeTaskHourlyActivityRow struct {
 // Hour-of-day distribution for queue starts. Bucketed in the viewer's
 // tz so "this runtime is busy in the afternoon" actually means
 // the operator's afternoon, not UTC's.
-func (q *Queries) GetRuntimeTaskHourlyActivity(ctx context.Context, arg GetRuntimeTaskHourlyActivityParams) ([]GetRuntimeTaskHourlyActivityRow, error) {
-	rows, err := q.db.Query(ctx, getRuntimeTaskHourlyActivity, arg.RuntimeID, arg.Tz)
+func (q *Queries) GetRuntimeRunHourlyActivity(ctx context.Context, arg GetRuntimeRunHourlyActivityParams) ([]GetRuntimeRunHourlyActivityRow, error) {
+	rows, err := q.db.Query(ctx, getRuntimeRunHourlyActivity, arg.RuntimeID, arg.Tz)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []GetRuntimeTaskHourlyActivityRow{}
+	items := []GetRuntimeRunHourlyActivityRow{}
 	for rows.Next() {
-		var i GetRuntimeTaskHourlyActivityRow
+		var i GetRuntimeRunHourlyActivityRow
 		if err := rows.Scan(&i.Hour, &i.Count); err != nil {
 			return nil, err
 		}
@@ -66,9 +66,9 @@ SELECT
     COALESCE(SUM(tu.output_tokens)      FILTER (WHERE tu.cost_usd_ticks IS NULL), 0)::bigint AS uncosted_output_tokens,
     COALESCE(SUM(tu.cache_read_tokens)  FILTER (WHERE tu.cost_usd_ticks IS NULL), 0)::bigint AS uncosted_cache_read_tokens,
     COALESCE(SUM(tu.cache_write_tokens) FILTER (WHERE tu.cost_usd_ticks IS NULL), 0)::bigint AS uncosted_cache_write_tokens,
-    COUNT(DISTINCT tu.task_id)::int AS task_count
-FROM task_usage tu
-JOIN agent_task_queue atq ON atq.id = tu.task_id
+    COUNT(DISTINCT tu.run_id)::int AS run_count
+FROM agent_run_usage tu
+JOIN agent_run atq ON atq.id = tu.run_id
 WHERE atq.runtime_id = $1
   AND tu.created_at >= $3::timestamptz
 GROUP BY EXTRACT(HOUR FROM tu.created_at AT TIME ZONE $2::text), tu.model
@@ -93,7 +93,7 @@ type GetRuntimeUsageByHourRow struct {
 	UncostedOutputTokens     int64  `json:"uncosted_output_tokens"`
 	UncostedCacheReadTokens  int64  `json:"uncosted_cache_read_tokens"`
 	UncostedCacheWriteTokens int64  `json:"uncosted_cache_write_tokens"`
-	TaskCount                int32  `json:"task_count"`
+	RunCount                 int32  `json:"run_count"`
 }
 
 // Per-(hour, model) token aggregates (hour ∈ 0..23) for a runtime since a
@@ -125,7 +125,7 @@ func (q *Queries) GetRuntimeUsageByHour(ctx context.Context, arg GetRuntimeUsage
 			&i.UncostedOutputTokens,
 			&i.UncostedCacheReadTokens,
 			&i.UncostedCacheWriteTokens,
-			&i.TaskCount,
+			&i.RunCount,
 		); err != nil {
 			return nil, err
 		}
@@ -151,7 +151,7 @@ SELECT
     SUM(COALESCE(uncosted_output_tokens, output_tokens))::bigint         AS uncosted_output_tokens,
     SUM(COALESCE(uncosted_cache_read_tokens, cache_read_tokens))::bigint AS uncosted_cache_read_tokens,
     SUM(COALESCE(uncosted_cache_write_tokens, cache_write_tokens))::bigint AS uncosted_cache_write_tokens
-FROM task_usage_hourly
+FROM agent_run_usage_hourly
 WHERE runtime_id = $1
   AND bucket_hour >= $3::timestamptz
 GROUP BY DATE(bucket_hour AT TIME ZONE $2::text), LOWER(provider), model
@@ -179,7 +179,7 @@ type ListRuntimeUsageRow struct {
 	UncostedCacheWriteTokens int64       `json:"uncosted_cache_write_tokens"`
 }
 
-// Reads from the UTC-bucketed `task_usage_hourly` rollup table,
+// Reads from the UTC-bucketed `agent_run_usage_hourly` rollup table,
 // aggregated to per-(date, provider, model) under the
 // caller-supplied @tz. Powers the trend chart on the runtime detail
 // page and the per-row cost cell on the runtimes list.
@@ -237,9 +237,9 @@ SELECT
     COALESCE(SUM(tu.output_tokens)      FILTER (WHERE tu.cost_usd_ticks IS NULL), 0)::bigint AS uncosted_output_tokens,
     COALESCE(SUM(tu.cache_read_tokens)  FILTER (WHERE tu.cost_usd_ticks IS NULL), 0)::bigint AS uncosted_cache_read_tokens,
     COALESCE(SUM(tu.cache_write_tokens) FILTER (WHERE tu.cost_usd_ticks IS NULL), 0)::bigint AS uncosted_cache_write_tokens,
-    COUNT(DISTINCT tu.task_id)::int AS task_count
-FROM task_usage tu
-JOIN agent_task_queue atq ON atq.id = tu.task_id
+    COUNT(DISTINCT tu.run_id)::int AS run_count
+FROM agent_run_usage tu
+JOIN agent_run atq ON atq.id = tu.run_id
 WHERE atq.runtime_id = $1
   AND tu.created_at >= $2::timestamptz
 GROUP BY atq.agent_id, LOWER(tu.provider), tu.model
@@ -264,11 +264,11 @@ type ListRuntimeUsageByAgentRow struct {
 	UncostedOutputTokens     int64       `json:"uncosted_output_tokens"`
 	UncostedCacheReadTokens  int64       `json:"uncosted_cache_read_tokens"`
 	UncostedCacheWriteTokens int64       `json:"uncosted_cache_write_tokens"`
-	TaskCount                int32       `json:"task_count"`
+	RunCount                 int32       `json:"run_count"`
 }
 
 // Per-(agent, provider, model) token aggregates for a runtime since a cutoff. Powers
-// the runtime-detail "Cost by agent" tab. task_usage only carries task_id,
+// the runtime-detail "Cost by agent" tab. agent_run_usage only carries run_id,
 // so we join the queue to expose agent_id. The model dimension is kept on
 // purpose: cost is computed client-side from a per-model pricing table, so
 // collapsing models server-side would erase the information needed to do
@@ -277,7 +277,7 @@ type ListRuntimeUsageByAgentRow struct {
 // This view doesn't bucket by date, so it doesn't need @tz; only the
 // @since cutoff is provided in runtime-local terms (computed in Go).
 // provider is LOWER()-normalized so mixed-case historical rows merge with
-// new rows (see ListDashboardUsageDaily in task_usage.sql).
+// new rows (see ListDashboardUsageDaily in agent_run_usage.sql).
 func (q *Queries) ListRuntimeUsageByAgent(ctx context.Context, arg ListRuntimeUsageByAgentParams) ([]ListRuntimeUsageByAgentRow, error) {
 	rows, err := q.db.Query(ctx, listRuntimeUsageByAgent, arg.RuntimeID, arg.Since)
 	if err != nil {
@@ -300,7 +300,7 @@ func (q *Queries) ListRuntimeUsageByAgent(ctx context.Context, arg ListRuntimeUs
 			&i.UncostedOutputTokens,
 			&i.UncostedCacheReadTokens,
 			&i.UncostedCacheWriteTokens,
-			&i.TaskCount,
+			&i.RunCount,
 		); err != nil {
 			return nil, err
 		}

@@ -33,15 +33,15 @@ func freshAgentEnvSetCmd() *cobra.Command {
 	return c
 }
 
-func chdirWithDaemonTaskMarker(t *testing.T) {
+func chdirWithDaemonRunMarker(t *testing.T) {
 	t.Helper()
 
 	workDir := t.TempDir()
-	markerPath := filepath.Join(workDir, execenv.TaskContextMarkerRelPath)
+	markerPath := filepath.Join(workDir, execenv.RunContextMarkerRelPath)
 	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
 		t.Fatalf("create marker dir: %v", err)
 	}
-	data := []byte(`{"managed_by":"` + execenv.TaskContextMarkerManagedBy + `"}`)
+	data := []byte(`{"managed_by":"` + execenv.RunContextMarkerManagedBy + `"}`)
 	if err := os.WriteFile(markerPath, data, 0o644); err != nil {
 		t.Fatalf("write marker: %v", err)
 	}
@@ -88,13 +88,13 @@ func TestNewAPIClient_WorkdirParentEscapeFailsClosed(t *testing.T) {
 	if err := execenv.EnsureWorkspacesRootMarker(root); err != nil {
 		t.Fatalf("write root marker: %v", err)
 	}
-	taskDir := filepath.Join(root, "ws-1", "task-1")
-	workDir := filepath.Join(taskDir, "workdir")
-	workdirMarker := filepath.Join(workDir, execenv.TaskContextMarkerRelPath)
+	runDir := filepath.Join(root, "ws-1", "task-1")
+	workDir := filepath.Join(runDir, "workdir")
+	workdirMarker := filepath.Join(workDir, execenv.RunContextMarkerRelPath)
 	if err := os.MkdirAll(filepath.Dir(workdirMarker), 0o755); err != nil {
 		t.Fatalf("create workdir marker dir: %v", err)
 	}
-	data := []byte(`{"managed_by":"` + execenv.TaskContextMarkerManagedBy + `"}`)
+	data := []byte(`{"managed_by":"` + execenv.RunContextMarkerManagedBy + `"}`)
 	if err := os.WriteFile(workdirMarker, data, 0o644); err != nil {
 		t.Fatalf("write workdir marker: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestNewAPIClient_WorkdirParentEscapeFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get cwd: %v", err)
 	}
-	if err := os.Chdir(taskDir); err != nil {
+	if err := os.Chdir(runDir); err != nil {
 		t.Fatalf("chdir task dir: %v", err)
 	}
 	t.Cleanup(func() {
@@ -113,7 +113,7 @@ func TestNewAPIClient_WorkdirParentEscapeFailsClosed(t *testing.T) {
 		}
 	})
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 	t.Setenv("SILIECO_DAEMON_PORT", "")
 	t.Setenv("SILIECO_TOKEN", "")
 	t.Setenv("SILIECO_SERVER_URL", "http://127.0.0.1:8080")
@@ -133,16 +133,16 @@ func TestNewAPIClient_WorkdirParentEscapeFailsClosed(t *testing.T) {
 // case) fails closed with an actionable message that names the marker file,
 // rather than an opaque "requires mat_ token" error.
 func TestNewAPIClient_LeftoverMarkerActionableError(t *testing.T) {
-	chdirWithDaemonTaskMarker(t)
+	chdirWithDaemonRunMarker(t)
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 	t.Setenv("SILIECO_DAEMON_PORT", "")
 	t.Setenv("SILIECO_TOKEN", "")
 	t.Setenv("SILIECO_SERVER_URL", "http://127.0.0.1:8080")
 
 	if _, err := newAPIClient(testCmd()); err == nil {
 		t.Fatal("newAPIClient(): expected error for leftover daemon-task marker, got nil")
-	} else if !strings.Contains(err.Error(), execenv.TaskContextMarkerRelPath) {
+	} else if !strings.Contains(err.Error(), execenv.RunContextMarkerRelPath) {
 		t.Fatalf("error should name the marker path; got %q", err.Error())
 	} else if !strings.Contains(err.Error(), "leftover") {
 		t.Fatalf("error should hint it may be a leftover; got %q", err.Error())
@@ -151,7 +151,7 @@ func TestNewAPIClient_LeftoverMarkerActionableError(t *testing.T) {
 
 // TestResolveWorkspaceID_AgentContextSkipsConfig is a regression test for
 // the cross-workspace contamination bug (#1235). Inside a daemon-spawned
-// agent task (SILIECO_AGENT_ID / SILIECO_TASK_ID set), the CLI must NOT
+// agent task (SILIECO_AGENT_ID / SILIECO_RUN_ID set), the CLI must NOT
 // silently read the user-global ~/.silieco/config.json to recover a missing
 // workspace — that fallback is how agent operations leaked into an
 // unrelated workspace when the daemon failed to inject the right value.
@@ -169,7 +169,7 @@ func TestResolveWorkspaceID_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("outside agent context falls back to config", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_WORKSPACE_ID", "")
 
@@ -181,7 +181,7 @@ func TestResolveWorkspaceID_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("agent context with explicit env uses env", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "agent-123")
-		t.Setenv("SILIECO_TASK_ID", "task-456")
+		t.Setenv("SILIECO_RUN_ID", "task-456")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_WORKSPACE_ID", "env-ws")
 
@@ -193,7 +193,7 @@ func TestResolveWorkspaceID_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("agent context without env returns empty, never config", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "agent-123")
-		t.Setenv("SILIECO_TASK_ID", "task-456")
+		t.Setenv("SILIECO_RUN_ID", "task-456")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_WORKSPACE_ID", "")
 
@@ -205,7 +205,7 @@ func TestResolveWorkspaceID_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("task marker alone also counts as agent context", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "task-456")
+		t.Setenv("SILIECO_RUN_ID", "task-456")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_WORKSPACE_ID", "")
 
@@ -216,7 +216,7 @@ func TestResolveWorkspaceID_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("daemon port marker also skips config", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "27182")
 		t.Setenv("SILIECO_WORKSPACE_ID", "")
 
@@ -226,9 +226,9 @@ func TestResolveWorkspaceID_AgentContextSkipsConfig(t *testing.T) {
 	})
 
 	t.Run("workdir marker also skips config when env is stripped", func(t *testing.T) {
-		chdirWithDaemonTaskMarker(t)
+		chdirWithDaemonRunMarker(t)
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_WORKSPACE_ID", "")
 
@@ -239,7 +239,7 @@ func TestResolveWorkspaceID_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("requireWorkspaceID surfaces agent-context error", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "agent-123")
-		t.Setenv("SILIECO_TASK_ID", "task-456")
+		t.Setenv("SILIECO_RUN_ID", "task-456")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_WORKSPACE_ID", "")
 
@@ -262,7 +262,7 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("outside agent context falls back to config", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_TOKEN", "")
 
@@ -273,7 +273,7 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("explicit server URL alone still allows normal config token fallback", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_SERVER_URL", "http://127.0.0.1:8080")
 		t.Setenv("SILIECO_TOKEN", "")
@@ -286,7 +286,7 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("agent context without env never reads config", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "agent-123")
-		t.Setenv("SILIECO_TASK_ID", "task-456")
+		t.Setenv("SILIECO_RUN_ID", "task-456")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_TOKEN", "")
 
@@ -297,7 +297,7 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("daemon port marker without env never reads config", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "27182")
 		t.Setenv("SILIECO_SERVER_URL", "http://127.0.0.1:8080")
 		t.Setenv("SILIECO_TOKEN", "")
@@ -308,9 +308,9 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 	})
 
 	t.Run("workdir marker without env never reads config", func(t *testing.T) {
-		chdirWithDaemonTaskMarker(t)
+		chdirWithDaemonRunMarker(t)
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_SERVER_URL", "http://127.0.0.1:8080")
 		t.Setenv("SILIECO_TOKEN", "")
@@ -327,7 +327,7 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 	// rather than be locked out by a fail-closed guard on an unrelated error.
 	t.Run("unreadable marker path does not fail closed", func(t *testing.T) {
 		workDir := t.TempDir()
-		if err := os.MkdirAll(filepath.Join(workDir, execenv.TaskContextMarkerRelPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(workDir, execenv.RunContextMarkerRelPath), 0o755); err != nil {
 			t.Fatalf("create marker-as-dir: %v", err)
 		}
 		nested := filepath.Join(workDir, "repo")
@@ -348,7 +348,7 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 		})
 
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_SERVER_URL", "")
 		t.Setenv("SILIECO_TOKEN", "")
@@ -360,18 +360,18 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("agent context uses explicit task token env", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "agent-123")
-		t.Setenv("SILIECO_TASK_ID", "task-456")
+		t.Setenv("SILIECO_RUN_ID", "task-456")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
-		t.Setenv("SILIECO_TOKEN", "mat_task_token")
+		t.Setenv("SILIECO_TOKEN", "mat_agent_run_token")
 
-		if got := resolveToken(testCmd()); got != "mat_task_token" {
+		if got := resolveToken(testCmd()); got != "mat_agent_run_token" {
 			t.Fatalf("resolveToken() = %q, want SILIECO_TOKEN", got)
 		}
 	})
 
 	t.Run("daemon port set without agent context avoids config fallback", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_TOKEN", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "19514")
 
@@ -382,11 +382,11 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 
 	t.Run("daemon port set with explicit task token uses task token", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
-		t.Setenv("SILIECO_TOKEN", "mat_task_token")
+		t.Setenv("SILIECO_RUN_ID", "")
+		t.Setenv("SILIECO_TOKEN", "mat_agent_run_token")
 		t.Setenv("SILIECO_DAEMON_PORT", "19514")
 
-		if got := resolveToken(testCmd()); got != "mat_task_token" {
+		if got := resolveToken(testCmd()); got != "mat_agent_run_token" {
 			t.Fatalf("resolveToken() = %q, want SILIECO_TOKEN (task token wins over daemon signal)", got)
 		}
 	})
@@ -397,7 +397,7 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 	// SERVER_URL is set but no daemon signal is present.
 	t.Run("SILIECO_SERVER_URL alone does not block config fallback", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_TOKEN", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_SERVER_URL", "https://api.silieco.ai")
@@ -412,7 +412,7 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 	// must not be broken by any daemon-signal guard expansion.
 	t.Run("no daemon signals, normal CLI reads config token", func(t *testing.T) {
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 		t.Setenv("SILIECO_TOKEN", "")
 		t.Setenv("SILIECO_DAEMON_PORT", "")
 		t.Setenv("SILIECO_SERVER_URL", "")
@@ -423,11 +423,11 @@ func TestResolveToken_AgentContextSkipsConfig(t *testing.T) {
 	})
 }
 
-func TestNewAPIClient_AgentContextRequiresTaskToken(t *testing.T) {
+func TestNewAPIClient_AgentContextRequiresAgentRunToken(t *testing.T) {
 	t.Setenv("SILIECO_SERVER_URL", "http://127.0.0.1:8080")
 	t.Setenv("SILIECO_WORKSPACE_ID", "workspace-123")
 	t.Setenv("SILIECO_AGENT_ID", "agent-123")
-	t.Setenv("SILIECO_TASK_ID", "task-456")
+	t.Setenv("SILIECO_RUN_ID", "task-456")
 
 	t.Run("missing token fails closed", func(t *testing.T) {
 		t.Setenv("SILIECO_TOKEN", "")
@@ -454,24 +454,24 @@ func TestNewAPIClient_AgentContextRequiresTaskToken(t *testing.T) {
 	})
 
 	t.Run("task token succeeds", func(t *testing.T) {
-		t.Setenv("SILIECO_TOKEN", "mat_task_token")
+		t.Setenv("SILIECO_TOKEN", "mat_agent_run_token")
 
 		client, err := newAPIClient(testCmd())
 		if err != nil {
 			t.Fatalf("newAPIClient(): %v", err)
 		}
-		if client.Token != "mat_task_token" {
+		if client.Token != "mat_agent_run_token" {
 			t.Fatalf("client token = %q, want task token", client.Token)
 		}
 	})
 }
 
-func TestNewAPIClient_DaemonPortRequiresTaskToken(t *testing.T) {
+func TestNewAPIClient_DaemonPortRequiresAgentRunToken(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_SERVER_URL", "http://127.0.0.1:8080")
 	t.Setenv("SILIECO_WORKSPACE_ID", "workspace-123")
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 	t.Setenv("SILIECO_DAEMON_PORT", "27182")
 	t.Setenv("SILIECO_TOKEN", "")
 
@@ -488,14 +488,14 @@ func TestNewAPIClient_DaemonPortRequiresTaskToken(t *testing.T) {
 	}
 }
 
-func TestNewAPIClient_WorkdirMarkerRequiresTaskToken(t *testing.T) {
+func TestNewAPIClient_WorkdirMarkerRequiresAgentRunToken(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILIECO_SERVER_URL", "http://127.0.0.1:8080")
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 	t.Setenv("SILIECO_DAEMON_PORT", "")
 	t.Setenv("SILIECO_TOKEN", "")
-	chdirWithDaemonTaskMarker(t)
+	chdirWithDaemonRunMarker(t)
 
 	if err := cli.SaveCLIConfig(cli.CLIConfig{Token: "sili_profile_token", WorkspaceID: "config-file-ws"}); err != nil {
 		t.Fatalf("seed config: %v", err)
@@ -602,7 +602,7 @@ func TestAgentUpdateNoFieldsErrorPointsAtEnvCommand(t *testing.T) {
 	t.Setenv("SILIECO_WORKSPACE_ID", "test-ws")
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 
 	cmd := &cobra.Command{Use: "update"}
 	cmd.Flags().String("name", "", "")
@@ -614,7 +614,7 @@ func TestAgentUpdateNoFieldsErrorPointsAtEnvCommand(t *testing.T) {
 	cmd.Flags().String("custom-args", "", "")
 	cmd.Flags().String("visibility", "", "")
 	cmd.Flags().String("status", "", "")
-	cmd.Flags().Int32("max-concurrent-tasks", 0, "")
+	cmd.Flags().Int32("max-concurrent-runs", 0, "")
 	cmd.Flags().String("output", "json", "")
 	cmd.Flags().String("profile", "", "")
 
@@ -652,7 +652,7 @@ func TestAgentCreateDoesNotExposeFromTemplate(t *testing.T) {
 	}
 }
 
-func TestAgentMaxConcurrentTasksFlagValidation(t *testing.T) {
+func TestAgentMaxConcurrentRunsFlagValidation(t *testing.T) {
 	previousDir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -682,14 +682,14 @@ func TestAgentMaxConcurrentTasksFlagValidation(t *testing.T) {
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 
 	newCreateCmd := func(t *testing.T, value string) *cobra.Command {
 		t.Helper()
 		cmd := &cobra.Command{Use: "create"}
 		cmd.Flags().String("name", "", "")
 		cmd.Flags().String("runtime-id", "", "")
-		cmd.Flags().Int32("max-concurrent-tasks", 6, "")
+		cmd.Flags().Int32("max-concurrent-runs", 6, "")
 		cmd.Flags().String("output", "json", "")
 		cmd.Flags().String("profile", "", "")
 		if err := cmd.Flags().Set("name", "TestAgent"); err != nil {
@@ -699,7 +699,7 @@ func TestAgentMaxConcurrentTasksFlagValidation(t *testing.T) {
 			t.Fatal(err)
 		}
 		if value != "" {
-			if err := cmd.Flags().Set("max-concurrent-tasks", value); err != nil {
+			if err := cmd.Flags().Set("max-concurrent-runs", value); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -708,10 +708,10 @@ func TestAgentMaxConcurrentTasksFlagValidation(t *testing.T) {
 	newUpdateCmd := func(t *testing.T, value string) *cobra.Command {
 		t.Helper()
 		cmd := &cobra.Command{Use: "update"}
-		cmd.Flags().Int32("max-concurrent-tasks", 0, "")
+		cmd.Flags().Int32("max-concurrent-runs", 0, "")
 		cmd.Flags().String("output", "json", "")
 		cmd.Flags().String("profile", "", "")
-		if err := cmd.Flags().Set("max-concurrent-tasks", value); err != nil {
+		if err := cmd.Flags().Set("max-concurrent-runs", value); err != nil {
 			t.Fatal(err)
 		}
 		return cmd
@@ -751,8 +751,8 @@ func TestAgentMaxConcurrentTasksFlagValidation(t *testing.T) {
 			if value == "50" {
 				want = 50
 			}
-			if gotBody["max_concurrent_tasks"] != want {
-				t.Fatalf("body max_concurrent_tasks = %v, want %v", gotBody["max_concurrent_tasks"], want)
+			if gotBody["max_concurrent_runs"] != want {
+				t.Fatalf("body max_concurrent_runs = %v, want %v", gotBody["max_concurrent_runs"], want)
 			}
 		})
 
@@ -765,8 +765,8 @@ func TestAgentMaxConcurrentTasksFlagValidation(t *testing.T) {
 			if value == "50" {
 				want = 50
 			}
-			if gotBody["max_concurrent_tasks"] != want {
-				t.Fatalf("body max_concurrent_tasks = %v, want %v", gotBody["max_concurrent_tasks"], want)
+			if gotBody["max_concurrent_runs"] != want {
+				t.Fatalf("body max_concurrent_runs = %v, want %v", gotBody["max_concurrent_runs"], want)
 			}
 		})
 	}
@@ -776,7 +776,7 @@ func TestAgentMaxConcurrentTasksFlagValidation(t *testing.T) {
 		if err := runAgentCreate(newCreateCmd(t, ""), nil); err != nil {
 			t.Fatalf("runAgentCreate: %v", err)
 		}
-		if _, ok := gotBody["max_concurrent_tasks"]; ok {
+		if _, ok := gotBody["max_concurrent_runs"]; ok {
 			t.Fatalf("omitted flag should not be sent: %v", gotBody)
 		}
 	})
@@ -1758,7 +1758,7 @@ func TestAgentCreateSendsThinkingLevel(t *testing.T) {
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 
 	cmd := &cobra.Command{Use: "create"}
 	cmd.Flags().String("name", "", "")
@@ -1803,7 +1803,7 @@ func TestAgentCreateOmitsThinkingLevelWhenUnset(t *testing.T) {
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 
 	cmd := &cobra.Command{Use: "create"}
 	cmd.Flags().String("name", "", "")
@@ -1854,7 +1854,7 @@ func TestAgentUpdateSendsThinkingLevel(t *testing.T) {
 			t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 			t.Setenv("SILIECO_TOKEN", "test-token")
 			t.Setenv("SILIECO_AGENT_ID", "")
-			t.Setenv("SILIECO_TASK_ID", "")
+			t.Setenv("SILIECO_RUN_ID", "")
 
 			cmd := &cobra.Command{Use: "update"}
 			cmd.Flags().String("thinking-level", "", "")
@@ -1917,7 +1917,7 @@ func TestAgentServiceTierFlagsAndBodies(t *testing.T) {
 		t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 		t.Setenv("SILIECO_TOKEN", "test-token")
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 
 		cmd := &cobra.Command{Use: "create"}
 		cmd.Flags().String("name", "", "")
@@ -1950,7 +1950,7 @@ func TestAgentServiceTierFlagsAndBodies(t *testing.T) {
 		t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 		t.Setenv("SILIECO_TOKEN", "test-token")
 		t.Setenv("SILIECO_AGENT_ID", "")
-		t.Setenv("SILIECO_TASK_ID", "")
+		t.Setenv("SILIECO_RUN_ID", "")
 
 		cmd := &cobra.Command{Use: "update"}
 		cmd.Flags().String("service-tier", "", "")
@@ -1986,7 +1986,7 @@ func TestAgentCreateThinkingLevelServerRejectionSurfaces(t *testing.T) {
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 
 	cmd := &cobra.Command{Use: "create"}
 	cmd.Flags().String("name", "", "")

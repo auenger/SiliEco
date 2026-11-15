@@ -10,6 +10,9 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/selfexec"
 )
 
+// BaselineVersion identifies the clean-break Task / AgentRun schema generation.
+const BaselineVersion = "0001_task_domain_baseline"
+
 const maxSearchDepth = 4
 
 var candidateLeaves = []string{

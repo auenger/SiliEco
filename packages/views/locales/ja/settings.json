@@ -31,7 +31,7 @@
       "title": "コメントバーを固定",
       "hint": "Taskのページをスクロールしても、コメントバーを常に下部に固定します。"
     },
-    "issue_link_new_tab": {
+    "task_link_new_tab": {
       "title": "Taskリンクを新しいタブで開く",
       "hint": "説明・コメント・チャット内のTaskリンクを、その場で移動せず新しいタブで開きます。"
     }
@@ -70,7 +70,7 @@
         "label": "検索を開く",
         "description": "どこからでも検索やコマンドを実行します。"
       },
-      "createIssue": {
+      "createTask": {
         "label": "Taskを作成",
         "description": "優先するtask作成フローを開きます。"
       },
@@ -78,7 +78,7 @@
         "label": "サイドバーを切り替え",
         "description": "メインサイドバーの表示を切り替えます。"
       },
-      "findInIssue": {
+      "findInTask": {
         "label": "Task内を検索",
         "description": "開いているtaskの詳細を検索します。"
       },
@@ -94,11 +94,11 @@
         "label": "チャットへ移動",
         "description": "ワークスペースのチャットを開きます。"
       },
-      "goMyIssues": {
+      "goMyTasks": {
         "label": "自分のTasksへ移動",
         "description": "自分に割り当てられたtaskを開きます。"
       },
-      "goIssues": {
+      "goTasks": {
         "label": "Tasksへ移動",
         "description": "Task一覧を開きます。"
       },
@@ -150,7 +150,7 @@
     "floating_label": "フローティングチャット",
     "floating_hint": "すべてのページの隅にフローティングチャットボタンを表示します。デフォルトはオフ——オンにするとどこからでもチャットを呼び出せます。オフのときは専用タブでのみ利用できます。"
   },
-  "issue": {
+  "task": {
     "description": "各作成ダイアログのツールバーに常時表示するフィールドを選択します。非表示のフィールドは ⋯ メニューから引き続き使用でき、値がある間は自動的に表示されます。",
     "quick_create_title": "エージェントで作成",
     "quick_create_description": "クイック作成ツールバーに表示するフィールド。",
@@ -174,7 +174,7 @@
       "profile": "プロフィール",
       "preferences": "環境設定",
       "shortcuts": "ショートカット",
-      "issue": "Task",
+      "task": "Task",
       "chat": "チャット",
       "notifications": "通知",
       "tokens": "API トークン",
@@ -259,7 +259,7 @@
     "title": "ラベル",
     "description": "このワークスペースの Task、エージェント、Skill 用ラベルを個別に管理します。",
     "scopes": {
-      "issue": "Task",
+      "task": "Task",
       "agent": "エージェント",
       "skill": "Skill"
     },
@@ -411,8 +411,8 @@
     "context_label": "コンテキスト",
     "context_placeholder": "このワークスペースで作業する AI エージェント向けの背景情報とコンテキスト",
     "slug_label": "スラッグ",
-    "issue_prefix_label": "Task接頭辞",
-    "issue_prefix_hint": "{{example}} のようなTask番号に使用されます。",
+    "task_prefix_label": "Task接頭辞",
+    "task_prefix_hint": "{{example}} のようなTask番号に使用されます。",
     "prefix_confirm_title": "Task接頭辞を変更しますか？",
     "prefix_confirm_description": "すべてのTask番号が {{oldPrefix}}-N から {{newPrefix}}-N に振り直されます。Pull request のタイトル、ブランチ名、ドキュメントやチャットのリンクなど、{{oldPrefix}}-N を使用している外部参照は解決されなくなります。",
     "save": "保存",

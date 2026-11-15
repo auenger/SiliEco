@@ -12,8 +12,13 @@ import (
 )
 
 const createMember = `-- name: CreateMember :one
-INSERT INTO member (workspace_id, user_id, role)
-VALUES ($1, $2, $3)
+INSERT INTO member (workspace_id, user_id, role) SELECT
+    $1 AS workspace_id,
+    $2 AS user_id,
+    $3 AS role
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_user_id WHERE ref_user_id.id = ($2) FOR KEY SHARE))
+
 RETURNING id, workspace_id, user_id, role, created_at
 `
 
@@ -37,7 +42,16 @@ func (q *Queries) CreateMember(ctx context.Context, arg CreateMemberParams) (Mem
 }
 
 const deleteMember = `-- name: DeleteMember :exec
-DELETE FROM member WHERE id = $1
+WITH RECURSIVE cleanup_target_lark_user_binding AS MATERIALIZED (
+    SELECT child.id, child.workspace_id, child.silieco_user_id, child.installation_id, child.lark_open_id, child.union_id, child.bound_at FROM "lark_user_binding" child WHERE EXISTS (SELECT 1 FROM cleanup_target_member parent WHERE child."workspace_id" = parent."workspace_id" AND child."silieco_user_id" = parent."user_id")
+),
+cleanup_target_member AS MATERIALIZED (
+    SELECT member.id, member.workspace_id, member.user_id, member.role, member.created_at FROM "member" member WHERE member.id = $1
+),
+cleanup_delete_lark_user_binding AS (
+    DELETE FROM "lark_user_binding" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_lark_user_binding)
+)
+DELETE FROM "member" member WHERE (member."id") IN (SELECT "id" FROM cleanup_target_member)
 `
 
 func (q *Queries) DeleteMember(ctx context.Context, id pgtype.UUID) error {

@@ -50,7 +50,7 @@ function repairListItems(node: JsonNode): { node: JsonNode; changed: boolean } {
  * schema-invalid, childless `listItem` (see {@link repairListItems}); the
  * document is then left with an `AllSelection` instead of a cursor, so the
  * browser paints the caret on the following block — the reported bug: "type
- * `1.`, switch issues, come back, the caret jumps off the list item and can't be
+ * `1.`, switch tasks, come back, the caret jumps off the list item and can't be
  * moved back." Note this only affects the round-trip of an *empty* item;
  * non-empty items (`"1. buy milk"`) round-trip byte-identically.
  *

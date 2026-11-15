@@ -33,7 +33,7 @@ const SOURCE = {
   custom_args: [],
   permission_mode: "private",
   invocation_targets: [],
-  max_concurrent_tasks: 6,
+  max_concurrent_runs: 6,
   model: "gpt-5.6-sol",
   thinking_level: "high",
   service_tier: "priority",

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { agentListOptions } from "../workspace/queries";
 import { runtimeListOptions } from "../runtimes/queries";
-import { agentTaskSnapshotOptions } from "./queries";
+import { agentRunSnapshotOptions } from "./queries";
 import {
   buildPresenceMap,
   deriveAgentPresenceDetail,
@@ -59,7 +59,7 @@ export function useWorkspacePresenceMap(wsId: string | undefined): {
     enabled: !!wsId,
   });
   const { data: snapshot, isPending: snapshotPending, isError: snapshotErr } = useQuery({
-    ...agentTaskSnapshotOptions(wsId ?? ""),
+    ...agentRunSnapshotOptions(wsId ?? ""),
     enabled: !!wsId,
   });
   const tick = usePresenceTick();
@@ -95,7 +95,7 @@ export function useWorkspacePresenceMap(wsId: string | undefined): {
 }
 
 /**
- * Single-agent presence detail: availability + last task state + counts +
+ * Single-agent presence detail: availability + last run state + counts +
  * (when failed) failure reason and timestamp. Returns "loading" only while
  * the underlying queries haven't resolved yet — a missing runtime is a
  * real state (offline) and resolves into a non-loading detail.
@@ -106,7 +106,7 @@ export function useWorkspacePresenceMap(wsId: string | undefined): {
  */
 // Synthesised fallback shown when we can't resolve a real agent (deleted,
 // archived, or referenced by stale data) but still need to render something
-// next to the avatar. Yields a gray dot + idle last-task — better than a
+// next to the avatar. Yields a gray dot + idle last-run — better than a
 // skeleton spinning forever.
 const MISSING_AGENT_DETAIL: AgentPresenceDetail = {
   availability: "offline",
@@ -129,7 +129,7 @@ export function useAgentPresenceDetail(
     enabled: !!wsId,
   });
   const { data: snapshot, isError: snapshotErr } = useQuery({
-    ...agentTaskSnapshotOptions(wsId ?? ""),
+    ...agentRunSnapshotOptions(wsId ?? ""),
     enabled: !!wsId,
   });
   const tick = usePresenceTick();
@@ -148,15 +148,15 @@ export function useAgentPresenceDetail(
 
     const agent = safeAgents.find((a) => a.id === agentId);
     // Agent referenced but not in the workspace's active list (most often:
-    // archived assignee on an old issue). Render a gray-offline fallback
+    // archived assignee on an old task). Render a gray-offline fallback
     // instead of looping in "loading".
     if (!agent) return MISSING_AGENT_DETAIL;
     // Missing runtime is a legitimate state (offline) — pass null and let
     // derive handle it.
     const runtime = safeRuntimes.find((r) => r.id === agent.runtime_id) ?? null;
 
-    const tasks = safeSnapshot.filter((t) => t.agent_id === agentId);
-    return deriveAgentPresenceDetail({ agent, runtime, tasks, now: Date.now() });
+    const runs = safeSnapshot.filter((t) => t.agent_id === agentId);
+    return deriveAgentPresenceDetail({ agent, runtime, runs, now: Date.now() });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsId, agentId, agents, runtimes, snapshot, agentsErr, runtimesErr, snapshotErr, tick]);
 }

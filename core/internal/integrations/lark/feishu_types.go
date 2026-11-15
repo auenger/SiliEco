@@ -56,7 +56,7 @@ type InboundMessage struct {
 	ThreadID string
 
 	// CommandBody is the user's OWN typed text (the decoded Body before the
-	// enricher prepends quoted/forwarded context). `/issue` is parsed from
+	// enricher prepends quoted/forwarded context). `/task` is parsed from
 	// THIS, not the enriched Body.
 	CommandBody string
 }
@@ -87,12 +87,12 @@ type DispatchResult struct {
 	InstallationID pgtype.UUID
 	ChatSessionID  pgtype.UUID
 	SenderOpenID   OpenID
-	TaskID         pgtype.UUID
-	IssueID        pgtype.UUID
-	IssueNumber    int32
-	// IssueIdentifier is the workspace-qualified key ("SILI-42") for the
-	// created issue, used verbatim in the confirmation message.
-	IssueIdentifier string
-	// IssueTitle is the title supplied on /issue, echoed in the confirmation.
-	IssueTitle string
+	RunID         pgtype.UUID
+	TaskID        pgtype.UUID
+	TaskNumber    int32
+	// TaskIdentifier is the workspace-qualified key ("SILI-42") for the
+	// created task, used verbatim in the confirmation message.
+	TaskIdentifier string
+	// TaskTitle is the title supplied on /task, echoed in the confirmation.
+	TaskTitle string
 }

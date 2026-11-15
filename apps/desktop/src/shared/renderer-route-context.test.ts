@@ -14,10 +14,10 @@ const reportedAt = new Date("2026-07-27T00:00:00.000Z");
 describe("sanitizeRendererRouteContext", () => {
   it("keeps the bucketed route", () => {
     expect(
-      sanitizeRendererRouteContext({ surface: "tab", path: "/:slug/issues" }, reportedAt),
+      sanitizeRendererRouteContext({ surface: "tab", path: "/:slug/tasks" }, reportedAt),
     ).toEqual({
       surface: "tab",
-      path: "/:slug/issues",
+      path: "/:slug/tasks",
       reportedAt: "2026-07-27T00:00:00.000Z",
     });
   });
@@ -26,10 +26,10 @@ describe("sanitizeRendererRouteContext", () => {
     const sanitized = sanitizeRendererRouteContext(
       {
         surface: "tab",
-        path: "/:slug/issues",
+        path: "/:slug/tasks",
         workspaceSlug: "acme",
         tabId: "tab-1",
-        issueId: "SILI-5345",
+        taskId: "SILI-5345",
       },
       reportedAt,
     );
@@ -37,7 +37,7 @@ describe("sanitizeRendererRouteContext", () => {
     expect(JSON.stringify(sanitized)).not.toContain("acme");
     expect(sanitized).not.toHaveProperty("workspaceSlug");
     expect(sanitized).not.toHaveProperty("tabId");
-    expect(sanitized).not.toHaveProperty("issueId");
+    expect(sanitized).not.toHaveProperty("taskId");
   });
 
   it("rejects a payload with an unknown surface", () => {

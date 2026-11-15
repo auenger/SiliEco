@@ -7,8 +7,8 @@ import type { DiagnosticsControl } from "../shared/diagnostics-control";
 import type { FreezeBreadcrumb } from "../shared/freeze-breadcrumb";
 import type {
   DesktopWindowContext,
-  IssueWindowRequest,
-} from "../shared/issue-window";
+  TaskWindowRequest,
+} from "../shared/task-window";
 import type {
   ManualUpdateCheckResult,
   UpdaterPreferences,
@@ -32,7 +32,7 @@ interface DesktopAPI {
   onSystemLocaleChanged: (callback: (locale: string) => void) => () => void;
   /** Validated runtime endpoint config, or a blocking config error. */
   runtimeConfig: RuntimeConfigResult;
-  /** Main tabbed window or a dedicated issue-only window. */
+  /** Main tabbed window or a dedicated task-only window. */
   windowContext: DesktopWindowContext;
   /** Read any freeze/crash breadcrumb from a previous session, so the renderer
    *  can flush it to telemetry on boot. Null when nothing's pending. Reading
@@ -41,7 +41,7 @@ interface DesktopAPI {
   /** Retire the breadcrumb with this exact timestamp once its event has been
    *  handed to analytics. Unacknowledged breadcrumbs are retried next boot. */
   ackFreeze: (ts: number) => void;
-  /** Report the resolved account identity so stale issue windows can close. */
+  /** Report the resolved account identity so stale task windows can close. */
   reportAuthSession: (userId: string | null) => void;
   /** Listen for auth token delivered via deep link. Returns an unsubscribe function. */
   onAuthToken: (callback: (token: string) => void) => () => void;
@@ -58,7 +58,7 @@ interface DesktopAPI {
   showNotification: (payload: {
     slug: string;
     itemId: string;
-    issueKey: string;
+    taskKey: string;
     title: string;
     body: string;
   }) => void;
@@ -69,7 +69,7 @@ interface DesktopAPI {
     callback: (payload: {
       slug: string;
       itemId: string;
-      issueKey: string;
+      taskKey: string;
     }) => void,
   ) => () => void;
   /** Listen for native macOS back/forward swipe gestures. Returns an unsubscribe function. */
@@ -119,9 +119,9 @@ interface DesktopAPI {
   onCloseActiveTab: (callback: () => void) => () => void;
   /** Ask the main process to close the window. */
   closeWindow: () => void;
-  /** Open an issue-detail tab in a dedicated native window. */
-  openIssueWindow: (
-    request: IssueWindowRequest,
+  /** Open an task-detail tab in a dedicated native window. */
+  openTaskWindow: (
+    request: TaskWindowRequest,
   ) => Promise<{ ok: true } | { ok: false; reason: "invalid_request" }>;
 }
 

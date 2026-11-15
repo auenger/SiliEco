@@ -17,6 +17,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"github.com/silieco-ai/silieco/core/internal/auth"
+	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
 // MembershipChecker verifies a user belongs to a workspace.
@@ -713,13 +714,17 @@ func firstMessageAuth(conn *websocket.Conn) (string, string) {
 	var msg struct {
 		Type    string `json:"type"`
 		Payload struct {
-			Token string `json:"token"`
+			Token              string `json:"token"`
+			ProtocolGeneration string `json:"protocol_generation"`
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(raw, &msg); err != nil || msg.Type != "auth" || msg.Payload.Token == "" {
 		return "", `{"error":"expected auth message as first frame"}`
 	}
 
+	if msg.Payload.ProtocolGeneration != protocol.Generation {
+		return "", `{"error":"unsupported protocol generation","required_protocol":"task-run-v1"}`
+	}
 	return msg.Payload.Token, ""
 }
 
@@ -744,6 +749,10 @@ func writeWSAuthErrorAndClose(conn *websocket.Conn, payload []byte, attrs ...any
 // HandleWebSocket upgrades an HTTP connection to WebSocket with cookie or
 // first-message auth.
 func HandleWebSocket(hub *Hub, mc MembershipChecker, pr PATResolver, resolveSlug SlugResolver, w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("protocol_generation") != protocol.Generation {
+		http.Error(w, `{"error":"unsupported protocol generation","required_protocol":"task-run-v1"}`, http.StatusUpgradeRequired)
+		return
+	}
 	workspaceID := r.URL.Query().Get("workspace_id")
 	if workspaceID == "" {
 		if slug := r.URL.Query().Get("workspace_slug"); slug != "" && resolveSlug != nil {
@@ -929,7 +938,7 @@ func (c *Client) handleSubscribe(scope, id string) {
 		}
 		// Already auto-subscribed at connect time; reply ack idempotently.
 		c.hub.subscribe(c, scope, id)
-	case ScopeTask, ScopeChat:
+	case ScopeRun, ScopeChat:
 		auth := c.hub.authorizer
 		if auth != nil {
 			ok, err := auth.AuthorizeScope(context.Background(), c.userID, c.workspaceID, scope, id)

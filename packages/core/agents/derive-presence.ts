@@ -1,10 +1,10 @@
 // Pure derivation of an agent's user-facing presence from raw server data.
-// The back-end stores facts (which tasks exist, their statuses, the runtime
+// The back-end stores facts (which runs exist, their statuses, the runtime
 // last_seen_at); the front-end translates them into two orthogonal
 // dimensions:
 //
 //   1. AgentAvailability — derived from runtime reachability only.
-//   2. Workload          — derived from the task counts only.
+//   2. Workload          — derived from the run counts only.
 //
 // They are computed independently and assembled into AgentPresenceDetail.
 // Workload is strictly "what's on the plate right now" — no historical
@@ -12,7 +12,7 @@
 // (Recent Work, failure_reason) and Inbox.
 
 import { deriveRuntimeHealth } from "../runtimes/derive-health";
-import type { Agent, AgentRuntime, AgentTask } from "../types";
+import type { Agent, AgentRuntime, AgentRun } from "../types";
 import type {
   AgentAvailability,
   AgentPresenceDetail,
@@ -37,7 +37,7 @@ export function deriveAgentAvailability(
 // Atomic workload derivation: pure 3-way classification of running/queued
 // counts. Exported so Runtime-level views (which already aggregate counts
 // per-runtime in their own indices) can plug into the same vocabulary
-// without re-deriving from raw task arrays.
+// without re-deriving from raw run arrays.
 export function deriveWorkload(counts: {
   runningCount: number;
   queuedCount: number;
@@ -53,19 +53,19 @@ interface WorkloadDetail {
   queuedCount: number;
 }
 
-// Aggregates a task list into running/queued counts, then classifies via
+// Aggregates a run list into running/queued counts, then classifies via
 // deriveWorkload. Caller pre-filters to the relevant scope (per-agent or
 // per-runtime) — we don't filter again here.
-export function deriveWorkloadDetail(tasks: readonly AgentTask[]): WorkloadDetail {
+export function deriveWorkloadDetail(runs: readonly AgentRun[]): WorkloadDetail {
   let runningCount = 0;
   let queuedCount = 0;
-  for (const t of tasks) {
+  for (const t of runs) {
     if (t.status === "running") {
       runningCount += 1;
     } else if (
       t.status === "queued" ||
       t.status === "dispatched" ||
-      // The daemon parked this task on a busy local_directory path. It's
+      // The daemon parked this run on a busy local_directory path. It's
       // still on the agent's plate (counts toward "queued" presence), but
       // it hasn't reached the run phase yet.
       t.status === "waiting_local_directory"
@@ -87,36 +87,36 @@ interface DerivePresenceInput {
   runtime: AgentRuntime | null;
   // Tasks for THIS agent only. Callers (buildPresenceMap, hooks) pre-filter
   // by agent_id — we don't re-check here.
-  tasks: readonly AgentTask[];
+  runs: readonly AgentRun[];
   // Wall-clock millis used by deriveAgentAvailability to bucket runtime
   // health. Threading it as a parameter keeps the function pure.
   now: number;
 }
 
 export function deriveAgentPresenceDetail(input: DerivePresenceInput): AgentPresenceDetail {
-  // Archived wins over every runtime/task signal — a retired agent must
+  // Archived wins over every runtime/run signal — a retired agent must
   // never read as live anywhere. Short-circuit before deriving runtime
   // health or workload so a leftover online runtime row or a stale snapshot
-  // task can't leak "Online" / "Working" into any consumer.
+  // run can't leak "Online" / "Working" into any consumer.
   if (input.agent.archived_at) {
     return {
       availability: "archived",
       workload: "idle",
       runningCount: 0,
       queuedCount: 0,
-      capacity: input.agent.max_concurrent_tasks,
+      capacity: input.agent.max_concurrent_runs,
     };
   }
 
   const availability = deriveAgentAvailability(input.runtime, input.now);
-  const detail = deriveWorkloadDetail(input.tasks);
+  const detail = deriveWorkloadDetail(input.runs);
 
   return {
     availability,
     workload: detail.workload,
     runningCount: detail.runningCount,
     queuedCount: detail.queuedCount,
-    capacity: input.agent.max_concurrent_tasks,
+    capacity: input.agent.max_concurrent_runs,
   };
 }
 
@@ -126,20 +126,20 @@ export function deriveAgentPresenceDetail(input: DerivePresenceInput): AgentPres
 export function buildPresenceMap(args: {
   agents: readonly Agent[];
   runtimes: readonly AgentRuntime[];
-  // The workspace agent task snapshot: every active task plus each agent's
-  // most recent terminal task. Comes straight from getAgentTaskSnapshot()
+  // The workspace agent run snapshot: every active run plus each agent's
+  // most recent terminal run. Comes straight from getAgentRunSnapshot()
   // — no pre-filtering needed. Terminal rows are silently ignored by
   // deriveWorkloadDetail (workload is current-state only).
-  snapshot: readonly AgentTask[];
+  snapshot: readonly AgentRun[];
   now: number;
 }): Map<string, AgentPresenceDetail> {
   const out = new Map<string, AgentPresenceDetail>();
   const runtimesById = new Map<string, AgentRuntime>();
   for (const r of args.runtimes) runtimesById.set(r.id, r);
 
-  // Group tasks by agent_id once — O(N) — so per-agent derivation is O(1)
-  // task scans rather than O(N×M).
-  const tasksByAgent = new Map<string, AgentTask[]>();
+  // Group runs by agent_id once — O(N) — so per-agent derivation is O(1)
+  // run scans rather than O(N×M).
+  const tasksByAgent = new Map<string, AgentRun[]>();
   for (const t of args.snapshot) {
     const list = tasksByAgent.get(t.agent_id);
     if (list) list.push(t);
@@ -148,8 +148,8 @@ export function buildPresenceMap(args: {
 
   for (const agent of args.agents) {
     const runtime = runtimesById.get(agent.runtime_id) ?? null;
-    const tasks = tasksByAgent.get(agent.id) ?? [];
-    out.set(agent.id, deriveAgentPresenceDetail({ agent, runtime, tasks, now: args.now }));
+    const runs = tasksByAgent.get(agent.id) ?? [];
+    out.set(agent.id, deriveAgentPresenceDetail({ agent, runtime, runs, now: args.now }));
   }
   return out;
 }

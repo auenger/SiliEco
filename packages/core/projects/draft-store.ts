@@ -27,7 +27,7 @@ const EMPTY_DRAFT: ProjectDraft = {
 };
 
 export const useProjectDraftStore = createDraftStore<ProjectDraft>({
-  storageKey: "silieco_project_draft",
+  storageKey: "silieco_tr1_project_draft",
   emptyData: EMPTY_DRAFT,
   hasMeaningful: (d) => !!(d.title || d.description),
 });

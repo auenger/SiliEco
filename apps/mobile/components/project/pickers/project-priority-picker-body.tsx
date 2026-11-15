@@ -1,6 +1,6 @@
 /**
  * Pure picker body for project priority — single-select over the 5
- * ProjectPriority enum values. See issue/pickers/status-picker-body.tsx for
+ * ProjectPriority enum values. See task/pickers/status-picker-body.tsx for
  * the "extract body, route owns shell" rationale.
  */
 import { Pressable, ScrollView, View } from "react-native";

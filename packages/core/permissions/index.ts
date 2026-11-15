@@ -12,7 +12,7 @@ export type {
   PermissionContext,
 } from "./types";
 
-export { canAssignAgentToIssue, canEditAgent } from "./rules";
+export { canAssignAgentToTask, canEditAgent } from "./rules";
 
 export {
   useAgentPermissions,

@@ -50,9 +50,9 @@ export interface UseLazyEditorOptions {
 }
 
 /**
- * Shared controller for readonly-first editors (issue title / comment /
+ * Shared controller for readonly-first editors (task title / comment /
  * reply). Tiptap instantiation costs ~70-460ms per editor on the
- * main thread, so every always-mounted editor makes opening an issue jankier
+ * main thread, so every always-mounted editor makes opening an task jankier
  * (measured: 2-4 editors per open froze the click for 0.4-1.3s). The pattern:
  *
  *   1. Render a cheap static stand-in while `!active`.
@@ -70,7 +70,7 @@ export interface UseLazyEditorOptions {
  *     <Editor ref={editorRef} onReady={lazy.onReady} ... /></div>}
  *   {!lazy.ready && <StaticStandIn onClick={e => lazy.activate({x: e.clientX, y: e.clientY})} />}
  *
- * Hosts that outlive a subject switch without remounting (the web issue
+ * Hosts that outlive a subject switch without remounting (the web task
  * route) must pass `resetKey`; keyed hosts get the reset for free by
  * remounting.
  */

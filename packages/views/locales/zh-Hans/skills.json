@@ -409,7 +409,7 @@
       "skill_instruction": "skill 指令问题",
       "insufficient_input": "输入不足",
       "tool_failure": "工具故障",
-      "contract_issue": "契约问题",
+      "contract_task": "契约问题",
       "model_capability": "模型能力",
       "human_correction": "人工修正",
       "positive_example": "优秀样例"

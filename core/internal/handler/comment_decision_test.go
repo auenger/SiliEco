@@ -27,13 +27,13 @@ func TestDecidePostMergeMiss(t *testing.T) {
 			t.Errorf("got status %s enqueueFresh %v, want blocked + no fresh enqueue", status, enqueueFresh)
 		}
 	})
-	t.Run("active task: defer, no fresh enqueue", func(t *testing.T) {
+	t.Run("active run: defer, no fresh enqueue", func(t *testing.T) {
 		status, reason, enqueueFresh := decidePostMergeMiss(true, nil)
 		if enqueueFresh || status != DispatchDeferred || reason != ReasonDeferred {
 			t.Errorf("got %s/%s enqueueFresh %v, want deferred + no fresh enqueue", status, reason, enqueueFresh)
 		}
 	})
-	t.Run("no active task: enqueue a fresh follow-up", func(t *testing.T) {
+	t.Run("no active run: enqueue a fresh follow-up", func(t *testing.T) {
 		_, _, enqueueFresh := decidePostMergeMiss(false, nil)
 		if !enqueueFresh {
 			t.Error("enqueueFresh = false with no active task; a fresh follow-up must run")
@@ -59,7 +59,7 @@ func TestCommentMergeTerminalOutcome(t *testing.T) {
 		{"real merge coalesces", commentMergeSucceeded, true, DispatchCoalesced, ReasonCoalesced},
 		{"attribution fail-closed is blocked, not success", commentMergeAttributionBlocked, true, DispatchBlocked, ReasonAttributionBlocked},
 		{"unknown error is blocked, not success", commentMergeError, true, DispatchBlocked, ReasonInternalError},
-		{"no pending task defers to active-task decision", commentMergeNoPendingTask, false, "", ""},
+		{"no pending task defers to active-task decision", commentMergeNoPendingRun, false, "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

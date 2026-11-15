@@ -421,7 +421,7 @@
       "skill_instruction": "Skill instructions",
       "insufficient_input": "Insufficient input",
       "tool_failure": "Tool failure",
-      "contract_issue": "Contract issue",
+      "contract_task": "Contract task",
       "model_capability": "Model capability",
       "human_correction": "Human correction",
       "positive_example": "Positive example"

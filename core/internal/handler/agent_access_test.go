@@ -101,7 +101,7 @@ func privateAgentTestFixture(t *testing.T) (agentID, ownerID, memberID string) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id,
+			runtime_id, visibility, max_concurrent_runs, owner_id,
 			instructions, custom_env, custom_args
 		)
 		VALUES ($1, 'private-access-test-agent', '', 'cloud', '{}'::jsonb,
@@ -206,7 +206,7 @@ func listContainsAgent(t *testing.T, body []byte, agentID string) bool {
 
 // TestListAgentTasks_PrivateAgentForbidsPlainMember verifies that the agent
 // task history endpoint (the "查看历史会话" surface) is also gated.
-func TestListAgentTasks_PrivateAgentForbidsPlainMember(t *testing.T) {
+func TestListAgentRuns_PrivateAgentForbidsPlainMember(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -214,23 +214,23 @@ func TestListAgentTasks_PrivateAgentForbidsPlainMember(t *testing.T) {
 	agentID, ownerID, memberID := privateAgentTestFixture(t)
 
 	w := httptest.NewRecorder()
-	testHandler.ListAgentTasks(w, withURLParam(newRequestAs(ownerID, "GET", "/api/agents/"+agentID+"/tasks", nil), "id", agentID))
+	testHandler.ListAgentRuns(w, withURLParam(newRequestAs(ownerID, "GET", "/api/agents/"+agentID+"/tasks", nil), "id", agentID))
 	if w.Code != http.StatusOK {
 		t.Fatalf("ListAgentTasks as owner: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	w = httptest.NewRecorder()
-	testHandler.ListAgentTasks(w, withURLParam(newRequestAs(memberID, "GET", "/api/agents/"+agentID+"/tasks", nil), "id", agentID))
+	testHandler.ListAgentRuns(w, withURLParam(newRequestAs(memberID, "GET", "/api/agents/"+agentID+"/tasks", nil), "id", agentID))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("ListAgentTasks as plain member: expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-// TestCreateIssue_AssignToPrivateAgentForbidsPlainMember verifies that the
-// issue-assignment surface is gated by the same predicate. Without this gate
+// TestCreateTask_AssignToPrivateAgentForbidsPlainMember verifies that the
+// task-assignment surface is gated by the same predicate. Without this gate
 // a plain workspace member could side-step chat/@-mention by assigning a
-// private agent to an issue and letting normal task dispatch run it.
-func TestCreateIssue_AssignToPrivateAgentForbidsPlainMember(t *testing.T) {
+// private agent to an task and letting normal task dispatch run it.
+func TestCreateTask_AssignToPrivateAgentForbidsPlainMember(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -251,25 +251,25 @@ func TestCreateIssue_AssignToPrivateAgentForbidsPlainMember(t *testing.T) {
 	// the invocation-permission model (SILI-3963) — admin/owner status no
 	// longer grants the ability to invoke someone else's private agent.
 	w := httptest.NewRecorder()
-	testHandler.CreateIssue(w, newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, body(testUserID)))
+	testHandler.CreateTask(w, newRequest("POST", "/api/tasks?workspace_id="+testWorkspaceID, body(testUserID)))
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("CreateIssue as workspace owner (not agent owner): expected 403, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("CreateTask as workspace owner (not agent owner): expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// Agent owner (plain member who happens to own the agent): allowed.
 	w = httptest.NewRecorder()
-	testHandler.CreateIssue(w, newRequestAs(ownerID, "POST", "/api/issues?workspace_id="+testWorkspaceID, body(ownerID)))
+	testHandler.CreateTask(w, newRequestAs(ownerID, "POST", "/api/tasks?workspace_id="+testWorkspaceID, body(ownerID)))
 	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateIssue as agent owner: expected 201, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("CreateTask as agent owner: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Plain member: denied with 403 — closes the back door where issue
+	// Plain member: denied with 403 — closes the back door where task
 	// assignment would otherwise hand the agent a task without going
 	// through chat / @-mention.
 	w = httptest.NewRecorder()
-	testHandler.CreateIssue(w, newRequestAs(memberID, "POST", "/api/issues?workspace_id="+testWorkspaceID, body(memberID)))
+	testHandler.CreateTask(w, newRequestAs(memberID, "POST", "/api/tasks?workspace_id="+testWorkspaceID, body(memberID)))
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("CreateIssue as plain member: expected 403, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("CreateTask as plain member: expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -310,7 +310,7 @@ func TestCreateChatSession_PrivateAgentForbidsPlainMember(t *testing.T) {
 // TestGetAgent_RejectsForgedAgentIDHeader is the regression test for the
 // #2359 review finding "X-Agent-ID can be forged by a plain member to bypass
 // the private gate". A workspace member sets X-Agent-ID to any visible
-// agent's UUID without supplying a valid X-Task-ID — resolveActor must now
+// agent's UUID without supplying a valid X-Run-ID — resolveActor must now
 // fall back to the member identity, so the private-agent gate stays effective.
 func TestGetAgent_RejectsForgedAgentIDHeader(t *testing.T) {
 	if testHandler == nil {
@@ -321,7 +321,7 @@ func TestGetAgent_RejectsForgedAgentIDHeader(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := newRequestAs(memberID, "GET", "/api/agents/"+agentID, nil)
-	// Forge X-Agent-ID without X-Task-ID. Pre-fix this would have made
+	// Forge X-Agent-ID without X-Run-ID. Pre-fix this would have made
 	// resolveActor return ("agent", agentID) and canAccessPrivateAgent
 	// would have unconditionally allowed the read.
 	req.Header.Set("X-Agent-ID", agentID)
@@ -385,7 +385,7 @@ func TestListChatMessages_PrivateAgentForbidsAfterAccessRevoked(t *testing.T) {
 // the #2359 review finding "@mention path doesn't constrain the mentioned
 // agent to the current workspace". A plain member in workspace A who happens
 // to be owner of workspace B should NOT be able to @mention a private agent
-// in workspace B from a comment on a workspace-A issue and have it pass the
+// in workspace B from a comment on a workspace-A task and have it pass the
 // gate (the gate was being applied against the wrong workspace's roles).
 func TestMentionAgent_RejectsCrossWorkspaceAgentUUID(t *testing.T) {
 	if testHandler == nil {
@@ -409,7 +409,7 @@ func TestMentionAgent_RejectsCrossWorkspaceAgentUUID(t *testing.T) {
 	})
 
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO workspace (name, slug, description, issue_prefix)
+		INSERT INTO workspace (name, slug, description, task_prefix)
 		VALUES ('Cross-WS Foreign', 'cross-ws-foreign', '', 'XWF')
 		RETURNING id
 	`).Scan(&foreignWorkspaceID); err != nil {
@@ -433,46 +433,46 @@ func TestMentionAgent_RejectsCrossWorkspaceAgentUUID(t *testing.T) {
 		t.Fatalf("create foreign runtime: %v", err)
 	}
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent (workspace_id, name, description, runtime_mode, runtime_config, runtime_id, visibility, max_concurrent_tasks, owner_id, instructions, custom_env, custom_args)
+		INSERT INTO agent (workspace_id, name, description, runtime_mode, runtime_config, runtime_id, visibility, max_concurrent_runs, owner_id, instructions, custom_env, custom_args)
 		VALUES ($1, 'foreign-private-agent', '', 'cloud', '{}'::jsonb, $2, 'private', 1, $3, '', '{}'::jsonb, '[]'::jsonb)
 		RETURNING id
 	`, foreignWorkspaceID, foreignRuntimeID, foreignUserID).Scan(&foreignAgentID); err != nil {
 		t.Fatalf("create foreign agent: %v", err)
 	}
 
-	// Create an issue in OUR workspace and a comment that @mentions the
+	// Create an task in OUR workspace and a comment that @mentions the
 	// foreign agent's UUID. testUserID is owner of our workspace; pre-fix
 	// the gate would have applied our-workspace-owner status to the foreign
 	// agent and enqueued a task.
-	var issueID, commentID string
+	var taskID, commentID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, number)
+		INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, number)
 		VALUES ($1, 'cross-ws mention test', 'todo', 'medium', 'member', $2,
-		        COALESCE((SELECT MAX(number) FROM issue WHERE workspace_id = $1), 0) + 1)
+		        COALESCE((SELECT MAX(number) FROM task WHERE workspace_id = $1), 0) + 1)
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("create test issue: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("create test task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	// Silieco's mention format is markdown-linked: [@Name](mention://agent/<uuid>).
 	mention := "[@Foreign](mention://agent/" + foreignAgentID + ")"
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO comment (workspace_id, issue_id, author_type, author_id, content)
+		INSERT INTO comment (workspace_id, task_id, author_type, author_id, content)
 		VALUES ($1, $2, 'member', $3, $4)
 		RETURNING id
-	`, testWorkspaceID, issueID, testUserID, mention).Scan(&commentID); err != nil {
+	`, testWorkspaceID, taskID, testUserID, mention).Scan(&commentID); err != nil {
 		t.Fatalf("create test comment: %v", err)
 	}
 	t.Cleanup(func() {
 		testPool.Exec(context.Background(), `DELETE FROM comment WHERE id = $1`, commentID)
 	})
 
-	issue, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueID))
+	task, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskID))
 	if err != nil {
-		t.Fatalf("load test issue: %v", err)
+		t.Fatalf("load test task: %v", err)
 	}
 	comment, err := testHandler.Queries.GetComment(ctx, util.MustParseUUID(commentID))
 	if err != nil {
@@ -484,17 +484,17 @@ func TestMentionAgent_RejectsCrossWorkspaceAgentUUID(t *testing.T) {
 	// workspace-scoping check.
 	var beforeCount int
 	if err := testPool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM agent_task_queue WHERE agent_id = $1`,
+		`SELECT COUNT(*) FROM agent_run WHERE agent_id = $1`,
 		foreignAgentID,
 	).Scan(&beforeCount); err != nil {
 		t.Fatalf("count tasks before: %v", err)
 	}
 
-	enqueueMentionedAgentTasksForTest(t, ctx, issue, comment, nil, "member", testUserID)
+	enqueueMentionedAgentRunsForTest(t, ctx, task, comment, nil, "member", testUserID)
 
 	var afterCount int
 	if err := testPool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM agent_task_queue WHERE agent_id = $1`,
+		`SELECT COUNT(*) FROM agent_run WHERE agent_id = $1`,
 		foreignAgentID,
 	).Scan(&afterCount); err != nil {
 		t.Fatalf("count tasks after: %v", err)
@@ -506,8 +506,8 @@ func TestMentionAgent_RejectsCrossWorkspaceAgentUUID(t *testing.T) {
 }
 
 // TestShouldEnqueueOnComment_PrivateAgentGate is the regression test for
-// GH #3300: after an owner/admin assigns a private agent to an issue, the
-// agent's UUID is "welded" onto that issue and any member with comment
+// GH #3300: after an owner/admin assigns a private agent to an task, the
+// agent's UUID is "welded" onto that task and any member with comment
 // access could previously dispatch a new task to the private agent simply by
 // posting a plain (non-@mention) comment, bypassing the visibility gate that
 // #2359 added to chat / @mention / assignment.
@@ -525,27 +525,27 @@ func TestShouldEnqueueOnComment_PrivateAgentGate(t *testing.T) {
 	ctx := context.Background()
 	agentID, ownerID, memberID := privateAgentTestFixture(t)
 
-	// Assign the private agent to a fresh issue. Owner/admin would normally
+	// Assign the private agent to a fresh task. Owner/admin would normally
 	// be the one performing this step; we insert directly so the test
 	// focuses on the on_comment trigger path.
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id,
+		INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id,
 		                   assignee_type, assignee_id, number)
 		VALUES ($1, 'on_comment private-agent gate test', 'todo', 'medium', 'member', $2,
 		        'agent', $3,
-		        COALESCE((SELECT MAX(number) FROM issue WHERE workspace_id = $1), 0) + 1)
+		        COALESCE((SELECT MAX(number) FROM task WHERE workspace_id = $1), 0) + 1)
 		RETURNING id
-	`, testWorkspaceID, testUserID, agentID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue assigned to private agent: %v", err)
+	`, testWorkspaceID, testUserID, agentID).Scan(&taskID); err != nil {
+		t.Fatalf("create task assigned to private agent: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
-	issue, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueID))
+	task, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskID))
 	if err != nil {
-		t.Fatalf("load issue: %v", err)
+		t.Fatalf("load task: %v", err)
 	}
 
 	cases := []struct {
@@ -587,7 +587,7 @@ func TestShouldEnqueueOnComment_PrivateAgentGate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-				got := testHandler.shouldEnqueueAssigneeFallback(ctx, issue, tc.actorType, tc.actorID, commentTriggerComputeOptions{})
+			got := testHandler.shouldEnqueueAssigneeFallback(ctx, task, tc.actorType, tc.actorID, commentTriggerComputeOptions{})
 			if got != tc.want {
 				t.Fatalf("%s\n  actor=%s/%s got=%v want=%v",
 					tc.reason, tc.actorType, tc.actorID, got, tc.want)

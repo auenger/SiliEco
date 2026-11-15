@@ -120,11 +120,11 @@ func init() {
 	autopilotCreateCmd.Flags().String("title", "", "Autopilot title (required)")
 	autopilotCreateCmd.Flags().String("description", "", "Autopilot description (used as task prompt)")
 	autopilotCreateCmd.Flags().String("agent", "", "Assignee agent (name or ID) — required")
-	autopilotCreateCmd.Flags().String("mode", "", "Execution mode: create_issue or run_only (required)")
-	autopilotCreateCmd.Flags().String("priority", "none", "Priority for created issues (none, low, medium, high, urgent)")
+	autopilotCreateCmd.Flags().String("mode", "", "Execution mode: create_task or run_only (required)")
+	autopilotCreateCmd.Flags().String("priority", "none", "Priority for created tasks (none, low, medium, high, urgent)")
 	autopilotCreateCmd.Flags().String("project", "", "Project ID (optional)")
-	autopilotCreateCmd.Flags().String("issue-title-template", "", "Template for issue titles (create_issue mode). Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected at create-time.")
-	autopilotCreateCmd.Flags().StringArray("subscriber", nil, "Member subscriber to notify for issues this autopilot creates (name or user ID; repeatable)")
+	autopilotCreateCmd.Flags().String("task-title-template", "", "Template for task titles (create_task mode). Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected at create-time.")
+	autopilotCreateCmd.Flags().StringArray("subscriber", nil, "Member subscriber to notify for tasks this autopilot creates (name or user ID; repeatable)")
 	autopilotCreateCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// update
@@ -134,8 +134,8 @@ func init() {
 	autopilotUpdateCmd.Flags().String("project", "", "New project ID (use empty string to clear)")
 	autopilotUpdateCmd.Flags().String("priority", "", "New priority")
 	autopilotUpdateCmd.Flags().String("status", "", "New status (active, paused)")
-	autopilotUpdateCmd.Flags().String("mode", "", "New execution mode (create_issue or run_only)")
-	autopilotUpdateCmd.Flags().String("issue-title-template", "", "New issue title template. Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected.")
+	autopilotUpdateCmd.Flags().String("mode", "", "New execution mode (create_task or run_only)")
+	autopilotUpdateCmd.Flags().String("task-title-template", "", "New task title template. Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected.")
 	autopilotUpdateCmd.Flags().StringArray("subscriber", nil, "Replace subscribers with this member (name or user ID; repeatable)")
 	autopilotUpdateCmd.Flags().Bool("clear-subscribers", false, "Remove all autopilot subscribers")
 	autopilotUpdateCmd.Flags().String("output", "json", "Output format: table or json")
@@ -280,10 +280,10 @@ func runAutopilotCreate(cmd *cobra.Command, _ []string) error {
 	}
 	mode, _ := cmd.Flags().GetString("mode")
 	if mode == "" {
-		return fmt.Errorf("--mode is required (create_issue or run_only)")
+		return fmt.Errorf("--mode is required (create_task or run_only)")
 	}
-	if mode != "create_issue" && mode != "run_only" {
-		return fmt.Errorf("--mode must be create_issue or run_only")
+	if mode != "create_task" && mode != "run_only" {
+		return fmt.Errorf("--mode must be create_task or run_only")
 	}
 
 	ctx, cancel := cli.APIContext(context.Background())
@@ -313,8 +313,8 @@ func runAutopilotCreate(cmd *cobra.Command, _ []string) error {
 		}
 		body["project_id"] = projectRef.ID
 	}
-	if v, _ := cmd.Flags().GetString("issue-title-template"); v != "" {
-		body["issue_title_template"] = v
+	if v, _ := cmd.Flags().GetString("task-title-template"); v != "" {
+		body["task_title_template"] = v
 	}
 	if subscriberRefs, _ := cmd.Flags().GetStringArray("subscriber"); len(subscriberRefs) > 0 {
 		subscribers, err := resolveAutopilotSubscriberInputs(ctx, client, subscriberRefs)
@@ -391,14 +391,14 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 	}
 	if cmd.Flags().Changed("mode") {
 		v, _ := cmd.Flags().GetString("mode")
-		if v != "create_issue" && v != "run_only" {
-			return fmt.Errorf("--mode must be create_issue or run_only")
+		if v != "create_task" && v != "run_only" {
+			return fmt.Errorf("--mode must be create_task or run_only")
 		}
 		body["execution_mode"] = v
 	}
-	if cmd.Flags().Changed("issue-title-template") {
-		v, _ := cmd.Flags().GetString("issue-title-template")
-		body["issue_title_template"] = v
+	if cmd.Flags().Changed("task-title-template") {
+		v, _ := cmd.Flags().GetString("task-title-template")
+		body["task_title_template"] = v
 	}
 	clearSubscribers, _ := cmd.Flags().GetBool("clear-subscribers")
 	subscriberRefs, _ := cmd.Flags().GetStringArray("subscriber")
@@ -519,14 +519,14 @@ func runAutopilotRuns(cmd *cobra.Command, args []string) error {
 		return cli.PrintJSON(os.Stdout, resp)
 	}
 
-	headers := []string{"ID", "SOURCE", "STATUS", "ISSUE", "TRIGGERED_AT", "COMPLETED_AT"}
+	headers := []string{"ID", "SOURCE", "STATUS", "TASK", "TRIGGERED_AT", "COMPLETED_AT"}
 	rows := make([][]string, 0, len(resp.Runs))
 	for _, r := range resp.Runs {
 		rows = append(rows, []string{
 			strVal(r, "id"),
 			strVal(r, "source"),
 			strVal(r, "status"),
-			strVal(r, "issue_id"),
+			strVal(r, "task_id"),
 			strVal(r, "triggered_at"),
 			strVal(r, "completed_at"),
 		})

@@ -12,7 +12,7 @@ import (
 func TestMain(m *testing.M) {
 	for _, key := range []string{
 		"SILIECO_AGENT_ID",
-		"SILIECO_TASK_ID",
+		"SILIECO_RUN_ID",
 		"SILIECO_TOKEN",
 		"SILIECO_DAEMON_PORT",
 		"SILIECO_WORKSPACE_ID",

@@ -18,9 +18,9 @@ import (
 
 type fakePatcherQueries struct {
 	mu                  sync.Mutex
-	task                db.AgentTaskQueue
-	taskErr             error
-	taskChannelIngested bool
+	agentRun                db.AgentRun
+	runErr             error
+	runChannelIngested bool
 	binding             ChatSessionBinding
 	bindingErr          error
 	installation        Installation
@@ -34,11 +34,11 @@ type fakePatcherQueries struct {
 	statusUpdates       []UpdateOutboundCardStatusParams
 }
 
-func (f *fakePatcherQueries) GetAgentTask(ctx context.Context, id pgtype.UUID) (db.AgentTaskQueue, error) {
-	return f.task, f.taskErr
+func (f *fakePatcherQueries) GetAgentRun(ctx context.Context, id pgtype.UUID) (db.AgentRun, error) {
+	return f.agentRun, f.runErr
 }
-func (f *fakePatcherQueries) TaskHasChannelIngestedMessages(ctx context.Context, taskID pgtype.UUID) (bool, error) {
-	return f.taskChannelIngested, nil
+func (f *fakePatcherQueries) RunHasChannelIngestedMessages(ctx context.Context, runID pgtype.UUID) (bool, error) {
+	return f.runChannelIngested, nil
 }
 func (f *fakePatcherQueries) GetChatSession(ctx context.Context, id pgtype.UUID) (db.ChatSession, error) {
 	return db.ChatSession{}, nil
@@ -52,7 +52,7 @@ func (f *fakePatcherQueries) GetLarkInstallation(ctx context.Context, id pgtype.
 func (f *fakePatcherQueries) GetLarkChatSessionBindingBySession(ctx context.Context, sessID pgtype.UUID) (ChatSessionBinding, error) {
 	return f.binding, f.bindingErr
 }
-func (f *fakePatcherQueries) GetLarkOutboundCardByTask(ctx context.Context, taskID pgtype.UUID) (OutboundCardMessage, error) {
+func (f *fakePatcherQueries) GetLarkOutboundCardByRun(ctx context.Context, runID pgtype.UUID) (OutboundCardMessage, error) {
 	return f.card, f.cardErr
 }
 func (f *fakePatcherQueries) CreateLarkOutboundCardMessage(ctx context.Context, arg CreateOutboundCardMessageParams) (OutboundCardMessage, error) {
@@ -204,18 +204,18 @@ func newTestPatcher(t *testing.T) (*Patcher, *fakePatcherQueries, *fakeAPIClient
 // a sealed channel task owns an input batch exactly like a direct task, so
 // gating outbound on owner presence alone would silently drop every channel
 // reply. Channel provenance must let the reply through.
-func TestPatcherSendsSealedChannelTaskReply(t *testing.T) {
+func TestPatcherSendsSealedChannelRunReply(t *testing.T) {
 	p, q, api := newTestPatcher(t)
-	taskID := uuidFromString(t, "ee555555-ee55-ee55-ee55-eeeeeeeeeeee")
-	q.task = db.AgentTaskQueue{ChatInputTaskID: taskID}
-	q.taskChannelIngested = true
+	runID := uuidFromString(t, "ee555555-ee55-ee55-ee55-eeeeeeeeeeee")
+	q.agentRun = db.AgentRun{ChatInputRunID: runID}
+	q.runChannelIngested = true
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload: protocol.ChatDonePayload{
-			TaskID:        uuidString(taskID),
+			RunID:        uuidString(runID),
 			ChatSessionID: uuidString(q.binding.ChatSessionID),
 			Content:       "channel answer",
 		},
@@ -230,14 +230,14 @@ func TestPatcherSendsSealedChannelTaskReply(t *testing.T) {
 
 func TestPatcherSendsPlainTextOnChatDone(t *testing.T) {
 	p, q, api := newTestPatcher(t)
-	taskID := uuidFromString(t, "ee333333-ee33-ee33-ee33-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee333333-ee33-ee33-ee33-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload: protocol.ChatDonePayload{
-			TaskID:        uuidString(taskID),
+			RunID:        uuidString(runID),
 			ChatSessionID: uuidString(q.binding.ChatSessionID),
 			Content:       "Hello! I'm cc, a coding agent…",
 		},
@@ -272,15 +272,15 @@ func TestPatcherSendsPlainTextOnChatDone(t *testing.T) {
 // transcript. Plain prose continues to go through SendTextMessage.
 func TestPatcherRoutesMarkdownReplyToCard(t *testing.T) {
 	p, q, api := newTestPatcher(t)
-	taskID := uuidFromString(t, "ee444444-ee44-ee44-ee44-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee444444-ee44-ee44-ee44-eeeeeeeeeeee")
 
 	body := "# Summary\n\n- bullet one\n- bullet two\n\n```go\nfunc f() {}\n```\n"
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload: protocol.ChatDonePayload{
-			TaskID:        uuidString(taskID),
+			RunID:        uuidString(runID),
 			ChatSessionID: uuidString(q.binding.ChatSessionID),
 			Content:       body,
 		},
@@ -311,14 +311,14 @@ func TestPatcherRoutesMarkdownReplyToCard(t *testing.T) {
 // msg_type=text path so the user sees a normal IM bubble.
 func TestPatcherRoutesPlainReplyToText(t *testing.T) {
 	p, q, api := newTestPatcher(t)
-	taskID := uuidFromString(t, "ee555555-ee55-ee55-ee55-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee555555-ee55-ee55-ee55-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload: protocol.ChatDonePayload{
-			TaskID:        uuidString(taskID),
+			RunID:        uuidString(runID),
 			ChatSessionID: uuidString(q.binding.ChatSessionID),
 			Content:       "Sure, on it.",
 		},
@@ -341,14 +341,14 @@ func TestPatcherRoutesPlainReplyToText(t *testing.T) {
 // "Done." fallback, which Bohan reported confused him in the live env.
 func TestPatcherDropsEmptyChatReply(t *testing.T) {
 	p, q, api := newTestPatcher(t)
-	taskID := uuidFromString(t, "ee777777-ee77-ee77-ee77-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee777777-ee77-ee77-ee77-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload: protocol.ChatDonePayload{
-			TaskID:        uuidString(taskID),
+			RunID:        uuidString(runID),
 			ChatSessionID: uuidString(q.binding.ChatSessionID),
 			Content:       "",
 		},
@@ -367,7 +367,7 @@ func TestPatcherSkipsWhenNoChatSessionBinding(t *testing.T) {
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(uuidFromString(t, "ee222222-ee22-ee22-ee22-eeeeeeeeeeee")),
+		RunID:        uuidString(uuidFromString(t, "ee222222-ee22-ee22-ee22-eeeeeeeeeeee")),
 		ChatSessionID: uuidString(uuidFromString(t, "cc222222-cc22-cc22-cc22-cccccccccccc")),
 		Payload: protocol.ChatDonePayload{
 			Content: "irrelevant — no binding",
@@ -387,7 +387,7 @@ func TestPatcherSkipsWhenNoChatSessionBinding(t *testing.T) {
 // conversation's reply or failure leak back into the external chat. Sealed
 // channel tasks own an input batch too, so the discriminator is the
 // channel_ingested provenance of the owned batch, not owner presence.
-func TestPatcherSkipsDirectChatTaskOnBoundSession(t *testing.T) {
+func TestPatcherSkipsDirectChatRunOnBoundSession(t *testing.T) {
 	tests := []struct {
 		name      string
 		eventType string
@@ -400,7 +400,7 @@ func TestPatcherSkipsDirectChatTaskOnBoundSession(t *testing.T) {
 		},
 		{
 			name:      "failed run",
-			eventType: protocol.EventTaskFailed,
+			eventType: protocol.EventRunFailed,
 			payload:   map[string]any{"error": "web-only failure"},
 		},
 	}
@@ -408,12 +408,12 @@ func TestPatcherSkipsDirectChatTaskOnBoundSession(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p, q, api := newTestPatcher(t)
-			taskID := uuidFromString(t, "ee999999-ee99-ee99-ee99-eeeeeeeeeeee")
-			q.task = db.AgentTaskQueue{ChatInputTaskID: taskID}
+			runID := uuidFromString(t, "ee999999-ee99-ee99-ee99-eeeeeeeeeeee")
+			q.agentRun = db.AgentRun{ChatInputRunID: runID}
 
 			p.handleEvent(events.Event{
 				Type:          tt.eventType,
-				TaskID:        uuidString(taskID),
+				RunID:        uuidString(runID),
 				ChatSessionID: uuidString(q.binding.ChatSessionID),
 				Payload:       tt.payload,
 			})
@@ -436,14 +436,14 @@ func TestPatcherSkipsDirectChatTaskOnBoundSession(t *testing.T) {
 // because there isn't one anymore).
 func TestPatcherFailEventSendsErrorCard(t *testing.T) {
 	p, q, api := newTestPatcher(t)
-	taskID := uuidFromString(t, "ee444444-ee44-ee44-ee44-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee444444-ee44-ee44-ee44-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
-		Type:          protocol.EventTaskFailed,
-		TaskID:        uuidString(taskID),
+		Type:          protocol.EventRunFailed,
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload: map[string]any{
-			"task_id":         uuidString(taskID),
+			"run_id":         uuidString(runID),
 			"chat_session_id": uuidString(q.binding.ChatSessionID),
 			"error":           "boom",
 		},
@@ -468,7 +468,7 @@ func TestPatcherSwallowsInstallationLoadErrors(t *testing.T) {
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(uuidFromString(t, "ee555555-ee55-ee55-ee55-eeeeeeeeeeee")),
+		RunID:        uuidString(uuidFromString(t, "ee555555-ee55-ee55-ee55-eeeeeeeeeeee")),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload: protocol.ChatDonePayload{
 			Content: "would-be reply",
@@ -492,18 +492,18 @@ func TestPatcherSwallowsInstallationLoadErrors(t *testing.T) {
 // fallback (the original bug Bohan reported). The fix is to leave
 // EventTaskCompleted unsubscribed; this test asserts exactly one
 // outbound text message from the sequence.
-func TestPatcherIgnoresEventTaskCompletedForChatTasks(t *testing.T) {
+func TestPatcherIgnoresEventRunCompletedForChatRuns(t *testing.T) {
 	p, q, api := newTestPatcher(t)
-	taskID := uuidFromString(t, "ee666666-ee66-ee66-ee66-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee666666-ee66-ee66-ee66-eeeeeeeeeeee")
 
 	// Step 1: ChatDone arrives with the real agent reply. Plain text
 	// is sent to Lark.
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload: protocol.ChatDonePayload{
-			TaskID:        uuidString(taskID),
+			RunID:        uuidString(runID),
 			ChatSessionID: uuidString(q.binding.ChatSessionID),
 			Content:       "Hello! I'm cc, a coding agent…",
 		},
@@ -513,11 +513,11 @@ func TestPatcherIgnoresEventTaskCompletedForChatTasks(t *testing.T) {
 	// The Patcher MUST NOT send a second message — neither a
 	// duplicate of the reply nor the "Done." fallback.
 	p.handleEvent(events.Event{
-		Type:          protocol.EventTaskCompleted,
-		TaskID:        uuidString(taskID),
+		Type:          protocol.EventRunCompleted,
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload: map[string]any{
-			"task_id":         uuidString(taskID),
+			"run_id":         uuidString(runID),
 			"chat_session_id": uuidString(q.binding.ChatSessionID),
 			"status":          "completed",
 		},
@@ -580,11 +580,11 @@ func TestPatcherRepliesInThreadWhenTriggerWasInThread(t *testing.T) {
 	p, q, api := newTestPatcher(t)
 	q.binding.LastMessageID = pgtype.Text{String: "om_trigger", Valid: true}
 	q.binding.LastThreadID = pgtype.Text{String: "omt_topic", Valid: true}
-	taskID := uuidFromString(t, "ee666666-ee66-ee66-ee66-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee666666-ee66-ee66-ee66-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload:       protocol.ChatDonePayload{Content: "in-thread reply"},
 	})
@@ -611,11 +611,11 @@ func TestPatcherTopicSessionSendsToRealChatID(t *testing.T) {
 	q.binding.ChatType = "group"
 	q.binding.LastMessageID = pgtype.Text{String: "om_trigger", Valid: true}
 	q.binding.LastThreadID = pgtype.Text{String: "omt_topic1", Valid: true}
-	taskID := uuidFromString(t, "eeaaaaaa-eeaa-eeaa-eeaa-eeeeeeeeeeee")
+	runID := uuidFromString(t, "eeaaaaaa-eeaa-eeaa-eeaa-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload:       protocol.ChatDonePayload{Content: "topic reply"},
 	})
@@ -640,11 +640,11 @@ func TestPatcherTopicSessionSendsToRealChatID(t *testing.T) {
 func TestPatcherLegacyBindingFallsBackToKey(t *testing.T) {
 	p, q, api := newTestPatcher(t)
 	q.binding.Config = []byte(`{}`)
-	taskID := uuidFromString(t, "eebbbbbb-eebb-eebb-eebb-eeeeeeeeeeee")
+	runID := uuidFromString(t, "eebbbbbb-eebb-eebb-eebb-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload:       protocol.ChatDonePayload{Content: "legacy reply"},
 	})
@@ -668,11 +668,11 @@ func TestPatcherSendsToChatWhenNoThread(t *testing.T) {
 	p, q, api := newTestPatcher(t)
 	// binding has a message id but NO thread id → must not thread.
 	q.binding.LastMessageID = pgtype.Text{String: "om_trigger", Valid: true}
-	taskID := uuidFromString(t, "ee777777-ee77-ee77-ee77-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee777777-ee77-ee77-ee77-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload:       protocol.ChatDonePayload{Content: "plain reply"},
 	})
@@ -694,11 +694,11 @@ func TestPatcherThreadReplyMarkdownRoutesToThread(t *testing.T) {
 	p, q, api := newTestPatcher(t)
 	q.binding.LastMessageID = pgtype.Text{String: "om_trigger", Valid: true}
 	q.binding.LastThreadID = pgtype.Text{String: "omt_topic", Valid: true}
-	taskID := uuidFromString(t, "ee888888-ee88-ee88-ee88-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee888888-ee88-ee88-ee88-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload:       protocol.ChatDonePayload{Content: "# heading\n- bullet"},
 	})
@@ -724,11 +724,11 @@ func TestPatcherThreadReplyFallsBackToChatLevel(t *testing.T) {
 	api.threadReplyErr = errThreadReplyClassified
 	q.binding.LastMessageID = pgtype.Text{String: "om_trigger", Valid: true}
 	q.binding.LastThreadID = pgtype.Text{String: "omt_topic", Valid: true}
-	taskID := uuidFromString(t, "ee999999-ee99-ee99-ee99-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee999999-ee99-ee99-ee99-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload:       protocol.ChatDonePayload{Content: "reply that must survive"},
 	})
@@ -755,11 +755,11 @@ func TestPatcherThreadReplyDoesNotFallBackOnAmbiguousError(t *testing.T) {
 	api.threadReplyErr = errThreadReplyTransport
 	q.binding.LastMessageID = pgtype.Text{String: "om_trigger", Valid: true}
 	q.binding.LastThreadID = pgtype.Text{String: "omt_topic", Valid: true}
-	taskID := uuidFromString(t, "ee888888-ee88-ee88-ee88-eeeeeeeeeeee")
+	runID := uuidFromString(t, "ee888888-ee88-ee88-ee88-eeeeeeeeeeee")
 
 	p.handleEvent(events.Event{
 		Type:          protocol.EventChatDone,
-		TaskID:        uuidString(taskID),
+		RunID:        uuidString(runID),
 		ChatSessionID: uuidString(q.binding.ChatSessionID),
 		Payload:       protocol.ChatDonePayload{Content: "reply that must not duplicate"},
 	})

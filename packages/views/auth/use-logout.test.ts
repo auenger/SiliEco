@@ -7,7 +7,7 @@ import { useLogout } from "./use-logout";
 // reset is a Zustand setState, and persist middleware writes the reset state
 // straight back to storage under the still-active workspace slug. Resetting
 // AFTER the per-slug key removal therefore resurrects the just-deleted keys
-// (for the issue draft store: with the previous user's lastAssignee inside).
+// (for the task draft store: with the previous user's lastAssignee inside).
 const calls = vi.hoisted(() => [] as string[]);
 const mockReset = vi.hoisted(() => vi.fn());
 const mockClearWorkspaceStorage = vi.hoisted(() => vi.fn());

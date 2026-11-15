@@ -21,10 +21,11 @@ export type TabSubject =
   | { kind: "browser"; sessionId: string }
   /** A collection or tool page with no specific resource. */
   | { kind: "page"; page: WorkspacePageKey }
-  /** A single issue detail. */
-  | { kind: "issue"; id: string }
+  /** A single task detail. */
+  | { kind: "task"; id: string }
   /** A single project detail. */
   | { kind: "project"; id: string }
+  | { kind: "project-files"; id: string }
   /** A single autopilot detail. */
   | { kind: "autopilot"; id: string }
   /** An agent / member / squad detail (has an avatar identity). */
@@ -38,7 +39,7 @@ export type TabSubject =
   /** An attachment preview. `filename` is the `?name=` hint, or null. */
   | { kind: "attachment"; id: string; filename: string | null }
   /**
-   * The Inbox container; `selectedKey` is the `?issue=` selection or null,
+   * The Inbox container; `selectedKey` is the `?task=` selection or null,
    * `archived` is the `?view=archived` sub-list (its own list/cache).
    */
   | { kind: "inbox"; selectedKey: string | null; archived: boolean }
@@ -68,7 +69,7 @@ function splitUrl(url: string): { segments: string[]; query: URLSearchParams } {
  * Only recognizes workspace-scoped URLs (`/{slug}/{segment}/...`). Anything
  * shorter, empty, or with an unknown segment resolves to `{ kind: "unknown" }`
  * — never to a default page, so an unrecognized tab is visibly neutral rather
- * than masquerading as Issues.
+ * than masquerading as Tasks.
  */
 export function parseTabSubject(url: string): TabSubject {
   const { segments, query } = splitUrl(url);
@@ -80,12 +81,11 @@ export function parseTabSubject(url: string): TabSubject {
     case "browser":
       return id ? { kind: "browser", sessionId: id } : { kind: "unknown" };
     case "tasks":
-    case "issues":
-      return id ? { kind: "issue", id } : { kind: "page", page: "issues" };
+      return id ? { kind: "task", id } : { kind: "page", page: "tasks" };
     case "my-tasks":
-    case "my-issues":
-      return { kind: "page", page: "myIssues" };
+      return { kind: "page", page: "myTasks" };
     case "projects":
+      if (id && segments[3] === "files") return { kind: "project-files", id };
       return id ? { kind: "project", id } : { kind: "page", page: "projects" };
     case "autopilots":
       return id ? { kind: "autopilot", id } : { kind: "page", page: "autopilots" };
@@ -106,7 +106,7 @@ export function parseTabSubject(url: string): TabSubject {
     case "inbox":
       return {
         kind: "inbox",
-        selectedKey: query.get("issue") || null,
+        selectedKey: query.get("task") || null,
         archived: query.get("view") === "archived",
       };
     case "chat":
@@ -148,8 +148,10 @@ export function tabSubjectKey(subject: TabSubject): string {
       return `browser:${subject.sessionId}`;
     case "page":
       return `page:${subject.page}`;
-    case "issue":
-      return `issue:${subject.id}`;
+    case "task":
+      return `task:${subject.id}`;
+    case "project-files":
+      return `project-files:${subject.id}`;
     case "project":
       return `project:${subject.id}`;
     case "autopilot":

@@ -4,16 +4,16 @@ import type { ReactElement } from "react";
 import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const { getAttachmentTextContentMock, resolveIssueIdentifierMock } = vi.hoisted(
+const { getAttachmentTextContentMock, resolveTaskIdentifierMock } = vi.hoisted(
   () => ({
     getAttachmentTextContentMock: vi.fn(),
-    resolveIssueIdentifierMock: vi.fn(),
+    resolveTaskIdentifierMock: vi.fn(),
   }),
 );
 
-vi.mock("../issues/hooks", () => ({
-  useResolveIssueIdentifier: (identifier: string) =>
-    resolveIssueIdentifierMock(identifier),
+vi.mock("../tasks/hooks", () => ({
+  useResolveTaskIdentifier: (identifier: string) =>
+    resolveTaskIdentifierMock(identifier),
 }));
 
 // i18next is not initialized in this suite, so `t()` would resolve every label
@@ -35,7 +35,7 @@ vi.mock("@silieco/core/api", () => ({
 
 vi.mock("@silieco/core/paths", () => ({
   useWorkspacePaths: () => ({
-    issueDetail: (id: string) => `/test/issues/${id}`,
+    taskDetail: (id: string) => `/test/tasks/${id}`,
   }),
   useWorkspaceSlug: () => "test",
 }));
@@ -45,9 +45,9 @@ vi.mock("../navigation", () => ({
   useAppOrigin: () => null,
 }));
 
-vi.mock("../issues/components/issue-mention-card", () => ({
-  IssueMentionCard: ({ issueId, fallbackLabel }: { issueId: string; fallbackLabel?: string }) => (
-    <span data-testid="issue-mention-card">{fallbackLabel ?? issueId}</span>
+vi.mock("../tasks/components/task-mention-card", () => ({
+  TaskMentionCard: ({ taskId, fallbackLabel }: { taskId: string; fallbackLabel?: string }) => (
+    <span data-testid="task-mention-card">{fallbackLabel ?? taskId}</span>
   ),
 }));
 
@@ -94,7 +94,7 @@ afterEach(() => {
 });
 
 describe("ReadonlyContent memoization", () => {
-  // Long-timeline issues (Inbox + IssueDetail with thousands of comments)
+  // Long-timeline tasks (Inbox + TaskDetail with thousands of comments)
   // freeze the tab when each comment re-runs the full react-markdown pipeline
   // on every parent re-render. Wrapping the component in React.memo is the
   // mitigation; this test guards against a future revert that would silently
@@ -130,7 +130,7 @@ describe("ReadonlyContent math rendering", () => {
 });
 
 describe("ReadonlyContent line breaks", () => {
-  // Issue panel comments are the primary user-visible surface for agent
+  // Task panel comments are the primary user-visible surface for agent
   // output. CommonMark's default soft-break behavior collapses single
   // newlines into spaces; agent text often relies on a single newline as a
   // visible break. remark-breaks must remain wired into ReadonlyContent's
@@ -259,49 +259,49 @@ describe("ReadonlyContent highlight Markdown", () => {
   });
 });
 
-describe("ReadonlyContent issue mention Markdown", () => {
-  it("renders an issue mention inside a task list as an issue mention card", () => {
+describe("ReadonlyContent task mention Markdown", () => {
+  it("renders an task mention inside a task list as an task mention card", () => {
     const { container, getByTestId } = render(
-      <ReadonlyContent content="- [ ] [SILI-123](mention://issue/issue-123)" />,
+      <ReadonlyContent content="- [ ] [SILI-123](mention://task/task-123)" />,
     );
 
     expect(container.querySelector('input[type="checkbox"]')).not.toBeNull();
-    expect(getByTestId("issue-mention-card").textContent).toBe("SILI-123");
+    expect(getByTestId("task-mention-card").textContent).toBe("SILI-123");
   });
 
-  it("autolinks a resolved bare identifier as an issue mention card", () => {
-    resolveIssueIdentifierMock.mockImplementation((id: string) =>
-      id === "SILI-7" ? { id: "issue-7", identifier: "SILI-7" } : null,
+  it("autolinks a resolved bare identifier as an task mention card", () => {
+    resolveTaskIdentifierMock.mockImplementation((id: string) =>
+      id === "SILI-7" ? { id: "task-7", identifier: "SILI-7" } : null,
     );
 
     const { getByTestId } = render(
       <ReadonlyContent content="See SILI-7 for context" />,
     );
 
-    expect(getByTestId("issue-mention-card").textContent).toBe("SILI-7");
-    expect(resolveIssueIdentifierMock).toHaveBeenCalledWith("SILI-7");
+    expect(getByTestId("task-mention-card").textContent).toBe("SILI-7");
+    expect(resolveTaskIdentifierMock).toHaveBeenCalledWith("SILI-7");
   });
 
   it("leaves an unresolved bare identifier as plain text", () => {
-    resolveIssueIdentifierMock.mockReturnValue(null);
+    resolveTaskIdentifierMock.mockReturnValue(null);
 
     const { container, queryByTestId } = render(
       <ReadonlyContent content="See SILI-999 for context" />,
     );
 
-    expect(queryByTestId("issue-mention-card")).toBeNull();
+    expect(queryByTestId("task-mention-card")).toBeNull();
     expect(container.textContent).toContain("SILI-999");
   });
 
   it("does not autolink a bare identifier inside inline code", () => {
-    resolveIssueIdentifierMock.mockReturnValue(null);
+    resolveTaskIdentifierMock.mockReturnValue(null);
 
     const { queryByTestId } = render(
       <ReadonlyContent content={"use `SILI-7` here"} />,
     );
 
-    expect(resolveIssueIdentifierMock).not.toHaveBeenCalled();
-    expect(queryByTestId("issue-mention-card")).toBeNull();
+    expect(resolveTaskIdentifierMock).not.toHaveBeenCalled();
+    expect(queryByTestId("task-mention-card")).toBeNull();
   });
 
   it("documents the CommonMark quoted-emphasis edge case before Korean particles", () => {
@@ -676,7 +676,7 @@ describe("ReadonlyContent file-card → AttachmentBlock HTML routing", () => {
 });
 
 describe("ReadonlyContent inline data-URI images", () => {
-  // Issue comments render through ReadonlyContent, which has its own sanitize
+  // Task comments render through ReadonlyContent, which has its own sanitize
   // schema + urlTransform separate from the base Markdown component. Agents
   // inline auth QR codes as `![](data:image/png;base64,...)`; both gates used
   // to strip the src and surface a broken image (SILI-3961).

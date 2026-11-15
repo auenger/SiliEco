@@ -231,9 +231,9 @@
     "name_placeholder": "Acme Inc、My Lab、Side Projects…",
     "url_label": "URL",
     "slug_placeholder": "acme",
-    "issue_prefix_label": "Taskプレフィックス",
-    "issue_prefix_prefix": "Taskは ",
-    "issue_prefix_suffix": " のように表示されます。あとで設定から変更できます。",
+    "task_prefix_label": "Taskプレフィックス",
+    "task_prefix_prefix": "Taskは ",
+    "task_prefix_suffix": " のように表示されます。あとで設定から変更できます。",
     "create_new_title": "新しいワークスペースを作成",
     "create_new_subtitle": "新しく始めましょう — 別の業務領域のための独立した場所です。",
     "hint_opening": "{{name}} を開いています。",
@@ -267,8 +267,8 @@
     "preview": {
       "inbox_label": "インボックス",
       "inbox_meta": "あなたの通知",
-      "issues_label": "Task",
-      "issues_meta": "共有のタスクボード",
+      "tasks_label": "Task",
+      "tasks_meta": "共有のタスクボード",
       "agents_label": "エージェント",
       "agents_meta": "あなたの AI チームメイト",
       "projects_label": "プロジェクト",
@@ -355,5 +355,7 @@
   },
   "errors": {
     "skip_failed": "オンボーディングを完了できませんでした"
-  }
+  },
+  "skip_all": "すべてスキップして後で設定",
+  "skip_all_pending": "スキップ中…"
 }

@@ -23,7 +23,7 @@ const (
 
 // RPCRequestPayload is the generic daemon→server request envelope carried in a
 // protocol.Message of type EventDaemonRPCRequest. RequestID correlates the
-// response; Method selects the server-side handler (e.g. "tasks.claim"); Body
+// response; Method selects the server-side handler (e.g. "runs.claim"); Body
 // is the method-specific request JSON.
 type RPCRequestPayload struct {
 	RequestID string          `json:"request_id"`
@@ -55,19 +55,19 @@ type Message struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
-// TaskDispatchPayload is sent from server to daemon when a task is assigned.
-type TaskDispatchPayload struct {
+// RunDispatchPayload identifies an execution and its optional business task.
+type RunDispatchPayload struct {
+	RunID       string `json:"run_id"`
 	TaskID      string `json:"task_id"`
-	IssueID     string `json:"issue_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 }
 
-// TaskAvailablePayload is sent from server to daemon as a wakeup hint. The
+// RunAvailablePayload is sent from server to daemon as a wakeup hint. The
 // daemon still claims work through the existing HTTP claim endpoint.
-type TaskAvailablePayload struct {
+type RunAvailablePayload struct {
 	RuntimeID string `json:"runtime_id"`
-	TaskID    string `json:"task_id,omitempty"`
+	RunID     string `json:"run_id,omitempty"`
 }
 
 // RuntimeProfilesChangedPayload is sent from server to daemon as a wakeup hint
@@ -104,31 +104,34 @@ type PendingWorkPayload struct {
 }
 
 // TaskProgressPayload is sent from daemon to server during task execution.
-type TaskProgressPayload struct {
-	TaskID  string `json:"task_id"`
-	Summary string `json:"summary"`
-	Step    int    `json:"step,omitempty"`
-	Total   int    `json:"total,omitempty"`
+type RunProgressPayload struct {
+	TaskID        string `json:"task_id,omitempty"`
+	ChatSessionID string `json:"chat_session_id,omitempty"`
+	RunID         string `json:"run_id"`
+	Summary       string `json:"summary"`
+	Step          int    `json:"step,omitempty"`
+	Total         int    `json:"total,omitempty"`
 }
 
-// TaskCompletedPayload is sent from daemon to server when a task finishes.
-type TaskCompletedPayload struct {
-	TaskID string `json:"task_id"`
+// RunCompletedPayload is sent from daemon to server when a task finishes.
+type RunCompletedPayload struct {
+	RunID  string `json:"run_id"`
 	PRURL  string `json:"pr_url,omitempty"`
 	Output string `json:"output,omitempty"`
 }
 
 // TaskMessagePayload represents a single agent execution message (tool call, text, etc.)
-type TaskMessagePayload struct {
-	TaskID    string         `json:"task_id"`
-	IssueID   string         `json:"issue_id,omitempty"`
-	Seq       int            `json:"seq"`
-	Type      string         `json:"type"`              // "text", "tool_use", "tool_result", "error"
-	Tool      string         `json:"tool,omitempty"`    // tool name for tool_use/tool_result
-	Content   string         `json:"content,omitempty"` // text content
-	Input     map[string]any `json:"input,omitempty"`   // tool input (tool_use only)
-	Output    string         `json:"output,omitempty"`  // tool output (tool_result only)
-	CreatedAt string         `json:"created_at,omitempty"`
+type AgentRunMessagePayload struct {
+	ChatSessionID string         `json:"chat_session_id,omitempty"`
+	RunID         string         `json:"run_id"`
+	TaskID        string         `json:"task_id,omitempty"`
+	Seq           int            `json:"seq"`
+	Type          string         `json:"type"`              // "text", "tool_use", "tool_result", "error"
+	Tool          string         `json:"tool,omitempty"`    // tool name for tool_use/tool_result
+	Content       string         `json:"content,omitempty"` // text content
+	Input         map[string]any `json:"input,omitempty"`   // tool input (tool_use only)
+	Output        string         `json:"output,omitempty"`  // tool output (tool_result only)
+	CreatedAt     string         `json:"created_at,omitempty"`
 }
 
 // DaemonRegisterPayload is sent from daemon to server on connection.
@@ -151,7 +154,7 @@ type ChatMessagePayload struct {
 	MessageID     string `json:"message_id"`
 	Role          string `json:"role"`
 	Content       string `json:"content"`
-	TaskID        string `json:"task_id,omitempty"`
+	RunID         string `json:"run_id,omitempty"`
 	SenderUserID  string `json:"sender_user_id,omitempty"`
 	SenderAgentID string `json:"sender_agent_id,omitempty"`
 	CreatedAt     string `json:"created_at"`
@@ -183,7 +186,7 @@ const (
 // without a row.
 type ChatDonePayload struct {
 	ChatSessionID string `json:"chat_session_id"`
-	TaskID        string `json:"task_id"`
+	RunID         string `json:"run_id"`
 	MessageID     string `json:"message_id,omitempty"`
 	Content       string `json:"content,omitempty"`
 	ElapsedMs     int64  `json:"elapsed_ms,omitempty"`
@@ -215,7 +218,7 @@ const (
 type ChatCancelFinalizedPayload struct {
 	Outcome       string `json:"outcome"`
 	ChatSessionID string `json:"chat_session_id"`
-	TaskID        string `json:"task_id"`
+	RunID         string `json:"run_id"`
 	// InitiatorUserID is the human who triggered the cancelled task. Only
 	// this user's client needs to fetch the draft restore (the endpoint is
 	// creator-authorized regardless); clients treat a missing value as

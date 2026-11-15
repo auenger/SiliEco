@@ -56,7 +56,7 @@ func (q *Queries) DeleteAgentInvocationTargets(ctx context.Context, agentID pgty
 const deleteAgentInvocationTargetsByArchivedRuntimeAgents = `-- name: DeleteAgentInvocationTargetsByArchivedRuntimeAgents :exec
 DELETE FROM agent_invocation_target
 WHERE agent_id IN (
-    SELECT id FROM agent WHERE runtime_id = $1 AND archived_at IS NOT NULL
+    SELECT id FROM agent WHERE agent.runtime_id = $1 AND archived_at IS NOT NULL
 )
 `
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
 import { render, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { issueDetailOptions } from "@silieco/core/issues/queries";
+import { taskDetailOptions } from "@silieco/core/tasks/queries";
 import { projectDetailOptions } from "@silieco/core/projects/queries";
 import { chatSessionsOptions } from "@silieco/core/chat/queries";
 import {
@@ -47,13 +47,13 @@ function makeClient() {
 }
 
 function seed(qc: QueryClient) {
-  qc.setQueryData(issueDetailOptions("ws1", "i1").queryKey, {
+  qc.setQueryData(taskDetailOptions("ws1", "i1").queryKey, {
     id: "i1",
     identifier: "SILI-1",
     title: "Fix login",
     status: "in_progress",
   } as never);
-  qc.setQueryData(issueDetailOptions("ws1", "i9").queryKey, {
+  qc.setQueryData(taskDetailOptions("ws1", "i9").queryKey, {
     id: "i9",
     identifier: "SILI-9",
     title: "Crash",
@@ -69,13 +69,13 @@ function seed(qc: QueryClient) {
     { id: "s2", title: "  ", status: "active" },
   ] as never);
   qc.setQueryData(inboxListOptions("ws1").queryKey, [
-    { id: "n1", issue_id: "i9", title: "Assigned to you", type: "issue_assigned" },
-    { id: "n2", issue_id: null, title: "Quick create failed", type: "quick_create_failed" },
+    { id: "n1", task_id: "i9", title: "Assigned to you", type: "task_assigned" },
+    { id: "n2", task_id: null, title: "Quick create failed", type: "quick_create_failed" },
   ] as never);
   // Archived list is a distinct cache; these items are NOT in the main list.
   qc.setQueryData(archivedInboxListOptions("ws1").queryKey, [
-    { id: "a1", issue_id: "i1", title: "Old assignment", type: "issue_assigned" },
-    { id: "a2", issue_id: null, title: "Archived note", type: "quick_create_failed" },
+    { id: "a1", task_id: "i1", title: "Old assignment", type: "task_assigned" },
+    { id: "a2", task_id: null, title: "Archived note", type: "quick_create_failed" },
   ] as never);
   qc.setQueryData(agentListOptions("ws1").queryKey, [
     { id: "ag1", name: "Robby", avatar_url: null },
@@ -101,15 +101,15 @@ beforeEach(() => {
 
 describe("useTabPresentation — live from cache", () => {
   it("page: page icon + localized page name", () => {
-    expect(presentationOf("/acme/issues")).toEqual({
+    expect(presentationOf("/acme/tasks")).toEqual({
       visual: { kind: "icon", icon: "ListTodo" },
-      title: "Issues",
+      title: "Tasks",
     });
   });
 
-  it("issue: live status glyph + identifier:title", () => {
-    expect(presentationOf("/acme/issues/i1")).toEqual({
-      visual: { kind: "issue-status", status: "in_progress" },
+  it("task: live status glyph + identifier:title", () => {
+    expect(presentationOf("/acme/tasks/i1")).toEqual({
+      visual: { kind: "task-status", status: "in_progress" },
       title: "SILI-1: Fix login",
     });
   });
@@ -153,33 +153,33 @@ describe("useTabPresentation — live from cache", () => {
     });
   });
 
-  it("inbox container: selected issue shows Inbox icon + issue title", () => {
-    // Selection key is issue_id ?? id — n1 links issue i9.
-    expect(presentationOf("/acme/inbox?issue=i9")).toEqual({
+  it("inbox container: selected task shows Inbox icon + task title", () => {
+    // Selection key is task_id ?? id — n1 links task i9.
+    expect(presentationOf("/acme/inbox?task=i9")).toEqual({
       visual: { kind: "icon", icon: "Inbox" },
       title: "SILI-9: Crash",
     });
   });
 
-  it("inbox container: selected non-issue shows its display title", () => {
-    expect(presentationOf("/acme/inbox?issue=n2")).toEqual({
+  it("inbox container: selected non-task shows its display title", () => {
+    expect(presentationOf("/acme/inbox?task=n2")).toEqual({
       visual: { kind: "icon", icon: "Inbox" },
       title: "Quick create failed",
     });
   });
 
-  it("archived inbox: selected issue resolves against the archived list", () => {
+  it("archived inbox: selected task resolves against the archived list", () => {
     // a1 lives only in the archived list; without ?view=archived it must NOT
     // resolve (title stays Inbox), and with it, it resolves to i1's title.
-    expect(presentationOf("/acme/inbox?issue=i1").title).toBe("Inbox");
-    expect(presentationOf("/acme/inbox?view=archived&issue=i1")).toEqual({
+    expect(presentationOf("/acme/inbox?task=i1").title).toBe("Inbox");
+    expect(presentationOf("/acme/inbox?view=archived&task=i1")).toEqual({
       visual: { kind: "icon", icon: "Inbox" },
       title: "SILI-1: Fix login",
     });
   });
 
-  it("archived inbox: selected non-issue resolves against the archived list", () => {
-    expect(presentationOf("/acme/inbox?view=archived&issue=a2")).toEqual({
+  it("archived inbox: selected non-task resolves against the archived list", () => {
+    expect(presentationOf("/acme/inbox?view=archived&task=a2")).toEqual({
       visual: { kind: "icon", icon: "Inbox" },
       title: "Archived note",
     });
@@ -199,20 +199,20 @@ describe("useTabPresentation — live from cache", () => {
 });
 
 describe("useTabPresentation — pending / fallback", () => {
-  it("pending issue keeps the issue-status slot and uses the persisted fallback", () => {
-    expect(presentationOf("/acme/issues/unloaded", "SILI-7: Prior")).toEqual({
-      visual: { kind: "issue-status", status: null },
+  it("pending task keeps the task-status slot and uses the persisted fallback", () => {
+    expect(presentationOf("/acme/tasks/unloaded", "SILI-7: Prior")).toEqual({
+      visual: { kind: "task-status", status: null },
       title: "SILI-7: Prior",
     });
   });
 
-  it("pending issue with no fallback shows the localized type label, not Issues", () => {
-    const p = presentationOf("/acme/issues/unloaded");
-    expect(p.visual).toEqual({ kind: "issue-status", status: null });
-    expect(p.title).toBe("Issue");
+  it("pending task with no fallback shows the localized type label, not Tasks", () => {
+    const p = presentationOf("/acme/tasks/unloaded");
+    expect(p.visual).toEqual({ kind: "task-status", status: null });
+    expect(p.title).toBe("Task");
   });
 
-  it("unknown route is neutral, never Issues", () => {
+  it("unknown route is neutral, never Tasks", () => {
     expect(presentationOf("/acme/mystery")).toEqual({
       visual: { kind: "icon", icon: "FileQuestion" },
       title: "Unknown page",
@@ -236,9 +236,9 @@ describe("ResourceLeadingVisual", () => {
     expect(getByText("🚀")).toBeTruthy();
   });
 
-  it("renders a status glyph for an issue", () => {
+  it("renders a status glyph for an task", () => {
     const { container } = render(
-      <ResourceLeadingVisual visual={{ kind: "issue-status", status: "done" }} />,
+      <ResourceLeadingVisual visual={{ kind: "task-status", status: "done" }} />,
     );
     expect(container.querySelector("svg")).toBeTruthy();
   });

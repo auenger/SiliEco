@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/silieco-ai/silieco/core/pkg/agent"
-	"github.com/silieco-ai/silieco/core/pkg/taskfailure"
+	"github.com/silieco-ai/silieco/core/pkg/runfailure"
 )
 
 // FailureReason values for tasks whose session is "poisoned" — i.e.
@@ -34,9 +34,9 @@ import (
 // string literals here until a follow-up PR migrates them or extends
 // the taxonomy.
 const (
-	FailureReasonIterationLimit          = string(taskfailure.ReasonIterationLimit)
+	FailureReasonIterationLimit          = string(runfailure.ReasonIterationLimit)
 	FailureReasonAgentFallbackMsg        = "agent_fallback_message"
-	FailureReasonAPIInvalidRequest       = string(taskfailure.ReasonAPIInvalidRequest)
+	FailureReasonAPIInvalidRequest       = string(runfailure.ReasonAPIInvalidRequest)
 	FailureReasonCodexSemanticInactivity = "codex_semantic_inactivity"
 )
 
@@ -89,8 +89,8 @@ func classifyPoisonedOutput(output string) (string, bool) {
 // malformed base64, prompt-too-long, etc.). The conversation cannot be
 // resumed: every retry replays the same body and reproduces the same 400.
 // The classifier returns FailureReasonAPIInvalidRequest so GetLastTaskSession
-// excludes the task from the (agent_id, issue_id) resume lookup, and the
-// next task on the issue starts a fresh session instead of permanently
+// excludes the task from the (agent_id, task_id) resume lookup, and the
+// next task on the task starts a fresh session instead of permanently
 // inheriting the bad state.
 //
 // Match shape: the Claude Code SDK and similar backends surface upstream
@@ -138,11 +138,11 @@ func classifyPoisonedError(errMsg string) (string, bool) {
 	// The clause above only fires on the Anthropic shape, so an empty
 	// message baked into the transcript by any other backend used to fall
 	// through to taskfailure.Classify as agent_error.unknown — resume-safe
-	// by omission, which permanently bricked the (agent, issue) pair
+	// by omission, which permanently bricked the (agent, task) pair
 	// (GH #6066, GH #5760). taskfailure.UnresumableHistory recognises the
 	// defect by what the provider says is wrong rather than by which
 	// provider said it.
-	if taskfailure.UnresumableHistory(errMsg) {
+	if runfailure.UnresumableHistory(errMsg) {
 		return FailureReasonAPIInvalidRequest, true
 	}
 	return "", false

@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY idx_channel_chat_session_binding_session ON public.channel_chat_session_binding USING btree (chat_session_id);

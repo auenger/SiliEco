@@ -110,7 +110,7 @@ function makeAgent(overrides: Record<string, unknown> = {}) {
     permission_mode: "public_to" as const,
     invocation_targets: [],
     status: "idle" as const,
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     model: "claude-opus-4-8",
     thinking_level: "high",
     owner_id: null,

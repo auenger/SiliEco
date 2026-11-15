@@ -400,12 +400,12 @@ func (q *Queries) CreateChannelChatSessionBinding(ctx context.Context, arg Creat
 const createChannelOutboundCardMessage = `-- name: CreateChannelOutboundCardMessage :one
 
 INSERT INTO channel_outbound_card_message (
-    chat_session_id, task_id, channel_type, channel_chat_id,
+    chat_session_id, run_id, channel_type, channel_chat_id,
     channel_card_message_id, status
 ) VALUES (
     $1, $6, $2, $3, $4, $5
 )
-RETURNING id, chat_session_id, task_id, channel_type, channel_chat_id, channel_card_message_id, status, last_patched_at, created_at
+RETURNING id, chat_session_id, run_id, channel_type, channel_chat_id, channel_card_message_id, status, last_patched_at, created_at
 `
 
 type CreateChannelOutboundCardMessageParams struct {
@@ -414,7 +414,7 @@ type CreateChannelOutboundCardMessageParams struct {
 	ChannelChatID        string      `json:"channel_chat_id"`
 	ChannelCardMessageID string      `json:"channel_card_message_id"`
 	Status               string      `json:"status"`
-	TaskID               pgtype.UUID `json:"task_id"`
+	RunID                pgtype.UUID `json:"run_id"`
 }
 
 // =====================
@@ -427,13 +427,13 @@ func (q *Queries) CreateChannelOutboundCardMessage(ctx context.Context, arg Crea
 		arg.ChannelChatID,
 		arg.ChannelCardMessageID,
 		arg.Status,
-		arg.TaskID,
+		arg.RunID,
 	)
 	var i ChannelOutboundCardMessage
 	err := row.Scan(
 		&i.ID,
 		&i.ChatSessionID,
-		&i.TaskID,
+		&i.RunID,
 		&i.ChannelType,
 		&i.ChannelChatID,
 		&i.ChannelCardMessageID,
@@ -560,7 +560,7 @@ const deleteChannelInstallationsByArchivedRuntimeAgents = `-- name: DeleteChanne
 WITH doomed AS (
     SELECT id FROM channel_installation
     WHERE agent_id IN (
-        SELECT id FROM agent WHERE runtime_id = $1 AND archived_at IS NOT NULL
+        SELECT id FROM agent WHERE agent.runtime_id = $1 AND archived_at IS NOT NULL
     )
 ),
 cleared_chat_sessions AS (
@@ -587,7 +587,7 @@ cleared_audit AS (
     -- unattributable NULL rows (channel_inbound_audit has no workspace_id / reaper).
     DELETE FROM channel_inbound_audit WHERE installation_id IN (SELECT id FROM doomed)
 )
-DELETE FROM channel_installation WHERE id IN (SELECT id FROM doomed)
+DELETE FROM channel_installation WHERE channel_installation.id IN (SELECT id FROM doomed)
 `
 
 // Application-layer replacement for the (deliberately absent, SILI-3515 §4)
@@ -937,27 +937,27 @@ func (q *Queries) GetChannelInstallationOwnerByAppID(ctx context.Context, arg Ge
 	return i, err
 }
 
-const getChannelOutboundCardByTask = `-- name: GetChannelOutboundCardByTask :one
-SELECT id, chat_session_id, task_id, channel_type, channel_chat_id, channel_card_message_id, status, last_patched_at, created_at FROM channel_outbound_card_message
-WHERE task_id = $1
+const getChannelOutboundCardByRun = `-- name: GetChannelOutboundCardByRun :one
+SELECT id, chat_session_id, run_id, channel_type, channel_chat_id, channel_card_message_id, status, last_patched_at, created_at FROM channel_outbound_card_message
+WHERE run_id = $1
   AND channel_type = $2
 `
 
-type GetChannelOutboundCardByTaskParams struct {
-	TaskID      pgtype.UUID `json:"task_id"`
+type GetChannelOutboundCardByRunParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
 	ChannelType string      `json:"channel_type"`
 }
 
-// The partial unique index on (task_id) WHERE task_id IS NOT NULL
+// The partial unique index on (run_id) WHERE run_id IS NOT NULL
 // guarantees at most one row. Scoped by channel_type so a future non-Feishu
-// card for the same task is not patched as a Feishu card.
-func (q *Queries) GetChannelOutboundCardByTask(ctx context.Context, arg GetChannelOutboundCardByTaskParams) (ChannelOutboundCardMessage, error) {
-	row := q.db.QueryRow(ctx, getChannelOutboundCardByTask, arg.TaskID, arg.ChannelType)
+// card for the same run is not patched as a Feishu card.
+func (q *Queries) GetChannelOutboundCardByRun(ctx context.Context, arg GetChannelOutboundCardByRunParams) (ChannelOutboundCardMessage, error) {
+	row := q.db.QueryRow(ctx, getChannelOutboundCardByRun, arg.RunID, arg.ChannelType)
 	var i ChannelOutboundCardMessage
 	err := row.Scan(
 		&i.ID,
 		&i.ChatSessionID,
-		&i.TaskID,
+		&i.RunID,
 		&i.ChannelType,
 		&i.ChannelChatID,
 		&i.ChannelCardMessageID,

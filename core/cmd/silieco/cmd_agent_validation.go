@@ -6,10 +6,10 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/agentconfig"
 )
 
-func validateAgentMaxConcurrentTasksFlag(value int32) error {
-	if err := agentconfig.ValidateMaxConcurrentTasks(value); err != nil {
+func validateAgentMaxConcurrentRunsFlag(value int32) error {
+	if err := agentconfig.ValidateMaxConcurrentRuns(value); err != nil {
 		return fmt.Errorf(
-			"--max-concurrent-tasks %w (got %d)",
+			"--max-concurrent-runs %w (got %d)",
 			err,
 			value,
 		)

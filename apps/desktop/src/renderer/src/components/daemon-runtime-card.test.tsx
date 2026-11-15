@@ -15,7 +15,7 @@ vi.mock("@silieco/core/runtimes", () => ({
   runtimeListOptions: () => ({ queryKey: ["runtimes"] }),
 }));
 vi.mock("@silieco/core/agents", () => ({
-  agentTaskSnapshotOptions: () => ({ queryKey: ["snapshot"] }),
+  agentRunSnapshotOptions: () => ({ queryKey: ["snapshot"] }),
 }));
 vi.mock("./daemon-panel", () => ({ DaemonPanel: () => null }));
 vi.mock("../platform/daemon-reauth", () => ({

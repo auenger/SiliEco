@@ -1,6 +1,12 @@
 -- name: CreatePersonalAccessToken :one
-INSERT INTO personal_access_token (user_id, name, token_hash, token_prefix, expires_at)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO personal_access_token (user_id, name, token_hash, token_prefix, expires_at) SELECT
+    $1 AS user_id,
+    $2 AS name,
+    $3 AS token_hash,
+    $4 AS token_prefix,
+    $5 AS expires_at
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_user_id WHERE ref_user_id.id = ($1) FOR KEY SHARE))
+
 RETURNING *;
 
 -- name: GetPersonalAccessTokenByHash :one

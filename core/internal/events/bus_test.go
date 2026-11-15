@@ -70,14 +70,14 @@ func TestSubscribeAllReceivesAllEventTypes(t *testing.T) {
 		received = append(received, e.Type)
 	})
 
-	bus.Publish(Event{Type: "issue:created"})
+	bus.Publish(Event{Type: "task:created"})
 	bus.Publish(Event{Type: "comment:deleted"})
 	bus.Publish(Event{Type: "skill:updated"})
 
 	if len(received) != 3 {
 		t.Fatalf("expected 3 events, got %d", len(received))
 	}
-	if received[0] != "issue:created" || received[1] != "comment:deleted" || received[2] != "skill:updated" {
+	if received[0] != "task:created" || received[1] != "comment:deleted" || received[2] != "skill:updated" {
 		t.Fatalf("unexpected events: %v", received)
 	}
 }
@@ -86,14 +86,14 @@ func TestSubscribeAllCalledAfterTypeSpecific(t *testing.T) {
 	bus := New()
 
 	var order []string
-	bus.Subscribe("issue:created", func(e Event) {
+	bus.Subscribe("task:created", func(e Event) {
 		order = append(order, "specific")
 	})
 	bus.SubscribeAll(func(e Event) {
 		order = append(order, "global")
 	})
 
-	bus.Publish(Event{Type: "issue:created"})
+	bus.Publish(Event{Type: "task:created"})
 
 	if len(order) != 2 || order[0] != "specific" || order[1] != "global" {
 		t.Fatalf("expected [specific, global], got %v", order)

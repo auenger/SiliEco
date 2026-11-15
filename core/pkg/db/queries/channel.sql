@@ -209,7 +209,7 @@ SELECT id FROM dead;
 WITH doomed AS (
     SELECT id FROM channel_installation
     WHERE agent_id IN (
-        SELECT id FROM agent WHERE runtime_id = sqlc.arg('runtime_id') AND archived_at IS NOT NULL
+        SELECT id FROM agent WHERE agent.runtime_id = sqlc.arg('runtime_id') AND archived_at IS NOT NULL
     )
 ),
 cleared_chat_sessions AS (
@@ -236,7 +236,7 @@ cleared_audit AS (
     -- unattributable NULL rows (channel_inbound_audit has no workspace_id / reaper).
     DELETE FROM channel_inbound_audit WHERE installation_id IN (SELECT id FROM doomed)
 )
-DELETE FROM channel_installation WHERE id IN (SELECT id FROM doomed);
+DELETE FROM channel_installation WHERE channel_installation.id IN (SELECT id FROM doomed);
 
 -- name: ListChannelInstallationsByWorkspace :many
 -- Scoped by channel_type so a per-channel management surface (e.g. the Lark
@@ -558,19 +558,19 @@ WHERE installation_id = $1;
 
 -- name: CreateChannelOutboundCardMessage :one
 INSERT INTO channel_outbound_card_message (
-    chat_session_id, task_id, channel_type, channel_chat_id,
+    chat_session_id, run_id, channel_type, channel_chat_id,
     channel_card_message_id, status
 ) VALUES (
-    $1, sqlc.narg('task_id'), $2, $3, $4, $5
+    $1, sqlc.narg('run_id'), $2, $3, $4, $5
 )
 RETURNING *;
 
--- name: GetChannelOutboundCardByTask :one
--- The partial unique index on (task_id) WHERE task_id IS NOT NULL
+-- name: GetChannelOutboundCardByRun :one
+-- The partial unique index on (run_id) WHERE run_id IS NOT NULL
 -- guarantees at most one row. Scoped by channel_type so a future non-Feishu
--- card for the same task is not patched as a Feishu card.
+-- card for the same run is not patched as a Feishu card.
 SELECT * FROM channel_outbound_card_message
-WHERE task_id = sqlc.arg('task_id')
+WHERE run_id = sqlc.arg('run_id')
   AND channel_type = sqlc.arg('channel_type');
 
 -- name: UpdateChannelOutboundCardStatus :exec

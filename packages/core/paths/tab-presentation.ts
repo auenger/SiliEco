@@ -14,9 +14,9 @@
  *
  * Missing entity data is a first-class state: a resource whose data has not
  * loaded yet renders a stable type icon and a type label, never a wrong or
- * empty identity, and never borrows the Issues icon.
+ * empty identity, and never borrows the Tasks icon.
  */
-import type { IssueStatus } from "../types";
+import type { TaskStatus } from "../types";
 import {
   WORKSPACE_PAGES,
   type NavLabelKey,
@@ -28,8 +28,8 @@ import type { TabActorType, TabSubject } from "./tab-subject";
 export type TabVisual =
   /** A static Lucide icon (page icon or resourceless type icon). */
   | { kind: "icon"; icon: RouteIconName }
-  /** An issue's live status glyph. `null` while the issue is loading. */
-  | { kind: "issue-status"; status: IssueStatus | null }
+  /** An task's live status glyph. `null` while the task is loading. */
+  | { kind: "task-status"; status: TaskStatus | null }
   /** A project's own icon. `null` falls back to the default project glyph. */
   | { kind: "project-icon"; icon: string | null }
   /** An actor's avatar, resolved by the view layer from `actorType`+`id`. */
@@ -38,7 +38,7 @@ export type TabVisual =
 /** Localization keys under the `layout.tab` namespace for tab type labels. */
 export type TabLabelKey =
   | "browser"
-  | "issue"
+  | "task"
   | "project"
   | "autopilot"
   | "agent"
@@ -67,7 +67,7 @@ export interface TabPresentation {
 
 /** Resolved inbox selection, as computed by the view layer from cache. */
 export type InboxSelectionData =
-  | { kind: "issue"; identifier: string; title: string }
+  | { kind: "task"; identifier: string; title: string }
   | { kind: "item"; title: string };
 
 /**
@@ -76,7 +76,7 @@ export type InboxSelectionData =
  * pending (type-label + type-icon) presentation.
  */
 export interface TabEntityData {
-  issue?: { identifier: string; title: string; status: IssueStatus };
+  task?: { identifier: string; title: string; status: TaskStatus };
   project?: { icon: string | null; title: string };
   autopilot?: { title: string };
   /** Resolved display name for an actor subject. */
@@ -86,7 +86,7 @@ export interface TabEntityData {
   runtime?: { name: string };
   /** Resolved chat session title (already includes the "New chat" fallback). */
   chatSessionTitle?: string;
-  /** Resolved inbox selection (issue identifier/title or item title). */
+  /** Resolved inbox selection (task identifier/title or item title). */
   inboxSelection?: InboxSelectionData;
 }
 
@@ -155,13 +155,15 @@ export function resolveTabPresentation(
         title: { kind: "nav", navKey: page.navKey },
       };
     }
-    case "issue":
+    case "task":
       return {
-        visual: { kind: "issue-status", status: data.issue?.status ?? null },
-        title: data.issue
-          ? { kind: "text", text: `${data.issue.identifier}: ${data.issue.title}` }
-          : { kind: "tab", tabKey: "issue" },
+        visual: { kind: "task-status", status: data.task?.status ?? null },
+        title: data.task
+          ? { kind: "text", text: `${data.task.identifier}: ${data.task.title}` }
+          : { kind: "tab", tabKey: "task" },
       };
+    case "project-files":
+      return { visual: { kind: "icon", icon: "File" }, title: textOr(data.project?.title, "project") };
     case "project":
       return {
         visual: { kind: "project-icon", icon: data.project?.icon ?? null },
@@ -208,7 +210,7 @@ export function resolveTabPresentation(
       let title: TabTitleSpec;
       if (!sel) {
         title = { kind: "nav", navKey: "inbox" };
-      } else if (sel.kind === "issue") {
+      } else if (sel.kind === "task") {
         title = { kind: "text", text: `${sel.identifier}: ${sel.title}` };
       } else {
         const text = sel.title.trim();

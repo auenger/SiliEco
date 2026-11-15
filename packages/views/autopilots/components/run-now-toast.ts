@@ -12,7 +12,7 @@ export type RunNowToastKind = "success" | "warning" | "error";
 // non-success outcome the user must be warned/errored about.
 export function runNowToastKind(status: string | undefined): RunNowToastKind {
   switch (status) {
-    case "issue_created":
+    case "task_created":
     case "running":
       return "success";
     case "skipped":

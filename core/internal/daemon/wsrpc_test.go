@@ -26,26 +26,26 @@ func TestWSRPCClient_CallRoundTrip(t *testing.T) {
 		if err := json.Unmarshal(msg.Payload, &req); err != nil {
 			return nil, err
 		}
-		if req.Method != "tasks.claim" {
-			t.Errorf("method = %q, want tasks.claim", req.Method)
+		if req.Method != "runs.claim" {
+			t.Errorf("method = %q, want runs.claim", req.Method)
 		}
 		go c.deliver(protocol.RPCResponsePayload{
 			RequestID: req.RequestID,
 			Status:    200,
-			Body:      json.RawMessage(`{"tasks":[{"id":"t1"}]}`),
+			Body:      json.RawMessage(`{"runs":[{"id":"t1"}]}`),
 		})
 		return &wsOutbound{data: frame}, nil
 	})
 	var resp struct {
-		Tasks []struct {
+		Runs []struct {
 			ID string `json:"id"`
-		} `json:"tasks"`
+		} `json:"runs"`
 	}
-	status, err := c.Call(context.Background(), "tasks.claim", 0, map[string]any{"max_tasks": 3}, &resp)
+	status, err := c.Call(context.Background(), "runs.claim", 0, map[string]any{"max_runs": 3}, &resp)
 	if err != nil || status != 200 {
 		t.Fatalf("Call: status=%d err=%v", status, err)
 	}
-	if len(resp.Tasks) != 1 || resp.Tasks[0].ID != "t1" {
+	if len(resp.Runs) != 1 || resp.Runs[0].ID != "t1" {
 		t.Fatalf("resp = %+v, want one task t1", resp)
 	}
 }
@@ -54,7 +54,7 @@ func TestWSRPCClient_CallRoundTrip(t *testing.T) {
 // the caller falls back to HTTP.
 func TestWSRPCClient_Unavailable(t *testing.T) {
 	c := newWSRPCClient(time.Second)
-	if _, err := c.Call(context.Background(), "tasks.claim", 0, nil, nil); !errors.Is(err, errWSRPCUnavailable) {
+	if _, err := c.Call(context.Background(), "runs.claim", 0, nil, nil); !errors.Is(err, errWSRPCUnavailable) {
 		t.Fatalf("err = %v, want errWSRPCUnavailable", err)
 	}
 }
@@ -81,7 +81,7 @@ func TestWSRPCClient_ReattachRequiresFreshNegotiation(t *testing.T) {
 	if c.supportsRPCV1() {
 		t.Fatal("replacement connection inherited rpc-v1 support from a stale ack")
 	}
-	if _, err := c.CallIfRPCV1Supported(context.Background(), "tasks.claim", 0, nil, nil); !errors.Is(err, errWSRPCUnavailable) {
+	if _, err := c.CallIfRPCV1Supported(context.Background(), "runs.claim", 0, nil, nil); !errors.Is(err, errWSRPCUnavailable) {
 		t.Fatalf("CallIfRPCV1Supported error = %v, want errWSRPCUnavailable before fresh negotiation", err)
 	}
 	if newConnectionCalls != 0 {
@@ -97,7 +97,7 @@ func TestWSRPCClient_ReattachRequiresFreshNegotiation(t *testing.T) {
 func TestWSRPCClient_Timeout(t *testing.T) {
 	c := newWSRPCClient(50 * time.Millisecond)
 	c.attach(func(frame []byte) (*wsOutbound, error) { return &wsOutbound{data: frame}, nil }) // send succeeds, never replies
-	status, err := c.Call(context.Background(), "tasks.claim", 0, nil, nil)
+	status, err := c.Call(context.Background(), "runs.claim", 0, nil, nil)
 	if err == nil || status != 0 {
 		t.Fatalf("status=%d err=%v, want timeout (status 0, err)", status, err)
 	}
@@ -115,7 +115,7 @@ func TestWSRPCClient_ServerError(t *testing.T) {
 		go c.deliver(protocol.RPCResponsePayload{RequestID: req.RequestID, Status: 400, Error: "bad daemon_id"})
 		return &wsOutbound{data: frame}, nil
 	})
-	status, err := c.Call(context.Background(), "tasks.claim", 0, nil, nil)
+	status, err := c.Call(context.Background(), "runs.claim", 0, nil, nil)
 	if status != 400 || err == nil {
 		t.Fatalf("status=%d err=%v, want 400 + error", status, err)
 	}
@@ -136,7 +136,7 @@ func TestWSRPCClient_DetachFailsPending(t *testing.T) {
 	})
 	done := make(chan error, 1)
 	go func() {
-		_, err := c.Call(context.Background(), "tasks.claim", 0, nil, nil)
+		_, err := c.Call(context.Background(), "runs.claim", 0, nil, nil)
 		done <- err
 	}()
 	time.Sleep(30 * time.Millisecond)
@@ -226,7 +226,7 @@ func TestWSRPCClient_TimeoutCancelsUnsentFrame(t *testing.T) {
 		item = &wsOutbound{data: frame}
 		return item, nil // enqueued; no writer ever drains it
 	})
-	status, err := c.Call(context.Background(), "tasks.claim", 30*time.Millisecond, nil, nil)
+	status, err := c.Call(context.Background(), "runs.claim", 30*time.Millisecond, nil, nil)
 	if status != 0 {
 		t.Fatalf("status = %d, want 0", status)
 	}
@@ -261,7 +261,7 @@ func TestWSRPCClient_TimeoutUncertainWhenAlreadySent(t *testing.T) {
 	})
 	done := make(chan error, 1)
 	go func() {
-		_, err := c.Call(context.Background(), "tasks.claim", 40*time.Millisecond, nil, nil)
+		_, err := c.Call(context.Background(), "runs.claim", 40*time.Millisecond, nil, nil)
 		done <- err
 	}()
 	time.Sleep(10 * time.Millisecond)

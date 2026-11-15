@@ -23,7 +23,7 @@ WHERE workspace_id = $1;
 -- name: DeleteChatPinnedAgentsByArchivedRuntimeAgents :exec
 DELETE FROM chat_pinned_agent
 WHERE agent_id IN (
-    SELECT id FROM agent WHERE runtime_id = $1 AND archived_at IS NOT NULL
+    SELECT id FROM agent WHERE agent.runtime_id = $1 AND archived_at IS NOT NULL
 );
 
 -- name: GetMaxChatPinnedAgentPosition :one

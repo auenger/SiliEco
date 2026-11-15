@@ -1,7 +1,7 @@
 /**
  * "Is there a Silieco page behind this one?" for the web navigation adapter.
  *
- * Callers that want to step back (deleting an issue returns the user to the
+ * Callers that want to step back (deleting an task returns the user to the
  * list they opened it from) must not step back off the app when the current
  * page was opened cold — a shared link, a pasted URL, a new tab.
  *

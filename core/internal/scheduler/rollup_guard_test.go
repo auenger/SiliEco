@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// rollupSingletonTestLock guards the global task_usage_hourly_rollup_state
-// singleton (id = 1) and the cron entrypoint rollup_task_usage_hourly()
+// rollupSingletonTestLock guards the global agent_run_usage_hourly_rollup_state
+// singleton (id = 1) and the cron entrypoint rollup_agent_run_usage_hourly()
 // across concurrently-running test binaries.
 //
 // `go test ./...` compiles internal/scheduler and internal/handler into
@@ -30,8 +30,8 @@ const rollupSingletonTestLock int64 = 42463980
 
 // lockRollupSingleton blocks until this test owns the rollup-singleton guard,
 // then releases it (and the pinned connection) on cleanup. Call it at the very
-// TOP of any test that writes task_usage_hourly_rollup_state or invokes
-// rollup_task_usage_hourly().
+// TOP of any test that writes agent_run_usage_hourly_rollup_state or invokes
+// rollup_agent_run_usage_hourly().
 func lockRollupSingleton(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()

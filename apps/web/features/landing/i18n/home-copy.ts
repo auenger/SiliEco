@@ -15,7 +15,7 @@ type HomeCopy = {
   agentRole: string;
   handoff: string;
   result: string;
-  task: string;
+  run: string;
   evidence: string;
   review: string;
   artCaption: string;
@@ -73,7 +73,7 @@ const zh: HomeCopy = {
   agentRole: "理解上下文 · 推进执行",
   handoff: "目标与上下文",
   result: "产物已提交",
-  task: "官网改版 · 等待验收",
+  run: "官网改版 · 等待验收",
   evidence: "页面预览与验证记录",
   review: "交给负责人确认",
   artCaption: "人与 Agent，共享一条工作流。",
@@ -178,7 +178,7 @@ const en: HomeCopy = {
   agentRole: "Read context · Execute work",
   handoff: "Goals & context",
   result: "Deliverables submitted",
-  task: "Website redesign · Ready for review",
+  run: "Website redesign · Ready for review",
   evidence: "Preview & verification records",
   review: "Handed to the reviewer",
   artCaption: "People and agents. One shared workflow.",
@@ -286,7 +286,7 @@ const ja: HomeCopy = {
   agentRole: "文脈を理解 · 作業を実行",
   handoff: "目標とコンテキスト",
   result: "成果物を提出",
-  task: "サイト改修 · レビュー待ち",
+  run: "サイト改修 · レビュー待ち",
   evidence: "プレビューと検証記録",
   review: "担当者に確認を依頼",
   artCaption: "人と Agent が、一つのワークフローで。",
@@ -393,7 +393,7 @@ const ko: HomeCopy = {
   agentRole: "맥락 이해 · 작업 실행",
   handoff: "목표와 맥락",
   result: "결과물 제출됨",
-  task: "웹사이트 개편 · 검토 대기",
+  run: "웹사이트 개편 · 검토 대기",
   evidence: "미리보기와 검증 기록",
   review: "담당자에게 확인 요청",
   artCaption: "사람과 Agent, 하나의 워크플로.",

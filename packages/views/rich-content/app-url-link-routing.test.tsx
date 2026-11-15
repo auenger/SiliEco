@@ -5,7 +5,7 @@
  * Chat and comments render agent-written content full of absolute URLs. When one
  * of them addresses this app, `window.open` sends it to the system browser on
  * desktop (Electron routes every renderer-opened window through
- * `shell.openExternal`), which is how "click an issue link, get a browser
+ * `shell.openExternal`), which is how "click an task link, get a browser
  * window" happens. The real `openLink` is exercised here — mocking it would test
  * nothing about the routing decision.
  */
@@ -15,8 +15,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const APP_ORIGIN = "https://app.example";
 
-vi.mock("../issues/hooks", () => ({
-  useResolveIssueIdentifier: () => null,
+vi.mock("../tasks/hooks", () => ({
+  useResolveTaskIdentifier: () => null,
 }));
 
 // Only the workspace hooks are stubbed — the real path helpers stay in place so
@@ -24,7 +24,7 @@ vi.mock("../issues/hooks", () => ({
 vi.mock("@silieco/core/paths", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@silieco/core/paths")>()),
   useWorkspacePaths: () => ({
-    issueDetail: (id: string) => `/test/issues/${id}`,
+    taskDetail: (id: string) => `/test/tasks/${id}`,
     projectDetail: (id: string) => `/test/projects/${id}`,
   }),
   useWorkspaceSlug: () => "test",
@@ -81,11 +81,11 @@ function renderContent(content: string) {
 
 describe("RichContent link routing", () => {
   it("routes a link to this deployment into the app instead of the browser", () => {
-    renderContent(`[SILI-1](${APP_ORIGIN}/acme/issues/SILI-1)`);
+    renderContent(`[SILI-1](${APP_ORIGIN}/acme/tasks/SILI-1)`);
 
     screen.getByText("SILI-1").click();
 
-    expect(navigatedPaths).toEqual(["/acme/issues/SILI-1"]);
+    expect(navigatedPaths).toEqual(["/acme/tasks/SILI-1"]);
     expect(openSpy).not.toHaveBeenCalled();
   });
 

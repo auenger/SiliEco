@@ -40,12 +40,12 @@ export function useArchiveInbox() {
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: inboxKeys.list(wsId) });
       const prev = qc.getQueryData<InboxItem[]>(inboxKeys.list(wsId));
-      // Archive all items for the same issue (same behavior as store)
+      // Archive all items for the same task (same behavior as store)
       const target = prev?.find((i) => i.id === id);
-      const issueId = target?.issue_id;
+      const taskId = target?.task_id;
       qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), (old) =>
         old?.map((item) =>
-          item.id === id || (issueId && item.issue_id === issueId)
+          item.id === id || (taskId && item.task_id === taskId)
             ? { ...item, archived: true }
             : item,
         ),
@@ -80,14 +80,14 @@ export function useUnarchiveInbox() {
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: inboxKeys.archived(wsId) });
       const prev = qc.getQueryData<InboxItem[]>(inboxKeys.archived(wsId));
-      // Restore every sibling for the same issue — the server unarchives the
-      // whole issue group, so the optimistic patch must too or the rest of the
+      // Restore every sibling for the same task — the server unarchives the
+      // whole task group, so the optimistic patch must too or the rest of the
       // group would linger in the archived list until the refetch lands.
       const target = prev?.find((i) => i.id === id);
-      const issueId = target?.issue_id;
+      const taskId = target?.task_id;
       qc.setQueryData<InboxItem[]>(inboxKeys.archived(wsId), (old) =>
         old?.map((item) =>
-          item.id === id || (issueId && item.issue_id === issueId)
+          item.id === id || (taskId && item.task_id === taskId)
             ? { ...item, archived: false }
             : item,
         ),

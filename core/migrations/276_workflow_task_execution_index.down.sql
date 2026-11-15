@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY IF EXISTS agent_task_queue_workflow_execution_idx;

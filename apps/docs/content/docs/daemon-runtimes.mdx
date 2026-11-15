@@ -68,7 +68,7 @@ Detailed states and retry rules are in [Runs](/runs).
 
 One daemon executes at most 20 runs at a time by default; each agent at most 6. Effective concurrency is the smaller of the two.
 
-Once a limit is reached, new runs keep queueing. You can adjust a single agent's concurrency in the agent settings, and the machine-wide cap through `SILIECO_DAEMON_MAX_CONCURRENT_TASKS`. Parallel runs compete for machine capacity, tool account quota, and the same working directory all at once.
+Once a limit is reached, new runs keep queueing. You can adjust a single agent's concurrency in the agent settings, and the machine-wide cap through `SILIECO_DAEMON_MAX_CONCURRENT_RUNS`. Parallel runs compete for machine capacity, tool account quota, and the same working directory all at once.
 
 ## Private and public runtimes
 

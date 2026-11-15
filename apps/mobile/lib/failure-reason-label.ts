@@ -1,5 +1,5 @@
 /**
- * Mirror of `packages/views/agents/components/tabs/task-failure.ts:REASON_LABEL`.
+ * Mirror of `packages/views/agents/components/tabs/run-failure.ts:REASON_LABEL`.
  *
  * Why mirror: mobile cannot import from packages/views per the apps/mobile
  * CLAUDE.md sharing rule. Only the human copy is mobile-owned.
@@ -7,7 +7,7 @@
  * Keyed by the raw wire value rather than a closed enum, same as the web map:
  * `failure_reason` is an open string that grows as classifier rules land, and
  * an installed build will meet reasons it predates. Before SILI-5370 this was a
- * `Record<TaskFailureReason, string>` holding only the six pre-SILI-1949 coarse
+ * `Record<AgentRunFailureReason, string>` holding only the six pre-SILI-1949 coarse
  * values, so every refined `agent_error.*` the backend has written since
  * missed the lookup and rendered a bare "Failed".
  *
@@ -22,7 +22,7 @@ const LABELS: Record<string, string> = {
   queued_expired: "Expired in queue",
   runtime_offline: "Daemon offline",
   runtime_recovery: "Daemon restarted",
-  timeout: "Task timed out",
+  timeout: "Agent run timed out",
   iteration_limit: "Hit the iteration limit",
   agent_blocked: "Waiting on human input",
   api_invalid_request: "Rejected by the model API",

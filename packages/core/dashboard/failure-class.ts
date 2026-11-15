@@ -1,4 +1,4 @@
-// Display grouping for `agent_task_queue.failure_reason`.
+// Display grouping for `agent_run.failure_reason`.
 //
 // The backend taxonomy (core/pkg/taskfailure) has 22 reasons, which is far
 // too many series for a stacked chart or a scannable breakdown list. These
@@ -66,7 +66,7 @@ const REASON_CLASS: Record<string, FailureClass> = {
   // operator response is "check the daemon's link to Silieco", the same as a
   // daemon that went offline — the model provider is not involved.
   skill_bundle_unavailable: "runtime",
-  invalid_task_identity: "runtime",
+  invalid_run_identity: "runtime",
 
   // The agent process itself produced the failure.
   "agent_error.process_failure": "agent",

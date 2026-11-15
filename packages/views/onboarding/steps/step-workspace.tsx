@@ -54,8 +54,8 @@ import { isReservedSlug } from "@silieco/core/paths";
  * The create-fields block doubles as a pedagogical preview: the URL is
  * rendered as a `<host>/[slug]` pill (host derived from the deployment's
  * app URL so self-hosted instances show their own domain), and a live
- * `Issues will look
- * like ACME-123` line shows the user what their issue IDs will read
+ * `Tasks will look
+ * like ACME-123` line shows the user what their task IDs will read
  * like before they've created anything.
  *
  * Resume path ships two picker cards (existing + create-new) and the
@@ -63,7 +63,7 @@ import { isReservedSlug } from "@silieco/core/paths";
  * fields directly.
  */
 
-function issuePrefix(slug: string): string {
+function taskPrefix(slug: string): string {
   // Mirrors the server's default prefix derivation — first 4 chars of
   // the slug, uppercased. Falls back to "WS" when the slug is empty so
   // the preview line never collapses to a single dangling "-".
@@ -265,14 +265,14 @@ export function StepWorkspace({
       </div>
       <div className="flex flex-col gap-1.5">
         <div className="text-caption font-medium text-muted-foreground">
-          {t(($) => $.step_workspace.issue_prefix_label)}
+          {t(($) => $.step_workspace.task_prefix_label)}
         </div>
         <div className="text-body leading-[1.55] text-muted-foreground">
-          {t(($) => $.step_workspace.issue_prefix_prefix)}
+          {t(($) => $.step_workspace.task_prefix_prefix)}
           <span className="font-mono text-foreground">
-            {issuePrefix(slug)}-123
+            {taskPrefix(slug)}-123
           </span>
-          {t(($) => $.step_workspace.issue_prefix_suffix)}
+          {t(($) => $.step_workspace.task_prefix_suffix)}
         </div>
       </div>
     </div>
@@ -602,8 +602,8 @@ function WorkspacePreviewCard({
         />
         <EntityRow
           icon={<ListTodo className="h-4 w-4" />}
-          label={t(($) => $.step_workspace.preview.issues_label)}
-          meta={t(($) => $.step_workspace.preview.issues_meta)}
+          label={t(($) => $.step_workspace.preview.tasks_label)}
+          meta={t(($) => $.step_workspace.preview.tasks_meta)}
         />
         <EntityRow
           icon={<Bot className="h-4 w-4" />}

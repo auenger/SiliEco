@@ -416,7 +416,7 @@ function repairFragmentedOrderedLists(slice: Slice): Slice {
  * returns early once a `handlePaste` prop claims the event — and this extension
  * is a catch-all that claims nearly every paste. Anything downstream that asks
  * "did this text arrive by paste?" therefore sees an unmarked transaction and
- * treats a paste as typing. `issueIdentifierAutolink` reads exactly that, and
+ * treats a paste as typing. `taskIdentifierAutolink` reads exactly that, and
  * without the mark it only ever inspects the token before the caret, so pasting
  * `See SILI-2 now` autolinks nothing (SILI-5429).
  *

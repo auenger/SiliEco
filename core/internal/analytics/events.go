@@ -10,8 +10,8 @@ const (
 	EventRuntimeReady                  = "runtime_ready"
 	EventRuntimeFailed                 = "runtime_failed"
 	EventRuntimeOffline                = "runtime_offline"
-	EventIssueExecuted                 = "issue_executed"
-	EventIssueCreated                  = "issue_created"
+	EventTaskExecuted                  = "task_executed"
+	EventTaskCreated                   = "task_created"
 	EventChatMessageSent               = "chat_message_sent"
 	EventAutopilotRunStarted           = "autopilot_run_started"
 	EventAutopilotRunCompleted         = "autopilot_run_completed"
@@ -46,8 +46,8 @@ const EventSchemaVersion = 2
 // receives frontend error/crash telemetry ($exception, client_crash,
 // client_unresponsive); see packages/core/analytics and docs/analytics.md.
 //
-// Note: agent_task_* lifecycle events are also Prometheus-only, but their
-// Prometheus side is handled by typed BusinessMetrics.RecordTask* methods, so
+// Note: agent_run_* lifecycle events are also Prometheus-only, but their
+// Prometheus side is handled by typed BusinessMetrics.RecordRun* methods, so
 // they never build an analytics.Event in the first place and don't need an
 // entry here.
 var metricsOnlyEvents = map[string]struct{}{
@@ -55,8 +55,8 @@ var metricsOnlyEvents = map[string]struct{}{
 	// (SILI-4127); the PostHog copy was redundant.
 	EventSignup:                        {},
 	EventWorkspaceCreated:              {},
-	EventIssueCreated:                  {},
-	EventIssueExecuted:                 {},
+	EventTaskCreated:                   {},
+	EventTaskExecuted:                  {},
 	EventChatMessageSent:               {},
 	EventTeamInviteSent:                {},
 	EventTeamInviteAccepted:            {},
@@ -105,8 +105,8 @@ type CoreProperties struct {
 	UserID         string
 	WorkspaceID    string
 	AgentID        string
+	RunID          string
 	TaskID         string
-	IssueID        string
 	ChatSessionID  string
 	AutopilotRunID string
 	Source         string
@@ -115,11 +115,11 @@ type CoreProperties struct {
 	IsDemo         bool
 }
 
-type TaskContext = CoreProperties
+type RunContext = CoreProperties
 
 // Onboarding completion paths. Keep in sync with docs/analytics.md.
 const (
-	OnboardingPathFull           = "full"            // reached first_issue end of flow
+	OnboardingPathFull           = "full"            // reached first_task end of flow
 	OnboardingPathRuntimeSkipped = "runtime_skipped" // completed without connecting a runtime
 	OnboardingPathCloudWaitlist  = "cloud_waitlist"  // completed via cloud waitlist soft exit
 	OnboardingPathSkipExisting   = "skip_existing"   // "I've done this before" from welcome
@@ -282,32 +282,32 @@ func RuntimeOffline(ownerID, workspaceID, runtimeID, daemonID, provider string) 
 	}
 }
 
-// IssueExecuted fires at most once per issue lifetime — on the first task
-// completion that flips `issues.first_executed_at` from NULL via an atomic
+// TaskExecuted fires at most once per task lifetime — on the first run
+// completion that flips `tasks.first_executed_at` from NULL via an atomic
 // UPDATE. Retries, re-assignments, and comment-triggered follow-ups never
 // re-emit, which is what keeps the ≥1/≥2/≥5/≥10 funnel buckets honest.
 //
-// Deliberately not stamped here: the workspace's Nth-issue ordinal.
+// Deliberately not stamped here: the workspace's Nth-task ordinal.
 // Computing it at emit time is not atomic (two concurrent first-completions
 // both read count=1, both emit n=1), and PostHog derives the same number
 // exactly at query time from the event stream.
-func IssueExecuted(actorID, workspaceID, issueID, taskID, agentID, source, runtimeMode, provider string, taskDurationMS int64) Event {
+func TaskExecuted(actorID, workspaceID, taskID, runID, agentID, source, runtimeMode, provider string, runDurationMS int64) Event {
 	return Event{
-		Name:        EventIssueExecuted,
+		Name:        EventTaskExecuted,
 		DistinctID:  actorID,
 		WorkspaceID: workspaceID,
 		Properties: withCoreProperties(map[string]any{
-			"issue_id":         issueID,
-			"task_id":          taskID,
-			"agent_id":         agentID,
-			"task_duration_ms": taskDurationMS,
-			"duration_ms":      taskDurationMS,
+			"task_id":         taskID,
+			"run_id":          runID,
+			"agent_id":        agentID,
+			"run_duration_ms": runDurationMS,
+			"duration_ms":     runDurationMS,
 		}, CoreProperties{
 			UserID:      nonAgentUserID(actorID),
 			WorkspaceID: workspaceID,
 			AgentID:     agentID,
+			RunID:       runID,
 			TaskID:      taskID,
-			IssueID:     issueID,
 			Source:      source,
 			RuntimeMode: runtimeMode,
 			Provider:    provider,
@@ -315,28 +315,28 @@ func IssueExecuted(actorID, workspaceID, issueID, taskID, agentID, source, runti
 	}
 }
 
-func IssueCreated(actorID, workspaceID, issueID, agentID, taskID, autopilotRunID, source, platform string) Event {
+func TaskCreated(actorID, workspaceID, taskID, agentID, runID, autopilotRunID, source, platform string) Event {
 	props := map[string]any{}
 	if platform != "" {
 		props["platform"] = platform
 	}
 	return Event{
-		Name:        EventIssueCreated,
+		Name:        EventTaskCreated,
 		DistinctID:  actorID,
 		WorkspaceID: workspaceID,
 		Properties: withCoreProperties(props, CoreProperties{
 			UserID:         nonAgentUserID(actorID),
 			WorkspaceID:    workspaceID,
 			AgentID:        agentID,
+			RunID:          runID,
 			TaskID:         taskID,
-			IssueID:        issueID,
 			AutopilotRunID: autopilotRunID,
 			Source:         source,
 		}),
 	}
 }
 
-func ChatMessageSent(userID, workspaceID, chatSessionID, taskID, agentID, runtimeMode, provider, platform string) Event {
+func ChatMessageSent(userID, workspaceID, chatSessionID, runID, agentID, runtimeMode, provider, platform string) Event {
 	props := map[string]any{}
 	if platform != "" {
 		props["platform"] = platform
@@ -349,7 +349,7 @@ func ChatMessageSent(userID, workspaceID, chatSessionID, taskID, agentID, runtim
 			UserID:        userID,
 			WorkspaceID:   workspaceID,
 			AgentID:       agentID,
-			TaskID:        taskID,
+			RunID:         runID,
 			ChatSessionID: chatSessionID,
 			Source:        SourceChat,
 			RuntimeMode:   runtimeMode,
@@ -760,11 +760,11 @@ func withCoreProperties(props map[string]any, core CoreProperties) map[string]an
 	if core.AgentID != "" {
 		props["agent_id"] = core.AgentID
 	}
+	if core.RunID != "" {
+		props["run_id"] = core.RunID
+	}
 	if core.TaskID != "" {
 		props["task_id"] = core.TaskID
-	}
-	if core.IssueID != "" {
-		props["issue_id"] = core.IssueID
 	}
 	if core.ChatSessionID != "" {
 		props["chat_session_id"] = core.ChatSessionID

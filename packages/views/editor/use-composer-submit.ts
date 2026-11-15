@@ -4,7 +4,7 @@
  * The unified await-then-render send contract for every composer (SILI-5181).
  *
  * Before this hook, comment-input, reply-input, comment-card (edit),
- * create-issue, and quick-create each hand-copied the same six-step
+ * create-task, and quick-create each hand-copied the same six-step
  * "pessimistic submit": read markdown, guard empty/in-flight, re-read
  * the upload gate, lock + spin, await the server, and clear only on success
  * (keep the draft on failure). The copies drifted — some guarded single-flight

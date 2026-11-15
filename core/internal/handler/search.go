@@ -12,12 +12,12 @@ import (
 
 // searchStatementTimeout bounds every /search request at the Postgres level.
 //
-// The two search handlers (SearchIssues, SearchProjects) run LOWER(col) LIKE
+// The two search handlers (SearchTasks, SearchProjects) run LOWER(col) LIKE
 // '%pattern%' queries whose fast path depends on pg_bigm / pg_trgm GIN
 // indexes (see migrations 032, 033, 036, 134). When those extensions are
 // missing — as they were on every self-hosted deployment using the bundled
 // pgvector/pgvector:pg17 image before migration 134 shipped — Postgres
-// falls back to a Seq Scan on `issue` plus correlated Seq Scans on
+// falls back to a Seq Scan on `task` plus correlated Seq Scans on
 // `comment`. On workspaces with thousands of rows the query takes long
 // enough that the frontend Loader2 spinner appears to hang forever
 // ("搜索卡死没有任何反应", SILI-4059).
@@ -26,7 +26,7 @@ import (
 // <50 ms) and short enough that the frontend's implicit request timeout
 // (browser default, ~30 s) never kicks in. On timeout the caller sees a
 // 503 with a descriptive error rather than a stalled connection —
-// SearchIssues / SearchProjects map SQLSTATE 57014 to
+// SearchTasks / SearchProjects map SQLSTATE 57014 to
 // http.StatusServiceUnavailable so the frontend can distinguish this
 // from a generic 500.
 const searchStatementTimeout = 3 * time.Second

@@ -149,7 +149,7 @@ const TEMPLATES: AutopilotTemplate[] = [
 2. Filter for topics relevant to our team and industry
 3. For each item, write a short summary including: title, source, key takeaways
 4. Compile everything into a single digest post
-5. Post the digest as a comment on this issue and @mention all workspace members`,
+5. Post the digest as a comment on this task and @mention all workspace members`,
     icon: Newspaper,
     schedule: { time: { kind: "at", time: "09:00" }, days: { kind: "every" } },
   },
@@ -158,29 +158,29 @@ const TEMPLATES: AutopilotTemplate[] = [
     prompt: `1. List all open pull requests in the repository
 2. Identify PRs that have been open for more than 24 hours without a review
 3. For each stale PR, note the author, age, and a one-line summary of the change
-4. Post a comment on this issue listing all stale PRs with links
+4. Post a comment on this task listing all stale PRs with links
 5. @mention the team to remind them to review`,
     icon: GitPullRequest,
     schedule: { time: { kind: "at", time: "10:00" }, days: WEEKDAYS },
   },
   {
     id: "bug_triage",
-    prompt: `1. List all issues with status "triage" or "backlog" that have not been prioritized
-2. For each issue, read the description and any attached logs or screenshots
+    prompt: `1. List all tasks with status "triage" or "backlog" that have not been prioritized
+2. For each task, read the description and any attached logs or screenshots
 3. Assess severity (critical / high / medium / low) based on user impact and scope
-4. Set the priority field on the issue accordingly
+4. Set the priority field on the task accordingly
 5. Add a comment explaining your assessment and suggested next steps`,
     icon: Bug,
     schedule: { time: { kind: "at", time: "09:00" }, days: WEEKDAYS },
   },
   {
     id: "weekly_progress",
-    prompt: `1. Gather all issues completed (status "done") in the past 7 days
-2. Gather all issues currently in progress
-3. Identify any blocked issues and their blockers
-4. Calculate key metrics: issues closed, issues opened, net change
+    prompt: `1. Gather all tasks completed (status "done") in the past 7 days
+2. Gather all tasks currently in progress
+3. Identify any blocked tasks and their blockers
+4. Calculate key metrics: tasks closed, tasks opened, net change
 5. Write a structured weekly report with sections: Completed, In Progress, Blocked, Metrics
-6. Post the report as a comment on this issue`,
+6. Post the report as a comment on this task`,
     icon: BarChart3,
     schedule: { time: { kind: "at", time: "17:00" }, days: MONDAY },
   },
@@ -200,7 +200,7 @@ const TEMPLATES: AutopilotTemplate[] = [
 2. For each significant change, check if related documentation was updated
 3. Identify any new APIs, config options, or features missing documentation
 4. Create a list of documentation gaps with file paths and suggested content
-5. Post the findings as a comment on this issue`,
+5. Post the findings as a comment on this task`,
     icon: FileSearch,
     schedule: { time: { kind: "at", time: "14:00" }, days: MONDAY },
   },
@@ -323,7 +323,7 @@ function TriggerCell({ autopilot }: { autopilot: Autopilot }) {
 function runStatusDotClass(status: string | null | undefined): string {
   switch (status) {
     case "completed":
-    case "issue_created":
+    case "task_created":
       return "bg-emerald-500";
     case "failed":
       return "bg-red-500";
@@ -348,7 +348,7 @@ function LastRunCell({ autopilot }: { autopilot: Autopilot }) {
   }
   const status = autopilot.last_run_status;
   const knownStatus =
-    status === "issue_created" ||
+    status === "task_created" ||
     status === "running" ||
     status === "completed" ||
     status === "failed" ||
@@ -388,7 +388,7 @@ function ModeCell({ autopilot }: { autopilot: Autopilot }) {
   const { t } = useT("autopilots");
   const mode = autopilot.execution_mode;
   const label =
-    mode === "create_issue" || mode === "run_only"
+    mode === "create_task" || mode === "run_only"
       ? t(($) => $.execution_mode[mode])
       : mode;
   return (

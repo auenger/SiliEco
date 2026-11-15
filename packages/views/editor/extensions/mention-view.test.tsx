@@ -22,21 +22,21 @@ vi.mock("@tiptap/react", () => ({
 
 vi.mock("@silieco/core/paths", () => ({
   useWorkspacePaths: () => ({
-    issueDetail: (id: string) => `/acme/issues/${id}`,
+    taskDetail: (id: string) => `/acme/tasks/${id}`,
     projectDetail: (id: string) => `/acme/projects/${id}`,
   }),
 }));
 
 const { newTabPreferred } = vi.hoisted(() => ({ newTabPreferred: { value: false } }));
 
-vi.mock("@silieco/core/issues/stores", () => ({
-  useIssueLinkStore: (selector: (s: { openInNewTab: boolean }) => unknown) =>
+vi.mock("@silieco/core/tasks/stores", () => ({
+  useTaskLinkStore: (selector: (s: { openInNewTab: boolean }) => unknown) =>
     selector({ openInNewTab: newTabPreferred.value }),
 }));
 
-vi.mock("../../issues/components/issue-chip", () => ({
-  IssueChip: ({ fallbackLabel }: { fallbackLabel?: string }) => (
-    <span data-testid="issue-chip">{fallbackLabel}</span>
+vi.mock("../../tasks/components/task-chip", () => ({
+  TaskChip: ({ fallbackLabel }: { fallbackLabel?: string }) => (
+    <span data-testid="task-chip">{fallbackLabel}</span>
   ),
 }));
 
@@ -134,17 +134,17 @@ describe("MentionView project mention", () => {
   });
 });
 
-describe("MentionView issue mention", () => {
-  const ISSUE_ID = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed";
-  const ISSUE_PATH = `/acme/issues/${ISSUE_ID}`;
+describe("MentionView task mention", () => {
+  const TASK_ID = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed";
+  const TASK_PATH = `/acme/tasks/${TASK_ID}`;
 
   // The reference implementation the project mention was aligned to — guard it
   // so the two chips can't drift apart again.
   it("leaves modifier-click to the browser when openInNewTab is absent (web)", () => {
     const push = vi.fn();
-    renderMention({ type: "issue", id: ISSUE_ID, label: "SILI-7" }, makeAdapter({ push }));
+    renderMention({ type: "task", id: TASK_ID, label: "SILI-7" }, makeAdapter({ push }));
 
-    const defaultNotPrevented = fireEvent.click(screen.getByTestId("issue-chip"), {
+    const defaultNotPrevented = fireEvent.click(screen.getByTestId("task-chip"), {
       metaKey: true,
     });
 
@@ -156,16 +156,16 @@ describe("MentionView issue mention", () => {
     const push = vi.fn();
     const openInNewTab = vi.fn();
     renderMention(
-      { type: "issue", id: ISSUE_ID, label: "SILI-7" },
+      { type: "task", id: TASK_ID, label: "SILI-7" },
       makeAdapter({ push, openInNewTab }),
     );
 
-    const defaultNotPrevented = fireEvent.click(screen.getByTestId("issue-chip"), {
+    const defaultNotPrevented = fireEvent.click(screen.getByTestId("task-chip"), {
       metaKey: true,
     });
 
     expect(defaultNotPrevented).toBe(false);
-    expect(openInNewTab).toHaveBeenCalledWith(ISSUE_PATH, "SILI-7");
+    expect(openInNewTab).toHaveBeenCalledWith(TASK_PATH, "SILI-7");
     expect(push).not.toHaveBeenCalled();
   });
 });

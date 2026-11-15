@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.github_installation_workspace_id_installation_id_key;

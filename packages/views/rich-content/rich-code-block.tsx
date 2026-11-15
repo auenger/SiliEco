@@ -3,7 +3,7 @@
 /**
  * RichCodeBlock — the ONLY fenced-code dispatcher in the product (SILI-4922).
  *
- * Every product surface (Chat, Issue description, Comment) reaches fenced code
+ * Every product surface (Chat, Task description, Comment) reaches fenced code
  * through this file. Adding a language branch anywhere else — a per-surface
  * `if (lang === "…")` in a message list or a comment card — is exactly the
  * drift this sweep deleted, so new languages get added HERE and nowhere else.

@@ -65,7 +65,7 @@ func TestSendChatMessage_InvokeRevokedAfterSessionCreate(t *testing.T) {
 	var agentID string
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, permission_mode, max_concurrent_tasks, owner_id,
+			runtime_id, visibility, permission_mode, max_concurrent_runs, owner_id,
 			instructions, custom_env, custom_args)
 		VALUES ($1, 'chat-revoke-agent', '', 'cloud', '{}'::jsonb, $2, 'private', 'public_to', 1, $3,
 			'', '{}'::jsonb, '[]'::jsonb)
@@ -124,14 +124,14 @@ func TestSendChatMessage_InvokeRevokedAfterSessionCreate(t *testing.T) {
 		}
 		return n
 	}
-	countTasks := func() int {
+	countRuns := func() int {
 		var n int
-		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE chat_session_id = $1`, session.ID).Scan(&n); err != nil {
+		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE chat_session_id = $1`, session.ID).Scan(&n); err != nil {
 			t.Fatalf("count tasks: %v", err)
 		}
 		return n
 	}
-	if countMessages() != 0 || countTasks() != 0 {
+	if countMessages() != 0 || countRuns() != 0 {
 		t.Fatalf("precondition: session should have no messages/tasks yet")
 	}
 
@@ -154,7 +154,7 @@ func TestSendChatMessage_InvokeRevokedAfterSessionCreate(t *testing.T) {
 	if got := countMessages(); got != 0 {
 		t.Errorf("blocked send persisted %d chat messages, want 0", got)
 	}
-	if got := countTasks(); got != 0 {
+	if got := countRuns(); got != 0 {
 		t.Errorf("blocked send persisted %d tasks, want 0", got)
 	}
 	// The attachment must remain unbound: neither claimed into the session nor
@@ -172,33 +172,33 @@ func TestSendChatMessage_InvokeRevokedAfterSessionCreate(t *testing.T) {
 	}
 }
 
-// TestRerunIssue_PrivateHistoricalAgent is the SILI-4525 must-fix 3 rerun
+// TestRerunTask_PrivateHistoricalAgent is the SILI-4525 must-fix 3 rerun
 // acceptance test, driven through the REAL handler + canInvokeAgent (not an
-// injected callback): a user who can see the issue but cannot invoke its private
+// injected callback): a user who can see the task but cannot invoke its private
 // agent is refused with a structured 403 and mutates nothing; the agent's owner
 // is allowed.
-func TestRerunIssue_PrivateHistoricalAgent(t *testing.T) {
+func TestRerunTask_PrivateHistoricalAgent(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	agentID, ownerID, _ := privateAgentTestFixture(t) // private agent owned by ownerID
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority)
+		INSERT INTO task (workspace_id, title, creator_type, creator_id, assignee_type, assignee_id, priority)
 		VALUES ($1, 'rerun private agent', 'member', $2, 'agent', $3, 'medium')
-		RETURNING id`, testWorkspaceID, ownerID, agentID).Scan(&issueID); err != nil {
-		t.Fatalf("seed issue: %v", err)
+		RETURNING id`, testWorkspaceID, ownerID, agentID).Scan(&taskID); err != nil {
+		t.Fatalf("seed task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	// A historical task run by the private agent.
-	orig, err := testHandler.TaskService.EnqueueTaskForIssue(ctx, db.Issue{
-		ID:           util.MustParseUUID(issueID),
+	orig, err := testHandler.AgentRunService.EnqueueRunForTask(ctx, db.Task{
+		ID:           util.MustParseUUID(taskID),
 		AssigneeID:   util.MustParseUUID(agentID),
 		Priority:     "medium",
 		CreatorType:  "member",
@@ -207,49 +207,49 @@ func TestRerunIssue_PrivateHistoricalAgent(t *testing.T) {
 		AssigneeType: pgtype.Text{String: "agent", Valid: true},
 	})
 	if err != nil {
-		t.Fatalf("enqueue original task: %v", err)
+		t.Fatalf("enqueue original run: %v", err)
 	}
 	origID := util.UUIDToString(orig.ID)
 
-	// Reassign the issue to a SECOND agent that testUserID CAN invoke (a
-	// workspace-invocable public_to agent). Now the issue's CURRENT assignee and
+	// Reassign the task to a SECOND agent that testUserID CAN invoke (a
+	// workspace-invocable public_to agent). Now the task's CURRENT assignee and
 	// the source task's HISTORICAL agent differ: if the rerun wrongly validated
 	// the current assignee, testUserID would be allowed — so the 403 below proves
-	// the gate is keyed on the historical private agent named by task_id.
+	// the gate is keyed on the historical private agent named by run_id.
 	currentAgentID := createHandlerTestAgent(t, "RerunCurrentAssignee", []byte("[]"))
-	if _, err := testPool.Exec(ctx, `UPDATE issue SET assignee_id = $1 WHERE id = $2`, currentAgentID, issueID); err != nil {
-		t.Fatalf("reassign issue to second agent: %v", err)
+	if _, err := testPool.Exec(ctx, `UPDATE task SET assignee_id = $1 WHERE id = $2`, currentAgentID, taskID); err != nil {
+		t.Fatalf("reassign task to second agent: %v", err)
 	}
 
-	taskCount := func() int {
+	runCount := func() int {
 		var n int
-		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE issue_id = $1`, issueID).Scan(&n); err != nil {
+		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE task_id = $1`, taskID).Scan(&n); err != nil {
 			t.Fatalf("count tasks: %v", err)
 		}
 		return n
 	}
 	origStatus := func() string {
 		var s string
-		if err := testPool.QueryRow(ctx, `SELECT status FROM agent_task_queue WHERE id = $1`, origID).Scan(&s); err != nil {
+		if err := testPool.QueryRow(ctx, `SELECT status FROM agent_run WHERE id = $1`, origID).Scan(&s); err != nil {
 			t.Fatalf("read orig status: %v", err)
 		}
 		return s
 	}
-	beforeCount, beforeStatus := taskCount(), origStatus()
+	beforeCount, beforeStatus := runCount(), origStatus()
 
-	// DENY: testUserID (workspace owner) can view the issue AND can invoke the
+	// DENY: testUserID (workspace owner) can view the task AND can invoke the
 	// current assignee, but cannot invoke the HISTORICAL private agent named by
-	// task_id → structured 403, and nothing is cancelled or created.
+	// run_id → structured 403, and nothing is cancelled or created.
 	denyW := httptest.NewRecorder()
-	denyReq := withURLParam(newRequest("POST", "/api/issues/"+issueID+"/rerun", map[string]any{"task_id": origID}), "id", issueID)
-	testHandler.RerunIssue(denyW, denyReq)
+	denyReq := withURLParam(newRequest("POST", "/api/tasks/"+taskID+"/rerun", map[string]any{"run_id": origID}), "id", taskID)
+	testHandler.RerunTask(denyW, denyReq)
 	if denyW.Code != http.StatusForbidden {
-		t.Fatalf("RerunIssue as non-invoker of historical agent: expected 403, got %d: %s", denyW.Code, denyW.Body.String())
+		t.Fatalf("RerunTask as non-invoker of historical agent: expected 403, got %d: %s", denyW.Code, denyW.Body.String())
 	}
 	if code := readReasonCode(t, denyW.Body.Bytes()); code != string(dispatch.ReasonInvocationNotAllowed) {
 		t.Errorf("reason_code = %q, want invocation_not_allowed", code)
 	}
-	if got := taskCount(); got != beforeCount {
+	if got := runCount(); got != beforeCount {
 		t.Errorf("blocked rerun changed task count: got %d, want %d", got, beforeCount)
 	}
 	if got := origStatus(); got != beforeStatus {
@@ -257,12 +257,12 @@ func TestRerunIssue_PrivateHistoricalAgent(t *testing.T) {
 	}
 
 	// ALLOW: the HISTORICAL agent's owner may rerun it, and the new task must
-	// target the historical agent — not the issue's current assignee.
+	// target the historical agent — not the task's current assignee.
 	allowW := httptest.NewRecorder()
-	allowReq := withURLParam(newRequestAs(ownerID, "POST", "/api/issues/"+issueID+"/rerun", map[string]any{"task_id": origID}), "id", issueID)
-	testHandler.RerunIssue(allowW, allowReq)
+	allowReq := withURLParam(newRequestAs(ownerID, "POST", "/api/tasks/"+taskID+"/rerun", map[string]any{"run_id": origID}), "id", taskID)
+	testHandler.RerunTask(allowW, allowReq)
 	if allowW.Code != http.StatusAccepted {
-		t.Fatalf("RerunIssue as historical agent owner: expected 202, got %d: %s", allowW.Code, allowW.Body.String())
+		t.Fatalf("RerunTask as historical agent owner: expected 202, got %d: %s", allowW.Code, allowW.Body.String())
 	}
 	var reran struct {
 		ID      string `json:"id"`

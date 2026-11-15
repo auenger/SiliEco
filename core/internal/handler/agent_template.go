@@ -119,12 +119,12 @@ func (h *Handler) GetAgentTemplate(w http.ResponseWriter, r *http.Request) {
 // --- Create-from-template handler ---
 
 type CreateAgentFromTemplateRequest struct {
-	TemplateSlug       string `json:"template_slug"`
-	Name               string `json:"name"`
-	RuntimeID          string `json:"runtime_id"`
-	Model              string `json:"model,omitempty"`
-	Visibility         string `json:"visibility,omitempty"`
-	MaxConcurrentTasks int32  `json:"max_concurrent_tasks,omitempty"`
+	TemplateSlug      string `json:"template_slug"`
+	Name              string `json:"name"`
+	RuntimeID         string `json:"runtime_id"`
+	Model             string `json:"model,omitempty"`
+	Visibility        string `json:"visibility,omitempty"`
+	MaxConcurrentRuns int32  `json:"max_concurrent_runs,omitempty"`
 	// PermissionMode + InvocationTargets are the invocation-permission inputs
 	// (SILI-3963). When permission_mode is present it is authoritative and
 	// Visibility is ignored; when absent, legacy Visibility is mapped through
@@ -185,7 +185,7 @@ func (h *Handler) CreateAgentFromTemplate(w http.ResponseWriter, r *http.Request
 	if req.Visibility == "" {
 		req.Visibility = "private"
 	}
-	if err := defaultAndValidateAgentMaxConcurrentTasks(rawFields, &req.MaxConcurrentTasks); err != nil {
+	if err := defaultAndValidateAgentMaxConcurrentRuns(rawFields, &req.MaxConcurrentRuns); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -462,22 +462,22 @@ func (h *Handler) CreateAgentFromTemplate(w http.ResponseWriter, r *http.Request
 	}
 
 	agent, err := qtx.CreateAgent(r.Context(), db.CreateAgentParams{
-		WorkspaceID:        wsUUID,
-		Name:               req.Name,
-		Description:        description,
-		Instructions:       instructions,
-		AvatarUrl:          avatarURL,
-		RuntimeMode:        runtime.RuntimeMode,
-		RuntimeConfig:      rc,
-		RuntimeID:          runtime.ID,
-		Visibility:         perm.legacyVisibility(),
-		PermissionMode:     perm.mode,
-		MaxConcurrentTasks: req.MaxConcurrentTasks,
-		OwnerID:            creatorUUID,
-		CustomEnv:          ce,
-		CustomArgs:         ca,
-		McpConfig:          nil,
-		Model:              pgtype.Text{String: req.Model, Valid: req.Model != ""},
+		WorkspaceID:       wsUUID,
+		Name:              req.Name,
+		Description:       description,
+		Instructions:      instructions,
+		AvatarUrl:         avatarURL,
+		RuntimeMode:       runtime.RuntimeMode,
+		RuntimeConfig:     rc,
+		RuntimeID:         runtime.ID,
+		Visibility:        perm.legacyVisibility(),
+		PermissionMode:    pgtype.Text{String: perm.mode, Valid: true},
+		MaxConcurrentRuns: req.MaxConcurrentRuns,
+		OwnerID:           creatorUUID,
+		CustomEnv:         ce,
+		CustomArgs:        ca,
+		McpConfig:         nil,
+		Model:             pgtype.Text{String: req.Model, Valid: req.Model != ""},
 	})
 	if err != nil {
 		// Mirror handler/agent.go:CreateAgent: when the duplicate is the
@@ -584,7 +584,7 @@ func (h *Handler) CreateAgentFromTemplate(w http.ResponseWriter, r *http.Request
 	}
 
 	if runtime.Status == "online" {
-		h.TaskService.ReconcileAgentStatus(r.Context(), agent.ID)
+		h.AgentRunService.ReconcileAgentStatus(r.Context(), agent.ID)
 		agent, _ = h.Queries.GetAgent(r.Context(), agent.ID)
 	}
 

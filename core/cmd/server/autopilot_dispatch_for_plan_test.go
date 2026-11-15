@@ -17,7 +17,7 @@ import (
 //
 //   - A second DispatchAutopilotForPlan with the same (trigger_id,
 //     planned_at) MUST return the SAME run row that the first call
-//     created. No second autopilot_run, no second issue / task, no
+//     created. No second autopilot_run, no second task / task, no
 //     second failure recorded.
 //
 // This is the dispatch-layer half of the two-defence design. The
@@ -30,8 +30,8 @@ func TestDispatchAutopilotForPlanIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
-	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, taskSvc)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
+	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, runSvc)
 
 	var agentID string
 	if err := testPool.QueryRow(ctx,
@@ -42,16 +42,16 @@ func TestDispatchAutopilotForPlanIsIdempotent(t *testing.T) {
 	}
 
 	ap, err := queries.CreateAutopilot(ctx, db.CreateAutopilotParams{
-		WorkspaceID:        parseUUID(testWorkspaceID),
-		Title:              "Dispatch for plan idempotency",
-		Description:        pgtype.Text{String: "Dispatch for plan test", Valid: true},
-		AssigneeType:       "agent",
-		AssigneeID:         parseUUID(agentID),
-		Status:             "active",
-		ExecutionMode:      "run_only",
-		IssueTitleTemplate: pgtype.Text{},
-		CreatedByType:      "member",
-		CreatedByID:        parseUUID(testUserID),
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "Dispatch for plan idempotency",
+		Description:       pgtype.Text{String: "Dispatch for plan test", Valid: true},
+		AssigneeType:      "agent",
+		AssigneeID:        parseUUID(agentID),
+		Status:            "active",
+		ExecutionMode:     "run_only",
+		TaskTitleTemplate: pgtype.Text{},
+		CreatedByType:     "member",
+		CreatedByID:       parseUUID(testUserID),
 	})
 	if err != nil {
 		t.Fatalf("CreateAutopilot: %v", err)
@@ -149,12 +149,12 @@ func TestDispatchAutopilotForPlanIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestDispatchAutopilotSuppressesRecentDuplicateIssue(t *testing.T) {
+func TestDispatchAutopilotSuppressesRecentDuplicateTask(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
-	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, taskSvc)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
+	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, runSvc)
 
 	var agentID string
 	if err := testPool.QueryRow(ctx,
@@ -164,18 +164,18 @@ func TestDispatchAutopilotSuppressesRecentDuplicateIssue(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	title := "Autopilot recent duplicate issue " + time.Now().UTC().Format("20060102150405.000000000")
+	title := "Autopilot recent duplicate task " + time.Now().UTC().Format("20060102150405.000000000")
 	ap, err := queries.CreateAutopilot(ctx, db.CreateAutopilotParams{
-		WorkspaceID:        parseUUID(testWorkspaceID),
-		Title:              "Recent duplicate issue guard",
-		Description:        pgtype.Text{String: "Recent duplicate issue guard test", Valid: true},
-		AssigneeType:       "agent",
-		AssigneeID:         parseUUID(agentID),
-		Status:             "active",
-		ExecutionMode:      "create_issue",
-		IssueTitleTemplate: pgtype.Text{String: title, Valid: true},
-		CreatedByType:      "member",
-		CreatedByID:        parseUUID(testUserID),
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "Recent duplicate task guard",
+		Description:       pgtype.Text{String: "Recent duplicate task guard test", Valid: true},
+		AssigneeType:      "agent",
+		AssigneeID:        parseUUID(agentID),
+		Status:            "active",
+		ExecutionMode:     "create_task",
+		TaskTitleTemplate: pgtype.Text{String: title, Valid: true},
+		CreatedByType:     "member",
+		CreatedByID:       parseUUID(testUserID),
 	})
 	if err != nil {
 		t.Fatalf("CreateAutopilot: %v", err)
@@ -183,15 +183,15 @@ func TestDispatchAutopilotSuppressesRecentDuplicateIssue(t *testing.T) {
 	t.Cleanup(func() {
 		bg := context.Background()
 		_, _ = testPool.Exec(bg, `DELETE FROM autopilot WHERE id = $1`, ap.ID)
-		_, _ = testPool.Exec(bg, `DELETE FROM issue WHERE workspace_id = $1 AND title = $2`, testWorkspaceID, title)
+		_, _ = testPool.Exec(bg, `DELETE FROM task WHERE workspace_id = $1 AND title = $2`, testWorkspaceID, title)
 	})
 
 	first, err := autopilotSvc.DispatchAutopilot(ctx, ap, pgtype.UUID{}, "manual", nil)
 	if err != nil {
 		t.Fatalf("first DispatchAutopilot: %v", err)
 	}
-	if first == nil || first.Status != "issue_created" || !first.IssueID.Valid {
-		t.Fatalf("first dispatch = %+v, want issue_created with issue_id", first)
+	if first == nil || first.Status != "task_created" || !first.TaskID.Valid {
+		t.Fatalf("first dispatch = %+v, want task_created with task_id", first)
 	}
 
 	second, err := autopilotSvc.DispatchAutopilot(ctx, ap, pgtype.UUID{}, "manual", nil)
@@ -201,19 +201,19 @@ func TestDispatchAutopilotSuppressesRecentDuplicateIssue(t *testing.T) {
 	if second == nil || second.Status != "skipped" {
 		t.Fatalf("second dispatch = %+v, want skipped duplicate run", second)
 	}
-	if second.IssueID.Valid {
-		t.Fatalf("duplicate run linked issue_id=%s, want no new issue", util.UUIDToString(second.IssueID))
+	if second.TaskID.Valid {
+		t.Fatalf("duplicate run linked task_id=%s, want no new task", util.UUIDToString(second.TaskID))
 	}
 
 	var count int
 	if err := testPool.QueryRow(ctx,
-		`SELECT count(*) FROM issue WHERE workspace_id = $1 AND title = $2`,
+		`SELECT count(*) FROM task WHERE workspace_id = $1 AND title = $2`,
 		testWorkspaceID, title,
 	).Scan(&count); err != nil {
-		t.Fatalf("count issues: %v", err)
+		t.Fatalf("count tasks: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("recent duplicate autopilot dispatch should leave 1 matching issue, got %d", count)
+		t.Fatalf("recent duplicate autopilot dispatch should leave 1 matching task, got %d", count)
 	}
 }
 
@@ -225,8 +225,8 @@ func TestDispatchAutopilotForPlanRejectsZeroArgs(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
-	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, taskSvc)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
+	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, runSvc)
 
 	ap := db.Autopilot{
 		ID:            parseUUID(testWorkspaceID), // placeholder; will not be loaded since validation fails first
@@ -261,24 +261,24 @@ func TestDispatchAutopilotForPlanRejectsZeroArgs(t *testing.T) {
 //
 //	"DispatchAutopilotForPlan reuses existing run unconditionally,
 //	 will mark a half-written run as SUCCESS even when no
-//	 issue/task was ever created."
+//	 task/task was ever created."
 //
 // We seed a partial-state autopilot_run for (trigger, planned_at) —
 // the run exists with a non-terminal status but the corresponding
-// downstream linkage (task_id for run_only, issue_id for create_issue)
+// downstream linkage (run_id for run_only, task_id for create_task)
 // is NULL. A subsequent DispatchAutopilotForPlan call at the same
 // (trigger, planned_at) MUST NOT return the partial row as-is;
 // instead it must mark the partial row FAILED + clear its planned_at
 // to release the partial-unique slot, then create a fresh dispatched
 // run with the downstream linkage actually populated.
 func TestDispatchAutopilotForPlanRecoversPartialRun(t *testing.T) {
-	for _, mode := range []string{"run_only", "create_issue"} {
+	for _, mode := range []string{"run_only", "create_task"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
 			queries := db.New(testPool)
 			bus := events.New()
-			taskSvc := service.NewTaskService(queries, testPool, nil, bus)
-			autopilotSvc := service.NewAutopilotService(queries, testPool, bus, taskSvc)
+			runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
+			autopilotSvc := service.NewAutopilotService(queries, testPool, bus, runSvc)
 
 			var agentID string
 			if err := testPool.QueryRow(ctx,
@@ -289,16 +289,16 @@ func TestDispatchAutopilotForPlanRecoversPartialRun(t *testing.T) {
 			}
 
 			ap, err := queries.CreateAutopilot(ctx, db.CreateAutopilotParams{
-				WorkspaceID:        parseUUID(testWorkspaceID),
-				Title:              "Partial recovery " + mode,
-				Description:        pgtype.Text{String: "partial run recovery test", Valid: true},
-				AssigneeType:       "agent",
-				AssigneeID:         parseUUID(agentID),
-				Status:             "active",
-				ExecutionMode:      mode,
-				IssueTitleTemplate: pgtype.Text{String: "Partial recovery", Valid: true},
-				CreatedByType:      "member",
-				CreatedByID:        parseUUID(testUserID),
+				WorkspaceID:       parseUUID(testWorkspaceID),
+				Title:             "Partial recovery " + mode,
+				Description:       pgtype.Text{String: "partial run recovery test", Valid: true},
+				AssigneeType:      "agent",
+				AssigneeID:        parseUUID(agentID),
+				Status:            "active",
+				ExecutionMode:     mode,
+				TaskTitleTemplate: pgtype.Text{String: "Partial recovery", Valid: true},
+				CreatedByType:     "member",
+				CreatedByID:       parseUUID(testUserID),
 			})
 			if err != nil {
 				t.Fatalf("CreateAutopilot: %v", err)
@@ -327,11 +327,11 @@ func TestDispatchAutopilotForPlanRecoversPartialRun(t *testing.T) {
 			// Seed a PARTIAL run: a prior attempt wrote the run row
 			// (status reflects the dispatch path's initial state) but
 			// crashed before creating the downstream resource —
-			// task_id is NULL for run_only, issue_id is NULL for
-			// create_issue.
+			// run_id is NULL for run_only, task_id is NULL for
+			// create_task.
 			initialStatus := "running"
-			if mode == "create_issue" {
-				initialStatus = "issue_created"
+			if mode == "create_task" {
+				initialStatus = "task_created"
 			}
 			partial, err := queries.CreateAutopilotRun(ctx, db.CreateAutopilotRunParams{
 				AutopilotID:    ap.ID,
@@ -345,11 +345,11 @@ func TestDispatchAutopilotForPlanRecoversPartialRun(t *testing.T) {
 				t.Fatalf("seed partial run: %v", err)
 			}
 			// Confirm the partial state: no downstream linkage.
+			if partial.RunID.Valid {
+				t.Fatalf("seed partial run should have run_id=NULL, got %s", util.UUIDToString(partial.RunID))
+			}
 			if partial.TaskID.Valid {
 				t.Fatalf("seed partial run should have task_id=NULL, got %s", util.UUIDToString(partial.TaskID))
-			}
-			if partial.IssueID.Valid {
-				t.Fatalf("seed partial run should have issue_id=NULL, got %s", util.UUIDToString(partial.IssueID))
 			}
 
 			// Retry the dispatch — this is the stale-steal codepath.
@@ -400,12 +400,12 @@ func TestDispatchAutopilotForPlanRecoversPartialRun(t *testing.T) {
 			}
 			switch mode {
 			case "run_only":
-				if !fresh.TaskID.Valid {
-					t.Fatalf("run_only retry must produce a run with task_id set")
+				if !fresh.RunID.Valid {
+					t.Fatalf("run_only retry must produce a run with run_id set")
 				}
-			case "create_issue":
-				if !fresh.IssueID.Valid {
-					t.Fatalf("create_issue retry must produce a run with issue_id set")
+			case "create_task":
+				if !fresh.TaskID.Valid {
+					t.Fatalf("create_task retry must produce a run with task_id set")
 				}
 			}
 

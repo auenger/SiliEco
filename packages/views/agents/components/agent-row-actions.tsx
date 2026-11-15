@@ -112,9 +112,9 @@ export function AgentRowActions({
     }
   };
 
-  const handleCancelTasks = async () => {
+  const handleCancelRuns = async () => {
     try {
-      const { cancelled } = await api.cancelAgentTasks(agent.id);
+      const { cancelled } = await api.cancelAgentRuns(agent.id);
       invalidateAgents();
       toast.success(
         cancelled === 0
@@ -204,7 +204,7 @@ export function AgentRowActions({
                 variant="destructive"
                 onClick={() => {
                   setConfirmCancel(false);
-                  void handleCancelTasks();
+                  void handleCancelRuns();
                 }}
               >
                 {t(($) => $.row_actions.cancel_dialog_confirm)}

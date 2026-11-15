@@ -104,7 +104,7 @@ import {
   PickerItem,
   PickerSection,
   PropertyPicker,
-} from "../../issues/components/pickers/property-picker";
+} from "../../tasks/components/pickers/property-picker";
 import { WorkflowRunPlanDialog } from "./workflow-run-plan-dialog";
 import { StageMCPSelector } from "./stage-mcp-selector";
 

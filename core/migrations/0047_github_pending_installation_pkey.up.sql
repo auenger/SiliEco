@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY github_pending_installation_pkey ON public.github_pending_installation (installation_id);

@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { api } from "../api";
 import { EMPTY_WORKFLOW_INSTANCE } from "../api/schemas";
-import { issueKeys } from "../issues/queries";
+import { taskKeys } from "../tasks/queries";
 import { workflowKeys } from "./queries";
 import { useTransitionWorkflowInstance } from "./mutations";
 
@@ -13,12 +13,12 @@ vi.mock("../hooks",()=>({useWorkspaceId:()=>"ws"}));
 vi.mock("../api",()=>({api:{transitionWorkflowInstance:vi.fn()}}));
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 
-it.each([false,true])("manual rollback refreshes Run and issue caches without retry (failure=%s)",async(failure)=>{
+it.each([false,true])("manual rollback refreshes Run and task caches without retry (failure=%s)",async(failure)=>{
  const client=new QueryClient({defaultOptions:{mutations:{retry:3,retryDelay:0}}});
  const key=workflowKeys.instance("ws","run");
- const issue=issueKeys.detail("ws","issue");
- const other=issueKeys.detail("other","issue");
- for(const entry of [key,issue,other])client.setQueryData(entry,{before:true});
+ const task=taskKeys.detail("ws","task");
+ const other=taskKeys.detail("other","task");
+ for(const entry of [key,task,other])client.setQueryData(entry,{before:true});
  if(failure)vi.mocked(api.transitionWorkflowInstance).mockRejectedValue(new Error("409 changed"));
  else vi.mocked(api.transitionWorkflowInstance).mockResolvedValue({...EMPTY_WORKFLOW_INSTANCE,id:"run"});
  const wrapper=({children}:{children:ReactNode})=><QueryClientProvider client={client}>{children}</QueryClientProvider>;
@@ -31,7 +31,7 @@ it.each([false,true])("manual rollback refreshes Run and issue caches without re
  });
  expect(api.transitionWorkflowInstance).toHaveBeenCalledExactlyOnceWith("run",data);
  expect(client.getQueryState(key)?.isInvalidated).toBe(true);
- expect(client.getQueryState(issue)?.isInvalidated).toBe(true);
+ expect(client.getQueryState(task)?.isInvalidated).toBe(true);
  expect(client.getQueryState(other)?.isInvalidated).toBe(false);
  expect(client.getQueryData(key)).toEqual({before:true});
  client.clear();

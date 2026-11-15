@@ -16,7 +16,7 @@ import type {
 import { I18nProvider } from "@silieco/core/i18n/react";
 import enAgents from "../../../locales/en/agents.json";
 import enCommon from "../../../locales/en/common.json";
-import enIssues from "../../../locales/en/issues.json";
+import enTasks from "../../../locales/en/tasks.json";
 
 const mockInitiateListModels = vi.hoisted(() => vi.fn());
 const mockGetListModelsResult = vi.hoisted(() => vi.fn());
@@ -67,7 +67,7 @@ function renderField(
     <I18nProvider
       locale="en"
       resources={{
-        en: { common: enCommon, agents: enAgents, issues: enIssues },
+        en: { common: enCommon, agents: enAgents, tasks: enTasks },
       }}
     >
       <QueryClientProvider client={queryClient}>

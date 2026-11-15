@@ -32,33 +32,33 @@ func testWorkflowEnqueueSharesRunTransaction(t *testing.T, mode string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
-	issue, err := svc.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{ID: execution.MainIssueID, WorkspaceID: p.WorkspaceID})
+	task, err := svc.Queries.GetTaskInWorkspace(ctx, db.GetTaskInWorkspaceParams{ID: execution.MainTaskID, WorkspaceID: p.WorkspaceID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if mode == "mention" {
-		// The explicit target remains the executor even when the issue belongs
+		// The explicit target remains the executor even when the task belongs
 		// to a member. Mentions must not silently become assignee calls.
-		if _, err := pool.Exec(ctx, `UPDATE issue SET assignee_type='member',assignee_id=$1 WHERE id=$2`, p.ActorID, issue.ID); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE task SET assignee_type='member',assignee_id=$1 WHERE id=$2`, p.ActorID, task.ID); err != nil {
 			t.Fatal(err)
 		}
-		issue, err = svc.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{ID: issue.ID, WorkspaceID: p.WorkspaceID})
+		task, err = svc.Queries.GetTaskInWorkspace(ctx, db.GetTaskInWorkspaceParams{ID: task.ID, WorkspaceID: p.WorkspaceID})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 	fireAt := time.Now().Add(time.Hour).Truncate(time.Microsecond)
-	enqueue := func(callCtx context.Context) (db.AgentTaskQueue, error) {
+	enqueue := func(callCtx context.Context) (db.AgentRun, error) {
 		if mode == "deferred" {
-			return svc.TaskService.EnqueueDeferredAssigneeFallback(callCtx, issue, execution.ExecutorID, pgtype.UUID{}, execution.MainTaskID, pgtype.UUID{}, fireAt)
+			return svc.AgentRunService.EnqueueDeferredAssigneeFallback(callCtx, task, execution.ExecutorID, pgtype.UUID{}, execution.MainRunID, pgtype.UUID{}, fireAt)
 		}
 		if mode == "mention" {
-			return svc.TaskService.enqueueMentionTask(callCtx, issue, execution.ExecutorID, pgtype.UUID{}, true, pgtype.UUID{}, true, "review handoff", p.ActorID, pgtype.UUID{})
+			return svc.AgentRunService.enqueueMentionRun(callCtx, task, execution.ExecutorID, pgtype.UUID{}, true, pgtype.UUID{}, true, "review handoff", p.ActorID, pgtype.UUID{})
 		}
-		return svc.TaskService.enqueueIssueTask(callCtx, issue, pgtype.UUID{}, false, "", p.ActorID, pgtype.UUID{})
+		return svc.AgentRunService.enqueueTaskRun(callCtx, task, pgtype.UUID{}, false, "", p.ActorID, pgtype.UUID{})
 	}
 	if _, err := enqueue(ctx); !errors.Is(err, ErrWorkflowExecutionConflict) {
 		t.Fatalf("automatic stage got unbound call: %v", err)
@@ -101,29 +101,29 @@ func testWorkflowEnqueueSharesRunTransaction(t *testing.T, mode string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(single.Close)
-	svc.TaskService = NewTaskService(db.New(single), single, nil, svc.TaskService.Bus)
+	svc.AgentRunService = NewAgentRunService(db.New(single), single, nil, svc.AgentRunService.Bus)
 	notifications := 0
-	svc.TaskService.Bus.Subscribe(protocol.EventTaskQueued, func(event events.Event) {
+	svc.AgentRunService.Bus.Subscribe(protocol.EventRunQueued, func(event events.Event) {
 		notifications++
 		var count int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE issue_id=$1 AND status='queued'`, issue.ID).Scan(&count); err != nil || count != 1 {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE task_id=$1 AND status='queued'`, task.ID).Scan(&count); err != nil || count != 1 {
 			t.Errorf("enqueue event preceded commit: %d %v", count, err)
 		}
 	})
 	deadline, stop := context.WithTimeout(ctx, 5*time.Second)
 	defer stop()
-	task, err := enqueue(deadline)
+	agentRun, err := enqueue(deadline)
 	expectedNotifications := 1
 	if mode == "deferred" {
 		expectedNotifications = 0
-		if task.Status != "deferred" || task.EscalationForTaskID != execution.MainTaskID || !task.FireAt.Time.Equal(fireAt) {
-			t.Fatalf("deferred metadata lost: %+v", task)
+		if agentRun.Status != "deferred" || agentRun.EscalationForRunID != execution.MainRunID || !agentRun.FireAt.Time.Equal(fireAt) {
+			t.Fatalf("deferred metadata lost: %+v", agentRun)
 		}
 	}
-	if err != nil || !task.ID.Valid || notifications != expectedNotifications {
-		t.Fatalf("manual enqueue: %+v %v events=%d", task, err, notifications)
+	if err != nil || !agentRun.ID.Valid || notifications != expectedNotifications {
+		t.Fatalf("manual enqueue: %+v %v events=%d", agentRun, err, notifications)
 	}
-	if mode == "mention" && (task.AgentID != execution.ExecutorID || !task.IsLeaderTask || !task.ForceFreshSession || task.HandoffNote.String != "review handoff") {
-		t.Fatalf("mention metadata lost: %+v", task)
+	if mode == "mention" && (agentRun.AgentID != execution.ExecutorID || !agentRun.IsLeaderRun || !agentRun.ForceFreshSession || agentRun.HandoffNote.String != "review handoff") {
+		t.Fatalf("mention metadata lost: %+v", agentRun)
 	}
 }

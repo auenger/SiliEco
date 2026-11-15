@@ -181,7 +181,7 @@ func TestBatchedHeartbeatScheduler_StopFlushesLateSchedule(t *testing.T) {
 }
 
 // TestBatchedHeartbeatScheduler_FlushIgnoresEmpty exercises the empty-pending
-// fast path: a tick with nothing queued must not issue a DB call.
+// fast path: a tick with nothing queued must not make a DB call.
 func TestBatchedHeartbeatScheduler_FlushIgnoresEmpty(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")

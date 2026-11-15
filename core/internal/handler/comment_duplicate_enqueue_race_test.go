@@ -18,8 +18,8 @@ const (
 	dupRaceHeadB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
 
-// dupRaceFixture creates a workspace-invocable agent and an issue assigned to it.
-func dupRaceFixture(t *testing.T, agentName string, issueNumber int) (agentID, issueID, runtimeID string) {
+// dupRaceFixture creates a workspace-invocable agent and an task assigned to it.
+func dupRaceFixture(t *testing.T, agentName string, taskNumber int) (agentID, taskID, runtimeID string) {
 	t.Helper()
 	ctx := context.Background()
 	agentID = createHandlerTestAgent(t, agentName, nil)
@@ -27,39 +27,39 @@ func dupRaceFixture(t *testing.T, agentName string, issueNumber int) (agentID, i
 		t.Fatalf("load runtime: %v", err)
 	}
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_id, creator_type, number, position, assignee_type, assignee_id)
+		INSERT INTO task (workspace_id, title, status, priority, creator_id, creator_type, number, position, assignee_type, assignee_id)
 		VALUES ($1, 'dup-enqueue-race fixture', 'in_progress', 'none', $2, 'member', $3, 0, 'agent', $4)
 		RETURNING id
-	`, testWorkspaceID, testUserID, issueNumber, agentID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID, taskNumber, agentID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID) })
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM comment WHERE issue_id = $1`, issueID) })
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
-	return agentID, issueID, runtimeID
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID) })
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM comment WHERE task_id = $1`, taskID) })
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID) })
+	return agentID, taskID, runtimeID
 }
 
-func insertDupRaceComment(t *testing.T, issueID, content, age string) string {
+func insertDupRaceComment(t *testing.T, taskID, content, age string) string {
 	t.Helper()
 	var id string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, created_at)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, created_at)
 		VALUES ($1, $2, 'member', $3, $4, 'comment', now() - $5::interval)
 		RETURNING id
-	`, issueID, testWorkspaceID, testUserID, content, age).Scan(&id); err != nil {
+	`, taskID, testWorkspaceID, testUserID, content, age).Scan(&id); err != nil {
 		t.Fatalf("insert comment %q: %v", content, err)
 	}
 	return id
 }
 
-func commentCovered(t *testing.T, issueID, agentID, commentID, statusFilter string) bool {
+func commentCovered(t *testing.T, taskID, agentID, commentID, statusFilter string) bool {
 	t.Helper()
 	var ok bool
 	if err := testPool.QueryRow(context.Background(), `
 		SELECT $3::uuid = trigger_comment_id OR $3::uuid = ANY(coalesced_comment_ids)
-		FROM agent_task_queue
-		WHERE issue_id = $1 AND agent_id = $2 AND status = $4
-	`, issueID, agentID, commentID, statusFilter).Scan(&ok); err != nil {
+		FROM agent_run
+		WHERE task_id = $1 AND agent_id = $2 AND status = $4
+	`, taskID, agentID, commentID, statusFilter).Scan(&ok); err != nil {
 		t.Fatalf("check covered %s: %v", commentID, err)
 	}
 	return ok
@@ -75,22 +75,22 @@ func TestCommentEnqueueRaceQueuedWinnerFoldsLoser(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, _ := dupRaceFixture(t, "dup-race-queued", 999311)
+	agentID, taskID, _ := dupRaceFixture(t, "dup-race-queued", 999311)
 	agentUUID := util.MustParseUUID(agentID)
-	issue, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueID))
+	task, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskID))
 	if err != nil {
-		t.Fatalf("load issue: %v", err)
+		t.Fatalf("load task: %v", err)
 	}
 	agent, err := testHandler.Queries.GetAgent(ctx, agentUUID)
 	if err != nil {
 		t.Fatalf("load agent: %v", err)
 	}
 
-	winnerCommentID := insertDupRaceComment(t, issueID, "first instruction", "6 minutes")
-	if _, err := testHandler.TaskService.EnqueueTaskForMention(ctx, issue, agentUUID, util.MustParseUUID(winnerCommentID)); err != nil {
-		t.Fatalf("enqueue winning task: %v", err)
+	winnerCommentID := insertDupRaceComment(t, taskID, "first instruction", "6 minutes")
+	if _, err := testHandler.AgentRunService.EnqueueRunForMention(ctx, task, agentUUID, util.MustParseUUID(winnerCommentID)); err != nil {
+		t.Fatalf("enqueue winning run: %v", err)
 	}
-	loserCommentID := insertDupRaceComment(t, issueID, "second distinct instruction", "1 minute")
+	loserCommentID := insertDupRaceComment(t, taskID, "second distinct instruction", "1 minute")
 
 	var logs bytes.Buffer
 	prev := slog.Default()
@@ -98,21 +98,21 @@ func TestCommentEnqueueRaceQueuedWinnerFoldsLoser(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	trigger := commentAgentTrigger{Agent: agent, Source: commentTriggerSourceMentionAgent}
-	results := testHandler.enqueueCommentAgentTriggers(ctx, issue, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
+	results := testHandler.enqueueCommentAgentTriggers(ctx, task, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
 
 	if res := results[agentID]; res.status != DispatchCoalesced {
 		t.Fatalf("queued-winner race: got status %q reason %q, want coalesced", res.status, res.reason)
 	}
-	if !commentCovered(t, issueID, agentID, loserCommentID, "queued") {
+	if !commentCovered(t, taskID, agentID, loserCommentID, "queued") {
 		t.Fatal("losing comment was NOT folded into the queued winner — its instruction would be dropped")
 	}
-	if !commentCovered(t, issueID, agentID, winnerCommentID, "queued") {
+	if !commentCovered(t, taskID, agentID, winnerCommentID, "queued") {
 		t.Fatal("winner comment is no longer covered after the fold")
 	}
-	if n := pendingTaskCountForAgentIssue(t, issueID, agentID); n != 1 {
+	if n := pendingRunCountForAgentTask(t, taskID, agentID); n != 1 {
 		t.Fatalf("pending task count = %d, want exactly 1", n)
 	}
-	for _, leak := range []string{"idx_one_pending_task_per_issue_agent", "level=WARN", "level=ERROR"} {
+	for _, leak := range []string{"idx_one_pending_run_per_task_agent", "level=WARN", "level=ERROR"} {
 		if strings.Contains(logs.String(), leak) {
 			t.Fatalf("benign enqueue race leaked %q into logs:\n%s", leak, logs.String())
 		}
@@ -130,11 +130,11 @@ func TestCommentEnqueueRaceDispatchedWinnerDurablyCoversLoser(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, runtimeID := dupRaceFixture(t, "dup-race-dispatched", 999312)
+	agentID, taskID, runtimeID := dupRaceFixture(t, "dup-race-dispatched", 999312)
 	agentUUID := util.MustParseUUID(agentID)
-	issue, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueID))
+	task, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskID))
 	if err != nil {
-		t.Fatalf("load issue: %v", err)
+		t.Fatalf("load task: %v", err)
 	}
 	agent, err := testHandler.Queries.GetAgent(ctx, agentUUID)
 	if err != nil {
@@ -143,19 +143,19 @@ func TestCommentEnqueueRaceDispatchedWinnerDurablyCoversLoser(t *testing.T) {
 
 	// Losing comment PREDATES the winner task; winner is already dispatched with
 	// its claim receipt (delivered = its own trigger only).
-	loserCommentID := insertDupRaceComment(t, issueID, "losing instruction (predates winner)", "10 minutes")
-	winnerCommentID := insertDupRaceComment(t, issueID, "winning instruction", "6 minutes")
-	var winnerTaskID string
+	loserCommentID := insertDupRaceComment(t, taskID, "losing instruction (predates winner)", "10 minutes")
+	winnerCommentID := insertDupRaceComment(t, taskID, "winning instruction", "6 minutes")
+	var winnerRunID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, dispatched_at)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, dispatched_at)
 		VALUES ($1, $2, $3, $4, ARRAY[$4::uuid], 'dispatched', 0, now() - interval '5 minutes', now() - interval '4 minutes')
 		RETURNING id
-	`, agentID, runtimeID, issueID, winnerCommentID).Scan(&winnerTaskID); err != nil {
+	`, agentID, runtimeID, taskID, winnerCommentID).Scan(&winnerRunID); err != nil {
 		t.Fatalf("insert dispatched winner: %v", err)
 	}
 
 	trigger := commentAgentTrigger{Agent: agent, Source: commentTriggerSourceMentionAgent}
-	results := testHandler.enqueueCommentAgentTriggers(ctx, issue, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
+	results := testHandler.enqueueCommentAgentTriggers(ctx, task, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
 
 	// Truthful outcome: deferred (a follow-up will cover it), NOT coalesced.
 	if res := results[agentID]; res.status != DispatchDeferred {
@@ -165,8 +165,8 @@ func TestCommentEnqueueRaceDispatchedWinnerDurablyCoversLoser(t *testing.T) {
 	var plannedHasLoser, deliveredHasLoser bool
 	if err := testPool.QueryRow(ctx, `
 		SELECT $2::uuid = ANY(coalesced_comment_ids), $2::uuid = ANY(delivered_comment_ids)
-		FROM agent_task_queue WHERE id = $1
-	`, winnerTaskID, loserCommentID).Scan(&plannedHasLoser, &deliveredHasLoser); err != nil {
+		FROM agent_run WHERE id = $1
+	`, winnerRunID, loserCommentID).Scan(&plannedHasLoser, &deliveredHasLoser); err != nil {
 		t.Fatalf("read winner planned/delivered: %v", err)
 	}
 	if !plannedHasLoser {
@@ -175,22 +175,22 @@ func TestCommentEnqueueRaceDispatchedWinnerDurablyCoversLoser(t *testing.T) {
 	if deliveredHasLoser {
 		t.Fatal("losing comment must NOT be faked as delivered on the dispatched winner")
 	}
-	if n := pendingTaskCountForAgentIssue(t, issueID, agentID); n != 1 {
+	if n := pendingRunCountForAgentTask(t, taskID, agentID); n != 1 {
 		t.Fatalf("pending task count = %d, want exactly 1 (the dispatched winner)", n)
 	}
 
 	// The winner completes; reconcile must replay the planned-but-undelivered
 	// loser as a bounded follow-up — proving the drop is actually closed.
-	if _, err := testPool.Exec(ctx, `UPDATE agent_task_queue SET status = 'running', started_at = now() - interval '1 minute' WHERE id = $1`, winnerTaskID); err != nil {
+	if _, err := testPool.Exec(ctx, `UPDATE agent_run SET status = 'running', started_at = now() - interval '1 minute' WHERE id = $1`, winnerRunID); err != nil {
 		t.Fatalf("advance winner to running: %v", err)
 	}
-	if w := completeTaskViaHandler(t, winnerTaskID, "done"); w.Code != 200 {
+	if w := completeRunViaHandler(t, winnerRunID, "done"); w.Code != 200 {
 		t.Fatalf("complete winner: got %d: %s", w.Code, w.Body.String())
 	}
-	if n := queuedTaskCountForAgentIssue(t, issueID, agentID); n != 1 {
+	if n := queuedRunCountForAgentTask(t, taskID, agentID); n != 1 {
 		t.Fatalf("expected exactly 1 follow-up covering the loser after completion, got %d", n)
 	}
-	if !commentCovered(t, issueID, agentID, loserCommentID, "queued") {
+	if !commentCovered(t, taskID, agentID, loserCommentID, "queued") {
 		t.Fatal("follow-up does not cover the losing comment — the instruction was dropped")
 	}
 }
@@ -207,10 +207,10 @@ func TestCommentEnqueueRaceDifferentHeadNotCoalesced(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, runtimeID := dupRaceFixture(t, "dup-race-headshift", 999313)
+	agentID, taskID, runtimeID := dupRaceFixture(t, "dup-race-headshift", 999313)
 	agentUUID := util.MustParseUUID(agentID)
 
-	// Link a PR at head B so ResolveIssueReviewSHA returns B for new enqueues.
+	// Link a PR at head B so ResolveTaskReviewSHA returns B for new enqueues.
 	var prID string
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO github_pull_request (workspace_id, installation_id, repo_owner, repo_name, pr_number, title, state, html_url, pr_created_at, pr_updated_at, head_sha)
@@ -219,15 +219,17 @@ func TestCommentEnqueueRaceDifferentHeadNotCoalesced(t *testing.T) {
 	`, testWorkspaceID, dupRaceHeadB).Scan(&prID); err != nil {
 		t.Fatalf("seed PR: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue_pull_request WHERE pull_request_id = $1`, prID) })
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM task_pull_request WHERE pull_request_id = $1`, prID)
+	})
 	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM github_pull_request WHERE id = $1`, prID) })
-	if _, err := testPool.Exec(ctx, `INSERT INTO issue_pull_request (issue_id, pull_request_id) VALUES ($1, $2)`, issueID, prID); err != nil {
+	if _, err := testPool.Exec(ctx, `INSERT INTO task_pull_request (task_id, pull_request_id) VALUES ($1, $2)`, taskID, prID); err != nil {
 		t.Fatalf("link PR: %v", err)
 	}
 
-	issue, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueID))
+	task, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskID))
 	if err != nil {
-		t.Fatalf("load issue: %v", err)
+		t.Fatalf("load task: %v", err)
 	}
 	agent, err := testHandler.Queries.GetAgent(ctx, agentUUID)
 	if err != nil {
@@ -235,19 +237,19 @@ func TestCommentEnqueueRaceDifferentHeadNotCoalesced(t *testing.T) {
 	}
 
 	// Pending winner stamped for the OLD head A (queued), and a NEWER head-B comment.
-	headAcommentID := insertDupRaceComment(t, issueID, "review head A", "6 minutes")
-	var winnerTaskID string
+	headAcommentID := insertDupRaceComment(t, taskID, "review head A", "6 minutes")
+	var winnerRunID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, context)
 		VALUES ($1, $2, $3, $4, ARRAY[$4::uuid], 'queued', 0, now() - interval '5 minutes', jsonb_build_object('head_sha', $5::text))
 		RETURNING id
-	`, agentID, runtimeID, issueID, headAcommentID, dupRaceHeadA).Scan(&winnerTaskID); err != nil {
+	`, agentID, runtimeID, taskID, headAcommentID, dupRaceHeadA).Scan(&winnerRunID); err != nil {
 		t.Fatalf("insert head-A winner: %v", err)
 	}
-	headBcommentID := insertDupRaceComment(t, issueID, "please review head B", "1 minute")
+	headBcommentID := insertDupRaceComment(t, taskID, "please review head B", "1 minute")
 
 	trigger := commentAgentTrigger{Agent: agent, Source: commentTriggerSourceMentionAgent}
-	results := testHandler.enqueueCommentAgentTriggers(ctx, issue, util.MustParseUUID(headBcommentID), []commentAgentTrigger{trigger})
+	results := testHandler.enqueueCommentAgentTriggers(ctx, task, util.MustParseUUID(headBcommentID), []commentAgentTrigger{trigger})
 
 	// Not coalesced into the head-A run, and NOT a fabricated deferred either — a
 	// snapshot cannot durably promise the head-A task's reconcile will still cover
@@ -265,8 +267,8 @@ func TestCommentEnqueueRaceDifferentHeadNotCoalesced(t *testing.T) {
 	var winnerHead string
 	if err := testPool.QueryRow(ctx, `
 		SELECT $2::uuid = ANY(coalesced_comment_ids), COALESCE(context->>'head_sha','')
-		FROM agent_task_queue WHERE id = $1
-	`, winnerTaskID, headBcommentID).Scan(&headBinA, &winnerHead); err != nil {
+		FROM agent_run WHERE id = $1
+	`, winnerRunID, headBcommentID).Scan(&headBinA, &winnerHead); err != nil {
 		t.Fatalf("read head-A winner: %v", err)
 	}
 	if headBinA {
@@ -278,19 +280,19 @@ func TestCommentEnqueueRaceDifferentHeadNotCoalesced(t *testing.T) {
 
 	// After the head-A task completes, reconcile enqueues fresh coverage for the
 	// newer head-B comment — and that follow-up is stamped for head B.
-	if _, err := testPool.Exec(ctx, `UPDATE agent_task_queue SET status = 'running', started_at = now() - interval '1 minute' WHERE id = $1`, winnerTaskID); err != nil {
+	if _, err := testPool.Exec(ctx, `UPDATE agent_run SET status = 'running', started_at = now() - interval '1 minute' WHERE id = $1`, winnerRunID); err != nil {
 		t.Fatalf("advance head-A winner to running: %v", err)
 	}
-	if w := completeTaskViaHandler(t, winnerTaskID, "done"); w.Code != 200 {
+	if w := completeRunViaHandler(t, winnerRunID, "done"); w.Code != 200 {
 		t.Fatalf("complete head-A winner: got %d: %s", w.Code, w.Body.String())
 	}
 	var followupHead string
 	if err := testPool.QueryRow(ctx, `
 		SELECT COALESCE(context->>'head_sha','')
-		FROM agent_task_queue
-		WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'
+		FROM agent_run
+		WHERE task_id = $1 AND agent_id = $2 AND status = 'queued'
 		ORDER BY created_at DESC LIMIT 1
-	`, issueID, agentID).Scan(&followupHead); err != nil {
+	`, taskID, agentID).Scan(&followupHead); err != nil {
 		t.Fatalf("read follow-up head: %v", err)
 	}
 	if followupHead != dupRaceHeadB {
@@ -305,42 +307,42 @@ func TestCommentEnqueueRaceDifferentHeadNotCoalesced(t *testing.T) {
 // claim-receipt statuses (dispatched/running/waiting_local_directory) are valid
 // planned-id targets; a queued task must miss so the caller routes it to the
 // atomic merge instead.
-func TestRegisterPlannedCommentForActiveTaskExcludesQueued(t *testing.T) {
+func TestRegisterPlannedCommentForActiveRunExcludesQueued(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, runtimeID := dupRaceFixture(t, "dup-race-register-scope", 999314)
-	commentID := insertDupRaceComment(t, issueID, "planned candidate", "1 minute")
-	triggerID := insertDupRaceComment(t, issueID, "winner trigger", "6 minutes")
+	agentID, taskID, runtimeID := dupRaceFixture(t, "dup-race-register-scope", 999314)
+	commentID := insertDupRaceComment(t, taskID, "planned candidate", "1 minute")
+	triggerID := insertDupRaceComment(t, taskID, "winner trigger", "6 minutes")
 
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, status, priority, created_at)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, status, priority, created_at)
 		VALUES ($1, $2, $3, $4, 'queued', 0, now() - interval '5 minutes')
 		RETURNING id
-	`, agentID, runtimeID, issueID, triggerID).Scan(&taskID); err != nil {
-		t.Fatalf("insert queued task: %v", err)
+	`, agentID, runtimeID, taskID, triggerID).Scan(&runID); err != nil {
+		t.Fatalf("insert queued run: %v", err)
 	}
 
-	params := db.RegisterPlannedCommentForActiveTaskParams{
+	params := db.RegisterPlannedCommentForActiveRunParams{
 		CommentID: util.MustParseUUID(commentID),
-		IssueID:   util.MustParseUUID(issueID),
+		TaskID:    util.MustParseUUID(taskID),
 		AgentID:   util.MustParseUUID(agentID),
 	}
 
 	// QUEUED target must MISS.
-	if _, err := testHandler.Queries.RegisterPlannedCommentForActiveTask(ctx, params); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("register against a QUEUED task: err = %v, want pgx.ErrNoRows (queued excluded)", err)
+	if _, err := testHandler.Queries.RegisterPlannedCommentForActiveRun(ctx, params); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("register against a QUEUED run: err = %v, want pgx.ErrNoRows (queued excluded)", err)
 	}
 
 	// Flip to dispatched: now the claim receipt exists and the append is valid.
-	if _, err := testPool.Exec(ctx, `UPDATE agent_task_queue SET status = 'dispatched', dispatched_at = now() WHERE id = $1`, taskID); err != nil {
+	if _, err := testPool.Exec(ctx, `UPDATE agent_run SET status = 'dispatched', dispatched_at = now() WHERE id = $1`, runID); err != nil {
 		t.Fatalf("flip to dispatched: %v", err)
 	}
-	row, err := testHandler.Queries.RegisterPlannedCommentForActiveTask(ctx, params)
+	row, err := testHandler.Queries.RegisterPlannedCommentForActiveRun(ctx, params)
 	if err != nil {
-		t.Fatalf("register against a DISPATCHED task: %v", err)
+		t.Fatalf("register against a DISPATCHED run: %v", err)
 	}
 	var found bool
 	for _, id := range row.CoalescedCommentIds {
@@ -365,11 +367,11 @@ func TestCommentEnqueueRaceQueuedWinnerReattributesOriginator(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, _ := dupRaceFixture(t, "dup-race-reattr", 999315)
+	agentID, taskID, _ := dupRaceFixture(t, "dup-race-reattr", 999315)
 	agentUUID := util.MustParseUUID(agentID)
-	issue, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueID))
+	task, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskID))
 	if err != nil {
-		t.Fatalf("load issue: %v", err)
+		t.Fatalf("load task: %v", err)
 	}
 	agent, err := testHandler.Queries.GetAgent(ctx, agentUUID)
 	if err != nil {
@@ -388,22 +390,22 @@ func TestCommentEnqueueRaceQueuedWinnerReattributesOriginator(t *testing.T) {
 	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM member WHERE user_id = $1`, m2) })
 
 	// Winner: a queued task attributed to M1 (testUserID) via its own comment.
-	winnerCommentID := insertDupRaceComment(t, issueID, "M1 instruction", "6 minutes")
-	if _, err := testHandler.TaskService.EnqueueTaskForMention(ctx, issue, agentUUID, util.MustParseUUID(winnerCommentID)); err != nil {
-		t.Fatalf("enqueue winning task: %v", err)
+	winnerCommentID := insertDupRaceComment(t, taskID, "M1 instruction", "6 minutes")
+	if _, err := testHandler.AgentRunService.EnqueueRunForMention(ctx, task, agentUUID, util.MustParseUUID(winnerCommentID)); err != nil {
+		t.Fatalf("enqueue winning run: %v", err)
 	}
 	// Losing comment authored by M2.
 	var loserCommentID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, created_at)
+		INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, created_at)
 		VALUES ($1, $2, 'member', $3, 'M2 instruction', 'comment', now() - interval '1 minute')
 		RETURNING id
-	`, issueID, testWorkspaceID, m2).Scan(&loserCommentID); err != nil {
+	`, taskID, testWorkspaceID, m2).Scan(&loserCommentID); err != nil {
 		t.Fatalf("insert M2 loser comment: %v", err)
 	}
 
 	trigger := commentAgentTrigger{Agent: agent, Source: commentTriggerSourceMentionAgent}
-	results := testHandler.enqueueCommentAgentTriggers(ctx, issue, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
+	results := testHandler.enqueueCommentAgentTriggers(ctx, task, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
 	if res := results[agentID]; res.status != DispatchCoalesced {
 		t.Fatalf("queued-winner reattribution race: got status %q reason %q, want coalesced", res.status, res.reason)
 	}
@@ -413,8 +415,8 @@ func TestCommentEnqueueRaceQueuedWinnerReattributesOriginator(t *testing.T) {
 	var trig, orig string
 	if err := testPool.QueryRow(ctx, `
 		SELECT COALESCE(trigger_comment_id::text,''), COALESCE(originator_user_id::text,'')
-		FROM agent_task_queue WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'
-	`, issueID, agentID).Scan(&trig, &orig); err != nil {
+		FROM agent_run WHERE task_id = $1 AND agent_id = $2 AND status = 'queued'
+	`, taskID, agentID).Scan(&trig, &orig); err != nil {
 		t.Fatalf("read winner attribution: %v", err)
 	}
 	if trig != loserCommentID {
@@ -424,7 +426,6 @@ func TestCommentEnqueueRaceQueuedWinnerReattributesOriginator(t *testing.T) {
 		t.Fatalf("originator_user_id = %s, want re-attributed to M2 %s (bare append would leave M1)", orig, m2)
 	}
 }
-
 
 // TestCommentEnqueueRaceNewerDifferentHeadNotDeferred is the regression for Elon
 // round-5 must-fix: when the different-head task holding the slot is NEWER than
@@ -437,7 +438,7 @@ func TestCommentEnqueueRaceNewerDifferentHeadNotDeferred(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, runtimeID := dupRaceFixture(t, "dup-race-newer-head", 999317)
+	agentID, taskID, runtimeID := dupRaceFixture(t, "dup-race-newer-head", 999317)
 	agentUUID := util.MustParseUUID(agentID)
 
 	// Link a PR at head B so the request resolves head B.
@@ -449,15 +450,17 @@ func TestCommentEnqueueRaceNewerDifferentHeadNotDeferred(t *testing.T) {
 	`, testWorkspaceID, dupRaceHeadB).Scan(&prID); err != nil {
 		t.Fatalf("seed PR: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue_pull_request WHERE pull_request_id = $1`, prID) })
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM task_pull_request WHERE pull_request_id = $1`, prID)
+	})
 	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM github_pull_request WHERE id = $1`, prID) })
-	if _, err := testPool.Exec(ctx, `INSERT INTO issue_pull_request (issue_id, pull_request_id) VALUES ($1, $2)`, issueID, prID); err != nil {
+	if _, err := testPool.Exec(ctx, `INSERT INTO task_pull_request (task_id, pull_request_id) VALUES ($1, $2)`, taskID, prID); err != nil {
 		t.Fatalf("link PR: %v", err)
 	}
 
-	issue, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueID))
+	task, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskID))
 	if err != nil {
-		t.Fatalf("load issue: %v", err)
+		t.Fatalf("load task: %v", err)
 	}
 	agent, err := testHandler.Queries.GetAgent(ctx, agentUUID)
 	if err != nil {
@@ -466,17 +469,17 @@ func TestCommentEnqueueRaceNewerDifferentHeadNotDeferred(t *testing.T) {
 
 	// Losing comment C persisted first (older); a head-A winner is created LATER
 	// (newer than C), so reconcile's created_at window can never replay C.
-	loserCommentID := insertDupRaceComment(t, issueID, "older losing comment", "5 minutes")
-	winnerCommentID := insertDupRaceComment(t, issueID, "head A trigger", "4 minutes")
+	loserCommentID := insertDupRaceComment(t, taskID, "older losing comment", "5 minutes")
+	winnerCommentID := insertDupRaceComment(t, taskID, "head A trigger", "4 minutes")
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, context)
 		VALUES ($1, $2, $3, $4, ARRAY[$4::uuid], 'queued', 0, now() - interval '1 minute', jsonb_build_object('head_sha', $5::text))
-	`, agentID, runtimeID, issueID, winnerCommentID, dupRaceHeadA); err != nil {
+	`, agentID, runtimeID, taskID, winnerCommentID, dupRaceHeadA); err != nil {
 		t.Fatalf("insert newer head-A winner: %v", err)
 	}
 
 	trigger := commentAgentTrigger{Agent: agent, Source: commentTriggerSourceMentionAgent}
-	results := testHandler.enqueueCommentAgentTriggers(ctx, issue, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
+	results := testHandler.enqueueCommentAgentTriggers(ctx, task, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
 
 	// Must NOT be a fabricated deferred — the newer head-A task cannot cover C.
 	res := results[agentID]
@@ -489,9 +492,9 @@ func TestCommentEnqueueRaceNewerDifferentHeadNotDeferred(t *testing.T) {
 	// The head-A winner was not mutated to fake coverage.
 	var folded bool
 	if err := testPool.QueryRow(ctx, `
-		SELECT $2::uuid = ANY(coalesced_comment_ids) FROM agent_task_queue
-		WHERE issue_id = $1 AND agent_id = $3 AND context->>'head_sha' = $4
-	`, issueID, loserCommentID, agentID, dupRaceHeadA).Scan(&folded); err != nil {
+		SELECT $2::uuid = ANY(coalesced_comment_ids) FROM agent_run
+		WHERE task_id = $1 AND agent_id = $3 AND context->>'head_sha' = $4
+	`, taskID, loserCommentID, agentID, dupRaceHeadA).Scan(&folded); err != nil {
 		t.Fatalf("read winner coalesced: %v", err)
 	}
 	if folded {
@@ -513,7 +516,7 @@ func TestCommentEnqueueRaceMixedCoveringAndNewerNotDeferred(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, runtimeID := dupRaceFixture(t, "dup-race-mixed", 999318)
+	agentID, taskID, runtimeID := dupRaceFixture(t, "dup-race-mixed", 999318)
 	agentUUID := util.MustParseUUID(agentID)
 
 	// PR at head B so the request resolves head B; both tasks are at head A.
@@ -525,15 +528,17 @@ func TestCommentEnqueueRaceMixedCoveringAndNewerNotDeferred(t *testing.T) {
 	`, testWorkspaceID, dupRaceHeadB).Scan(&prID); err != nil {
 		t.Fatalf("seed PR: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue_pull_request WHERE pull_request_id = $1`, prID) })
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM task_pull_request WHERE pull_request_id = $1`, prID)
+	})
 	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM github_pull_request WHERE id = $1`, prID) })
-	if _, err := testPool.Exec(ctx, `INSERT INTO issue_pull_request (issue_id, pull_request_id) VALUES ($1, $2)`, issueID, prID); err != nil {
+	if _, err := testPool.Exec(ctx, `INSERT INTO task_pull_request (task_id, pull_request_id) VALUES ($1, $2)`, taskID, prID); err != nil {
 		t.Fatalf("link PR: %v", err)
 	}
 
-	issue, err := testHandler.Queries.GetIssue(ctx, util.MustParseUUID(issueID))
+	task, err := testHandler.Queries.GetTask(ctx, util.MustParseUUID(taskID))
 	if err != nil {
-		t.Fatalf("load issue: %v", err)
+		t.Fatalf("load task: %v", err)
 	}
 	agent, err := testHandler.Queries.GetAgent(ctx, agentUUID)
 	if err != nil {
@@ -542,28 +547,28 @@ func TestCommentEnqueueRaceMixedCoveringAndNewerNotDeferred(t *testing.T) {
 
 	// T0: A (head-A) running, OLDER than the comment. T1: comment C. T2: B
 	// (head-A) queued, NEWER than C — it occupies the unique slot.
-	aTrigger := insertDupRaceComment(t, issueID, "A trigger", "11 minutes")
-	var taskA string
+	aTrigger := insertDupRaceComment(t, taskID, "A trigger", "11 minutes")
+	var runA string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, started_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, started_at, context)
 		VALUES ($1, $2, $3, $4, ARRAY[$4::uuid], 'running', 0, now() - interval '10 minutes', now() - interval '9 minutes', jsonb_build_object('head_sha', $5::text))
 		RETURNING id
-	`, agentID, runtimeID, issueID, aTrigger, dupRaceHeadA).Scan(&taskA); err != nil {
+	`, agentID, runtimeID, taskID, aTrigger, dupRaceHeadA).Scan(&runA); err != nil {
 		t.Fatalf("insert running task A: %v", err)
 	}
-	loserCommentID := insertDupRaceComment(t, issueID, "losing comment C", "5 minutes")
-	bTrigger := insertDupRaceComment(t, issueID, "B trigger", "2 minutes")
-	var taskB string
+	loserCommentID := insertDupRaceComment(t, taskID, "losing comment C", "5 minutes")
+	bTrigger := insertDupRaceComment(t, taskID, "B trigger", "2 minutes")
+	var runB string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, context)
 		VALUES ($1, $2, $3, $4, ARRAY[$4::uuid], 'queued', 0, now() - interval '1 minute', jsonb_build_object('head_sha', $5::text))
 		RETURNING id
-	`, agentID, runtimeID, issueID, bTrigger, dupRaceHeadA).Scan(&taskB); err != nil {
+	`, agentID, runtimeID, taskID, bTrigger, dupRaceHeadA).Scan(&runB); err != nil {
 		t.Fatalf("insert queued task B: %v", err)
 	}
 
 	trigger := commentAgentTrigger{Agent: agent, Source: commentTriggerSourceMentionAgent}
-	results := testHandler.enqueueCommentAgentTriggers(ctx, issue, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
+	results := testHandler.enqueueCommentAgentTriggers(ctx, task, util.MustParseUUID(loserCommentID), []commentAgentTrigger{trigger})
 
 	// Even though a covering (older) task exists, the newer one forbids deferral.
 	res := results[agentID]
@@ -580,27 +585,27 @@ func TestCommentEnqueueRaceMixedCoveringAndNewerNotDeferred(t *testing.T) {
 	// is the one documented best-effort shape: C stays uncovered and the failure is
 	// logged at error. What matters for correctness is that the initial call never
 	// PROMISED coverage — it returned a non-success above.
-	if w := completeTaskViaHandler(t, taskA, "done"); w.Code != 200 {
+	if w := completeRunViaHandler(t, runA, "done"); w.Code != 200 {
 		t.Fatalf("complete A: %d: %s", w.Code, w.Body.String())
 	}
-	if commentCovered(t, issueID, agentID, loserCommentID, "queued") {
+	if commentCovered(t, taskID, agentID, loserCommentID, "queued") {
 		t.Fatal("C was folded into the different-head queued blocker (TEN-356 violation)")
 	}
 }
 
-// commentCoveredByAnyActiveTask reports whether ANY active task for (issue, agent)
+// commentCoveredByAnyActiveTask reports whether ANY active task for (task, agent)
 // has the comment as its trigger or in its planned (coalesced) batch.
-func commentCoveredByAnyActiveTask(t *testing.T, issueID, agentID, commentID string) bool {
+func commentCoveredByAnyActiveRun(t *testing.T, taskID, agentID, commentID string) bool {
 	t.Helper()
 	var ok bool
 	if err := testPool.QueryRow(context.Background(), `
 		SELECT EXISTS (
-			SELECT 1 FROM agent_task_queue
-			WHERE issue_id = $1 AND agent_id = $2
+			SELECT 1 FROM agent_run
+			WHERE task_id = $1 AND agent_id = $2
 			  AND status IN ('queued','dispatched','running','waiting_local_directory')
 			  AND ($3::uuid = trigger_comment_id OR $3::uuid = ANY(coalesced_comment_ids))
 		)
-	`, issueID, agentID, commentID).Scan(&ok); err != nil {
+	`, taskID, agentID, commentID).Scan(&ok); err != nil {
 		t.Fatalf("check coverage: %v", err)
 	}
 	return ok
@@ -608,24 +613,24 @@ func commentCoveredByAnyActiveTask(t *testing.T, issueID, agentID, commentID str
 
 // coveringTaskHead returns the head_sha of the active task that covers the comment
 // (empty when none does), so a test can assert WHICH head finally covers it.
-func coveringTaskHead(t *testing.T, issueID, agentID, commentID string) string {
+func coveringRunHead(t *testing.T, taskID, agentID, commentID string) string {
 	t.Helper()
 	var head string
 	if err := testPool.QueryRow(context.Background(), `
 		SELECT COALESCE(context->>'head_sha','')
-		FROM agent_task_queue
-		WHERE issue_id = $1 AND agent_id = $2
+		FROM agent_run
+		WHERE task_id = $1 AND agent_id = $2
 		  AND status IN ('queued','dispatched','running','waiting_local_directory')
 		  AND ($3::uuid = trigger_comment_id OR $3::uuid = ANY(coalesced_comment_ids))
 		ORDER BY created_at DESC LIMIT 1
-	`, issueID, agentID, commentID).Scan(&head); err != nil {
+	`, taskID, agentID, commentID).Scan(&head); err != nil {
 		t.Fatalf("read covering task head: %v", err)
 	}
 	return head
 }
 
 // seedDupRacePR links a PR at head B so the reviewed head resolves to head B.
-func seedDupRacePR(t *testing.T, issueID string, prNumber int) {
+func seedDupRacePR(t *testing.T, taskID string, prNumber int) {
 	t.Helper()
 	ctx := context.Background()
 	var prID string
@@ -636,9 +641,11 @@ func seedDupRacePR(t *testing.T, issueID string, prNumber int) {
 	`, testWorkspaceID, prNumber, dupRaceHeadB).Scan(&prID); err != nil {
 		t.Fatalf("seed PR: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue_pull_request WHERE pull_request_id = $1`, prID) })
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM task_pull_request WHERE pull_request_id = $1`, prID)
+	})
 	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM github_pull_request WHERE id = $1`, prID) })
-	if _, err := testPool.Exec(ctx, `INSERT INTO issue_pull_request (issue_id, pull_request_id) VALUES ($1, $2)`, issueID, prID); err != nil {
+	if _, err := testPool.Exec(ctx, `INSERT INTO task_pull_request (task_id, pull_request_id) VALUES ($1, $2)`, taskID, prID); err != nil {
 		t.Fatalf("link PR: %v", err)
 	}
 }
@@ -654,43 +661,43 @@ func TestReconcileBlockedReplayPropagatesToClaimedBlocker(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, runtimeID := dupRaceFixture(t, "dup-race-propagate-claimed", 999319)
-	seedDupRacePR(t, issueID, 999319)
+	agentID, taskID, runtimeID := dupRaceFixture(t, "dup-race-propagate-claimed", 999319)
+	seedDupRacePR(t, taskID, 999319)
 
-	aTrigger := insertDupRaceComment(t, issueID, "A trigger", "11 minutes")
-	loserCommentID := insertDupRaceComment(t, issueID, "comment C needing coverage", "8 minutes")
-	bTrigger := insertDupRaceComment(t, issueID, "B trigger", "6 minutes")
+	aTrigger := insertDupRaceComment(t, taskID, "A trigger", "11 minutes")
+	loserCommentID := insertDupRaceComment(t, taskID, "comment C needing coverage", "8 minutes")
+	bTrigger := insertDupRaceComment(t, taskID, "B trigger", "6 minutes")
 
 	// A: running (outside the unique index), head A, with C already registered as a
 	// planned-but-NOT-delivered input — the exact state the lost-race path leaves.
-	var taskA string
+	var runA string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, coalesced_comment_ids, delivered_comment_ids, status, priority, created_at, started_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, coalesced_comment_ids, delivered_comment_ids, status, priority, created_at, started_at, context)
 		VALUES ($1, $2, $3, $4, ARRAY[$5::uuid], ARRAY[$4::uuid], 'running', 0, now() - interval '10 minutes', now() - interval '9 minutes', jsonb_build_object('head_sha', $6::text))
 		RETURNING id
-	`, agentID, runtimeID, issueID, aTrigger, loserCommentID, dupRaceHeadA).Scan(&taskA); err != nil {
+	`, agentID, runtimeID, taskID, aTrigger, loserCommentID, dupRaceHeadA).Scan(&runA); err != nil {
 		t.Fatalf("insert running task A: %v", err)
 	}
 	// B: a NEWER different-head task, already claimed (dispatched) — it holds the slot
 	// and its own reconcile can never see the older C.
-	var taskB string
+	var runB string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, dispatched_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, dispatched_at, context)
 		VALUES ($1, $2, $3, $4, ARRAY[$4::uuid], 'dispatched', 0, now() - interval '5 minutes', now() - interval '4 minutes', jsonb_build_object('head_sha', $5::text))
 		RETURNING id
-	`, agentID, runtimeID, issueID, bTrigger, dupRaceHeadA).Scan(&taskB); err != nil {
+	`, agentID, runtimeID, taskID, bTrigger, dupRaceHeadA).Scan(&runB); err != nil {
 		t.Fatalf("insert dispatched blocker B: %v", err)
 	}
 
 	// A completes: its replay of C collides with B and must be handed to B.
-	if w := completeTaskViaHandler(t, taskA, "done"); w.Code != 200 {
+	if w := completeRunViaHandler(t, runA, "done"); w.Code != 200 {
 		t.Fatalf("complete A: %d: %s", w.Code, w.Body.String())
 	}
 	var plannedOnB, deliveredOnB bool
 	if err := testPool.QueryRow(ctx, `
 		SELECT $2::uuid = ANY(coalesced_comment_ids), $2::uuid = ANY(delivered_comment_ids)
-		FROM agent_task_queue WHERE id = $1
-	`, taskB, loserCommentID).Scan(&plannedOnB, &deliveredOnB); err != nil {
+		FROM agent_run WHERE id = $1
+	`, runB, loserCommentID).Scan(&plannedOnB, &deliveredOnB); err != nil {
 		t.Fatalf("read blocker B: %v", err)
 	}
 	if !plannedOnB {
@@ -701,18 +708,18 @@ func TestReconcileBlockedReplayPropagatesToClaimedBlocker(t *testing.T) {
 	}
 
 	// B completes: C is in its planned ids, so it is replayed and finally covered.
-	if _, err := testPool.Exec(ctx, `UPDATE agent_task_queue SET status = 'running', started_at = now() WHERE id = $1`, taskB); err != nil {
+	if _, err := testPool.Exec(ctx, `UPDATE agent_run SET status = 'running', started_at = now() WHERE id = $1`, runB); err != nil {
 		t.Fatalf("advance B to running: %v", err)
 	}
-	if w := completeTaskViaHandler(t, taskB, "done"); w.Code != 200 {
+	if w := completeRunViaHandler(t, runB, "done"); w.Code != 200 {
 		t.Fatalf("complete B: %d: %s", w.Code, w.Body.String())
 	}
-	if !commentCoveredByAnyActiveTask(t, issueID, agentID, loserCommentID) {
+	if !commentCoveredByAnyActiveRun(t, taskID, agentID, loserCommentID) {
 		t.Fatal("after the blocker chain drained, no task covers C — the deferral was not durable")
 	}
 	// The hand-off never let an old-head run consume C: the follow-up that finally
 	// covers it is stamped for the CURRENT head (TEN-356).
-	if head := coveringTaskHead(t, issueID, agentID, loserCommentID); head != dupRaceHeadB {
+	if head := coveringRunHead(t, taskID, agentID, loserCommentID); head != dupRaceHeadB {
 		t.Fatalf("covering task head_sha = %q, want the current head %q", head, dupRaceHeadB)
 	}
 }
@@ -727,47 +734,47 @@ func TestReconcileBlockedReplayPropagatesToQueuedBlocker(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, runtimeID := dupRaceFixture(t, "dup-race-propagate-queued", 999320)
-	seedDupRacePR(t, issueID, 999320)
+	agentID, taskID, runtimeID := dupRaceFixture(t, "dup-race-propagate-queued", 999320)
+	seedDupRacePR(t, taskID, 999320)
 
-	aTrigger := insertDupRaceComment(t, issueID, "A trigger", "11 minutes")
+	aTrigger := insertDupRaceComment(t, taskID, "A trigger", "11 minutes")
 	// C lands while A is running (newer than A) and is NOT in A's arrays — the
 	// AlreadyPending shape, covered by reconcile's timestamp window alone.
-	loserCommentID := insertDupRaceComment(t, issueID, "comment C posted during the run", "5 minutes")
-	bTrigger := insertDupRaceComment(t, issueID, "B trigger", "2 minutes")
+	loserCommentID := insertDupRaceComment(t, taskID, "comment C posted during the run", "5 minutes")
+	bTrigger := insertDupRaceComment(t, taskID, "B trigger", "2 minutes")
 
-	var taskA string
+	var runA string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, started_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, started_at, context)
 		VALUES ($1, $2, $3, $4, ARRAY[$4::uuid], 'running', 0, now() - interval '10 minutes', now() - interval '9 minutes', jsonb_build_object('head_sha', $5::text))
 		RETURNING id
-	`, agentID, runtimeID, issueID, aTrigger, dupRaceHeadA).Scan(&taskA); err != nil {
+	`, agentID, runtimeID, taskID, aTrigger, dupRaceHeadA).Scan(&runA); err != nil {
 		t.Fatalf("insert running task A: %v", err)
 	}
 	// B: NEWER than C, QUEUED, and at the CURRENT head — it occupies the unique slot
 	// and its own reconcile can never see the older C.
-	var taskB string
+	var runB string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, status, priority, created_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, status, priority, created_at, context)
 		VALUES ($1, $2, $3, $4, 'queued', 0, now() - interval '1 minute', jsonb_build_object('head_sha', $5::text))
 		RETURNING id
-	`, agentID, runtimeID, issueID, bTrigger, dupRaceHeadB).Scan(&taskB); err != nil {
+	`, agentID, runtimeID, taskID, bTrigger, dupRaceHeadB).Scan(&runB); err != nil {
 		t.Fatalf("insert queued blocker B: %v", err)
 	}
 
-	if w := completeTaskViaHandler(t, taskA, "done"); w.Code != 200 {
+	if w := completeRunViaHandler(t, runA, "done"); w.Code != 200 {
 		t.Fatalf("complete A: %d: %s", w.Code, w.Body.String())
 	}
 	// The obligation must have been folded into the queued blocker.
-	if !commentCoveredByAnyActiveTask(t, issueID, agentID, loserCommentID) {
+	if !commentCoveredByAnyActiveRun(t, taskID, agentID, loserCommentID) {
 		t.Fatal("blocked replay was discarded — C is covered by no active task, so it is lost")
 	}
 	// The fold went through the ATOMIC merge, so B still covers its own trigger too,
 	// and the covering run is at the current head.
-	if !commentCoveredByAnyActiveTask(t, issueID, agentID, bTrigger) {
+	if !commentCoveredByAnyActiveRun(t, taskID, agentID, bTrigger) {
 		t.Fatal("the blocker's own trigger comment lost coverage during the hand-off")
 	}
-	if head := coveringTaskHead(t, issueID, agentID, loserCommentID); head != dupRaceHeadB {
+	if head := coveringRunHead(t, taskID, agentID, loserCommentID); head != dupRaceHeadB {
 		t.Fatalf("covering task head_sha = %q, want the current head %q", head, dupRaceHeadB)
 	}
 }
@@ -783,33 +790,33 @@ func TestReconcileBlockedReplayNeverFoldsIntoDifferentHeadQueuedBlocker(t *testi
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	agentID, issueID, runtimeID := dupRaceFixture(t, "dup-race-propagate-crosshead", 999321)
-	seedDupRacePR(t, issueID, 999321) // current head = head B
+	agentID, taskID, runtimeID := dupRaceFixture(t, "dup-race-propagate-crosshead", 999321)
+	seedDupRacePR(t, taskID, 999321) // current head = head B
 
-	aTrigger := insertDupRaceComment(t, issueID, "A trigger", "11 minutes")
-	loserCommentID := insertDupRaceComment(t, issueID, "comment C posted during the run", "5 minutes")
-	bTrigger := insertDupRaceComment(t, issueID, "B trigger", "2 minutes")
+	aTrigger := insertDupRaceComment(t, taskID, "A trigger", "11 minutes")
+	loserCommentID := insertDupRaceComment(t, taskID, "comment C posted during the run", "5 minutes")
+	bTrigger := insertDupRaceComment(t, taskID, "B trigger", "2 minutes")
 
-	var taskA string
+	var runA string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, started_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, started_at, context)
 		VALUES ($1, $2, $3, $4, ARRAY[$4::uuid], 'running', 0, now() - interval '10 minutes', now() - interval '9 minutes', jsonb_build_object('head_sha', $5::text))
 		RETURNING id
-	`, agentID, runtimeID, issueID, aTrigger, dupRaceHeadA).Scan(&taskA); err != nil {
+	`, agentID, runtimeID, taskID, aTrigger, dupRaceHeadA).Scan(&runA); err != nil {
 		t.Fatalf("insert running task A: %v", err)
 	}
 	// B: QUEUED at the OLD head — folding C into it would hand a current-head
 	// request to an old-head run.
-	var taskB string
+	var runB string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, status, priority, created_at, context)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, trigger_comment_id, status, priority, created_at, context)
 		VALUES ($1, $2, $3, $4, 'queued', 0, now() - interval '1 minute', jsonb_build_object('head_sha', $5::text))
 		RETURNING id
-	`, agentID, runtimeID, issueID, bTrigger, dupRaceHeadA).Scan(&taskB); err != nil {
+	`, agentID, runtimeID, taskID, bTrigger, dupRaceHeadA).Scan(&runB); err != nil {
 		t.Fatalf("insert queued cross-head blocker B: %v", err)
 	}
 
-	if w := completeTaskViaHandler(t, taskA, "done"); w.Code != 200 {
+	if w := completeRunViaHandler(t, runA, "done"); w.Code != 200 {
 		t.Fatalf("complete A: %d: %s", w.Code, w.Body.String())
 	}
 
@@ -819,8 +826,8 @@ func TestReconcileBlockedReplayNeverFoldsIntoDifferentHeadQueuedBlocker(t *testi
 	var bHead string
 	if err := testPool.QueryRow(ctx, `
 		SELECT $2::uuid = trigger_comment_id OR $2::uuid = ANY(coalesced_comment_ids), COALESCE(context->>'head_sha','')
-		FROM agent_task_queue WHERE id = $1
-	`, taskB, loserCommentID).Scan(&folded, &bHead); err != nil {
+		FROM agent_run WHERE id = $1
+	`, runB, loserCommentID).Scan(&folded, &bHead); err != nil {
 		t.Fatalf("read cross-head blocker: %v", err)
 	}
 	if folded {

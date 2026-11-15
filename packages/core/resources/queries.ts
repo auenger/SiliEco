@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { infiniteQueryOptions, useInfiniteQuery, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import { issueKeys } from "../issues/queries";
+import { taskKeys } from "../tasks/queries";
 
 export const fileResourceKeys = {
   all: (wsId: string) => ["file-resources", wsId] as const,
@@ -12,7 +12,7 @@ export const fileResourceKeys = {
     [...fileResourceKeys.all(wsId), "references", attachmentId] as const,
   workspaceReferences: (wsId: string) =>
     [...fileResourceKeys.all(wsId), "workspace-references"] as const,
-  targetReferences: (wsId: string, targetType: "issue" | "project", targetId: string) =>
+  targetReferences: (wsId: string, targetType: "task" | "project", targetId: string) =>
     [...fileResourceKeys.all(wsId), "target-references", targetType, targetId] as const,
 };
 
@@ -72,7 +72,7 @@ export function workspaceAttachmentReferencesOptions(wsId: string) {
 
 export function targetAttachmentReferencesOptions(
   wsId: string,
-  targetType: "issue" | "project",
+  targetType: "task" | "project",
   targetId: string,
 ) {
   return queryOptions({
@@ -85,7 +85,7 @@ export function useCreateAttachmentReference(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: {
-      targetType: "issue" | "project";
+      targetType: "task" | "project";
       targetId: string;
       attachmentId: string;
     }) => api.createAttachmentReference(input.targetType, input.targetId, input.attachmentId),
@@ -97,8 +97,8 @@ export function useCreateAttachmentReference(wsId: string) {
       queryClient.invalidateQueries({
         queryKey: fileResourceKeys.targetReferences(wsId, input.targetType, input.targetId),
       });
-      if (input.targetType === "issue") {
-        queryClient.invalidateQueries({ queryKey: issueKeys.attachments(input.targetId) });
+      if (input.targetType === "task") {
+        queryClient.invalidateQueries({ queryKey: taskKeys.attachments(input.targetId) });
       }
     },
   });
@@ -108,7 +108,7 @@ export function useDeleteAttachmentReference(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: {
-      targetType: "issue" | "project";
+      targetType: "task" | "project";
       targetId: string;
       attachmentId: string;
     }) => api.deleteAttachmentReference(input.targetType, input.targetId, input.attachmentId),
@@ -120,8 +120,8 @@ export function useDeleteAttachmentReference(wsId: string) {
       queryClient.invalidateQueries({
         queryKey: fileResourceKeys.targetReferences(wsId, input.targetType, input.targetId),
       });
-      if (input.targetType === "issue") {
-        queryClient.invalidateQueries({ queryKey: issueKeys.attachments(input.targetId) });
+      if (input.targetType === "task") {
+        queryClient.invalidateQueries({ queryKey: taskKeys.attachments(input.targetId) });
       }
     },
   });

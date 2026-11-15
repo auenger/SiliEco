@@ -1,6 +1,6 @@
 ---
 name: silieco-squads
-description: "Use when creating, inspecting, updating, assigning, mentioning, or debugging Silieco squads. Explains what squads are, squad/member fields, CLI commands, leader routing, issue assignment, comments, mentions, autopilot behavior, leader briefing, side effects, and product-gap handling."
+description: "Use when creating, inspecting, updating, assigning, mentioning, or debugging Silieco squads. Explains what squads are, squad/member fields, CLI commands, leader routing, task assignment, comments, mentions, autopilot behavior, leader briefing, side effects, and product-gap handling."
 user-invocable: false
 allowed-tools: Bash(silieco *)
 ---
@@ -12,10 +12,10 @@ allowed-tools: Bash(silieco *)
 If debugging why a squad did or did not run, inspect first:
 
 ```bash
-silieco issue get <issue-id> --output json
+silieco task get <task-id> --output json
 silieco squad get <squad-id> --output json
 silieco squad member list <squad-id> --output json
-silieco issue comment list <issue-id> --recent 10 --output json
+silieco task comment list <task-id> --recent 10 --output json
 ```
 
 If the command shape is unclear, check help instead of guessing:
@@ -23,8 +23,8 @@ If the command shape is unclear, check help instead of guessing:
 ```bash
 silieco squad --help
 silieco squad member --help
-silieco issue update --help
-silieco issue comment add --help
+silieco task update --help
+silieco task comment add --help
 ```
 
 Do not assign, comment, mention, update, delete, or record squad activity just
@@ -39,7 +39,7 @@ squad-routed work runs through the squad's `leader_id` agent.
 
 Important consequences:
 
-- assigning an issue to a squad routes to the leader;
+- assigning a task to a squad routes to the leader;
 - mentioning a squad routes to the leader;
 - squad-assigned autopilot resolves to the leader;
 - squad members are not automatically fanned out;
@@ -69,19 +69,19 @@ silieco squad member set-role <squad-id> --member-id <id> --member-type agent|me
 Squad leader evaluation command:
 
 ```bash
-silieco squad activity <issue-id> action|no_action|failed --reason "<why>" --output json
+silieco squad activity <task-id> action|no_action|failed --reason "<why>" --output json
 ```
 
-`activity` is a write: it records the leader's evaluation decision on an issue.
+`activity` is a write: it records the leader's evaluation decision on a task.
 Use it only when acting as the squad leader after evaluating a trigger.
 
-Issue/comment commands often needed with squads:
+Task/comment commands often needed with squads:
 
 ```bash
-silieco issue get <issue-id> --output json
-silieco issue update <issue-id> --help
-silieco issue comment list <issue-id> --output json
-silieco issue comment add <issue-id> --help
+silieco task get <task-id> --output json
+silieco task update <task-id> --help
+silieco task comment list <task-id> --output json
+silieco task comment add <task-id> --help
 ```
 
 Prefer `--output json` for reads. Use `--help` before writes.
@@ -145,9 +145,9 @@ members carry no skills segment. Builtin `silieco-*` skills are not listed —
 only the workspace skills explicitly attached to the agent. Archived agent
 members are skipped from the briefing roster.
 
-## Issue assignment behavior
+## Task assignment behavior
 
-Issues can be assigned to squads with:
+Tasks can be assigned to squads with:
 
 ```text
 assignee_type = "squad"
@@ -159,20 +159,20 @@ Current behavior:
 - assignment routes work to `squad.leader_id`;
 - it does not enqueue every squad member;
 - assignment while status is `backlog` does not immediately start work;
-- moving a squad-assigned issue out of `backlog` can trigger the leader;
-- changing assignee cancels existing tasks for the issue before enqueueing the
+- moving a squad-assigned task out of `backlog` can trigger the leader;
+- changing assignee cancels existing tasks for the task before enqueueing the
   new assignee path;
-- parent issue status is agent-managed (same model as direct agent assignment):
+- parent task status is agent-managed (same model as direct agent assignment):
   the leader's first assignment turn should move the parent to `in_progress`
   and keep it there while members work; the leader moves the parent to
   `in_review` only when a later re-trigger confirms the overall goal is met.
   Completing a leader `task` (including the first dispatch) does not itself
-  change issue status;
-- that status authority is granted only when the issue's `assignee_type` /
+  change task status;
+- that status authority is granted only when the task's `assignee_type` /
   `assignee_id` point at THIS squad. The leader briefing is injected on every
-  leader path, including an `@squad` mention on an issue owned by a plain agent
+  leader path, including an `@squad` mention on a task owned by a plain agent
   — on those paths the protocol instead carries an explicit "do not change this
-  issue's status".
+  task's status".
 
 Assignment validation rejects a missing type/id pair, non-existent squad,
 archived squad, archived leader, and private leader when the actor cannot access
@@ -180,7 +180,7 @@ it.
 
 ## Comment and mention behavior
 
-If an issue is assigned to a squad, a new comment can wake the squad leader. This
+If a task is assigned to a squad, a new comment can wake the squad leader. This
 is leader routing, not member fan-out.
 
 Squad mention format:
@@ -202,9 +202,9 @@ Autopilots can be assigned to squads. For `assignee_type = "squad"`:
 - archived squads fail closed / skip dispatch;
 - run attribution records squad id where applicable.
 
-For `create_issue` autopilots, the created issue keeps `assignee_type = "squad"`
+For `create_task` autopilots, the created task keeps `assignee_type = "squad"`
 and `assignee_id = <squad-id>`, while the actual executing agent is the resolved
-leader. For `run_only` autopilots, no issue is created; the task is created
+leader. For `run_only` autopilots, no task is created; the task is created
 directly for the resolved leader agent.
 
 ## Handling complaints or product gaps
@@ -214,7 +214,7 @@ immediately assume code is broken and do not defend current behavior just becaus
 it exists. Classify first:
 
 - expected current behavior;
-- configuration issue;
+- configuration task;
 - product limitation;
 - actual bug.
 
@@ -234,9 +234,9 @@ These actions can trigger agent work or mutate durable state:
 - changing `leader_id`;
 - adding/removing members;
 - changing member roles;
-- assigning an issue to a squad;
-- moving a squad-assigned issue out of backlog;
-- commenting on a squad-assigned issue;
+- assigning a task to a squad;
+- moving a squad-assigned task out of backlog;
+- commenting on a squad-assigned task;
 - mentioning a squad;
 - creating or triggering squad-assigned autopilots;
 - recording squad activity with `silieco squad activity`;
@@ -258,11 +258,11 @@ authorizes them.
 - Backlog assignment does not immediately start work.
 - First leader dispatch is not parent completion — parent stays `in_progress`
   until the leader later confirms the overall goal and moves it to `in_review`.
-- The server does not auto-flip parent status when child issues finish; it only
+- The server does not auto-flip parent status when child tasks finish; it only
   wakes the leader with an explicit ask (including `in_review` when wrapping up).
 - Getting the leader briefing does NOT imply status authority. A squad
-  `@`-mentioned into an issue assigned to someone else is a guest: roster and
-  delegation rules yes, `silieco issue status` no.
+  `@`-mentioned into a task assigned to someone else is a guest: roster and
+  delegation rules yes, `silieco task status` no.
 
 ## References
 

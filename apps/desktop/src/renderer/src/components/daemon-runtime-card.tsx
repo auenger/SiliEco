@@ -12,7 +12,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { runtimeListOptions } from "@silieco/core/runtimes";
-import { agentTaskSnapshotOptions } from "@silieco/core/agents";
+import { agentRunSnapshotOptions } from "@silieco/core/agents";
 import { Button } from "@silieco/ui/components/ui/button";
 import {
   Dialog,
@@ -40,7 +40,7 @@ export function DaemonRuntimeActions() {
 
   const wsId = useWorkspaceId();
   const { data: runtimes = [] } = useQuery(runtimeListOptions(wsId));
-  const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
+  const { data: snapshot = [] } = useQuery(agentRunSnapshotOptions(wsId));
 
   const localRuntimeIds = useMemo(() => {
     if (!status.daemonId) return new Set<string>();

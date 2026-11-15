@@ -87,19 +87,19 @@ func (h *Handler) AddReaction(w http.ResponseWriter, r *http.Request) {
 
 	resp := reactionToResponse(reaction)
 
-	// Look up issue title for inbox notifications.
-	issueID := uuidToString(comment.IssueID)
-	var issueTitle, issueStatus string
-	if issue, err := h.Queries.GetIssue(r.Context(), comment.IssueID); err == nil {
-		issueTitle = issue.Title
-		issueStatus = issue.Status
+	// Look up task title for inbox notifications.
+	taskID := uuidToString(comment.TaskID)
+	var taskTitle, taskStatus string
+	if task, err := h.Queries.GetTask(r.Context(), comment.TaskID); err == nil {
+		taskTitle = task.Title
+		taskStatus = task.Status
 	}
 
 	h.publish(protocol.EventReactionAdded, workspaceID, actorType, actorID, map[string]any{
 		"reaction":            resp,
-		"issue_id":            issueID,
-		"issue_title":         issueTitle,
-		"issue_status":        issueStatus,
+		"task_id":             taskID,
+		"task_title":          taskTitle,
+		"task_status":         taskStatus,
 		"comment_id":          uuidToString(comment.ID),
 		"comment_author_type": comment.AuthorType,
 		"comment_author_id":   uuidToString(comment.AuthorID),
@@ -160,7 +160,7 @@ func (h *Handler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 
 	h.publish(protocol.EventReactionRemoved, workspaceID, actorType, actorID, map[string]any{
 		"comment_id": uuidToString(comment.ID),
-		"issue_id":   uuidToString(comment.IssueID),
+		"task_id":    uuidToString(comment.TaskID),
 		"emoji":      req.Emoji,
 		"actor_type": actorType,
 		"actor_id":   actorID,

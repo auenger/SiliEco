@@ -78,8 +78,8 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	// spawns — not just the direct child. The default CommandContext behaviour
 	// SIGKILLs only the leader, which orphans those descendants; on a resumed
 	// stream-json session with no wall-clock timeout they then keep running and
-	// burning model budget long after the task was cancelled, and under
-	// --max-concurrent-tasks 1 starve every queued task (#5918). This mirrors
+	// burning model budget long after the run was cancelled, and under
+	// --max-concurrent-runs 1 starve every queued run (#5918). This mirrors
 	// the fix already made for codex (#4520) and opencode (#4533).
 	configureProcessGroup(cmd)
 	// Take over context cancellation: the default would SIGKILL only the leader
@@ -677,7 +677,7 @@ func buildClaudeArgs(opts ExecOptions, logger *slog.Logger) []string {
 		// no UI for the prompt to render in, so a call returns an empty
 		// answer and the agent ends up "inferring" silently — the user
 		// never sees the question (see GitHub #2588). User-facing
-		// clarification belongs in an issue comment instead.
+		// clarification belongs in an task comment instead.
 		"--disallowedTools", "AskUserQuestion",
 	}
 	if hasManagedMcpConfig(opts.McpConfig) {

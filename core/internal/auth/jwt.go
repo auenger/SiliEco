@@ -46,15 +46,15 @@ func GenerateDaemonToken() (string, error) {
 	return "mdt_" + hex.EncodeToString(b), nil
 }
 
-// GenerateAgentTaskToken creates a new task-scoped agent auth token:
+// GenerateAgentRunToken creates a new run-scoped agent auth token:
 // "mat_" + 40 random hex chars. The token is single-purpose — bound to a
-// specific (agent_id, task_id) pair on the server side — and is what the
+// specific (agent_id, run_id) pair on the server side — and is what the
 // daemon injects into the agent process in place of its own owner PAT.
 // See SILI-2600.
-func GenerateAgentTaskToken() (string, error) {
+func GenerateAgentRunToken() (string, error) {
 	b := make([]byte, 20)
 	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate agent task token: %w", err)
+		return "", fmt.Errorf("generate agent run token: %w", err)
 	}
 	return "mat_" + hex.EncodeToString(b), nil
 }

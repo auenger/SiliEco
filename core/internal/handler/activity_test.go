@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// fetchTimeline issues a GET /timeline request and returns the decoded entries
+// fetchTimeline sends a GET /timeline request and returns the decoded entries
 // + HTTP status. The endpoint returns a flat array of TimelineEntry sorted by
 // (created_at, id) ascending (oldest first); see ListTimeline / #1929.
-func fetchTimeline(t *testing.T, issueID string) ([]TimelineEntry, int) {
+func fetchTimeline(t *testing.T, taskID string) ([]TimelineEntry, int) {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := newRequest("GET", "/api/issues/"+issueID+"/timeline", nil)
-	req = withURLParam(req, "id", issueID)
+	req := newRequest("GET", "/api/tasks/"+taskID+"/timeline", nil)
+	req = withURLParam(req, "id", taskID)
 	testHandler.ListTimeline(w, req)
 	var entries []TimelineEntry
 	if w.Code == http.StatusOK {
@@ -26,34 +26,34 @@ func fetchTimeline(t *testing.T, issueID string) ([]TimelineEntry, int) {
 	return entries, w.Code
 }
 
-// createIssueForTimeline returns a freshly-created issue id and registers a
+// createTaskForTimeline returns a freshly-created task id and registers a
 // cleanup so its timeline rows are deleted after the test.
-func createIssueForTimeline(t *testing.T, title string) string {
+func createTaskForTimeline(t *testing.T, title string) string {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+	req := newRequest("POST", "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 		"title":  title,
 		"status": "todo",
 	})
-	testHandler.CreateIssue(w, req)
+	testHandler.CreateTask(w, req)
 	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("CreateTask: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var issue IssueResponse
-	json.NewDecoder(w.Body).Decode(&issue)
+	var task TaskResponse
+	json.NewDecoder(w.Body).Decode(&task)
 	t.Cleanup(func() {
 		ctx := context.Background()
-		testPool.Exec(ctx, `DELETE FROM activity_log WHERE issue_id = $1`, issue.ID)
-		testPool.Exec(ctx, `DELETE FROM comment WHERE issue_id = $1`, issue.ID)
-		testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issue.ID)
+		testPool.Exec(ctx, `DELETE FROM activity_log WHERE task_id = $1`, task.ID)
+		testPool.Exec(ctx, `DELETE FROM comment WHERE task_id = $1`, task.ID)
+		testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, task.ID)
 	})
-	return issue.ID
+	return task.ID
 }
 
 // seedTimelineEntries inserts <commentN> comments + <activityN> activities for
-// the given issue with ascending timestamps. Returns the inserted ids in the
+// the given task with ascending timestamps. Returns the inserted ids in the
 // order they were inserted (chronologically ascending).
-func seedTimelineEntries(t *testing.T, issueID string, commentN, activityN int) (commentIDs, activityIDs []string) {
+func seedTimelineEntries(t *testing.T, taskID string, commentN, activityN int) (commentIDs, activityIDs []string) {
 	t.Helper()
 	ctx := context.Background()
 	base := time.Now().UTC().Add(-time.Duration(commentN+activityN) * time.Minute)
@@ -62,10 +62,10 @@ func seedTimelineEntries(t *testing.T, issueID string, commentN, activityN int) 
 		var id string
 		ts := base.Add(time.Duration(i) * time.Minute)
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, created_at, updated_at)
+			INSERT INTO comment (task_id, workspace_id, author_type, author_id, content, type, created_at, updated_at)
 			VALUES ($1, $2, 'member', $3, $4, 'comment', $5, $5)
 			RETURNING id
-		`, issueID, testWorkspaceID, testUserID, fmt.Sprintf("comment %d", i), ts).Scan(&id); err != nil {
+		`, taskID, testWorkspaceID, testUserID, fmt.Sprintf("comment %d", i), ts).Scan(&id); err != nil {
 			t.Fatalf("seed comment %d: %v", i, err)
 		}
 		commentIDs = append(commentIDs, id)
@@ -74,10 +74,10 @@ func seedTimelineEntries(t *testing.T, issueID string, commentN, activityN int) 
 		var id string
 		ts := base.Add(time.Duration(commentN+i) * time.Minute)
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO activity_log (workspace_id, issue_id, actor_type, actor_id, action, details, created_at)
+			INSERT INTO activity_log (workspace_id, task_id, actor_type, actor_id, action, details, created_at)
 			VALUES ($1, $2, 'member', $3, 'status_changed', '{"from":"todo","to":"in_progress"}'::jsonb, $4)
 			RETURNING id
-		`, testWorkspaceID, issueID, testUserID, ts).Scan(&id); err != nil {
+		`, testWorkspaceID, taskID, testUserID, ts).Scan(&id); err != nil {
 			t.Fatalf("seed activity %d: %v", i, err)
 		}
 		activityIDs = append(activityIDs, id)
@@ -86,15 +86,15 @@ func seedTimelineEntries(t *testing.T, issueID string, commentN, activityN int) 
 }
 
 func TestListTimeline_ReturnsAllEntriesAscending(t *testing.T) {
-	issueID := createIssueForTimeline(t, "All entries test")
-	commentIDs, _ := seedTimelineEntries(t, issueID, 5, 0)
+	taskID := createTaskForTimeline(t, "All entries test")
+	commentIDs, _ := seedTimelineEntries(t, taskID, 5, 0)
 
-	entries, status := fetchTimeline(t, issueID)
+	entries, status := fetchTimeline(t, taskID)
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
 	// Handler tests don't register the activity listener (that lives in
-	// cmd/server), so issue creation does not seed an auto-activity here.
+	// cmd/server), so task creation does not seed an auto-activity here.
 	// We assert directly on the seeded comments.
 	commentEntries := []TimelineEntry{}
 	for _, e := range entries {
@@ -113,10 +113,10 @@ func TestListTimeline_ReturnsAllEntriesAscending(t *testing.T) {
 }
 
 func TestListTimeline_MergesCommentsAndActivities(t *testing.T) {
-	issueID := createIssueForTimeline(t, "Merged entries test")
-	seedTimelineEntries(t, issueID, 3, 2)
+	taskID := createTaskForTimeline(t, "Merged entries test")
+	seedTimelineEntries(t, taskID, 3, 2)
 
-	entries, status := fetchTimeline(t, issueID)
+	entries, status := fetchTimeline(t, taskID)
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -128,7 +128,7 @@ func TestListTimeline_MergesCommentsAndActivities(t *testing.T) {
 		}
 	}
 	// 3 seeded comments + 2 seeded activities = 5. Handler tests don't
-	// register the activity listener, so there is no auto issue-created row.
+	// register the activity listener, so there is no auto task-created row.
 	if got, want := len(entries), 5; got != want {
 		t.Fatalf("entries = %d, want %d", got, want)
 	}
@@ -139,11 +139,11 @@ func TestListTimeline_MergesCommentsAndActivities(t *testing.T) {
 // limit/before/after/around makes the server emit a TimelinePage-style
 // object (entries DESC, null cursors, has_more_*=false) instead of the new
 // flat array. Used to verify the boundary-compat path doesn't regress.
-func fetchTimelineWrapped(t *testing.T, issueID, query string) (timelinePaginatedResponse, int) {
+func fetchTimelineWrapped(t *testing.T, taskID, query string) (timelinePaginatedResponse, int) {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := newRequest("GET", "/api/issues/"+issueID+"/timeline?"+query, nil)
-	req = withURLParam(req, "id", issueID)
+	req := newRequest("GET", "/api/tasks/"+taskID+"/timeline?"+query, nil)
+	req = withURLParam(req, "id", taskID)
 	testHandler.ListTimeline(w, req)
 	var resp timelinePaginatedResponse
 	if w.Code == http.StatusOK {
@@ -157,10 +157,10 @@ func fetchTimelineWrapped(t *testing.T, issueID, query string) (timelinePaginate
 // returning the wrapped object so that path doesn't fall back to an empty
 // timeline.
 func TestListTimeline_LegacyWrappedShape_OnPaginationParams(t *testing.T) {
-	issueID := createIssueForTimeline(t, "Legacy wrapped shape test")
-	commentIDs, _ := seedTimelineEntries(t, issueID, 3, 0)
+	taskID := createTaskForTimeline(t, "Legacy wrapped shape test")
+	commentIDs, _ := seedTimelineEntries(t, taskID, 3, 0)
 
-	resp, status := fetchTimelineWrapped(t, issueID, "limit=50")
+	resp, status := fetchTimelineWrapped(t, taskID, "limit=50")
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -171,7 +171,7 @@ func TestListTimeline_LegacyWrappedShape_OnPaginationParams(t *testing.T) {
 	if resp.NextCursor != nil || resp.PrevCursor != nil {
 		t.Errorf("cursors: want nil/nil, got next=%v prev=%v", resp.NextCursor, resp.PrevCursor)
 	}
-	// DESC order: most recent comment first; activity from issue-creation
+	// DESC order: most recent comment first; activity from task-creation
 	// sits at the bottom.
 	commentEntries := []TimelineEntry{}
 	for _, e := range resp.Entries {
@@ -191,11 +191,11 @@ func TestListTimeline_LegacyWrappedShape_OnPaginationParams(t *testing.T) {
 }
 
 func TestListTimeline_LegacyWrappedShape_AroundFillsTargetIndex(t *testing.T) {
-	issueID := createIssueForTimeline(t, "Around target index test")
-	commentIDs, _ := seedTimelineEntries(t, issueID, 5, 0)
+	taskID := createTaskForTimeline(t, "Around target index test")
+	commentIDs, _ := seedTimelineEntries(t, taskID, 5, 0)
 	anchor := commentIDs[2] // pick a middle comment
 
-	resp, status := fetchTimelineWrapped(t, issueID, "around="+anchor)
+	resp, status := fetchTimelineWrapped(t, taskID, "around="+anchor)
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -207,14 +207,14 @@ func TestListTimeline_LegacyWrappedShape_AroundFillsTargetIndex(t *testing.T) {
 	}
 }
 
-func TestListTimeline_EmptyIssue(t *testing.T) {
-	issueID := createIssueForTimeline(t, "Empty timeline test")
-	entries, status := fetchTimeline(t, issueID)
+func TestListTimeline_EmptyTask(t *testing.T) {
+	taskID := createTaskForTimeline(t, "Empty timeline test")
+	entries, status := fetchTimeline(t, taskID)
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
 	// Handler tests don't wire the activity listener, so a freshly-created
-	// issue with no comments has an empty timeline.
+	// task with no comments has an empty timeline.
 	if got := len(entries); got != 0 {
 		t.Fatalf("entries = %d, want 0", got)
 	}

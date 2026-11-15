@@ -18,10 +18,10 @@ import (
 
 // deliveryInvariantFixtures covers all five task kinds. The chat kind appears
 // twice because ChatChannelType splits it into two surfaces.
-func deliveryInvariantFixtures() map[string]TaskContextForEnv {
-	return map[string]TaskContextForEnv{
-		"comment":     {IssueID: "i-1", TriggerCommentID: "tc-1", AgentName: "Eve", AgentID: "eve-1"},
-		"assignment":  {IssueID: "i-1", AgentName: "Eve", AgentID: "eve-1"},
+func deliveryInvariantFixtures() map[string]RunContextForEnv {
+	return map[string]RunContextForEnv{
+		"comment":     {TaskID: "i-1", TriggerCommentID: "tc-1", AgentName: "Eve", AgentID: "eve-1"},
+		"assignment":  {TaskID: "i-1", AgentName: "Eve", AgentID: "eve-1"},
 		"autopilot":   {AutopilotRunID: "r-1", AgentName: "Eve", AgentID: "eve-1"},
 		"quickcreate": {QuickCreatePrompt: "p", AgentName: "Eve", AgentID: "eve-1"},
 		"chat_direct": {ChatSessionID: "c-1", AgentName: "Eve", AgentID: "eve-1"},
@@ -57,13 +57,13 @@ func TestBriefSurfaceDeliveryPolicy(t *testing.T) {
 		mustHave []string
 		mustNot  []string
 	}{
-		// Issue surfaces: files ride the comment.
+		// Task surfaces: files ride the comment.
 		"comment": {
-			mustHave: []string{"`--attachment <path>` to `silieco issue comment add`"},
+			mustHave: []string{"`--attachment <path>` to `silieco task comment add`"},
 			mustNot:  []string{"silieco attachment upload"},
 		},
 		"assignment": {
-			mustHave: []string{"`--attachment <path>` to `silieco issue comment add`"},
+			mustHave: []string{"`--attachment <path>` to `silieco task comment add`"},
 			mustNot:  []string{"silieco attachment upload"},
 		},
 		// Direct chat is the ONLY surface where `attachment upload` works.
@@ -87,7 +87,7 @@ func TestBriefSurfaceDeliveryPolicy(t *testing.T) {
 			mustNot:  []string{"silieco attachment upload"},
 		},
 		"quickcreate": {
-			mustHave: []string{"your stdout is text-only", "`silieco issue create` call itself via `--attachment <path>`"},
+			mustHave: []string{"your stdout is text-only", "`silieco task create` call itself via `--attachment <path>`"},
 			mustNot:  []string{"silieco attachment upload"},
 		},
 	}
@@ -120,8 +120,8 @@ func TestBriefSurfaceDeliveryPolicy(t *testing.T) {
 func TestBriefInboundAttachmentIsNotADeliverable(t *testing.T) {
 	t.Parallel()
 
-	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID: "i-1", TriggerCommentID: "tc-1", AgentName: "Eve", AgentID: "eve-1",
+	out := buildMetaSkillContent("claude", RunContextForEnv{
+		TaskID: "i-1", TriggerCommentID: "tc-1", AgentName: "Eve", AgentID: "eve-1",
 	})
 	for _, want := range []string{
 		"private working copy",

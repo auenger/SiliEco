@@ -58,7 +58,7 @@ interface Props {
    * When `false`, opts the code lines out of RN `<Text selectable>` so the
    * UIKit long-press selection magnifier doesn't compete with an outer
    * Pressable's onLongPress. Default true preserves the reader-surface
-   * behaviour (issue description / chat message code blocks where users
+   * behaviour (task description / chat message code blocks where users
    * expect to be able to copy via selection). See `Markdown.selectable`
    * for the full rationale.
    */

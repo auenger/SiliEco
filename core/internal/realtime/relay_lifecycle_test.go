@@ -11,7 +11,7 @@ func TestMirroredRelayPublishesSameEventIDToBothBackends(t *testing.T) {
 	mirror := &recordingManagedRelay{nodeID: "mirror"}
 	relay := NewMirroredRelay(primary, mirror)
 
-	if err := relay.PublishWithID(ScopeWorkspace, "workspace-1", "", []byte(`{"type":"issue:updated"}`), "event-1"); err != nil {
+	if err := relay.PublishWithID(ScopeWorkspace, "workspace-1", "", []byte(`{"type":"task:updated"}`), "event-1"); err != nil {
 		t.Fatalf("PublishWithID: %v", err)
 	}
 
@@ -34,7 +34,7 @@ func TestMirroredRelayRecordsDivergenceWhenOneBackendFails(t *testing.T) {
 	mirror := &recordingManagedRelay{nodeID: "mirror", publishErr: errors.New("mirror unavailable")}
 	relay := NewMirroredRelay(primary, mirror)
 
-	err := relay.PublishWithID(ScopeWorkspace, "workspace-1", "", []byte(`{"type":"issue:updated"}`), "event-1")
+	err := relay.PublishWithID(ScopeWorkspace, "workspace-1", "", []byte(`{"type":"task:updated"}`), "event-1")
 
 	if err == nil {
 		t.Fatal("expected mirrored publish to return backend error")
@@ -55,7 +55,7 @@ func TestMirroredRelayDoesNotMirrorDaemonRuntimeEvents(t *testing.T) {
 	mirror := &recordingManagedRelay{nodeID: "mirror"}
 	relay := NewMirroredRelay(primary, mirror)
 
-	if err := relay.PublishWithID(ScopeDaemonRuntime, "task-1", "", []byte(`{"type":"daemon:task_available"}`), "event-1"); err != nil {
+	if err := relay.PublishWithID(ScopeDaemonRuntime, "task-1", "", []byte(`{"type":"daemon:run_available"}`), "event-1"); err != nil {
 		t.Fatalf("PublishWithID: %v", err)
 	}
 

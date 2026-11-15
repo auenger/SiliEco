@@ -81,7 +81,7 @@ vi.mock("../editor", () => {
   };
 });
 
-vi.mock("../issues/components/priority-icon", () => ({
+vi.mock("../tasks/components/priority-icon", () => ({
   PriorityIcon: () => <span data-testid="priority-icon" />,
 }));
 

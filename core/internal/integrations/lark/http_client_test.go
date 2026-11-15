@@ -578,7 +578,7 @@ func TestHTTPClient_SendInteractiveCard_HappyPath(t *testing.T) {
 }
 
 // TestHTTPClient_SendTextMessage_HappyPath pins the wire shape of the
-// plain text outbound used for chat replies + /issue confirmations.
+// plain text outbound used for chat replies + /task confirmations.
 // Path, query, bearer auth, msg_type, and the double-JSON-encoded
 // `content` envelope all matter — Lark rejects anything off-spec and
 // the failures are silent-but-non-2xx, which is hard to debug

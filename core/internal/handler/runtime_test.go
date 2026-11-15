@@ -29,7 +29,7 @@ func TestRuntimeHandlersRejectMalformedRuntimeID(t *testing.T) {
 			name:   "task activity",
 			method: "GET",
 			path:   "/api/runtimes/not-a-uuid/task-activity",
-			handle: testHandler.GetRuntimeTaskActivity,
+			handle: testHandler.GetRuntimeRunActivity,
 		},
 		{
 			name:   "delete",
@@ -102,17 +102,17 @@ func TestGetRuntimeUsage_BucketsByUsageTime(t *testing.T) {
 		t.Fatalf("fetch agent: %v", err)
 	}
 
-	// Create an issue for the tasks to reference.
-	var issueID string
+	// Create an task for the tasks to reference.
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_id, creator_type)
+		INSERT INTO task (workspace_id, title, creator_id, creator_type)
 		VALUES ($1, 'runtime usage test', $2, 'member')
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
 	// enqueued yesterday 23:58 UTC, finished today 00:05 UTC — tokens belong to today.
@@ -124,36 +124,36 @@ func TestGetRuntimeUsage_BucketsByUsageTime(t *testing.T) {
 	// ?days cutoff isn't clipping yesterday's morning.
 	yesterdayMorning := today.Add(-19 * time.Hour)
 
-	insertTaskWithUsage := func(enqueueAt, usageAt time.Time, inputTokens int64) string {
-		var taskID string
+	insertRunWithUsage := func(enqueueAt, usageAt time.Time, inputTokens int64) string {
+		var runID string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO agent_task_queue (agent_id, issue_id, runtime_id, status, created_at)
+			INSERT INTO agent_run (agent_id, task_id, runtime_id, status, created_at)
 			VALUES ($1, $2, $3, 'completed', $4)
 			RETURNING id
-		`, agentID, issueID, runtimeID, enqueueAt).Scan(&taskID); err != nil {
-			t.Fatalf("insert task: %v", err)
+		`, agentID, taskID, runtimeID, enqueueAt).Scan(&runID); err != nil {
+			t.Fatalf("insert run: %v", err)
 		}
 		if _, err := testPool.Exec(ctx, `
-			INSERT INTO task_usage (task_id, provider, model, input_tokens, output_tokens, created_at)
+			INSERT INTO agent_run_usage (run_id, provider, model, input_tokens, output_tokens, created_at)
 			VALUES ($1, 'claude', 'claude-3-5-sonnet', $2, 0, $3)
-		`, taskID, inputTokens, usageAt); err != nil {
-			t.Fatalf("insert task_usage: %v", err)
+		`, runID, inputTokens, usageAt); err != nil {
+			t.Fatalf("insert agent_run_usage: %v", err)
 		}
 		t.Cleanup(func() {
-			testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+			testPool.Exec(ctx, `DELETE FROM agent_run WHERE id = $1`, runID)
 		})
-		return taskID
+		return runID
 	}
 
-	insertTaskWithUsage(yesterdayLate, todayEarly, 1000)          // cross-midnight
-	insertTaskWithUsage(yesterdayMorning, yesterdayMorning, 2000) // full-day yesterday
+	insertRunWithUsage(yesterdayLate, todayEarly, 1000)          // cross-midnight
+	insertRunWithUsage(yesterdayMorning, yesterdayMorning, 2000) // full-day yesterday
 
-	// ListRuntimeUsage reads from task_usage_hourly,
+	// ListRuntimeUsage reads from agent_run_usage_hourly,
 	// aggregated to per-(date, provider, model) at query time. The
 	// window function is idempotent, so re-running this test rewrites
 	// the same totals.
 	if _, err := testPool.Exec(ctx, `
-		SELECT rollup_task_usage_hourly_window('-infinity'::timestamptz, 'infinity'::timestamptz)
+		SELECT rollup_agent_run_usage_hourly_window('-infinity'::timestamptz, 'infinity'::timestamptz)
 	`); err != nil {
 		t.Fatalf("rollup window: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestGetRuntimeUsage_BucketsByUsageTime(t *testing.T) {
 		// days in fixture data (today and yesterday in UTC, which is
 		// what the test uses for `today` / `yesterday` mocks).
 		testPool.Exec(ctx, `
-			DELETE FROM task_usage_hourly
+			DELETE FROM agent_run_usage_hourly
 			 WHERE runtime_id = $1
 			   AND DATE(bucket_hour AT TIME ZONE 'UTC') IN ($2::date, $3::date)
 		`, runtimeID, today, today.Add(-24*time.Hour))
@@ -194,12 +194,12 @@ func TestGetRuntimeUsage_BucketsByUsageTime(t *testing.T) {
 	// Cross-midnight task must attribute to today (tu.created_at), not yesterday
 	// (atq.created_at). Before the fix this was 0 on today / 1000 on yesterday.
 	if byDate[todayKey] != 1000 {
-		t.Errorf("cross-midnight task: today bucket expected 1000 input tokens, got %d (full map: %v)", byDate[todayKey], byDate)
+		t.Errorf("cross-midnight run: today bucket expected 1000 input tokens, got %d (full map: %v)", byDate[todayKey], byDate)
 	}
 	// Yesterday's morning task must still be included — this is what breaks
 	// when ?days=N is interpreted as a rolling window instead of calendar days.
 	if byDate[yesterdayKey] != 2000 {
-		t.Errorf("yesterday morning task: yesterday bucket expected 2000 input tokens, got %d (full map: %v)", byDate[yesterdayKey], byDate)
+		t.Errorf("yesterday morning run: yesterday bucket expected 2000 input tokens, got %d (full map: %v)", byDate[yesterdayKey], byDate)
 	}
 }
 
@@ -225,35 +225,35 @@ func TestListRuntimeUsageByAgent_MergesMixedCaseProvider(t *testing.T) {
 		t.Fatalf("fetch agent: %v", err)
 	}
 
-	var issueID string
+	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, creator_id, creator_type)
+		INSERT INTO task (workspace_id, title, creator_id, creator_type)
 		VALUES ($1, 'mixed-case provider test', $2, 'member')
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
-		t.Fatalf("create issue: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
+		t.Fatalf("create task: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID) })
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID) })
 
 	now := time.Now().UTC()
 	// Two tasks for the same agent/model under this runtime, reporting the
 	// same provider in different casing — 'Cursor' (legacy) and 'cursor' (new).
 	insert := func(provider string, input int64) {
-		var taskID string
+		var runID string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO agent_task_queue (agent_id, issue_id, runtime_id, status, created_at)
+			INSERT INTO agent_run (agent_id, task_id, runtime_id, status, created_at)
 			VALUES ($1, $2, $3, 'completed', $4)
 			RETURNING id
-		`, agentID, issueID, runtimeID, now).Scan(&taskID); err != nil {
-			t.Fatalf("insert task: %v", err)
+		`, agentID, taskID, runtimeID, now).Scan(&runID); err != nil {
+			t.Fatalf("insert run: %v", err)
 		}
 		if _, err := testPool.Exec(ctx, `
-			INSERT INTO task_usage (task_id, provider, model, input_tokens, output_tokens, created_at)
+			INSERT INTO agent_run_usage (run_id, provider, model, input_tokens, output_tokens, created_at)
 			VALUES ($1, $2, 'mixed-case-model', $3, 0, $4)
-		`, taskID, provider, input, now); err != nil {
-			t.Fatalf("insert task_usage: %v", err)
+		`, runID, provider, input, now); err != nil {
+			t.Fatalf("insert agent_run_usage: %v", err)
 		}
-		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM agent_run WHERE id = $1`, runID) })
 	}
 	insert("Cursor", 1000)
 	insert("cursor", 500)
@@ -303,10 +303,10 @@ func TestListRuntimeUsageBucketsByViewerTimezone(t *testing.T) {
 	extraDate := cutoff.AddDate(0, 0, -1).Format("2006-01-02")
 
 	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM task_usage_hourly WHERE runtime_id = $1 AND provider = 'cutoff-test'`, runtimeID)
+		testPool.Exec(ctx, `DELETE FROM agent_run_usage_hourly WHERE runtime_id = $1 AND provider = 'cutoff-test'`, runtimeID)
 	})
 
-	// Seed task_usage_hourly directly with one bucket per Shanghai calendar
+	// Seed agent_run_usage_hourly directly with one bucket per Shanghai calendar
 	// day. Pick 04:00 local (= 20:00 UTC the previous day) to catch
 	// off-by-one tz-cutoff bugs.
 	var agentID pgtype.UUID
@@ -316,7 +316,7 @@ func TestListRuntimeUsageBucketsByViewerTimezone(t *testing.T) {
 		t.Fatalf("pick fixture agent: %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO task_usage_hourly (
+		INSERT INTO agent_run_usage_hourly (
 			bucket_hour, workspace_id, runtime_id, agent_id, project_id,
 			provider, model,
 			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, event_count
@@ -326,7 +326,7 @@ func TestListRuntimeUsageBucketsByViewerTimezone(t *testing.T) {
 				'cutoff-test', 'old-day',    111, 0, 0, 0, 1),
 			(($2::date + interval '4 hours') AT TIME ZONE 'Asia/Shanghai', $3, $4, $5, NULL,
 				'cutoff-test', 'cutoff-day', 222, 0, 0, 0, 1)
-		ON CONFLICT ON CONSTRAINT uq_task_usage_hourly_key DO UPDATE
+		ON CONFLICT ON CONSTRAINT uq_agent_run_usage_hourly_key DO UPDATE
 			SET input_tokens = EXCLUDED.input_tokens,
 			    output_tokens = EXCLUDED.output_tokens,
 			    cache_read_tokens = EXCLUDED.cache_read_tokens,
@@ -453,7 +453,7 @@ func TestRuntimeHeatmapEndpointsUseViewerTZ(t *testing.T) {
 		handle func(http.ResponseWriter, *http.Request)
 	}{
 		{"usage by-hour", "/api/runtimes/" + runtimeID + "/usage/by-hour?tz=Asia/Shanghai", testHandler.GetRuntimeUsageByHour},
-		{"task activity", "/api/runtimes/" + runtimeID + "/activity?tz=Asia/Shanghai", testHandler.GetRuntimeTaskActivity},
+		{"task activity", "/api/runtimes/" + runtimeID + "/activity?tz=Asia/Shanghai", testHandler.GetRuntimeRunActivity},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

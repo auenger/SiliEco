@@ -68,7 +68,7 @@ describe("parseFrontmatter", () => {
     expect(result.frontmatter).toBeNull();
   });
 
-  it("reproduces issue 3495 with Chinese block scalar", () => {
+  it("reproduces task 3495 with Chinese block scalar", () => {
     const content =
       "---\n" +
       "name: requirements-workshop\n" +

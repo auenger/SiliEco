@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY idx_activity_log_squad_no_action_run ON public.activity_log USING btree (task_id, actor_id, ((details ->> 'run_id'::text))) WHERE ((actor_type = 'agent'::text) AND (action = 'squad_leader_evaluated'::text) AND ((details ->> 'outcome'::text) = 'no_action'::text));

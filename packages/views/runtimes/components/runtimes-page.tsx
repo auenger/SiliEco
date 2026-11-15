@@ -12,7 +12,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@silieco/core/auth";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { useWorkspacePaths } from "@silieco/core/paths";
-import { agentTaskSnapshotOptions } from "@silieco/core/agents";
+import { agentRunSnapshotOptions } from "@silieco/core/agents";
 import { runtimeProfileListOptions } from "@silieco/core/runtimes";
 import { runtimeListOptions, runtimeKeys } from "@silieco/core/runtimes/queries";
 import { useWSEvent } from "@silieco/core/realtime";
@@ -79,7 +79,7 @@ export function RuntimesPage({
     runtimeProfileListOptions(wsId),
   );
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
-  const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
+  const { data: snapshot = [] } = useQuery(agentRunSnapshotOptions(wsId));
 
   const handleDaemonEvent = useCallback(() => {
     qc.invalidateQueries({ queryKey: runtimeKeys.all(wsId) });

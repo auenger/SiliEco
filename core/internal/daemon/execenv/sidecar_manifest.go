@@ -30,7 +30,7 @@ const sidecarManifestFile = ".silieco_sidecar_manifest.json"
 //     alternative slug (see allocateCollisionFreeSkillDir) and retries
 //     so the agent still discovers the Silieco skill, just under a
 //     different directory name.
-//   - For Silieco-only namespaces (.agent_context/issue_context.md,
+//   - For Silieco-only namespaces (.agent_context/task_context.md,
 //     .silieco/project/resources.json) the caller swallows the error
 //     and proceeds — the agent's runtime brief already carries every
 //     fact that would have appeared in those files, so missing-from-
@@ -52,7 +52,7 @@ var errPathPreExists = errors.New("execenv: refuse to overwrite pre-existing pat
 //     creation order. Cleanup walks the list in reverse so deepest dirs
 //     get tried first; rmdir of a directory the user has populated since
 //     (e.g. .claude/skills/my-own-skill alongside our .claude/skills/
-//     issue-review) fails ENOTEMPTY and is skipped silently — the
+//     task-review) fails ENOTEMPTY and is skipped silently — the
 //     user's content is preserved without any per-dir bookkeeping. A
 //     directory is recorded only when it did NOT pre-exist for the same
 //     reason files are conditional.
@@ -340,10 +340,10 @@ func CleanupSidecars(envRoot string) error {
 // become non-empty — the agent may have dropped a file inside a dir we
 // created, and on the local_directory teardown path that content must
 // survive. But that same preservation reopens #3684 on the reuse path: if a
-// prior-run agent wrote into .claude/skills/issue-review/, CleanupSidecars
+// prior-run agent wrote into .claude/skills/task-review/, CleanupSidecars
 // deletes the recorded SKILL.md yet keeps the directory, so the canonical
 // slug stays occupied and the refreshed skill dodges to
-// issue-review-silieco. A managed skill directory is platform-owned — the
+// task-review-silieco. A managed skill directory is platform-owned — the
 // manifest is proof we created it — so on reuse we reclaim the whole
 // directory (dropping any scratch the agent left inside it, exactly as the
 // Codex path's os.RemoveAll(skillsDir) already does) and let the refresh

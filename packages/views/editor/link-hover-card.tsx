@@ -69,9 +69,9 @@ function useLinkHover(containerRef: React.RefObject<HTMLElement | null>, disable
       if (!link) return;
       const href = link.getAttribute("href");
       if (!href || isMentionHref(href)) return;
-      // Issue mention cards render as <a class="issue-mention"> — they
+      // Task mention cards render as <a class="task-mention"> — they
       // display their own rich info, a URL hover card is redundant.
-      if (link.classList.contains("issue-mention")) return;
+      if (link.classList.contains("task-mention")) return;
 
       clearTimeout(hideTimer.current);
       showTimer.current = window.setTimeout(() => {

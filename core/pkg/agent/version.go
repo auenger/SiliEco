@@ -22,15 +22,15 @@ var MinVersions = map[string]string{
 // the silieco CLI version reported by the daemon at registration time. The
 // quick-create prompt that the agent runs depends on CLI behavior introduced
 // after this version (attachment URL handling, quick-create attachment
-// binding, no-retry semantics on `silieco issue create` failure — see PR
-// #1851); older daemons would either double-create issues or mishandle pasted
+// binding, no-retry semantics on `silieco task create` failure — see PR
+// #1851); older daemons would either double-create tasks or mishandle pasted
 // screenshot URLs. Treated as a hard requirement: missing / unparsable / below
 // this threshold all fail closed.
 const MinQuickCreateCLIVersion = "0.2.21"
 
 // MinQuickCreateFieldsCLIVersion is the first daemon release that carries
 // explicit quick-create priority and due-date fields from the claim response
-// into the generated issue-create prompt. Basic quick-create remains on the
+// into the generated task-create prompt. Basic quick-create remains on the
 // older floor above; only requests using these optional fields need this gate.
 const MinQuickCreateFieldsCLIVersion = "0.4.3"
 
@@ -39,8 +39,8 @@ const MinQuickCreateFieldsCLIVersion = "0.4.3"
 const MinQuickCreateWorkflowCLIVersion = "0.5.0"
 
 // MinHandoffCLIVersion is the lowest silieco CLI version whose daemon renders
-// the assignment handoff note into the run's opening prompt + issue_context.md
-// (SILI-3375). Unlike quick-create this is a SOFT gate: assigning an issue with
+// the assignment handoff note into the run's opening prompt + task_context.md
+// (SILI-3375). Unlike quick-create this is a SOFT gate: assigning an task with
 // a note never fails on an old daemon — the assignment still takes effect, the
 // note is simply dropped. The frontend reads HandoffSupported to gray out the
 // note box and warn the user, so they aren't surprised by a silently ignored

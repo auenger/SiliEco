@@ -36,10 +36,10 @@ func TestWorkflowAgentReviewFreezesDeliveryAndInvalidatesOldRequest(t *testing.T
 			if _, err := prepare(); !errors.Is(err, ErrWorkflowExecutionConflict) {
 				t.Fatalf("incomplete delivery prepared: %v", err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, e.MainIssueID); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, e.MainTaskID); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, e.MainTaskID); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, e.MainRunID); err != nil {
 				t.Fatal(err)
 			}
 			var wg sync.WaitGroup
@@ -68,7 +68,7 @@ func TestWorkflowAgentReviewFreezesDeliveryAndInvalidatesOldRequest(t *testing.T
 			if err != nil || first.ReviewerID != e.ExecutorID || first.ResultRevision != 1 || !first.ResultID.Valid || len(first.BasisHash) != 64 || len(first.BasisSnapshot) == 0 {
 				t.Fatalf("unbound review: %+v %v", first, err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE issue SET title='Revised delivery',updated_at=now() WHERE id=$1`, e.MainIssueID); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE task SET title='Revised delivery',updated_at=now() WHERE id=$1`, e.MainTaskID); err != nil {
 				t.Fatal(err)
 			}
 			second, err := prepare()
@@ -83,7 +83,7 @@ func TestWorkflowAgentReviewFreezesDeliveryAndInvalidatesOldRequest(t *testing.T
 				t.Fatalf("invalidated request dispatched: %v", err)
 			}
 			constraint := "review_dispatch_" + strings.ReplaceAll(util.UUIDToString(second.ID), "-", "")
-			if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE workflow_review_request ADD CONSTRAINT %s CHECK(id <> '%s' OR task_id IS NULL)`, constraint, util.UUIDToString(second.ID))); err != nil {
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE workflow_review_request ADD CONSTRAINT %s CHECK(id <> '%s' OR run_id IS NULL)`, constraint, util.UUIDToString(second.ID))); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { pool.Exec(ctx, "ALTER TABLE workflow_review_request DROP CONSTRAINT IF EXISTS "+constraint) })
@@ -91,7 +91,7 @@ func TestWorkflowAgentReviewFreezesDeliveryAndInvalidatesOldRequest(t *testing.T
 				t.Fatalf("missing binding failure: %v", err)
 			}
 			var queued int
-			if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE issue_id=$1 AND id<>$2`, e.MainIssueID, e.MainTaskID).Scan(&queued); err != nil || queued != 0 {
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE task_id=$1 AND id<>$2`, e.MainTaskID, e.MainRunID).Scan(&queued); err != nil || queued != 0 {
 				t.Fatalf("orphan review call: %d %v", queued, err)
 			}
 			if _, err := pool.Exec(ctx, "ALTER TABLE workflow_review_request DROP CONSTRAINT "+constraint); err != nil {
@@ -114,33 +114,33 @@ func TestWorkflowAgentReviewFreezesDeliveryAndInvalidatesOldRequest(t *testing.T
 				}
 			}
 			bound, err := svc.DispatchAgentReview(ctx, p.WorkspaceID, second.ID)
-			reviewCall := bound.TaskID
+			reviewCall := bound.RunID
 			if err != nil || !reviewCall.Valid || bound.Status != "queued" {
 				t.Fatalf("dispatch: %+v %v", bound, err)
 			}
 			var fresh bool
 			var note string
 			var count int
-			if err := pool.QueryRow(ctx, `SELECT force_fresh_session,handoff_note FROM agent_task_queue WHERE id=$1 AND workflow_stage_execution_id IS NULL`, reviewCall).Scan(&fresh, &note); err != nil || !fresh || !strings.Contains(note, "silieco workflow agent-review "+util.UUIDToString(p.InstanceID)) || !strings.Contains(note, "silieco workflow agent-decision "+util.UUIDToString(p.InstanceID)) || !strings.Contains(note, second.BasisHash) || !strings.Contains(note, util.UUIDToString(second.ResultID)) {
+			if err := pool.QueryRow(ctx, `SELECT force_fresh_session,handoff_note FROM agent_run WHERE id=$1 AND workflow_stage_execution_id IS NULL`, reviewCall).Scan(&fresh, &note); err != nil || !fresh || !strings.Contains(note, "silieco workflow agent-review "+util.UUIDToString(p.InstanceID)) || !strings.Contains(note, "silieco workflow agent-decision "+util.UUIDToString(p.InstanceID)) || !strings.Contains(note, second.BasisHash) || !strings.Contains(note, util.UUIDToString(second.ResultID)) {
 				t.Fatalf("review context: %v %s %v", fresh, note, err)
 			}
-			if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE workflow_review_request_id=$1`, second.ID).Scan(&count); err != nil || count != 1 {
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE workflow_review_request_id=$1`, second.ID).Scan(&count); err != nil || count != 1 {
 				t.Fatalf("duplicate dispatch: %d %v", count, err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET workflow_stage_execution_id=$2 WHERE id=$1`, reviewCall, e.ID); err == nil {
+			if _, err := pool.Exec(ctx, `UPDATE agent_run SET workflow_stage_execution_id=$2 WHERE id=$1`, reviewCall, e.ID); err == nil {
 				t.Fatal("review call became execution call")
 			}
 			again, err := prepare()
 			if err != nil || again.ID != second.ID || again.BasisHash != second.BasisHash {
 				t.Fatalf("review call changed delivery basis: %+v %v", again, err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET issue_id=NULL WHERE id=$1`, reviewCall); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE agent_run SET task_id=NULL WHERE id=$1`, reviewCall); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := svc.Queries.ClaimAgentTask(ctx, db.ClaimAgentTaskParams{AgentID: e.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
+			if _, err := svc.Queries.ClaimAgentRun(ctx, db.ClaimAgentRunParams{AgentID: e.ExecutorID, PrepareLeaseSecs: 60}); !errors.Is(err, pgx.ErrNoRows) {
 				t.Fatalf("review call used ordinary claim: %v", err)
 			}
-			if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET issue_id=$2 WHERE id=$1`, reviewCall, e.MainIssueID); err != nil {
+			if _, err := pool.Exec(ctx, `UPDATE agent_run SET task_id=$2 WHERE id=$1`, reviewCall, e.MainTaskID); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := pool.Exec(ctx, `UPDATE agent SET archived_at=now() WHERE id=$1`, e.ExecutorID); err != nil {

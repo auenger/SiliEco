@@ -11,12 +11,12 @@
  *    DOESN'T subscribe to those, but mobile's stricter freshness wins for
  *    multi-device users).
  *
- * 2. `issue:*` events → patch the inbox cache directly via the dedicated
+ * 2. `task:*` events → patch the inbox cache directly via the dedicated
  *    updaters (inbox-ws-updaters.ts). Required because:
- *      - `issue:updated` with a new status must flip the inbox row's
+ *      - `task:updated` with a new status must flip the inbox row's
  *        StatusIcon inline — otherwise the row keeps showing stale status.
- *      - `issue:deleted` must strip every inbox item pointing at that
- *        issue, otherwise tapping the orphan row 404s on issue/[id].
+ *      - `task:deleted` must strip every inbox item pointing at that
+ *        task, otherwise tapping the orphan row 404s on task/[id].
  *    Web does the same in `packages/core/inbox/ws-updaters.ts`.
  *
  * Reconnect: invalidate the list (we may have missed events while down;
@@ -26,8 +26,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { inboxKeys } from "@/data/queries/inbox";
 import { useWSSubscriptions } from "@/lib/use-ws-subscriptions";
 import {
-  dropInboxItemsByIssue,
-  patchInboxIssueStatus,
+  dropInboxItemsByTask,
+  patchInboxTaskStatus,
 } from "./inbox-ws-updaters";
 
 export function useInboxRealtime() {
@@ -50,17 +50,17 @@ export function useInboxRealtime() {
         ws.on("inbox:batch-read", invalidate),
         ws.on("inbox:batch-archived", invalidate),
 
-        // Cross-cutting: issue events that need to patch inbox state.
-        ws.on("issue:updated", (payload) => {
-          patchInboxIssueStatus(
+        // Cross-cutting: task events that need to patch inbox state.
+        ws.on("task:updated", (payload) => {
+          patchInboxTaskStatus(
             qc,
             wsId,
-            payload.issue.id,
-            payload.issue.status,
+            payload.task.id,
+            payload.task.status,
           );
         }),
-        ws.on("issue:deleted", (payload) => {
-          dropInboxItemsByIssue(qc, wsId, payload.issue_id);
+        ws.on("task:deleted", (payload) => {
+          dropInboxItemsByTask(qc, wsId, payload.task_id);
         }),
 
         // After a reconnect we don't know what we missed during the

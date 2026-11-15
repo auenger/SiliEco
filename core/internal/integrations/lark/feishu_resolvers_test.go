@@ -127,8 +127,8 @@ func TestFeishuSessionBinder_AppendUsesUnenrichedCommandBody(t *testing.T) {
 	b := &feishuSessionBinder{session: f}
 
 	// Raw carries the original lark InboundMessage; CommandBody is the user's
-	// un-enriched text used for /issue parsing (Body has quoted context inlined).
-	raw, _ := json.Marshal(InboundMessage{CommandBody: "/issue Real intent"})
+	// un-enriched text used for /task parsing (Body has quoted context inlined).
+	raw, _ := json.Marshal(InboundMessage{CommandBody: "/task Real intent"})
 	if _, err := b.AppendMessage(context.Background(), engine.AppendParams{
 		SessionID:      binderUUID(1),
 		Sender:         binderUUID(7),
@@ -136,7 +136,7 @@ func TestFeishuSessionBinder_AppendUsesUnenrichedCommandBody(t *testing.T) {
 		ClaimToken:     binderUUID(9),
 		Message: channel.InboundMessage{
 			MessageID: "om_1",
-			Text:      "> quoted context\n/issue Real intent",
+			Text:      "> quoted context\n/task Real intent",
 			Source:    channel.Source{ChatID: "oc", ThreadID: "th_1"},
 			Raw:       raw,
 		},
@@ -145,10 +145,10 @@ func TestFeishuSessionBinder_AppendUsesUnenrichedCommandBody(t *testing.T) {
 	}
 
 	got := f.appendIn
-	if got.CommandText != "/issue Real intent" {
+	if got.CommandText != "/task Real intent" {
 		t.Errorf("CommandText must be the un-enriched CommandBody from Raw, got %q", got.CommandText)
 	}
-	if got.Body != "> quoted context\n/issue Real intent" {
+	if got.Body != "> quoted context\n/task Real intent" {
 		t.Errorf("Body must be the (enriched) Message.Text, got %q", got.Body)
 	}
 	if got.MessageID != "om_1" || got.ThreadID != "th_1" || got.SessionID != binderUUID(1) ||

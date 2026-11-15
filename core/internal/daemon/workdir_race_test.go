@@ -20,7 +20,7 @@ import (
 )
 
 // TestHandleTask_DoesNotCallStartTaskItself is the regression guard for
-// issue #3999 race A. handleTask must not call /tasks/{id}/start before
+// task #3999 race A. handleTask must not call /tasks/{id}/start before
 // runner.run — the runner is now responsible for calling StartTask only
 // after execenv.Prepare/Reuse has put env.WorkDir on disk, so consumers
 // that read status==running can resolve the workdir path without racing
@@ -31,7 +31,7 @@ import (
 // still didn't exist on disk. Hermes/OpenClaw agents that resolved
 // /silieco_workspaces/{ws}/{short-id}/workdir from the running signal
 // would then hit FileNotFoundError.
-func TestHandleTask_DoesNotCallStartTaskItself(t *testing.T) {
+func TestHandleRun_DoesNotCallStartRunItself(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -59,42 +59,42 @@ func TestHandleTask_DoesNotCallStartTaskItself(t *testing.T) {
 
 	// Fake runner that does NOT call StartTask — production runTask does
 	// the call itself, after Prepare/Reuse confirms env.WorkDir on disk.
-	d.runner = taskRunnerFunc(func(_ context.Context, _ Task, _ string, _ int, _ *slog.Logger) (TaskResult, error) {
+	d.runner = runRunnerFunc(func(_ context.Context, _ AgentRun, _ string, _ int, _ *slog.Logger) (RunResult, error) {
 		runnerCalled.Store(true)
-		return TaskResult{Status: "completed"}, nil
+		return RunResult{Status: "completed"}, nil
 	})
 
-	task := Task{
+	agentRun := AgentRun{
 		ID:          "task-no-start",
 		WorkspaceID: "ws-no-start",
 		RuntimeID:   "rt-1",
-		IssueID:     "issue-no-start",
+		TaskID:      "task-no-start",
 		Agent:       &AgentData{Name: "test-agent"},
 	}
 
-	d.handleTask(context.Background(), task, 0)
+	d.handleRun(context.Background(), agentRun, 0)
 
 	if !runnerCalled.Load() {
 		t.Fatal("fake runner was never invoked — handleTask aborted before runner.run, can't assert ordering")
 	}
 	if got := startCalls.Load(); got != 0 {
-		t.Fatalf("handleTask called /start %d time(s); StartTask must be runTask's responsibility now (issue #3999 race A)", got)
+		t.Fatalf("handleTask called /start %d time(s); StartTask must be runTask's responsibility now (task #3999 race A)", got)
 	}
 }
 
 // TestRunTask_StartTaskCalledAfterWorkdirOnDisk is the behavioral regression
-// guard for issue #3999 race A. Calls runTask directly with a missing agent
+// guard for task #3999 race A. Calls runTask directly with a missing agent
 // binary so the run aborts at exec time — but only AFTER reaching the
 // post-Prepare StartTask call. The fake server records whether the per-task
 // workdir already exists on disk at the moment /start is hit; before the
 // fix it did not.
-func TestRunTask_StartTaskCalledAfterWorkdirOnDisk(t *testing.T) {
+func TestExecuteRun_StartRunCalledAfterWorkdirOnDisk(t *testing.T) {
 	t.Parallel()
 
 	workspacesRoot := t.TempDir()
 	workspaceID := "ws-runtask"
-	taskID := "task-runtask-after-mkdir"
-	expectedEnvRoot := execenv.PredictRootDir(workspacesRoot, workspaceID, taskID)
+	runID := "task-runtask-after-mkdir"
+	expectedEnvRoot := execenv.PredictRootDir(workspacesRoot, workspaceID, runID)
 	expectedWorkDir := filepath.Join(expectedEnvRoot, "workdir")
 
 	var (
@@ -136,39 +136,39 @@ func TestRunTask_StartTaskCalledAfterWorkdirOnDisk(t *testing.T) {
 		},
 	}
 
-	task := Task{
-		ID:          taskID,
+	agentRun := AgentRun{
+		ID:          runID,
 		AgentID:     "agent-runtask",
 		WorkspaceID: workspaceID,
 		RuntimeID:   "rt-1",
-		IssueID:     "issue-runtask",
+		TaskID:      "task-runtask",
 		Agent:       &AgentData{ID: "agent-runtask", Name: "test-agent"},
 	}
 
-	taskLog := slog.New(slog.NewTextHandler(io.Discard, nil))
+	runLog := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// The Run() failure is expected; we only assert the pre-Run ordering.
-	_, _ = d.runTask(context.Background(), task, "claude", 0, taskLog)
+	_, _ = d.executeRun(context.Background(), agentRun, "claude", 0, runLog)
 
 	if !startCalled.Load() {
 		t.Fatal("runTask did not call /start — Fix A's StartTask placement is missing")
 	}
 	if !envRootOnDisk.Load() {
-		t.Fatal("envRoot did not exist on disk when /start was called — Prepare must run before StartTask (issue #3999 race A)")
+		t.Fatal("envRoot did not exist on disk when /start was called — Prepare must run before StartTask (task #3999 race A)")
 	}
 	if !workdirOnDisk.Load() {
-		t.Fatal("envRoot/workdir did not exist on disk when /start was called — os.MkdirAll must complete before StartTask (issue #3999 race A)")
+		t.Fatal("envRoot/workdir did not exist on disk when /start was called — os.MkdirAll must complete before StartTask (task #3999 race A)")
 	}
 }
 
-func TestRunTask_InjectsPrivateTaskTempDir(t *testing.T) {
+func TestExecuteRun_InjectsPrivateRunTempDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell-script agent fixture is POSIX-only")
 	}
 
 	workspacesRoot := filepath.Join(t.TempDir(), strings.Repeat("long-workspaces-root-", 3))
 	workspaceID := "ws-private-temp"
-	taskID := "task-private-temp-with-long-id-that-would-overflow-socket-paths"
-	envRoot := execenv.PredictRootDir(workspacesRoot, workspaceID, taskID)
+	runID := "task-private-temp-with-long-id-that-would-overflow-socket-paths"
+	envRoot := execenv.PredictRootDir(workspacesRoot, workspaceID, runID)
 
 	captureFile := filepath.Join(t.TempDir(), "agent-env.txt")
 	fakeBin := filepath.Join(t.TempDir(), "claude")
@@ -211,11 +211,11 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 		},
 	}
 
-	task := Task{
-		ID:          taskID,
+	agentRun := AgentRun{
+		ID:          runID,
 		WorkspaceID: workspaceID,
 		RuntimeID:   "rt-1",
-		IssueID:     "issue-private-temp",
+		TaskID:      "task-private-temp",
 		AgentID:     "agent-private-temp",
 		AuthToken:   "mat_private_temp",
 		Agent: &AgentData{
@@ -230,8 +230,8 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 		},
 	}
 
-	taskLog := slog.New(slog.NewTextHandler(io.Discard, nil))
-	result, err := d.runTask(context.Background(), task, "claude", 0, taskLog)
+	runLog := slog.New(slog.NewTextHandler(io.Discard, nil))
+	result, err := d.executeRun(context.Background(), agentRun, "claude", 0, runLog)
 	if err != nil {
 		t.Fatalf("runTask(): %v", err)
 	}
@@ -262,31 +262,31 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 	if got["TMPDIR_EXISTS"] != "yes" {
 		t.Fatalf("fake agent saw TMPDIR_EXISTS=%q, want yes", got["TMPDIR_EXISTS"])
 	}
-	taskTempDir := got["TMPDIR"]
-	if strings.HasPrefix(taskTempDir, envRoot) {
-		t.Fatalf("task temp dir %q must not live under long env root %q", taskTempDir, envRoot)
+	runTempDir := got["TMPDIR"]
+	if strings.HasPrefix(runTempDir, envRoot) {
+		t.Fatalf("task temp dir %q must not live under long env root %q", runTempDir, envRoot)
 	}
-	if len(taskTempDir) > 80 {
-		t.Fatalf("task temp dir %q length = %d, want <= 80 for Unix-socket headroom", taskTempDir, len(taskTempDir))
+	if len(runTempDir) > 80 {
+		t.Fatalf("task temp dir %q length = %d, want <= 80 for Unix-socket headroom", runTempDir, len(runTempDir))
 	}
-	if _, err := os.Stat(taskTempDir); !os.IsNotExist(err) {
-		t.Fatalf("expected task temp dir %q to be cleaned after run, stat err=%v", taskTempDir, err)
+	if _, err := os.Stat(runTempDir); !os.IsNotExist(err) {
+		t.Fatalf("expected task temp dir %q to be cleaned after run, stat err=%v", runTempDir, err)
 	}
 }
 
-func TestRunTask_ExtendsPrepareLeaseDuringStartTask(t *testing.T) {
-	oldRefresh := taskPrepareLeaseRefresh
-	oldTimeout := taskPrepareLeaseTimeout
-	taskPrepareLeaseRefresh = 10 * time.Millisecond
-	taskPrepareLeaseTimeout = 500 * time.Millisecond
+func TestExecuteRun_ExtendsPrepareLeaseDuringStartRun(t *testing.T) {
+	oldRefresh := runPrepareLeaseRefresh
+	oldTimeout := runPrepareLeaseTimeout
+	runPrepareLeaseRefresh = 10 * time.Millisecond
+	runPrepareLeaseTimeout = 500 * time.Millisecond
 	t.Cleanup(func() {
-		taskPrepareLeaseRefresh = oldRefresh
-		taskPrepareLeaseTimeout = oldTimeout
+		runPrepareLeaseRefresh = oldRefresh
+		runPrepareLeaseTimeout = oldTimeout
 	})
 
 	workspacesRoot := t.TempDir()
 	workspaceID := "ws-runtask-start-lease"
-	taskID := "task-runtask-start-lease"
+	runID := "task-runtask-start-lease"
 	var (
 		startEntered     atomic.Bool
 		leaseDuringStart atomic.Bool
@@ -330,17 +330,17 @@ func TestRunTask_ExtendsPrepareLeaseDuringStartTask(t *testing.T) {
 		},
 	}
 
-	task := Task{
-		ID:          taskID,
+	agentRun := AgentRun{
+		ID:          runID,
 		WorkspaceID: workspaceID,
 		RuntimeID:   "rt-1",
-		IssueID:     "issue-runtask-start-lease",
+		TaskID:      "task-runtask-start-lease",
 		AgentID:     "agent-runtask-start-lease",
 		Agent:       &AgentData{ID: "agent-runtask-start-lease", Name: "test-agent"},
 	}
 
-	taskLog := slog.New(slog.NewTextHandler(io.Discard, nil))
-	_, _ = d.runTask(context.Background(), task, "claude", 0, taskLog)
+	runLog := slog.New(slog.NewTextHandler(io.Discard, nil))
+	_, _ = d.executeRun(context.Background(), agentRun, "claude", 0, runLog)
 
 	if !startEntered.Load() {
 		t.Fatal("runTask did not call /start")
@@ -350,14 +350,14 @@ func TestRunTask_ExtendsPrepareLeaseDuringStartTask(t *testing.T) {
 	}
 }
 
-func TestRunTask_PrepareTimeoutStopsLeaseDuringBlockedStartTask(t *testing.T) {
-	oldRefresh := taskPrepareLeaseRefresh
-	oldTimeout := taskPrepareLeaseTimeout
-	taskPrepareLeaseRefresh = 10 * time.Millisecond
-	taskPrepareLeaseTimeout = 500 * time.Millisecond
+func TestExecuteRun_PrepareTimeoutStopsLeaseDuringBlockedStartRun(t *testing.T) {
+	oldRefresh := runPrepareLeaseRefresh
+	oldTimeout := runPrepareLeaseTimeout
+	runPrepareLeaseRefresh = 10 * time.Millisecond
+	runPrepareLeaseTimeout = 500 * time.Millisecond
 	t.Cleanup(func() {
-		taskPrepareLeaseRefresh = oldRefresh
-		taskPrepareLeaseTimeout = oldTimeout
+		runPrepareLeaseRefresh = oldRefresh
+		runPrepareLeaseTimeout = oldTimeout
 	})
 
 	var leaseCalls atomic.Int64
@@ -387,12 +387,12 @@ func TestRunTask_PrepareTimeoutStopsLeaseDuringBlockedStartTask(t *testing.T) {
 		t.Fatalf("write fake agent: %v", err)
 	}
 	d := &Daemon{
-		client:             NewClient(srv.URL),
-		logger:             slog.New(slog.NewTextHandler(io.Discard, nil)),
-		workspaces:         make(map[string]*workspaceState),
-		runtimeIndex:       map[string]Runtime{"rt-1": {ID: "rt-1", Provider: "claude"}},
-		activeEnvRoots:     make(map[string]int),
-		taskPrepareTimeout: 150 * time.Millisecond,
+		client:            NewClient(srv.URL),
+		logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		workspaces:        make(map[string]*workspaceState),
+		runtimeIndex:      map[string]Runtime{"rt-1": {ID: "rt-1", Provider: "claude"}},
+		activeEnvRoots:    make(map[string]int),
+		runPrepareTimeout: 150 * time.Millisecond,
 		cfg: Config{
 			WorkspacesRoot: workspacesRoot,
 			Agents: map[string]AgentEntry{
@@ -401,18 +401,18 @@ func TestRunTask_PrepareTimeoutStopsLeaseDuringBlockedStartTask(t *testing.T) {
 		},
 	}
 
-	task := Task{
+	agentRun := AgentRun{
 		ID:          "task-runtask-start-timeout",
 		WorkspaceID: "ws-runtask-start-timeout",
 		RuntimeID:   "rt-1",
-		IssueID:     "issue-runtask-start-timeout",
+		TaskID:      "task-runtask-start-timeout",
 		AgentID:     "agent-runtask-start-timeout",
 		Agent:       &AgentData{ID: "agent-runtask-start-timeout", Name: "test-agent"},
 	}
-	taskLog := slog.New(slog.NewTextHandler(io.Discard, nil))
+	runLog := slog.New(slog.NewTextHandler(io.Discard, nil))
 	startedAt := time.Now()
-	_, err := d.runTask(context.Background(), task, "claude", 0, taskLog)
-	if !errors.Is(err, errTaskPrepareTimeout) {
+	_, err := d.executeRun(context.Background(), agentRun, "claude", 0, runLog)
+	if !errors.Is(err, errRunPrepareTimeout) {
 		t.Fatalf("runTask error = %v, want task prepare timeout", err)
 	}
 	if elapsed := time.Since(startedAt); elapsed > time.Second {
@@ -428,17 +428,17 @@ func TestRunTask_PrepareTimeoutStopsLeaseDuringBlockedStartTask(t *testing.T) {
 		t.Fatal("prepare lease was never extended while /start was blocked")
 	}
 	leaseCallsAtReturn := leaseCalls.Load()
-	time.Sleep(4 * taskPrepareLeaseRefresh)
+	time.Sleep(4 * runPrepareLeaseRefresh)
 	if got := leaseCalls.Load(); got != leaseCallsAtReturn {
 		t.Fatalf("prepare lease kept extending after timeout: calls %d -> %d", leaseCallsAtReturn, got)
 	}
-	if got := taskRunFailureReason(err); got != "timeout" {
+	if got := runRunFailureReason(err); got != "timeout" {
 		t.Fatalf("taskRunFailureReason = %q, want retryable platform timeout", got)
 	}
 }
 
 // TestHandleTask_KeepsEnvRootActiveAcrossCompletion is the regression guard
-// for issue #3999 race B. After runner.run returns, the in-process active
+// for task #3999 race B. After runner.run returns, the in-process active
 // guard installed inside runTask (defer unmarkActiveEnvRoot at the
 // goroutine's exit) has already fired by the time handleTask calls
 // reportTaskResult and execenv.WriteGCMeta. Without an outer guard at the
@@ -450,13 +450,13 @@ func TestRunTask_PrepareTimeoutStopsLeaseDuringBlockedStartTask(t *testing.T) {
 // then asserts that at the moment /complete is hit (i.e. between runner.run
 // returning and WriteGCMeta running), isActiveEnvRoot(envRoot) is still
 // true thanks to the outer guard handleTask installs.
-func TestHandleTask_KeepsEnvRootActiveAcrossCompletion(t *testing.T) {
+func TestHandleRun_KeepsEnvRootActiveAcrossCompletion(t *testing.T) {
 	t.Parallel()
 
 	workspacesRoot := t.TempDir()
 	workspaceID := "ws-active-during-complete"
-	taskID := "task-active-during-complete"
-	expectedEnvRoot := execenv.PredictRootDir(workspacesRoot, workspaceID, taskID)
+	runID := "task-active-during-complete"
+	expectedEnvRoot := execenv.PredictRootDir(workspacesRoot, workspaceID, runID)
 
 	var (
 		completeCalled   atomic.Bool
@@ -491,31 +491,31 @@ func TestHandleTask_KeepsEnvRootActiveAcrossCompletion(t *testing.T) {
 	// Fake runner mimics the real runTask's mark/defer-unmark pair. Without
 	// the outer guard added in handleTask, the deferred unmark would bring
 	// isActiveEnvRoot back to false before reportTaskResult fires.
-	d.runner = taskRunnerFunc(func(_ context.Context, tk Task, _ string, _ int, _ *slog.Logger) (TaskResult, error) {
+	d.runner = runRunnerFunc(func(_ context.Context, tk AgentRun, _ string, _ int, _ *slog.Logger) (RunResult, error) {
 		predicted := execenv.PredictRootDir(d.cfg.WorkspacesRoot, tk.WorkspaceID, tk.ID)
 		d.markActiveEnvRoot(predicted)
 		defer d.unmarkActiveEnvRoot(predicted)
-		return TaskResult{
+		return RunResult{
 			Status:  "completed",
 			EnvRoot: predicted,
 		}, nil
 	})
 
-	task := Task{
-		ID:          taskID,
+	agentRun := AgentRun{
+		ID:          runID,
 		WorkspaceID: workspaceID,
 		RuntimeID:   "rt-1",
-		IssueID:     "issue-active-during-complete",
+		TaskID:      "task-active-during-complete",
 		Agent:       &AgentData{Name: "test-agent"},
 	}
 
-	d.handleTask(context.Background(), task, 0)
+	d.handleRun(context.Background(), agentRun, 0)
 
 	if !completeCalled.Load() {
 		t.Fatal("/complete was never hit — handleTask did not reach reportTaskResult")
 	}
 	if !activeAtComplete.Load() {
-		t.Fatal("env root was NOT in the active set at /complete time — issue #3999 race B regression: GC could reclaim the directory between runner.run returning and WriteGCMeta landing on disk")
+		t.Fatal("env root was NOT in the active set at /complete time — task #3999 race B regression: GC could reclaim the directory between runner.run returning and WriteGCMeta landing on disk")
 	}
 	// And the outer guard must have been released by the time handleTask
 	// returned, otherwise we'd be leaking active marks across tasks.

@@ -101,8 +101,8 @@ const softNotFoundBodyCaptureLimit = 256
 
 // softNotFoundMarkers are 404 response bodies the daemon emits routinely as
 // part of normal lifecycle events: a runtime deleted from the UI, a task GC'd
-// after an issue was removed, etc. Logging these at Warn turned production
-// stderr into a flood whenever a runtime was deleted (see issue #2391). They
+// after an task was removed, etc. Logging these at Warn turned production
+// stderr into a flood whenever a runtime was deleted (see task #2391). They
 // stay machine-recognizable at Info, while genuine 4xx (wrong path, bad
 // auth, real bugs) keep Warn.
 var softNotFoundMarkers = []string{

@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { useAuthStore } from "../auth";
 import { getCurrentWsId } from "../platform/workspace-storage";
-import { issueKeys } from "../issues/queries";
+import { taskKeys } from "../tasks/queries";
 import { submitFeedbackTask } from "./submit";
 import { usePageFeedbackStore, feedbackDraftKey, type FeedbackDraft, type FeedbackItem } from "./draft-store";
 import type { BrowserContext } from "./protocol";
@@ -22,6 +22,6 @@ export function useSubmitFeedback(context: BrowserContext, image: (item: Feedbac
         });
       } finally { usePageFeedbackStore.getState().setPending(key, false); }
     },
-    onSettled: () => { void qc.invalidateQueries({ queryKey: issueKeys.all(context.workspaceId) }); },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: taskKeys.all(context.workspaceId) }); },
   });
 }

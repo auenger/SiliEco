@@ -17,19 +17,19 @@ silieco project get <project-id> --output json
 silieco project resource list <project-id> --output json
 ```
 
-Project resources are mutated through project resource commands/endpoints. Issue
+Project resources are mutated through project resource commands/endpoints. Task
 comments do not create durable project resources.
 
 ## Core model
 
 A project groups work and carries durable resources. A resource is not just display metadata; it is context later injected into task briefs and `.silieco/project/resources.json`.
 
-A project's `description` is also durable context: when an issue (or a quick-create task) is bound to a project, the project description is injected into the agent's brief under `## Project Context` and written to `.silieco/project/resources.json` as `project_description`. Use it for project-wide rules/context that should apply to every task in the project.
+A project's `description` is also durable context: when a task (or a quick-create task) is bound to a project, the project description is injected into the agent's brief under `## Project Context` and written to `.silieco/project/resources.json` as `project_description`. Use it for project-wide rules/context that should apply to every task in the project.
 
 Common resource types:
 
 - `github_repo` — durable remote Git context, with `resource_ref.url`, optional checkout `ref`, optional prompt-only `default_branch_hint`, and `primary` when it is the project's default execution repository;
-- `local_directory` — a private daemon-local project working directory, with `resource_ref.local_path`, `daemon_id`, and optional label. When it represents a clone of an attached repository, `repository_resource_id` maps it beneath that `github_repo`; projects without Git keep it standalone. It is not synchronized to other workspace members.
+- `local_directory` — a private daemon-local project working directory, with `resource_ref.local_path`, `daemon_id`, and optional label. When it represents a clone of an attached repository, `repository_resource_id` maps it beneath that `github_repo`; projects without Git keep it standalone. Files remain on the machine. Workspace members can browse bound project directories in the project Resources tab while the daemon is online. Only bind directories intended for workspace sharing.
 
 ## CLI
 
@@ -55,7 +55,7 @@ silieco project resource remove <project-id> <resource-id> --output json
 
 For `github_repo`, non-JSON `--ref` sets `resource_ref.ref`, the default checkout branch/tag/SHA for future tasks in that project. JSON `--ref '<json>'` remains the escape hatch for full payloads or resource types not covered by shortcuts.
 
-`--start-date` / `--due-date` are optional calendar days (`YYYY-MM-DD`, like issue dates). On `project update`, pass an empty string (`--start-date ""`) to clear a date; an unset flag leaves it untouched.
+`--start-date` / `--due-date` are optional calendar days (`YYYY-MM-DD`, like task dates). On `project update`, pass an empty string (`--start-date ""`) to clear a date; an unset flag leaves it untouched.
 
 ## When to add a resource
 
@@ -79,3 +79,9 @@ is task-local checkout state.
 Project create/update/delete/status and project resource add/update/remove mutate durable workspace state and affect future tasks. Ask before changing `local_directory` unless the user explicitly requested that exact local path.
 
 More source-backed details: `references/projects-and-resources-source-map.md`.
+
+## Project directory browser
+
+Web and desktop can bind a machine directory from Project Resources. The server validates access via the selected daemon. Directory expansion reads one page (200 entries), never recursively walks the tree. File previews load only on selection, transferring 256 KiB chunks. Markdown uses the shared readonly renderer; HTML uses the existing sandboxed preview with source/fullscreen/new-tab actions. HTML and Markdown have no fixed total preview size limit. Directory traversal and escaping symlinks are rejected by an OS-enforced root. Offline machines show an explicit error; files are not replicated to the server.
+
+A single bound directory is displayed as a path, not a selector. Multiple mappings use the shared select control. The browser offers an independent `/{workspace}/projects/{id}/files` page via Open in new tab (desktop app tab or web browser tab), with resizable tree/preview panels and file-type icons. The standalone page uses the same lazy directory and preview queries.

@@ -14,7 +14,7 @@ import {
 // route that shows up in the sidebar/tab bar must map to a WORKSPACE_PAGES
 // entry.
 describe("workspace page coverage", () => {
-  // `root` aliases `issues` (same segment) and is never rendered as its own
+  // `root` aliases `tasks` (same segment) and is never rendered as its own
   // nav item; the parameterized detail routes are resources, not pages.
   const EXCLUDED_METHODS = new Set(["root"]);
   const KNOWN_SEGMENTS = new Set(
@@ -44,8 +44,8 @@ describe("workspace page coverage", () => {
 describe("pageForSegment", () => {
   it("maps a known segment to its page key", () => {
     expect(pageForSegment("projects")).toBe("projects");
-    expect(pageForSegment("my-tasks")).toBe("myIssues");
-    expect(pageForSegment("my-issues")).toBe("myIssues");
+    expect(pageForSegment("my-tasks")).toBe("myTasks");
+    expect(pageForSegment("my-tasks")).toBe("myTasks");
     expect(pageForSegment("settings")).toBe("settings");
   });
 

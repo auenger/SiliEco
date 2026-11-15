@@ -443,7 +443,7 @@ function StatusCell({ row }: { row: AgentListRow }) {
         {active > 0 && (
           <span className="text-muted-foreground">
             {" · "}
-            {t(($) => $.row.task_count, { count: active })}
+            {t(($) => $.row.run_count, { count: active })}
           </span>
         )}
       </span>

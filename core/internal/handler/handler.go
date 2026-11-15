@@ -157,8 +157,8 @@ type Handler struct {
 	DaemonProfileRefresh   RuntimeProfileRefreshNotifier
 	DaemonWorkspaceRefresh WorkspaceSetRefreshNotifier
 	Bus                    *events.Bus
+	AgentRunService        *service.AgentRunService
 	TaskService            *service.TaskService
-	IssueService           *service.IssueService
 	AutopilotService       *service.AutopilotService
 	EmailService           *service.EmailService
 	UpdateStore            UpdateStore
@@ -311,8 +311,8 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		daemonWorkspaceRefresh = daemonHub
 	}
 
-	taskSvc := service.NewTaskService(queries, txStarter, hub, bus, daemonHub)
-	taskSvc.Analytics = analyticsClient
+	runSvc := service.NewAgentRunService(queries, txStarter, hub, bus, daemonHub)
+	runSvc.Analytics = analyticsClient
 	h := &Handler{
 		Queries:                      queries,
 		DB:                           executor,
@@ -322,9 +322,9 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		DaemonProfileRefresh:         daemonProfileRefresh,
 		DaemonWorkspaceRefresh:       daemonWorkspaceRefresh,
 		Bus:                          bus,
-		TaskService:                  taskSvc,
-		IssueService:                 service.NewIssueService(queries, txStarter, bus, analyticsClient, taskSvc),
-		AutopilotService:             service.NewAutopilotService(queries, txStarter, bus, taskSvc),
+		AgentRunService:              runSvc,
+		TaskService:                  service.NewTaskService(queries, txStarter, bus, analyticsClient, runSvc),
+		AutopilotService:             service.NewAutopilotService(queries, txStarter, bus, runSvc),
 		EmailService:                 emailService,
 		UpdateStore:                  NewInMemoryUpdateStore(),
 		ModelListStore:               NewInMemoryModelListStore(),
@@ -528,13 +528,13 @@ func (h *Handler) notifyDaemonWorkspacesChanged(userIDs ...string) {
 
 // publishTask is publish() plus a TaskID hint so the realtime layer can route
 // the event to the per-task scope rather than the whole workspace.
-func (h *Handler) publishTask(eventType, workspaceID, actorType, actorID, taskID string, payload any) {
+func (h *Handler) publishRun(eventType, workspaceID, actorType, actorID, runID string, payload any) {
 	h.Bus.Publish(events.Event{
 		Type:        eventType,
 		WorkspaceID: workspaceID,
 		ActorType:   actorType,
 		ActorID:     actorID,
-		TaskID:      taskID,
+		RunID:       runID,
 		Payload:     payload,
 	})
 }
@@ -575,15 +575,15 @@ func requestUserID(r *http.Request) string {
 
 // resolveActor determines whether the request is from an agent or a human member.
 //
-// First-class signal: X-Actor-Source set to "task_token" means the request
+// First-class signal: X-Actor-Source set to "agent_run_token" means the request
 // authenticated via an `mat_` task-scoped token. The auth middleware sets
 // that header (and stripped any client-supplied value first), so it is
-// authoritative — the bound (agent_id, task_id) cannot be forged or
+// authoritative — the bound (agent_id, run_id) cannot be forged or
 // stripped by the agent process. This is the path SILI-2600 relies on to
 // reject agent-process traffic on owner-only endpoints.
 //
 // Fallback signal (legacy CLI / member-token paths): the request MUST
-// carry both X-Agent-ID and a valid X-Task-ID, and the task must belong
+// carry both X-Agent-ID and a valid X-Run-ID, and the task must belong
 // to the claimed agent. Otherwise we fall back to "member".
 //
 // X-Agent-ID alone is not trusted: any workspace member can guess or observe
@@ -594,7 +594,7 @@ func requestUserID(r *http.Request) string {
 //
 // Returns ("agent", agentID) on success, ("member", userID) otherwise.
 func (h *Handler) resolveActor(r *http.Request, userID, workspaceID string) (actorType, actorID string) {
-	if r.Header.Get("X-Actor-Source") == "task_token" {
+	if r.Header.Get("X-Actor-Source") == "agent_run_token" {
 		// Server-set header — auth middleware also forced X-Agent-ID
 		// from the token row. Trust it directly without re-querying.
 		return "agent", r.Header.Get("X-Agent-ID")
@@ -603,9 +603,9 @@ func (h *Handler) resolveActor(r *http.Request, userID, workspaceID string) (act
 	if agentID == "" {
 		return "member", userID
 	}
-	taskID := r.Header.Get("X-Task-ID")
-	if taskID == "" {
-		slog.Debug("resolveActor: X-Agent-ID present but X-Task-ID missing, refusing to trust agent identity", "agent_id", agentID)
+	runID := r.Header.Get("X-Run-ID")
+	if runID == "" {
+		slog.Debug("resolveActor: X-Agent-ID present but X-Run-ID missing, refusing to trust agent identity", "agent_id", agentID)
 		return "member", userID
 	}
 
@@ -621,14 +621,14 @@ func (h *Handler) resolveActor(r *http.Request, userID, workspaceID string) (act
 		return "member", userID
 	}
 
-	taskUUID, err := util.ParseUUID(taskID)
+	runUUID, err := util.ParseUUID(runID)
 	if err != nil {
-		slog.Debug("resolveActor: X-Task-ID is not a valid UUID, falling back to member", "task_id", taskID)
+		slog.Debug("resolveActor: X-Run-ID is not a valid UUID, falling back to member", "run_id", runID)
 		return "member", userID
 	}
-	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
-	if err != nil || uuidToString(task.AgentID) != agentID {
-		slog.Debug("resolveActor: X-Task-ID rejected, task not found or agent mismatch", "agent_id", agentID, "task_id", taskID)
+	agentRun, err := h.Queries.GetAgentRun(r.Context(), runUUID)
+	if err != nil || uuidToString(agentRun.AgentID) != agentID {
+		slog.Debug("resolveActor: X-Run-ID rejected, task not found or agent mismatch", "agent_id", agentID, "run_id", runID)
 		return "member", userID
 	}
 
@@ -774,68 +774,68 @@ func (h *Handler) isWorkspaceEntity(ctx context.Context, userType, userID, works
 	}
 }
 
-func (h *Handler) loadIssueForUser(w http.ResponseWriter, r *http.Request, issueID string) (db.Issue, bool) {
+func (h *Handler) loadTaskForUser(w http.ResponseWriter, r *http.Request, taskID string) (db.Task, bool) {
 	if _, ok := requireUserID(w, r); !ok {
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
 
 	workspaceID := h.resolveWorkspaceID(r)
 	if workspaceID == "" {
 		writeError(w, http.StatusBadRequest, "workspace_id is required")
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
 
-	// Try identifier format first (e.g., "JIA-42"). resolveIssueByIdentifier
+	// Try identifier format first (e.g., "JIA-42"). resolveTaskByIdentifier
 	// silently returns false for non-identifier strings, falling through to
 	// the UUID path below.
-	if issue, ok := h.resolveIssueByIdentifier(r.Context(), issueID, workspaceID); ok {
-		return issue, true
+	if task, ok := h.resolveTaskByIdentifier(r.Context(), taskID, workspaceID); ok {
+		return task, true
 	}
 
-	issueUUID, err := util.ParseUUID(issueID)
+	taskUUID, err := util.ParseUUID(taskID)
 	if err != nil {
 		// Not a valid UUID and didn't match identifier format → 404 (consistent
 		// with previous silent-zero behavior, which would also have produced 404).
-		writeError(w, http.StatusNotFound, "issue not found")
-		return db.Issue{}, false
+		writeError(w, http.StatusNotFound, "task not found")
+		return db.Task{}, false
 	}
 	wsUUID, err := util.ParseUUID(workspaceID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid workspace_id")
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
-	issue, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
-		ID:          issueUUID,
+	task, err := h.Queries.GetTaskInWorkspace(r.Context(), db.GetTaskInWorkspaceParams{
+		ID:          taskUUID,
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "issue not found")
-		return db.Issue{}, false
+		writeError(w, http.StatusNotFound, "task not found")
+		return db.Task{}, false
 	}
-	return issue, true
+	return task, true
 }
 
-// resolveIssueByIdentifier tries to look up an issue by "PREFIX-NUMBER" format.
-func (h *Handler) resolveIssueByIdentifier(ctx context.Context, id, workspaceID string) (db.Issue, bool) {
+// resolveTaskByIdentifier tries to look up an task by "PREFIX-NUMBER" format.
+func (h *Handler) resolveTaskByIdentifier(ctx context.Context, id, workspaceID string) (db.Task, bool) {
 	parts := splitIdentifier(id)
 	if parts == nil {
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
 	if workspaceID == "" {
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
 	wsUUID, err := util.ParseUUID(workspaceID)
 	if err != nil {
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
-	issue, err := h.Queries.GetIssueByNumber(ctx, db.GetIssueByNumberParams{
+	task, err := h.Queries.GetTaskByNumber(ctx, db.GetTaskByNumberParams{
 		WorkspaceID: wsUUID,
 		Number:      parts.number,
 	})
 	if err != nil {
-		return db.Issue{}, false
+		return db.Task{}, false
 	}
-	return issue, true
+	return task, true
 }
 
 type identifierParts struct {
@@ -868,18 +868,18 @@ func splitIdentifier(id string) *identifierParts {
 	return &identifierParts{prefix: id[:idx], number: int32(num)}
 }
 
-// getIssuePrefix fetches the issue_prefix for a workspace.
+// getTaskPrefix fetches the task_prefix for a workspace.
 // Falls back to generating a prefix from the workspace name if the stored
 // prefix is empty (e.g. workspaces created before the prefix was introduced).
-func (h *Handler) getIssuePrefix(ctx context.Context, workspaceID pgtype.UUID) string {
+func (h *Handler) getTaskPrefix(ctx context.Context, workspaceID pgtype.UUID) string {
 	ws, err := h.Queries.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return ""
 	}
-	if ws.IssuePrefix != "" {
-		return ws.IssuePrefix
+	if ws.TaskPrefix != "" {
+		return ws.TaskPrefix
 	}
-	return generateIssuePrefix(ws.Name)
+	return generateTaskPrefix(ws.Name)
 }
 
 func (h *Handler) loadAgentForUser(w http.ResponseWriter, r *http.Request, agentID string) (db.Agent, bool) {

@@ -9,14 +9,14 @@ export {
   type HelperInstructionsLang,
 } from "./helper-instructions";
 export {
-  INSTALL_RUNTIME_ISSUE_TITLE,
-  INSTALL_RUNTIME_ISSUE_BODY,
+  INSTALL_RUNTIME_TASK_TITLE,
+  INSTALL_RUNTIME_TASK_BODY,
   FOLLOWUP_COMMENT_PREFIX,
-} from "./install-runtime-issue";
+} from "./install-runtime-task";
 export {
-  CREATE_AGENT_GUIDE_ISSUE_TITLE,
+  CREATE_AGENT_GUIDE_TASK_TITLE,
   getCreateAgentGuideBody,
-} from "./create-agent-guide-issue";
+} from "./create-agent-guide-task";
 export {
   HELPER_STARTER_PROMPTS,
   STARTER_CARD_IDS,

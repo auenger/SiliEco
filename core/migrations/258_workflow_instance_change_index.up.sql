@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX CONCURRENTLY workflow_instance_change_revision_idx ON workflow_instance_change (workflow_instance_id, revision);

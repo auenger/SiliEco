@@ -8,9 +8,9 @@ import { useAuthStore } from "@silieco/core/auth";
 import { useWelcomeStore } from "@silieco/core/onboarding";
 import { paths, useCurrentWorkspace } from "@silieco/core/paths";
 import { resolvePublicFileUrl } from "@silieco/core/workspace/avatar-url";
-import { issueKeys } from "@silieco/core/issues/queries";
+import { taskKeys } from "@silieco/core/tasks/queries";
 import { workspaceKeys } from "@silieco/core/workspace/queries";
-import type { Agent, CreateIssueRequest, Issue } from "@silieco/core/types";
+import type { Agent, CreateTaskRequest, Task } from "@silieco/core/types";
 import {
   Dialog,
   DialogContent,
@@ -23,14 +23,14 @@ import { useNavigation } from "../navigation";
 import { useT } from "../i18n";
 import {
   buildUserContextSection,
-  CREATE_AGENT_GUIDE_ISSUE_TITLE,
+  CREATE_AGENT_GUIDE_TASK_TITLE,
   FOLLOWUP_COMMENT_PREFIX,
   getCreateAgentGuideBody,
   HELPER_DESCRIPTION,
   HELPER_INSTRUCTIONS,
   HELPER_STARTER_PROMPTS,
-  INSTALL_RUNTIME_ISSUE_BODY,
-  INSTALL_RUNTIME_ISSUE_TITLE,
+  INSTALL_RUNTIME_TASK_BODY,
+  INSTALL_RUNTIME_TASK_TITLE,
   pickContentLang,
   STARTER_CARD_IDS,
   type StarterCardId,
@@ -55,26 +55,26 @@ import {
  *        `onboarding/templates/helper-instructions.ts`.
  *     3. Blocking Dialog (no close button, no Escape, no outside-click).
  *        Renders the agent's name + description and 3 starter cards.
- *     4. User picks a card → `createIssue` with the card's prompt as
+ *     4. User picks a card → `createTask` with the card's prompt as
  *        body, assigned to Sili Agent → `dismiss()` → navigate.
  *     5. Failure surfaces a Retry UI; the modal stays put.
  *
  *   "skip":
  *     1. Dialog opens immediately (closable).
- *     2. Background: `createIssue × 2` with the install-runtime and
+ *     2. Background: `createTask × 2` with the install-runtime and
  *        create-agent-guide bodies, assigned to the user themselves.
  *     3. Cards render with their static titles + subtitles; per-card
- *        spinner switches to "Open issue" once the issue id arrives.
+ *        spinner switches to "Open task" once the task id arrives.
  *     4. Click a card → `dismiss()` → navigate. Close the modal →
- *        `dismiss()` → stay on issues list; seeded issues remain.
+ *        `dismiss()` → stay on tasks list; seeded tasks remain.
  *     5. Per-card failure surfaces a Retry button on that card only.
  *
  * Why subscribe-not-consume: React 18+ StrictMode dev mounts components
  * twice. A consume-on-init pattern would empty the store on the first
  * mount, then render null on the second. Subscribing + recording
  * dismissal in the store sidesteps both mounts seeing the same state.
- * Async work (Sili Agent setup, skip-path seed issues) is deduped at
- * module level via `findOrCreateSiliAgent` / `seedIssueDeduped` so the
+ * Async work (Sili Agent setup, skip-path seed tasks) is deduped at
+ * module level via `findOrCreateSiliAgent` / `seedTaskDeduped` so the
  * double-mount can't race two API calls for the same workspace.
  */
 export function WelcomeAfterOnboarding() {
@@ -89,7 +89,7 @@ export function WelcomeAfterOnboarding() {
   // currently viewing ws-B while signal points at ws-A (back/forward,
   // deep-link, desktop multi-tab where stores are shared across tabs in
   // one renderer), DON'T fire here — would create Sili Agent /
-  // seed issues in ws-A while the user looks at ws-B, then navigate them
+  // seed tasks in ws-A while the user looks at ws-B, then navigate them
   // away. Render null until the user lands back in the workspace the
   // signal was parked for.
   if (
@@ -198,7 +198,7 @@ async function findOrCreateSiliAgent(
       avatar_url: SILI_AGENT_AVATAR_URL,
       runtime_id: runtimeId,
       visibility: "workspace",
-      max_concurrent_tasks: 6,
+      max_concurrent_runs: 6,
       template: "silieco_helper",
     });
   })();
@@ -219,35 +219,35 @@ async function findOrCreateSiliAgent(
 }
 
 /**
- * Module-level dedupe for skip-path seed issues. Same StrictMode rationale
+ * Module-level dedupe for skip-path seed tasks. Same StrictMode rationale
  * as `findOrCreateSiliAgent`: each mount has its own useRef, so without a
- * cross-mount cache the dev double-mount would race two CreateIssue calls
+ * cross-mount cache the dev double-mount would race two CreateTask calls
  * for the same title — the server-side LockAndFindActiveDuplicate gate
  * returns 409 on the second one, but a 409 in the catch block populates
- * the per-card error state with a misleading message ("an issue with this
- * title already exists") even though the issue WAS created.
+ * the per-card error state with a misleading message ("an task with this
+ * title already exists") even though the task WAS created.
  *
  * Keyed on `${workspaceId}:${title}` because the seed identity is the
- * issue title (server's duplicate dedupe also keys on title).
+ * task title (server's duplicate dedupe also keys on title).
  */
-const pendingIssueSeed = new Map<string, Promise<Issue>>();
+const pendingTaskSeed = new Map<string, Promise<Task>>();
 
-function seedIssueDeduped(
+function seedTaskDeduped(
   cacheKey: string,
-  body: CreateIssueRequest,
-): Promise<Issue> {
-  const existing = pendingIssueSeed.get(cacheKey);
+  body: CreateTaskRequest,
+): Promise<Task> {
+  const existing = pendingTaskSeed.get(cacheKey);
   if (existing) return existing;
-  const promise = api.createIssue(body);
-  pendingIssueSeed.set(cacheKey, promise);
+  const promise = api.createTask(body);
+  pendingTaskSeed.set(cacheKey, promise);
   // .finally() returns a NEW promise that mirrors the rejection of the
   // original. Silence it with .catch so the cleanup chain never surfaces
   // as an unhandled rejection — the original `promise` we return still
   // carries the rejection to the caller's await.
   promise
     .finally(() => {
-      if (pendingIssueSeed.get(cacheKey) === promise) {
-        pendingIssueSeed.delete(cacheKey);
+      if (pendingTaskSeed.get(cacheKey) === promise) {
+        pendingTaskSeed.delete(cacheKey);
       }
     })
     .catch(() => {});
@@ -256,19 +256,19 @@ function seedIssueDeduped(
 
 /**
  * Same module-level dedup pattern for the follow-up comment on the
- * skip-path install-runtime issue (linking to the create-agent-guide
- * issue). Keeps the two StrictMode mounts from posting the comment twice.
+ * skip-path install-runtime task (linking to the create-agent-guide
+ * task). Keeps the two StrictMode mounts from posting the comment twice.
  */
 const pendingCommentSeed = new Map<string, Promise<unknown>>();
 
 function postCommentDeduped(
   cacheKey: string,
-  issueId: string,
+  taskId: string,
   content: string,
 ): Promise<unknown> {
   const existing = pendingCommentSeed.get(cacheKey);
   if (existing) return existing;
-  const promise = api.createComment(issueId, content);
+  const promise = api.createComment(taskId, content);
   pendingCommentSeed.set(cacheKey, promise);
   promise
     .finally(() => {
@@ -286,9 +286,9 @@ interface RuntimeWelcomeProps {
   /** User explicitly gave up after a fatal failure — clear the welcome
    *  signal so we don't re-show the error veil. */
   onAbandon: () => void;
-  /** Happy-path completion: user picked a starter card, issue is created,
+  /** Happy-path completion: user picked a starter card, task is created,
    *  we're about to navigate. Clear the welcome signal so navigating back
-   *  to /issues doesn't re-trigger the modal. */
+   *  to /tasks doesn't re-trigger the modal. */
   onComplete: () => void;
 }
 
@@ -303,7 +303,7 @@ function RuntimeWelcome({
   // user-locale-sync). Reading me.language directly would miss anonymous
   // new users whose preference field is still null but whose browser is
   // already using another supported locale — the agent instructions and
-  // seeded issue body should follow what they're already reading.
+  // seeded task body should follow what they're already reading.
   const { t, i18n } = useT("onboarding");
   const navigation = useNavigation();
   const qc = useQueryClient();
@@ -311,7 +311,7 @@ function RuntimeWelcome({
   // non-null, but we re-read the store here instead of threading it
   // through props so the questionnaire stays in sync if the user
   // refreshes their profile mid-flow (PATCH /api/me returns the updated
-  // row and the store is reactive). Used to enrich starter issue
+  // row and the store is reactive). Used to enrich starter task
   // descriptions with a `> About me` block.
   const me = useAuthStore((s) => s.user);
 
@@ -332,17 +332,17 @@ function RuntimeWelcome({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const submitInFlightRef = useRef(false);
-  // After Promise.all(createIssue × N) resolves we DON'T navigate
-  // immediately. We park the first issue id here and switch the Modal to
+  // After Promise.all(createTask × N) resolves we DON'T navigate
+  // immediately. We park the first task id here and switch the Modal to
   // a success state ("you're all set, agent is on it, here's how to
   // check in via Inbox / chat") — gives the user a moment to register
   // what just happened + surfaces two features they're likely to miss.
   // Got it on the success view is what finally dismisses + navigates.
-  const [successIssueId, setSuccessIssueId] = useState<string | null>(null);
+  const [successTaskId, setSuccessTaskId] = useState<string | null>(null);
 
   // Resolve the role / use_case enum slugs to human-readable labels in
   // the user's current locale, then build the markdown block that gets
-  // appended to every starter issue description. Memoized on t +
+  // appended to every starter task description. Memoized on t +
   // i18n.language so a language switch refreshes everything in one
   // re-render; bundle is rebuilt whenever the questionnaire row changes.
   const userContextLabels: UserContextLabels = useMemo(() => {
@@ -458,23 +458,23 @@ function RuntimeWelcome({
     setSubmitting(true);
     try {
       // Build the per-task "about me" block once and append it to every
-      // starter issue. The block is empty markdown ("") when the user
+      // starter task. The block is empty markdown ("") when the user
       // skipped both questions, so unconditional concat is safe — Sili Agent
       // sees the original prompt verbatim with no trailing context.
       const userContext = buildUserContextSection(
         me?.onboarding_questionnaire,
         userContextLabels,
       );
-      // Create issues in declared order (STARTER_CARD_IDS), so the user
+      // Create tasks in declared order (STARTER_CARD_IDS), so the user
       // lands on the most foundational task first when there's a tie. We
-      // run them in parallel — Sili Agent's max_concurrent_tasks lets it pick
+      // run them in parallel — Sili Agent's max_concurrent_runs lets it pick
       // them up immediately, and one failure of N shouldn't gate the
       // others.
       const orderedIds = STARTER_CARD_IDS.filter((id) => selected.has(id));
-      const issues = await Promise.all(
+      const tasks = await Promise.all(
         orderedIds.map((id) => {
           const card = HELPER_STARTER_PROMPTS[id];
-          return api.createIssue({
+          return api.createTask({
             title: card.title[lang],
             description: card.prompt[lang] + userContext,
             status: "todo",
@@ -485,17 +485,17 @@ function RuntimeWelcome({
         }),
       );
       await Promise.all([
-        qc.invalidateQueries({ queryKey: issueKeys.all(workspaceId) }),
+        qc.invalidateQueries({ queryKey: taskKeys.all(workspaceId) }),
         qc.invalidateQueries({
           queryKey: workspaceKeys.agents(workspaceId),
         }),
       ]);
-      // Issues created — switch the Modal to its success state. We
+      // Tasks created — switch the Modal to its success state. We
       // navigate only when the user explicitly clicks Got it (handled in
       // handleGotIt below) so they see the inbox / chat hint.
       submitInFlightRef.current = false;
       setSubmitting(false);
-      setSuccessIssueId(issues[0]!.id);
+      setSuccessTaskId(tasks[0]!.id);
     } catch (err) {
       submitInFlightRef.current = false;
       setSubmitting(false);
@@ -508,13 +508,13 @@ function RuntimeWelcome({
   };
 
   const handleGotIt = async () => {
-    if (!successIssueId) return;
+    if (!successTaskId) return;
     onComplete();
     const slug = await resolveWorkspaceSlug(qc, workspaceId);
-    navigation.push(paths.workspace(slug).issueDetail(successIssueId));
+    navigation.push(paths.workspace(slug).taskDetail(successTaskId));
   };
 
-  if (successIssueId) {
+  if (successTaskId) {
     return (
       <Dialog
         open={true}
@@ -689,7 +689,7 @@ function RuntimeWelcome({
 // ---------------------------------------------------------------------------
 
 interface SkipBundle {
-  installIssueId: string;
+  installTaskId: string;
   agentGuideId: string;
 }
 
@@ -702,17 +702,17 @@ interface SkipWelcomeProps {
  * Skip-path welcome. v3 product decision (see /Users/qingnaiyuan/.claude/plans):
  *
  *   1. Full-screen loading veil while we provision EVERYTHING in a fixed
- *      sequence — install-runtime issue → create-agent-guide issue →
- *      follow-up comment on the install-runtime issue linking to the
+ *      sequence — install-runtime task → create-agent-guide task →
+ *      follow-up comment on the install-runtime task linking to the
  *      create-agent-guide identifier.
  *   2. Only after the whole chain succeeds do we mount the celebration
  *      Modal. Cards inside the Modal are pure display — no interactive
  *      per-card state, no spinners, no error boundaries.
  *   3. If ANY step fails we silently dismiss; the user lands on the
- *      issues list and finds whatever subset of issues did get created.
+ *      tasks list and finds whatever subset of tasks did get created.
  *      Onboarded_at is already set by Step 3, so this isn't blocking.
  *   4. The Modal has a single primary action [Got it] which dismisses and
- *      navigates to the install-runtime issue. Closing via X or outside
+ *      navigates to the install-runtime task. Closing via X or outside
  *      click dismisses but doesn't navigate.
  *
  * Why provision-then-show instead of show-with-loading: the previous
@@ -734,7 +734,7 @@ function SkipWelcome({ workspaceId, onDismiss }: SkipWelcomeProps) {
   const [failed, setFailed] = useState(false);
 
   // Provision sequence — runs once on mount. StrictMode double-mount is
-  // safe because each step uses module-level dedup (seedIssueDeduped /
+  // safe because each step uses module-level dedup (seedTaskDeduped /
   // postCommentDeduped) keyed on `${workspaceId}:<purpose>`.
   useEffect(() => {
     if (!me) return;
@@ -744,19 +744,19 @@ function SkipWelcome({ workspaceId, onDismiss }: SkipWelcomeProps) {
       try {
         const lang = pickContentLang(i18n.language);
         // Order matters — each step's input depends on the previous step's
-        // output (issue identifier / uuid for cross-reference mention
-        // chips). Module-level dedupes (seedIssueDeduped /
+        // output (task identifier / uuid for cross-reference mention
+        // chips). Module-level dedupes (seedTaskDeduped /
         // postCommentDeduped) make StrictMode double-mounts share the same
         // in-flight promise per step.
         //
         // 1. install-runtime first (body is a static const, no deps).
         //    Step 1 of the bundle, in_progress so the user sees it's the
         //    active next step.
-        const installRuntime = await seedIssueDeduped(
+        const installRuntime = await seedTaskDeduped(
           `${workspaceId}:install-runtime`,
           {
-            title: INSTALL_RUNTIME_ISSUE_TITLE[lang],
-            description: INSTALL_RUNTIME_ISSUE_BODY[lang],
+            title: INSTALL_RUNTIME_TASK_TITLE[lang],
+            description: INSTALL_RUNTIME_TASK_BODY[lang],
             status: "in_progress",
             priority: "high",
             assignee_type: "member",
@@ -767,10 +767,10 @@ function SkipWelcome({ workspaceId, onDismiss }: SkipWelcomeProps) {
         //    a mention chip pointing back at install-runtime — the user
         //    reads agent-guide and can jump to its prerequisite with one
         //    click.
-        const agentGuide = await seedIssueDeduped(
+        const agentGuide = await seedTaskDeduped(
           `${workspaceId}:create-agent-guide`,
           {
-            title: CREATE_AGENT_GUIDE_ISSUE_TITLE[lang],
+            title: CREATE_AGENT_GUIDE_TASK_TITLE[lang],
             description: getCreateAgentGuideBody({
               lang,
               installRuntimeIdentifier: installRuntime.identifier,
@@ -784,21 +784,21 @@ function SkipWelcome({ workspaceId, onDismiss }: SkipWelcomeProps) {
         );
         // 3. follow-up comment on install-runtime pointing at agent-guide
         //    via the same mention-chip protocol (renders as the styled
-        //    IssueChip pill). Prefix is a TS const — anything that gets
+        //    TaskChip pill). Prefix is a TS const — anything that gets
         //    persisted to DB must not depend on the i18n bundle (stale
         //    bundle would write raw key text into comment.content
         //    permanently).
         const prefix = FOLLOWUP_COMMENT_PREFIX[lang];
-        const commentText = `${prefix} [${agentGuide.identifier}](mention://issue/${agentGuide.id})`;
+        const commentText = `${prefix} [${agentGuide.identifier}](mention://task/${agentGuide.id})`;
         await postCommentDeduped(
           `${workspaceId}:install-runtime-followup`,
           installRuntime.id,
           commentText,
         );
-        qc.invalidateQueries({ queryKey: issueKeys.all(workspaceId) });
+        qc.invalidateQueries({ queryKey: taskKeys.all(workspaceId) });
         if (!cancelled) {
           setBundle({
-            installIssueId: installRuntime.id,
+            installTaskId: installRuntime.id,
             agentGuideId: agentGuide.id,
           });
         }
@@ -813,7 +813,7 @@ function SkipWelcome({ workspaceId, onDismiss }: SkipWelcomeProps) {
 
   // Failure path: dismiss the welcome signal so the next render returns
   // null. We don't surface an error UI — the user is already onboarded;
-  // anything that did get created is visible in the issues list.
+  // anything that did get created is visible in the tasks list.
   useEffect(() => {
     if (failed) onDismiss();
   }, [failed, onDismiss]);
@@ -833,7 +833,7 @@ function SkipWelcome({ workspaceId, onDismiss }: SkipWelcomeProps) {
     // the Modal from the (still-set) welcome-store signal.
     onDismiss();
     const slug = await resolveWorkspaceSlug(qc, workspaceId);
-    navigation.push(paths.workspace(slug).issueDetail(bundle.installIssueId));
+    navigation.push(paths.workspace(slug).taskDetail(bundle.installTaskId));
   };
 
   return (

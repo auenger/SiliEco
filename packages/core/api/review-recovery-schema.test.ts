@@ -9,7 +9,7 @@ it("fails closed on malformed review identity and missing fields",()=>{
 });
 it("requires an explicit bounded recovery result",()=>{
  expect(WorkflowAgentReviewRecoverySchema.safeParse({}).success).toBe(false);
- const result={recovery_id:id,instance_id:id,execution_id:id,request_id:id,failed_task_id:id,task_id:id,allowed_attempts:3,max_attempts:6};
+ const result={recovery_id:id,instance_id:id,execution_id:id,request_id:id,failed_run_id:id,run_id:id,allowed_attempts:3,max_attempts:6};
  expect(WorkflowAgentReviewRecoverySchema.safeParse(result).success).toBe(true);
  expect(WorkflowAgentReviewRecoverySchema.safeParse({...result,allowed_attempts:10}).success).toBe(false);
 });

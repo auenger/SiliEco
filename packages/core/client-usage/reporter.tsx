@@ -7,7 +7,7 @@ import type { StorageAdapter } from "../types/storage";
 import type { ClientIdentity } from "../platform/types";
 import { getOrCreateInstallId } from "./install-id";
 
-const LAST_REPORTED_PREFIX = "silieco_client_usage_last_reported";
+const LAST_REPORTED_PREFIX = "silieco_tr1_client_usage_last_reported";
 
 export function utcDay(date = new Date()): string {
   return date.toISOString().slice(0, 10);

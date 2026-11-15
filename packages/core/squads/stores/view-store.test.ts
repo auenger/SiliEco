@@ -49,7 +49,7 @@ describe("useSquadsViewStore", () => {
     await flush();
     useSquadsViewStore.getState().setScope("all");
 
-    const raw = localStorage.getItem("silieco_squads_view:acme");
+    const raw = localStorage.getItem("silieco_tr1_squads_view:acme");
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw as string);
     expect(Object.keys(parsed.state).sort()).toEqual([
@@ -64,11 +64,11 @@ describe("useSquadsViewStore", () => {
 
   it("rehydrates a different saved scope on workspace switch", async () => {
     localStorage.setItem(
-      "silieco_squads_view:acme",
+      "silieco_tr1_squads_view:acme",
       JSON.stringify({ state: { scope: "all" }, version: 0 }),
     );
     localStorage.setItem(
-      "silieco_squads_view:beta",
+      "silieco_tr1_squads_view:beta",
       JSON.stringify({ state: { scope: "mine" }, version: 0 }),
     );
 
@@ -85,7 +85,7 @@ describe("useSquadsViewStore", () => {
 
   it("resets to 'mine' when switching to a workspace with no persisted value", async () => {
     localStorage.setItem(
-      "silieco_squads_view:acme",
+      "silieco_tr1_squads_view:acme",
       JSON.stringify({ state: { scope: "all" }, version: 0 }),
     );
 
@@ -98,6 +98,6 @@ describe("useSquadsViewStore", () => {
     await flush();
     await flush();
     expect(useSquadsViewStore.getState().scope).toBe("mine");
-    expect(localStorage.getItem("silieco_squads_view:acme")).not.toBeNull();
+    expect(localStorage.getItem("silieco_tr1_squads_view:acme")).not.toBeNull();
   });
 });

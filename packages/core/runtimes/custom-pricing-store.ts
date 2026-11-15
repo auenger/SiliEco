@@ -43,7 +43,7 @@ export const useCustomPricingStore = create<CustomPricingState>()(
         }),
     }),
     {
-      name: "silieco_runtime_custom_pricing",
+      name: "silieco_tr1_runtime_custom_pricing",
       storage: createJSONStorage(() => stateStorage),
     },
   ),

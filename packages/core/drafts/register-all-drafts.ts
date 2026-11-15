@@ -14,8 +14,8 @@
  * only exist once that instance does, and registration is tied to the same
  * lifecycle. There is nothing to import here that would register them earlier.
  */
-import "../issues/stores/draft-store";
-import "../issues/stores/quick-create-store";
-import "../issues/stores/comment-draft-store";
+import "../tasks/stores/draft-store";
+import "../tasks/stores/quick-create-store";
+import "../tasks/stores/comment-draft-store";
 import "../projects/draft-store";
 import "../feedback/draft-store";

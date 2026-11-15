@@ -19,7 +19,7 @@ import (
 // This is the single source of truth shared by:
 //   - service.shouldSkipDispatch (autopilot admission gate)
 //   - service.dispatchRunOnly    (squad-leader runtime check, SILI-2429)
-//   - handler.isSquadLeaderReady (issue-assign / comment-trigger path)
+//   - handler.isSquadLeaderReady (task-assign / comment-trigger path)
 //
 // Keeping these aligned matters because the three paths can otherwise drift
 // — e.g. one starts allowing "starting" runtimes while another doesn't, and

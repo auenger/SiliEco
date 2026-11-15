@@ -29,7 +29,7 @@ describe("revision conflicts", () => {
     const retry = vi.fn(async () => undefined);
     const refresh = vi.fn(async () => undefined);
     useRevisionConflictStore.getState().open({
-      kind: "issue",
+      kind: "task",
       current: { description: "server" },
       attempted: { description: "mine" },
       retry,

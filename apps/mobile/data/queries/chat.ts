@@ -4,8 +4,8 @@
  * Keys:
  *   - sessions(wsId)        → ChatSession[] for the workspace dropdown / sheet
  *   - messages(sessionId)   → ChatMessage[] for the active session
- *   - pendingTask(sessionId)→ ChatPendingTask, populated when an agent task is
- *                             in flight; cleared on chat:done / task:cancelled
+ *   - pendingRun(sessionId)→ ChatPendingRun, populated when an agent run is
+ *                             in flight; cleared on chat:done / run:cancelled
  *
  * Same shape as web's `chatKeys` in packages/core/chat/queries.ts (mobile
  * owns its own copy per the "mirror, don't import" rule in apps/mobile/CLAUDE.md).
@@ -23,29 +23,29 @@ export const chatKeys = {
   sessions: (wsId: string | null) =>
     [...chatKeys.all(wsId), "sessions"] as const,
   messages: (sessionId: string) => ["chat", "messages", sessionId] as const,
-  pendingTask: (sessionId: string) =>
-    ["chat", "pending-task", sessionId] as const,
-  /** Per-task live execution timeline (thinking / tool_use / tool_result /
+  pendingRun: (sessionId: string) =>
+    ["chat", "pending-run", sessionId] as const,
+  /** Per-run live execution timeline (thinking / tool_use / tool_result /
    *  text / error rows). Cache is workspace-agnostic — keyed only on
-   *  `taskId` — matching web's `chatKeys.taskMessages` shape so future
-   *  cross-feature consumers (issue agent cards) can share the cache.
-   *  `task:message` WS events append rows in place; once the task
+   *  `runId` — matching web's `chatKeys.runMessages` shape so future
+   *  cross-feature consumers (task agent cards) can share the cache.
+   *  `run:message` WS events append rows in place; once the run
    *  completes the cache stays warm so the persisted assistant message
    *  can render the same trace without refetching. */
-  taskMessages: (taskId: string) => ["task-messages", taskId] as const,
+  runMessages: (runId: string) => ["run-messages", runId] as const,
 };
 
-// UUID gate mirrors `packages/core/chat/queries.ts`: optimistic task ids
+// UUID gate mirrors `packages/core/chat/queries.ts`: optimistic run ids
 // (`optimistic-…`) are not real backend rows, so the query must be
 // disabled until we have a server-issued UUID. Returning the cache for
 // an optimistic id would 404 the API.
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function isTaskMessageTaskId(
-  taskId: string | null | undefined,
-): taskId is string {
-  return typeof taskId === "string" && UUID_PATTERN.test(taskId);
+export function isRunMessageRunId(
+  runId: string | null | undefined,
+): runId is string {
+  return typeof runId === "string" && UUID_PATTERN.test(runId);
 }
 
 export const chatSessionsOptions = (wsId: string | null) =>
@@ -64,18 +64,18 @@ export const chatMessagesOptions = (sessionId: string | null) =>
     staleTime: Infinity,
   });
 
-export const pendingChatTaskOptions = (sessionId: string | null) =>
+export const pendingChatRunOptions = (sessionId: string | null) =>
   queryOptions({
-    queryKey: chatKeys.pendingTask(sessionId ?? ""),
-    queryFn: ({ signal }) => api.getPendingChatTask(sessionId!, { signal }),
+    queryKey: chatKeys.pendingRun(sessionId ?? ""),
+    queryFn: ({ signal }) => api.getPendingChatRun(sessionId!, { signal }),
     enabled: !!sessionId,
     staleTime: Infinity,
   });
 
-export const taskMessagesOptions = (taskId: string | null | undefined) =>
+export const runMessagesOptions = (runId: string | null | undefined) =>
   queryOptions({
-    queryKey: chatKeys.taskMessages(taskId ?? ""),
-    queryFn: ({ signal }) => api.listTaskMessages(taskId!, { signal }),
-    enabled: isTaskMessageTaskId(taskId),
+    queryKey: chatKeys.runMessages(runId ?? ""),
+    queryFn: ({ signal }) => api.listAgentRunMessages(runId!, { signal }),
+    enabled: isRunMessageRunId(runId),
     staleTime: Infinity,
   });

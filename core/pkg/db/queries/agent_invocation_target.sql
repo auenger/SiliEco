@@ -51,5 +51,5 @@ WHERE ait.agent_id = a.id
 -- rows they belonged to. Mirrors the agent hard-delete predicate exactly.
 DELETE FROM agent_invocation_target
 WHERE agent_id IN (
-    SELECT id FROM agent WHERE runtime_id = $1 AND archived_at IS NOT NULL
+    SELECT id FROM agent WHERE agent.runtime_id = $1 AND archived_at IS NOT NULL
 );

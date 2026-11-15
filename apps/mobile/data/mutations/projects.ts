@@ -1,6 +1,6 @@
 /**
  * Project mutations. Mirrors the optimistic-patch + event-always-wins pattern
- * of `useUpdateIssue` (data/mutations/issues.ts:276): apply the patch to
+ * of `useUpdateTask` (data/mutations/tasks.ts:276): apply the patch to
  * both list and detail caches up-front, server response or WS event later
  * overwrites with authoritative state.
  *

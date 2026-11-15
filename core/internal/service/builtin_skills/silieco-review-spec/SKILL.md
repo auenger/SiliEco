@@ -23,4 +23,4 @@ Produce `spec-review.md` with:
 - non-blocking notes kept short;
 - a Gate recommendation.
 
-Any unresolved issue that changes scope, data safety, permissions, or acceptance means `block`. Post the report to the current Task. Do not approve the human Gate, advance the SOP, or silently rewrite product decisions.
+Any unresolved task that changes scope, data safety, permissions, or acceptance means `block`. Post the report to the current Task. Do not approve the human Gate, advance the SOP, or silently rewrite product decisions.

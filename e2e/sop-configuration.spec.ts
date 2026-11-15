@@ -9,8 +9,8 @@ test("SOP contract configuration keeps drafts local and publishes the selected e
     const token = api.getToken();
     if (!token) throw new Error("Test login did not return a token");
     await page.addInitScript((token) => {
-      localStorage.setItem("silieco_token", token);
-      localStorage.setItem("silieco:chat:isOpen", "false");
+      localStorage.setItem("silieco_tr1_token", token);
+      localStorage.setItem("silieco:tr1:chat:isOpen", "false");
     }, token);
     await page.goto(`/${slug}/workflows`, {waitUntil: "domcontentloaded"});
     await page.getByRole("button", {name: /空白 SOP/}).click();

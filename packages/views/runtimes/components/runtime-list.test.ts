@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Agent, AgentTask } from "@silieco/core/types";
+import type { Agent, AgentRun } from "@silieco/core/types";
 import { buildWorkloadIndex } from "./runtime-list";
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
@@ -18,7 +18,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     permission_mode: "private",
     invocation_targets: [],
     status: "idle",
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     model: "gpt-5.4",
     owner_id: "user-1",
     skills: [],
@@ -30,11 +30,11 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
   };
 }
 
-function makeTask(overrides: Partial<AgentTask> = {}): AgentTask {
+function makeTask(overrides: Partial<AgentRun> = {}): AgentRun {
   return {
     id: "task-1",
     agent_id: "agent-1",
-    issue_id: "issue-1",
+    task_id: "task-1",
     status: "running",
     priority: 1,
     dispatched_at: null,

@@ -1,6 +1,6 @@
 ---
 name: silieco-mentioning
-description: "Use when an issue comment needs to @mention someone — link to a person, trigger another agent, hand work to a squad, or broadcast with @all. Documents the verified mention contract: how a mention link is built from a real UUID, the four mention types and exactly what each one enqueues (agent → a run for that agent, squad → a run for the squad leader, member and issue → a rendered link with NO run), comment create/edit preview and suppression, the @all broadcast and how it suppresses the assignee's auto-trigger, and the silent no-op cases (a name where a UUID belongs, a bad/unknown UUID, an already-pending task, an archived agent, a private agent you cannot access). WHETHER to mention — loop avoidance, staying silent on acknowledgements — lives in the runtime brief's Mentions section, not here. This skill is the backend contract only, traced to core/internal/util/mention.go and core/internal/handler/comment.go."
+description: "Use when a task comment needs to @mention someone — link to a person, trigger another agent, hand work to a squad, or broadcast with @all. Documents the verified mention contract: how a mention link is built from a real UUID, the four mention types and exactly what each one enqueues (agent → a run for that agent, squad → a run for the squad leader, member and task → a rendered link with NO run), comment create/edit preview and suppression, the @all broadcast and how it suppresses the assignee's auto-trigger, and the silent no-op cases (a name where a UUID belongs, a bad/unknown UUID, an already-pending task, an archived agent, a private agent you cannot access). WHETHER to mention — loop avoidance, staying silent on acknowledgements — lives in the runtime brief's Mentions section, not here. This skill is the backend contract only, traced to core/internal/util/mention.go and core/internal/handler/comment.go."
 user-invocable: false
 allowed-tools: Bash(silieco *)
 ---
@@ -26,7 +26,7 @@ The parser (`util.MentionRe` in `core/internal/util/mention.go`) accepts
 exactly four `<type>` values plus the `all` sentinel, and the `<id>` group
 accepts only hex characters and dashes, OR the literal string `all`:
 
-    (member|agent|squad|issue|all)/([0-9a-fA-F-]+|all)
+    (member|agent|squad|task|all)/([0-9a-fA-F-]+|all)
 
 So the link target is a real entity UUID (or `all`), never a display name. The
 label between the brackets is free text — that is where the human-readable name
@@ -52,10 +52,10 @@ match, or the link resolves to the wrong entity (or to nothing).
 
 | To…                  | type     | uuid from       | What the backend does                                    |
 | -------------------- | -------- | --------------- | -------------------------------------------------------- |
-| trigger an agent     | `agent`  | agent.id        | enqueues a run for that agent (`EnqueueTaskForMention`)  |
+| trigger an agent     | `agent`  | agent.id        | enqueues a run for that agent (`EnqueueRunForMention`)  |
 | hand work to a squad | `squad`  | squad.id        | resolves the squad's `leader_id` and enqueues a run for the LEADER agent |
 | link a person        | `member` | member.user_id  | renders a link; enqueues NOTHING — no agent run          |
-| reference an issue   | `issue`  | issue.id        | renders a link; enqueues NOTHING — always safe           |
+| reference a task   | `task`  | task.id        | renders a link; enqueues NOTHING — always safe           |
 
 The mention trigger set is computed by `computeMentionedAgentCommentTriggers`
 (`core/internal/handler/comment.go`); the comment path folds that result into
@@ -63,7 +63,7 @@ The mention trigger set is computed by `computeMentionedAgentCommentTriggers`
 It acts on two types only: the `squad` branch resolves the squad and adds its
 leader to the trigger set; everything that is not `agent` after that is skipped
 (`if m.Type != "agent" { continue }`), then the `agent` branch adds that agent.
-A `member` or `issue` mention reaches neither branch, so it enqueues no task.
+A `member` or `task` mention reaches neither branch, so it enqueues no task.
 
 A `member` mention therefore does NOT make a person "run", and this skill does
 NOT claim it delivers a notification through the Go comment handler — there is
@@ -72,17 +72,17 @@ contract above: only `agent` and `squad` mentions enqueue work.
 
 ## Preview and per-comment suppression
 
-Newer clients can call `POST /api/issues/{id}/comments/trigger-preview` before
+Newer clients can call `POST /api/tasks/{id}/comments/trigger-preview` before
 creating or editing a comment. The preview endpoint uses the same
 `computeCommentAgentTriggers` function as create and edit re-triggering, so the
 displayed agent chips come from backend rules, not from a client-side
 reimplementation.
 
 When previewing an edit, clients may send `editing_comment_id`. The server
-validates that the comment belongs to the same workspace and issue, derives or
+validates that the comment belongs to the same workspace and task, derives or
 checks the edit's parent comment context, and excludes only pending tasks whose
 `trigger_comment_id` is that same comment. Pending tasks from any other comment
-on the issue still dedupe the preview.
+on the task still dedupe the preview.
 
 When creating or editing a comment, clients may send an optional
 `suppress_agent_ids` array. The server still computes the full trigger set
@@ -96,9 +96,9 @@ is a no-op; a malformed UUID is rejected at the request boundary.
 
     [@all](mention://all/all)
 
-It addresses everyone on the issue. It does NOT make any specific agent run.
+It addresses everyone on the task. It does NOT make any specific agent run.
 And it is special at trigger time: a comment that carries an `@all` mention is
-treated as a broadcast that SUPPRESSES the issue assignee's automatic
+treated as a broadcast that SUPPRESSES the task assignee's automatic
 on-comment trigger (and the other implicit routing fallbacks — thread parent /
 conversation owner). Use `@all` to announce, not to request work from the
 assignee.
@@ -126,8 +126,8 @@ These are all silent no-ops — no error, no run:
   the id parser itself and reported as a blocked mention with the same
   enumeration-safe reason code — never an error response.
 - **An already-pending task.** Even a correct `@agent`/`@squad` is skipped when
-  the target already has a pending task on this issue
-  (`HasPendingTaskForIssueAndAgent` → `continue`). Edit preview is the only
+  the target already has a pending task on this task
+  (`HasPendingRunForTaskAndAgent` → `continue`). Edit preview is the only
   exception: `editing_comment_id` ignores pending tasks from the same comment
   being edited, because save cancels those old tasks before it re-computes
   triggers. It is still comment-scoped, not an agent-wide bypass.
@@ -140,25 +140,25 @@ These are all silent no-ops — no error, no run:
 
 One nuance for automation (SILI-4857): when an UNATTRIBUTED autopilot run (a
 schedule/webhook dispatch has no human originator, so the A2A gate has no human
-to key on) delegates by `@mention` while working on the issue that autopilot
+to key on) delegates by `@mention` while working on the task that autopilot
 created, the invoke gate falls back to the **autopilot creator** as the effective
 invoking user — the same principal that admitted the first dispatch. So a mid-run
 `@agent` / `@squad` delegation fires exactly when the autopilot creator could
 invoke that target (owner / `public_to` match), and stays skipped otherwise. It
 is authorization only — the enqueued run's originator/attribution is unchanged.
 This fallback is bound to verified task lineage: it applies only when the
-delegating run's own task is the one working on that autopilot issue (author ==
-task agent, `task.issue_id` == this issue), so a run doing work elsewhere can
-never borrow another autopilot creator's authority by commenting on its issue.
+delegating run's own task is the one working on that autopilot task (author ==
+task agent, `task.task_id` == this task), so a run doing work elsewhere can
+never borrow another autopilot creator's authority by commenting on its task.
 The same authority carries the plain assigned-squad-leader wake (a worker's
-result comment on the autopilot issue can still wake the leader), and it survives
+result comment on the autopilot task can still wake the leader), and it survives
 a busy target: if the mentioned agent is already running, the delegation is
 replayed at that run's completion under the same authority, so it is never lost.
 An edit is treated as a fresh action — it re-derives the comment's lineage from
 the editing action. Only the agent author editing its OWN comment re-stamps the
 lineage to the editing task; any other editor — including a workspace owner/admin
 editing an agent's comment — CLEARS it. So editing an old autopilot comment from
-an unrelated issue, or an admin editing an agent's comment (manage rights, not
+an unrelated task, or an admin editing an agent's comment (manage rights, not
 invoke rights), fails closed at the deferred completion-reconcile instead of
 reusing the original run's authority.
 

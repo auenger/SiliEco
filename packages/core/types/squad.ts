@@ -37,7 +37,7 @@ export interface SquadMember {
 export interface SquadActivityLog {
   id: string;
   squad_id: string;
-  issue_id: string;
+  task_id: string;
   trigger_comment_id: string | null;
   leader_id: string;
   outcome: SquadActivityOutcome;
@@ -79,7 +79,7 @@ export interface UpdateSquadMemberRoleRequest {
 
 export interface CreateSquadActivityLogRequest {
   squad_id: string;
-  issue_id: string;
+  task_id: string;
   trigger_comment_id?: string;
   outcome: SquadActivityOutcome;
   details?: unknown;
@@ -97,11 +97,11 @@ export type SquadMemberStatusValue =
   | "unstable"
   | "archived";
 
-export interface SquadActiveIssueBrief {
-  issue_id: string;
+export interface SquadActiveTaskBrief {
+  task_id: string;
   identifier: string;
   title: string;
-  issue_status: string;
+  task_status: string;
 }
 
 export interface SquadMemberStatus {
@@ -111,7 +111,7 @@ export interface SquadMemberStatus {
   // them in the same list without showing a status pill (v1 has no
   // presence signal for humans).
   status: SquadMemberStatusValue | null;
-  active_issues: SquadActiveIssueBrief[];
+  active_tasks: SquadActiveTaskBrief[];
   last_active_at: string | null;
 }
 

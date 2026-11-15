@@ -119,7 +119,7 @@ FLAGS
 {{.LocalFlags.FlagUsages}}
 EXAMPLES
   $ silieco login
-  $ silieco issue list --output json
+  $ silieco task list --output json
   $ silieco daemon start
   $ silieco agent list --output json
 

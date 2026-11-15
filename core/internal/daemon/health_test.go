@@ -16,7 +16,7 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/daemon/repocache"
 )
 
-func TestHealthHandlerReportsCLIVersionAndActiveTaskCount(t *testing.T) {
+func TestHealthHandlerReportsCLIVersionAndActiveRunCount(t *testing.T) {
 	t.Parallel()
 
 	d := &Daemon{
@@ -29,7 +29,7 @@ func TestHealthHandlerReportsCLIVersionAndActiveTaskCount(t *testing.T) {
 		workspaces: map[string]*workspaceState{},
 		logger:     slog.Default(),
 	}
-	d.activeTasks.Store(3)
+	d.activeRuns.Store(3)
 	d.ready.Store(true) // preflight done -> status should be "running"
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -42,7 +42,7 @@ func TestHealthHandlerReportsCLIVersionAndActiveTaskCount(t *testing.T) {
 
 	// Decode into a raw map so the test locks in the exact wire-level JSON
 	// keys — the desktop TS client depends on snake_case (cli_version,
-	// active_task_count), so a silent struct-tag rename must fail here.
+	// active_run_count), so a silent struct-tag rename must fail here.
 	var raw map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode raw response: %v", err)
@@ -51,8 +51,8 @@ func TestHealthHandlerReportsCLIVersionAndActiveTaskCount(t *testing.T) {
 		t.Errorf("cli_version key: got %v, want %q", got, want)
 	}
 	// JSON numbers decode to float64 through map[string]any.
-	if got, want := raw["active_task_count"], float64(3); got != want {
-		t.Errorf("active_task_count key: got %v, want %v", got, want)
+	if got, want := raw["active_run_count"], float64(3); got != want {
+		t.Errorf("active_run_count key: got %v, want %v", got, want)
 	}
 	if got, want := raw["status"], "running"; got != want {
 		t.Errorf("status key: got %v, want %q", got, want)
@@ -73,8 +73,8 @@ func TestHealthHandlerReportsCLIVersionAndActiveTaskCount(t *testing.T) {
 	if resp.CLIVersion != "v9.9.9" {
 		t.Errorf("CLIVersion: got %q, want %q", resp.CLIVersion, "v9.9.9")
 	}
-	if resp.ActiveTaskCount != 3 {
-		t.Errorf("ActiveTaskCount: got %d, want 3", resp.ActiveTaskCount)
+	if resp.ActiveRunCount != 3 {
+		t.Errorf("ActiveTaskCount: got %d, want 3", resp.ActiveRunCount)
 	}
 }
 
@@ -114,7 +114,7 @@ func TestHealthHandlerReportsStartingUntilReady(t *testing.T) {
 	}
 }
 
-func TestHealthHandlerActiveTaskCountTracksCounter(t *testing.T) {
+func TestHealthHandlerActiveRunCountTracksCounter(t *testing.T) {
 	t.Parallel()
 
 	d := &Daemon{
@@ -125,15 +125,15 @@ func TestHealthHandlerActiveTaskCountTracksCounter(t *testing.T) {
 	handler := d.healthHandler(time.Now())
 
 	// Simulate the pollLoop increment/decrement protocol.
-	d.activeTasks.Add(1)
-	d.activeTasks.Add(1)
-	assertActiveTaskCount(t, handler, 2)
+	d.activeRuns.Add(1)
+	d.activeRuns.Add(1)
+	assertActiveRunCount(t, handler, 2)
 
-	d.activeTasks.Add(-1)
-	assertActiveTaskCount(t, handler, 1)
+	d.activeRuns.Add(-1)
+	assertActiveRunCount(t, handler, 1)
 
-	d.activeTasks.Add(-1)
-	assertActiveTaskCount(t, handler, 0)
+	d.activeRuns.Add(-1)
+	assertActiveRunCount(t, handler, 0)
 }
 
 func TestShutdownHandlerPostCancelsDaemonContext(t *testing.T) {
@@ -179,7 +179,7 @@ func TestShutdownHandlerRejectsNonPost(t *testing.T) {
 	}
 }
 
-func TestHealthHandlerRespondsWhileTaskRepoLookupWaits(t *testing.T) {
+func TestHealthHandlerRespondsWhileRunRepoLookupWaits(t *testing.T) {
 	const workspaceID = "ws-health"
 	const repoURL = "https://github.com/org/repo.git"
 	cache := newBlockingLookupRepoCache("/cache/org/repo.git")
@@ -190,7 +190,7 @@ func TestHealthHandlerRespondsWhileTaskRepoLookupWaits(t *testing.T) {
 				workspaceID:     workspaceID,
 				runtimeIDs:      []string{"rt-1"},
 				allowedRepoURLs: map[string]struct{}{repoURL: {}},
-				taskRepoURLs:    map[string]struct{}{},
+				runRepoURLs:     map[string]struct{}{},
 			},
 		},
 		repoCache: cache,
@@ -200,7 +200,7 @@ func TestHealthHandlerRespondsWhileTaskRepoLookupWaits(t *testing.T) {
 
 	registerDone := make(chan struct{})
 	go func() {
-		d.registerTaskRepos(workspaceID, "task-health", []RepoData{{URL: repoURL}})
+		d.registerRunRepos(workspaceID, "task-health", []RepoData{{URL: repoURL}})
 		close(registerDone)
 	}()
 	cache.waitForLookup(t)
@@ -229,7 +229,7 @@ func TestHealthHandlerRespondsWhileTaskRepoLookupWaits(t *testing.T) {
 	}
 }
 
-func TestRepoCheckoutUsesTaskScopedProjectRefByDefault(t *testing.T) {
+func TestRepoCheckoutUsesRunScopedProjectRefByDefault(t *testing.T) {
 	t.Parallel()
 
 	const workspaceID = "ws-checkout"
@@ -237,10 +237,10 @@ func TestRepoCheckoutUsesTaskScopedProjectRefByDefault(t *testing.T) {
 	cache := &recordingRepoCache{lookupPath: "/cache/org/repo.git"}
 	workDir := t.TempDir()
 	d := newRepoCheckoutTestDaemon(t, workspaceID, repoURL, workDir, cache)
-	d.registerTaskRepos(workspaceID, "task-1", []RepoData{{URL: repoURL, Ref: "release/v2"}})
+	d.registerRunRepos(workspaceID, "task-1", []RepoData{{URL: repoURL, Ref: "release/v2"}})
 
 	rec := httptest.NewRecorder()
-	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","agent_name":"Other Agent","task_id":"task-1"}`)
+	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","agent_name":"Other Agent","run_id":"task-1"}`)
 	d.repoCheckoutHandler().ServeHTTP(rec, authorizedRepoCheckoutRequest(body))
 
 	if rec.Code != http.StatusOK {
@@ -254,7 +254,7 @@ func TestRepoCheckoutUsesTaskScopedProjectRefByDefault(t *testing.T) {
 	}
 }
 
-func TestRepoCheckoutRejectsMissingTaskCredential(t *testing.T) {
+func TestRepoCheckoutRejectsMissingRunCredential(t *testing.T) {
 	t.Parallel()
 
 	const workspaceID = "ws-checkout"
@@ -264,7 +264,7 @@ func TestRepoCheckoutRejectsMissingTaskCredential(t *testing.T) {
 	d := newRepoCheckoutTestDaemon(t, workspaceID, repoURL, workDir, cache)
 
 	rec := httptest.NewRecorder()
-	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","task_id":"task-1"}`)
+	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","run_id":"task-1"}`)
 	d.repoCheckoutHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/repo/checkout", body))
 
 	if rec.Code != http.StatusUnauthorized {
@@ -275,7 +275,7 @@ func TestRepoCheckoutRejectsMissingTaskCredential(t *testing.T) {
 	}
 }
 
-func TestRepoCheckoutRejectsAnotherTaskWorkdir(t *testing.T) {
+func TestRepoCheckoutRejectsAnotherRunWorkdir(t *testing.T) {
 	t.Parallel()
 
 	const workspaceID = "ws-checkout"
@@ -286,7 +286,7 @@ func TestRepoCheckoutRejectsAnotherTaskWorkdir(t *testing.T) {
 	otherWorkDir := t.TempDir()
 
 	rec := httptest.NewRecorder()
-	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + otherWorkDir + `","task_id":"task-1"}`)
+	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + otherWorkDir + `","run_id":"task-1"}`)
 	d.repoCheckoutHandler().ServeHTTP(rec, authorizedRepoCheckoutRequest(body))
 
 	if rec.Code != http.StatusForbidden {
@@ -305,10 +305,10 @@ func TestRepoCheckoutExplicitRefOverridesProjectDefault(t *testing.T) {
 	cache := &recordingRepoCache{lookupPath: "/cache/org/repo.git"}
 	workDir := t.TempDir()
 	d := newRepoCheckoutTestDaemon(t, workspaceID, repoURL, workDir, cache)
-	d.registerTaskRepos(workspaceID, "task-1", []RepoData{{URL: repoURL, Ref: "release/v2"}})
+	d.registerRunRepos(workspaceID, "task-1", []RepoData{{URL: repoURL, Ref: "release/v2"}})
 
 	rec := httptest.NewRecorder()
-	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","task_id":"task-1","ref":"hotfix"}`)
+	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","run_id":"task-1","ref":"hotfix"}`)
 	d.repoCheckoutHandler().ServeHTTP(rec, authorizedRepoCheckoutRequest(body))
 
 	if rec.Code != http.StatusOK {
@@ -329,7 +329,7 @@ func TestRepoCheckoutForwardsIsolatedMode(t *testing.T) {
 	d := newRepoCheckoutTestDaemon(t, workspaceID, repoURL, workDir, cache)
 
 	rec := httptest.NewRecorder()
-	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","task_id":"task-1","checkout_mode":"isolated"}`)
+	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","run_id":"task-1","checkout_mode":"isolated"}`)
 	d.repoCheckoutHandler().ServeHTTP(rec, authorizedRepoCheckoutRequest(body))
 
 	if rec.Code != http.StatusOK {
@@ -350,7 +350,7 @@ func TestRepoCheckoutRejectsUnknownMode(t *testing.T) {
 	d := newRepoCheckoutTestDaemon(t, workspaceID, repoURL, workDir, cache)
 
 	rec := httptest.NewRecorder()
-	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","task_id":"task-1","checkout_mode":"unsafe"}`)
+	body := strings.NewReader(`{"url":"` + repoURL + `","workspace_id":"` + workspaceID + `","workdir":"` + workDir + `","run_id":"task-1","checkout_mode":"unsafe"}`)
 	d.repoCheckoutHandler().ServeHTTP(rec, authorizedRepoCheckoutRequest(body))
 
 	if rec.Code != http.StatusBadRequest {
@@ -384,9 +384,9 @@ func newRepoCheckoutTestDaemon(t *testing.T, workspaceID, repoURL, workDir strin
 		},
 		logger: slog.Default(),
 	}
-	d.registerActiveRepoCheckoutTask("mat_repo_checkout_test", activeRepoCheckoutTask{
+	d.registerActiveRepoCheckoutRun("mat_repo_checkout_test", activeRepoCheckoutRun{
 		WorkspaceID: workspaceID,
-		TaskID:      "task-1",
+		RunID:       "task-1",
 		AgentID:     "agent-1",
 		AgentName:   "Test Agent",
 		WorkDir:     workDir,
@@ -486,7 +486,7 @@ func (c *blockingLookupRepoCache) release() {
 	})
 }
 
-func assertActiveTaskCount(t *testing.T, h http.HandlerFunc, want int64) {
+func assertActiveRunCount(t *testing.T, h http.HandlerFunc, want int64) {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
@@ -494,7 +494,7 @@ func assertActiveTaskCount(t *testing.T, h http.HandlerFunc, want int64) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.ActiveTaskCount != want {
-		t.Errorf("active_task_count: got %d, want %d", resp.ActiveTaskCount, want)
+	if resp.ActiveRunCount != want {
+		t.Errorf("active_run_count: got %d, want %d", resp.ActiveRunCount, want)
 	}
 }

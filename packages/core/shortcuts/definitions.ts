@@ -7,14 +7,14 @@ import {
 
 export type ShortcutActionId =
   | "openSearch"
-  | "createIssue"
+  | "createTask"
   | "toggleSidebar"
-  | "findInIssue"
+  | "findInTask"
   | "send"
   | "goInbox"
   | "goChat"
-  | "goMyIssues"
-  | "goIssues"
+  | "goMyTasks"
+  | "goTasks"
   | "goProjects"
   | "goAutopilots"
   | "goAgents"
@@ -73,14 +73,14 @@ const primary = (key: string) =>
 
 export const SHORTCUT_ACTIONS: readonly ShortcutActionDefinition[] = [
   { id: "openSearch", category: "general", defaultShortcut: primary("K"), allowInEditable: true },
-  { id: "createIssue", category: "general", defaultShortcut: createShortcutChord("C"), allowInEditable: false },
+  { id: "createTask", category: "general", defaultShortcut: createShortcutChord("C"), allowInEditable: false },
   { id: "toggleSidebar", category: "general", defaultShortcut: primary("B"), allowInEditable: false },
-  { id: "findInIssue", category: "general", defaultShortcut: primary("F"), allowInEditable: true },
+  { id: "findInTask", category: "general", defaultShortcut: primary("F"), allowInEditable: true },
   { id: "send", category: "general", defaultShortcut: primary("Enter"), allowInEditable: true },
   { id: "goInbox", category: "navigation", defaultShortcut: null, allowInEditable: false },
   { id: "goChat", category: "navigation", defaultShortcut: null, allowInEditable: false },
-  { id: "goMyIssues", category: "navigation", defaultShortcut: null, allowInEditable: false },
-  { id: "goIssues", category: "navigation", defaultShortcut: null, allowInEditable: false },
+  { id: "goMyTasks", category: "navigation", defaultShortcut: null, allowInEditable: false },
+  { id: "goTasks", category: "navigation", defaultShortcut: null, allowInEditable: false },
   { id: "goProjects", category: "navigation", defaultShortcut: null, allowInEditable: false },
   { id: "goAutopilots", category: "navigation", defaultShortcut: null, allowInEditable: false },
   { id: "goAgents", category: "navigation", defaultShortcut: null, allowInEditable: false },

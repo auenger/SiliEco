@@ -19,7 +19,7 @@ import (
 
 // vcsPullRequestToResponse maps a stored VCS PR onto the shared PR response
 // shape for single-PR webhook broadcasts (no aggregated check counts; the
-// frontend re-queries the issue's PR list for fresh counts).
+// frontend re-queries the task's PR list for fresh counts).
 func vcsPullRequestToResponse(p db.VcsPullRequest) GitHubPullRequestResponse {
 	return GitHubPullRequestResponse{
 		ID:               uuidToString(p.ID),
@@ -46,9 +46,9 @@ func vcsPullRequestToResponse(p db.VcsPullRequest) GitHubPullRequestResponse {
 	}
 }
 
-// vcsPullRequestRowToResponse maps an issue's PR-list row, which carries the
+// vcsPullRequestRowToResponse maps an task's PR-list row, which carries the
 // aggregated commit-status counts, onto the shared response shape.
-func vcsPullRequestRowToResponse(p db.ListVCSPullRequestsByIssueRow) GitHubPullRequestResponse {
+func vcsPullRequestRowToResponse(p db.ListVCSPullRequestsByTaskRow) GitHubPullRequestResponse {
 	return GitHubPullRequestResponse{
 		ID:               uuidToString(p.ID),
 		Provider:         p.Provider,
@@ -205,21 +205,21 @@ func (h *Handler) mirrorVCSPullRequest(ctx context.Context, conn db.VcsConnectio
 	workspaceID := uuidToString(conn.WorkspaceID)
 	resp := vcsPullRequestToResponse(pr)
 
-	// Auto-link to issues by identifiers in title/body/branch. Connecting a
+	// Auto-link to tasks by identifiers in title/body/branch. Connecting a
 	// a provider is the opt-in, so there is no separate per-workspace flag. The
-	// issue-side machinery is shared with GitHub.
-	linkedIssueIDs := make([]string, 0)
+	// task-side machinery is shared with GitHub.
+	linkedTaskIDs := make([]string, 0)
 	idents := extractIdentifiers(ev.Title, ev.Body, ev.Branch)
 	closingIdents := map[string]struct{}{}
 	for _, c := range extractClosingIdentifiers(ev.Title, ev.Body) {
 		closingIdents[c] = struct{}{}
 	}
-	// qualifyingIdents genuinely tie this PR to an issue: a title prefix, a
+	// qualifyingIdents genuinely tie this PR to an task: a title prefix, a
 	// branch-name reference, or a body closing keyword. An identifier matched
 	// ONLY by a bare body mention is reference_only — it links (so the PR shows
-	// in history) but is hidden from the issue PR list and excluded from the
+	// in history) but is hidden from the task PR list and excluded from the
 	// close aggregate, so a drive-by "Related SILI-1" neither looks like a
-	// working PR nor blocks a genuine Closes sibling from advancing the issue.
+	// working PR nor blocks a genuine Closes sibling from advancing the task.
 	// Mirrors the GitHub path (SILI-3739); branch is deliberately excluded from
 	// the closing-keyword scan there and here.
 	qualifyingIdents := map[string]struct{}{}
@@ -231,10 +231,10 @@ func (h *Handler) mirrorVCSPullRequest(ctx context.Context, conn db.VcsConnectio
 	}
 	// Freeze close_intent once the terminal merge/close event has arrived.
 	preserveCloseIntent := !ev.Terminal() && (ev.State == "merged" || ev.State == "closed")
-	prefix := h.getIssuePrefix(ctx, conn.WorkspaceID)
-	reevalIssues := make([]db.Issue, 0, len(idents))
+	prefix := h.getTaskPrefix(ctx, conn.WorkspaceID)
+	reevalTasks := make([]db.Task, 0, len(idents))
 	for _, id := range idents {
-		issue, ok := h.lookupIssueByIdentifier(ctx, conn.WorkspaceID, prefix, id)
+		task, ok := h.lookupTaskByIdentifier(ctx, conn.WorkspaceID, prefix, id)
 		if !ok {
 			continue
 		}
@@ -242,8 +242,8 @@ func (h *Handler) mirrorVCSPullRequest(ctx context.Context, conn db.VcsConnectio
 		closeIntent := declared && !preserveCloseIntent
 		_, qualifies := qualifyingIdents[id]
 		referenceOnly := !qualifies
-		if err := h.Queries.LinkIssueToVCSPullRequest(ctx, db.LinkIssueToVCSPullRequestParams{
-			IssueID:             issue.ID,
+		if err := h.Queries.LinkTaskToVCSPullRequest(ctx, db.LinkTaskToVCSPullRequestParams{
+			TaskID:              task.ID,
 			PullRequestID:       pr.ID,
 			CloseIntent:         closeIntent,
 			ReferenceOnly:       referenceOnly,
@@ -254,29 +254,29 @@ func (h *Handler) mirrorVCSPullRequest(ctx context.Context, conn db.VcsConnectio
 			slog.Warn("vcs: link failed", "err", err)
 			continue
 		}
-		linkedIssueIDs = append(linkedIssueIDs, uuidToString(issue.ID))
-		reevalIssues = append(reevalIssues, issue)
+		linkedTaskIDs = append(linkedTaskIDs, uuidToString(task.ID))
+		reevalTasks = append(reevalTasks, task)
 	}
 
 	if ev.State == "merged" || ev.State == "closed" {
-		for _, issue := range reevalIssues {
-			if issue.Status == "done" || issue.Status == "cancelled" {
+		for _, task := range reevalTasks {
+			if task.Status == "done" || task.Status == "cancelled" {
 				continue
 			}
-			counts, err := h.Queries.GetIssueCombinedPullRequestCloseAggregate(ctx, issue.ID)
+			counts, err := h.Queries.GetTaskCombinedPullRequestCloseAggregate(ctx, task.ID)
 			if err != nil {
-				slog.Warn("vcs: count linked pr states failed", "err", err, "issue_id", uuidToString(issue.ID))
+				slog.Warn("vcs: count linked pr states failed", "err", err, "task_id", uuidToString(task.ID))
 				continue
 			}
 			if counts.OpenCount == 0 && counts.MergedWithCloseIntentCount > 0 {
-				h.advanceIssueToDone(ctx, issue, workspaceID)
+				h.advanceTaskToDone(ctx, task, workspaceID)
 			}
 		}
 	}
 
 	h.publish(protocol.EventPullRequestUpdated, workspaceID, "system", "", map[string]any{
-		"pull_request":     resp,
-		"linked_issue_ids": linkedIssueIDs,
+		"pull_request":    resp,
+		"linked_task_ids": linkedTaskIDs,
 	})
 }
 
@@ -301,18 +301,18 @@ func (h *Handler) mirrorVCSCIStatus(ctx context.Context, conn db.VcsConnection, 
 		return
 	}
 
-	issueIDs, err := h.Queries.ListIssueIDsForVCSPRHead(ctx, db.ListIssueIDsForVCSPRHeadParams{
+	taskIDs, err := h.Queries.ListTaskIDsForVCSPRHead(ctx, db.ListTaskIDsForVCSPRHeadParams{
 		ConnectionID: conn.ID,
 		HeadSha:      ev.SHA,
 	})
 	if err != nil {
-		slog.Warn("vcs: lookup issues for status failed", "err", err)
+		slog.Warn("vcs: lookup tasks for status failed", "err", err)
 		return
 	}
 	workspaceID := uuidToString(conn.WorkspaceID)
-	for _, issueID := range issueIDs {
+	for _, taskID := range taskIDs {
 		h.publish(protocol.EventPullRequestUpdated, workspaceID, "system", "", map[string]any{
-			"issue_id": uuidToString(issueID),
+			"task_id": uuidToString(taskID),
 		})
 	}
 }

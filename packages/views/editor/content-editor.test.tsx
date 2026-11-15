@@ -604,7 +604,7 @@ function makeAttachment(id: string, overrides: Partial<Attachment> = {}): Attach
   return {
     id,
     workspace_id: "ws-1",
-    issue_id: null,
+    task_id: null,
     comment_id: null,
     chat_session_id: null,
     chat_message_id: null,
@@ -836,7 +836,7 @@ describe("ContentEditor — in-session attachment tracking (SILI-3192)", () => {
   });
 
   it("backfills an empty caller download_url from the session upload on id collision", async () => {
-    // The create-issue draft persists attachment records with download_url
+    // The create-task draft persists attachment records with download_url
     // stripped (the signed URL is response-scoped). While the upload session
     // is still alive, the provider should hand back the signed URL so the
     // just-pasted image first-paints from it instead of detouring through

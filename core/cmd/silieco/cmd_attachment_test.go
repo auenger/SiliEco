@@ -75,13 +75,13 @@ func TestRunAttachmentDownloadWritesBasenameIntoOutputDir(t *testing.T) {
 
 func newAttachmentUploadTestCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "upload"}
-	cmd.Flags().String("task", "", "")
+	cmd.Flags().String("run", "", "")
 	return cmd
 }
 
-func TestRunAttachmentUploadSendsTaskIDAndPrintsContract(t *testing.T) {
-	const taskID = "task-abc"
-	var gotTaskID string
+func TestRunAttachmentUploadSendsRunIDAndPrintsContract(t *testing.T) {
+	const runID = "run-abc"
+	var gotRunID string
 	var gotFile string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +91,7 @@ func TestRunAttachmentUploadSendsTaskIDAndPrintsContract(t *testing.T) {
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			t.Fatalf("parse multipart: %v", err)
 		}
-		gotTaskID = r.FormValue("task_id")
+		gotRunID = r.FormValue("run_id")
 		if f, _, err := r.FormFile("file"); err == nil {
 			_ = f.Close()
 			gotFile = "present"
@@ -118,14 +118,14 @@ func TestRunAttachmentUploadSendsTaskIDAndPrintsContract(t *testing.T) {
 	}
 
 	cmd := newAttachmentUploadTestCmd()
-	_ = cmd.Flags().Set("task", taskID)
+	_ = cmd.Flags().Set("run", runID)
 
 	out, err := captureStdout(t, func() error { return runAttachmentUpload(cmd, []string{imgPath}) })
 	if err != nil {
 		t.Fatalf("runAttachmentUpload: %v", err)
 	}
-	if gotTaskID != taskID {
-		t.Fatalf("server task_id = %q, want %q", gotTaskID, taskID)
+	if gotRunID != runID {
+		t.Fatalf("server run_id = %q, want %q", gotRunID, runID)
 	}
 	if gotFile != "present" {
 		t.Fatalf("server did not receive a file part")
@@ -170,7 +170,7 @@ func TestRunAttachmentUploadNonImageUsesFileCardMarkdown(t *testing.T) {
 	}
 
 	cmd := newAttachmentUploadTestCmd()
-	_ = cmd.Flags().Set("task", "task-abc")
+	_ = cmd.Flags().Set("run", "run-abc")
 
 	out, err := captureStdout(t, func() error { return runAttachmentUpload(cmd, []string{docPath}) })
 	if err != nil {
@@ -215,7 +215,7 @@ func TestRunAttachmentUploadEscapesFilename(t *testing.T) {
 	}
 
 	cmd := newAttachmentUploadTestCmd()
-	_ = cmd.Flags().Set("task", "task-abc")
+	_ = cmd.Flags().Set("run", "run-abc")
 
 	out, err := captureStdout(t, func() error { return runAttachmentUpload(cmd, []string{docPath}) })
 	if err != nil {
@@ -227,8 +227,8 @@ func TestRunAttachmentUploadEscapesFilename(t *testing.T) {
 	}
 }
 
-func TestRunAttachmentUploadRequiresTask(t *testing.T) {
-	t.Setenv("SILIECO_TASK_ID", "")
+func TestRunAttachmentUploadRequiresRun(t *testing.T) {
+	t.Setenv("SILIECO_RUN_ID", "")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -242,8 +242,8 @@ func TestRunAttachmentUploadRequiresTask(t *testing.T) {
 		t.Fatalf("write temp image: %v", err)
 	}
 
-	cmd := newAttachmentUploadTestCmd() // no --task, no SILIECO_TASK_ID
-	if err := runAttachmentUpload(cmd, []string{imgPath}); err == nil || !strings.Contains(err.Error(), "no chat task in context") {
+	cmd := newAttachmentUploadTestCmd() // no --run, no SILIECO_RUN_ID
+	if err := runAttachmentUpload(cmd, []string{imgPath}); err == nil || !strings.Contains(err.Error(), "no chat run in context") {
 		t.Fatalf("runAttachmentUpload error = %v, want no-chat-task error", err)
 	}
 }

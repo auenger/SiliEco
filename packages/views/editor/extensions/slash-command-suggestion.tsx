@@ -14,7 +14,7 @@ import { PluginKey } from "@tiptap/pm/state";
 import { useAuthStore } from "@silieco/core/auth";
 import { useChatStore } from "@silieco/core/chat";
 import { getCurrentWsId } from "@silieco/core/platform";
-import { canAssignAgentToIssue } from "@silieco/core/permissions";
+import { canAssignAgentToTask } from "@silieco/core/permissions";
 import { isImeComposing } from "@silieco/core/utils";
 import { workspaceKeys } from "@silieco/core/workspace/queries";
 import type { Agent, MemberWithUser } from "@silieco/core/types";
@@ -46,7 +46,7 @@ interface SlashCommandListProps {
   command: (item: SlashCommandItem) => void;
   /**
    * When true, render nothing instead of an empty-state box when there are no
-   * matching items. Used by the built-in command menu in issue comments, where
+   * matching items. Used by the built-in command menu in task comments, where
    * `/` is common in prose (paths, dates) and a popup on every slash would be
    * noise. The chat skill picker leaves this false so it can still explain
    * "no skills configured".
@@ -175,7 +175,7 @@ function buildItems(qc: QueryClient, query: string): SlashCommandItem[] {
   const availableAgents = agents.filter(
     (a) =>
       !a.archived_at &&
-      canAssignAgentToIssue(a, { userId, role: memberRole }).allowed,
+      canAssignAgentToTask(a, { userId, role: memberRole }).allowed,
   );
   const activeAgent =
     availableAgents.find((a) => a.id === selectedAgentId) ??
@@ -246,11 +246,11 @@ export function createSlashCommandSuggestion(qc: QueryClient): Omit<
 }
 
 // ---------------------------------------------------------------------------
-// Built-in command menu (issue comments)
+// Built-in command menu (task comments)
 // ---------------------------------------------------------------------------
 
 /**
- * Built-in slash commands offered in the issue comment composer. Unlike the
+ * Built-in slash commands offered in the task comment composer. Unlike the
  * chat `/` picker (which lists the active agent's skills), these are a fixed,
  * hand-curated set. Currently only `/note`, which marks a comment as a
  * human-only note that won't trigger the assigned agent — mirrors the backend

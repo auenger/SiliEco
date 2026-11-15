@@ -28,7 +28,7 @@ import (
 type draftRestoreRaceFixture struct {
 	workspaceID   string
 	chatSessionID string
-	taskID        string
+	runID         string
 }
 
 // seedDraftRestoreRaceFixture builds a disposable workspace holding one chat
@@ -71,7 +71,7 @@ func seedDraftRestoreRaceFixture(t *testing.T, slug string) draftRestoreRaceFixt
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id
+			runtime_id, visibility, max_concurrent_runs, owner_id
 		)
 		VALUES ($1, 'Draft Restore Race Agent', '', 'cloud', '{}'::jsonb, $2, 'workspace', 1, $3)
 		RETURNING id
@@ -88,22 +88,22 @@ func seedDraftRestoreRaceFixture(t *testing.T, slug string) draftRestoreRaceFixt
 		t.Fatalf("create chat session: %v", err)
 	}
 
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (
+		INSERT INTO agent_run (
 			agent_id, chat_session_id, status, priority, context, runtime_id,
 			started_at, chat_finalize_deferred_at
 		)
 		VALUES ($1, $2, 'cancelled', 0, '{}'::jsonb, $3, now(), now())
 		RETURNING id
-	`, agentID, sessionID, runtimeID).Scan(&taskID); err != nil {
-		t.Fatalf("create deferred chat task: %v", err)
+	`, agentID, sessionID, runtimeID).Scan(&runID); err != nil {
+		t.Fatalf("create deferred chat run: %v", err)
 	}
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO chat_message (chat_session_id, role, content, task_id)
+		INSERT INTO chat_message (chat_session_id, role, content, run_id)
 		VALUES ($1, 'user', 'the prompt the cancel ate', $2)
-	`, sessionID, taskID); err != nil {
+	`, sessionID, runID); err != nil {
 		t.Fatalf("create user chat message: %v", err)
 	}
 
@@ -113,7 +113,7 @@ func seedDraftRestoreRaceFixture(t *testing.T, slug string) draftRestoreRaceFixt
 		testPool.Exec(cleanupCtx, `DELETE FROM workspace WHERE id = $1`, wsID)
 	})
 
-	return draftRestoreRaceFixture{workspaceID: wsID, chatSessionID: sessionID, taskID: taskID}
+	return draftRestoreRaceFixture{workspaceID: wsID, chatSessionID: sessionID, runID: runID}
 }
 
 // waitForBlockedBackend reports whether some backend parked on a lock — the
@@ -165,7 +165,7 @@ func TestFinalizeDeferredCancelledChat_TakesTheChatSessionLockBeforeInserting(t 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		testHandler.TaskService.FinalizeDeferredCancelledChat(context.Background(), parseUUID(f.taskID))
+		testHandler.AgentRunService.FinalizeDeferredCancelledChat(context.Background(), parseUUID(f.runID))
 	}()
 
 	if !waitForBlockedBackend(t, done) {
@@ -206,9 +206,9 @@ func TestDeleteWorkspace_SweepsRestoreCommittedByAConcurrentFinalizer(t *testing
 		t.Fatalf("lock chat session: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO chat_draft_restore (id, chat_session_id, task_id, content, attachment_ids)
+		INSERT INTO chat_draft_restore (id, chat_session_id, run_id, content, attachment_ids)
 		VALUES ($1, $2, $3, 'the prompt the cancel ate', '{}'::uuid[])
-	`, uuid.NewString(), f.chatSessionID, f.taskID); err != nil {
+	`, uuid.NewString(), f.chatSessionID, f.runID); err != nil {
 		t.Fatalf("insert draft restore: %v", err)
 	}
 
@@ -333,7 +333,7 @@ func TestFinalizeDeferredCancelledChat_SkipsTheInsertWhenTheSessionIsGone(t *tes
 		t.Fatalf("DeleteWorkspace: expected 204, got %d: %s", w.Code, w.Body.String())
 	}
 
-	testHandler.TaskService.FinalizeDeferredCancelledChat(ctx, parseUUID(f.taskID))
+	testHandler.AgentRunService.FinalizeDeferredCancelledChat(ctx, parseUUID(f.runID))
 
 	if n := countDraftRestores(t, f.chatSessionID); n != 0 {
 		t.Errorf("finalizer wrote %d restore(s) for a session that no longer exists", n)

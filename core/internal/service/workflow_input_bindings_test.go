@@ -91,10 +91,10 @@ func TestWorkflowInputBindingsHandoffKeepsAcceptedPredecessor(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=jsonb_set(config_snapshot,'{gate}','{"type":"none"}') WHERE id=$1`, p.ExecutionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=(SELECT main_issue_id FROM workflow_stage_execution WHERE id=$1)`, p.ExecutionID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=(SELECT main_task_id FROM workflow_stage_execution WHERE id=$1)`, p.ExecutionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=(SELECT main_task_id FROM workflow_stage_execution WHERE id=$1)`, p.ExecutionID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=(SELECT main_run_id FROM workflow_stage_execution WHERE id=$1)`, p.ExecutionID); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.AcceptAutomaticExecution(ctx, p.WorkspaceID, p.InstanceID, p.ExecutionID); err != nil {

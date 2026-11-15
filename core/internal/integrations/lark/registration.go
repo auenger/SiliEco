@@ -67,7 +67,7 @@ const (
 	// Internal-tenant brand label Lark uses to flag "you scanned with a
 	// Lark (international) account, not a Feishu (mainland) one". When
 	// we see this we re-aim polling at accounts.larksuite.com and
-	// re-issue the very next poll WITHOUT first waiting for the polling
+	// send the very next poll WITHOUT first waiting for the polling
 	// interval — the upstream SDK shows that Lark's server emits the
 	// tenant_brand hint exactly once during the polling stream and the
 	// subsequent poll must reach the new domain to learn the credentials.

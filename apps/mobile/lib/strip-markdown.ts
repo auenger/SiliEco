@@ -6,7 +6,7 @@
  * one- or two-line preview:
  *
  *   - mention links   `[@Alice](mention://member/uuid)` → `@Alice`
- *   - issue mentions  `[SILI-123](mention://issue/uuid)` → `SILI-123`
+ *   - task mentions  `[SILI-123](mention://task/uuid)` → `SILI-123`
  *   - images          `![filename](url)` / `![](url)`  → `📷`
  *   - plain links     `[label](https://...)`           → `label`
  *
@@ -23,7 +23,7 @@ export function stripMarkdown(md: string): string {
     // Images first (the leading `!` distinguishes from a plain link).
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "📷")
     // Mention links — keep the label (already includes `@` or the
-    // issue identifier verbatim per `mention-extension.ts`).
+    // task identifier verbatim per `mention-extension.ts`).
     .replace(/\[([^\]]+)\]\(mention:\/\/[^)]+\)/g, "$1")
     // Plain links last — strip the URL, keep the label.
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")

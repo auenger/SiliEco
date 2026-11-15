@@ -2,8 +2,8 @@
   "nav": {
     "inbox": "Inbox",
     "chat": "Chat",
-    "my_issues": "My Tasks",
-    "issues": "Tasks",
+    "my_tasks": "My Tasks",
+    "tasks": "Tasks",
     "projects": "Projects",
     "resources": "Resources",
     "workflows": "Workflows",
@@ -16,7 +16,7 @@
     "settings": "Settings"
   },
   "tab": {
-    "issue": "Task",
+    "task": "Task",
     "project": "Project",
     "autopilot": "Autopilot",
     "agent": "Agent",
@@ -47,8 +47,8 @@
     "invitation_join": "Join",
     "invitation_decline": "Decline",
     "log_out": "Log out",
-    "new_issue": "New Task",
-    "new_issue_shortcut": "C",
+    "new_task": "New Task",
+    "new_task_shortcut": "C",
     "pinned_label": "Pinned",
     "workspace_group": "Workspace",
     "configure_group": "Configure",

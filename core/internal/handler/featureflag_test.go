@@ -23,15 +23,15 @@ func withFeatureFlag(t *testing.T, h *Handler, key string, enabled bool) {
 
 	origHandlerFlags := h.FeatureFlags
 	h.FeatureFlags = flags
-	var origTaskFlags *featureflag.Service
-	if h.TaskService != nil {
-		origTaskFlags = h.TaskService.FeatureFlags
-		h.TaskService.FeatureFlags = flags
+	var origRunFlags *featureflag.Service
+	if h.AgentRunService != nil {
+		origRunFlags = h.AgentRunService.FeatureFlags
+		h.AgentRunService.FeatureFlags = flags
 	}
 	t.Cleanup(func() {
 		h.FeatureFlags = origHandlerFlags
-		if h.TaskService != nil {
-			h.TaskService.FeatureFlags = origTaskFlags
+		if h.AgentRunService != nil {
+			h.AgentRunService.FeatureFlags = origRunFlags
 		}
 	})
 }

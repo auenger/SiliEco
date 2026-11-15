@@ -17,7 +17,7 @@ import {
   PropertyPicker,
   PickerItem,
   PickerEmpty,
-} from "../../issues/components/pickers/property-picker";
+} from "../../tasks/components/pickers/property-picker";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import { useT } from "../../i18n";
 

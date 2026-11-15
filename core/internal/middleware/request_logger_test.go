@@ -63,13 +63,13 @@ func requireLogLevel(t *testing.T, logs *bytes.Buffer, want string, disallowed .
 
 func TestRequestLogger_RuntimeNotFound404DowngradesToInfo(t *testing.T) {
 	// The whole reason this middleware change exists: a flood of WRN lines
-	// after a runtime is deleted (issue #2391). The daemon catches the same
+	// after a runtime is deleted (task #2391). The daemon catches the same
 	// body and self-heals, so the line is signal-not-noise.
 	logs := runRequestLogger(t, http.StatusNotFound, `{"error":"runtime not found"}`)
 	requireLogLevel(t, logs, "INFO", "WARN", "ERROR")
 }
 
-func TestRequestLogger_TaskNotFound404DowngradesToInfo(t *testing.T) {
+func TestRequestLogger_RunNotFound404DowngradesToInfo(t *testing.T) {
 	logs := runRequestLogger(t, http.StatusNotFound, `{"error":"task not found"}`)
 	requireLogLevel(t, logs, "INFO", "WARN", "ERROR")
 }

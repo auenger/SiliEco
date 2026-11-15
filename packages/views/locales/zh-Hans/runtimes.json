@@ -32,7 +32,7 @@
     "filters": {
       "all": "全部",
       "online": "在线",
-      "issues": "异常"
+      "tasks": "异常"
     },
     "section_local": "本机",
     "section_remote": "远程",
@@ -55,7 +55,7 @@
       "runtimes_hint_other": "{{count}} 个在线",
       "health": "健康度",
       "health_clear": "无异常",
-      "health_issues_other": "{{count}} 个异常",
+      "health_tasks_other": "{{count}} 个异常",
       "workload": "工作负载",
       "workload_value_idle": "空闲",
       "workload_idle": "全部空闲",

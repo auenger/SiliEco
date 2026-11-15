@@ -112,9 +112,9 @@ type BusinessSamplerCollector struct {
 	// appearing in the result set.
 	descActiveUsers      *prometheus.Desc
 	descActiveWorkspaces *prometheus.Desc
-	descTaskQueued       *prometheus.Desc
-	descTaskRunning      *prometheus.Desc
-	descTaskStuck        *prometheus.Desc
+	descRunQueued        *prometheus.Desc
+	descRunRunning       *prometheus.Desc
+	descRunStuck         *prometheus.Desc
 	descRuntimeOnline    *prometheus.Desc
 	descHeartbeatAgeHist *prometheus.Desc
 	descWorkspaceTotal   *prometheus.Desc
@@ -167,17 +167,17 @@ func NewBusinessSamplerCollector(opts *BusinessSamplerOptions) *BusinessSamplerC
 			"silieco_active_workspaces",
 			"Distinct workspaces with chat / task activity in the rolling window. Sampled from the database.",
 			[]string{"window"}, nil),
-		descTaskQueued: prometheus.NewDesc(
-			"silieco_agent_task_queued",
-			"Current agent_task_queue rows in `queued` status by inferred source. Sampled from the database.",
+		descRunQueued: prometheus.NewDesc(
+			"silieco_agent_rund",
+			"Current agent_run rows in `queued` status by inferred source. Sampled from the database.",
 			[]string{"source"}, nil),
-		descTaskRunning: prometheus.NewDesc(
-			"silieco_agent_task_running",
-			"Current agent_task_queue rows in `dispatched` or `running` status by inferred source and runtime mode. Sampled from the database.",
+		descRunRunning: prometheus.NewDesc(
+			"silieco_agent_run_running",
+			"Current agent_run rows in `dispatched` or `running` status by inferred source and runtime mode. Sampled from the database.",
 			[]string{"source", "runtime_mode"}, nil),
-		descTaskStuck: prometheus.NewDesc(
-			"silieco_agent_task_stuck_total",
-			"Current `running` agent_task_queue rows whose started_at is older than the stuck threshold. Sampled from the database.",
+		descRunStuck: prometheus.NewDesc(
+			"silieco_agent_run_stuck_total",
+			"Current `running` agent_run rows whose started_at is older than the stuck threshold. Sampled from the database.",
 			[]string{"source"}, nil),
 		descRuntimeOnline: prometheus.NewDesc(
 			"silieco_runtime_online",
@@ -214,9 +214,9 @@ func (c *BusinessSamplerCollector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{
 		c.descActiveUsers,
 		c.descActiveWorkspaces,
-		c.descTaskQueued,
-		c.descTaskRunning,
-		c.descTaskStuck,
+		c.descRunQueued,
+		c.descRunRunning,
+		c.descRunStuck,
 		c.descRuntimeOnline,
 		c.descHeartbeatAgeHist,
 		c.descWorkspaceTotal,
@@ -279,15 +279,15 @@ func (c *BusinessSamplerCollector) emit(ch chan<- prometheus.Metric, snap *sampl
 	// stay at zero.
 	for _, source := range knownSourceLabels() {
 		ch <- prometheus.MustNewConstMetric(
-			c.descTaskQueued, prometheus.GaugeValue, snap.taskQueued[source], source)
+			c.descRunQueued, prometheus.GaugeValue, snap.runQueued[source], source)
 		ch <- prometheus.MustNewConstMetric(
-			c.descTaskStuck, prometheus.GaugeValue, snap.taskStuck[source], source)
+			c.descRunStuck, prometheus.GaugeValue, snap.runStuck[source], source)
 	}
 	for _, source := range knownSourceLabels() {
 		for _, mode := range knownRuntimeModeLabels() {
-			key := taskRunningKey{source: source, runtimeMode: mode}
+			key := runRunningKey{source: source, runtimeMode: mode}
 			ch <- prometheus.MustNewConstMetric(
-				c.descTaskRunning, prometheus.GaugeValue, snap.taskRunning[key], source, mode)
+				c.descRunRunning, prometheus.GaugeValue, snap.runRunning[key], source, mode)
 		}
 	}
 
@@ -316,7 +316,7 @@ func (c *BusinessSamplerCollector) emit(ch chan<- prometheus.Metric, snap *sampl
 // Pulled from the existing BusinessMetrics whitelist so the sampler never
 // invents a new bucket.
 func knownSourceLabels() []string {
-	return []string{"chat", "issue", "autopilot", "autopilot_issue", "quick_create", "manual", "api", "other"}
+	return []string{"chat", "task", "autopilot", "autopilot_task", "quick_create", "manual", "api", "other"}
 }
 
 func knownRuntimeModeLabels() []string {
@@ -329,7 +329,7 @@ var heartbeatAgeBuckets = []float64{1, 5, 15, 30, 60, 120, 300, 600}
 
 // taskRunningKey is the composite gauge label key for the running counter.
 // Defined here because it is shared between the snapshot and the emit path.
-type taskRunningKey struct {
+type runRunningKey struct {
 	source      string
 	runtimeMode string
 }
@@ -357,9 +357,9 @@ type samplerSnapshot struct {
 	activeUsers      map[string]float64
 	activeWorkspaces map[string]float64
 
-	taskQueued  map[string]float64
-	taskRunning map[taskRunningKey]float64
-	taskStuck   map[string]float64
+	runQueued  map[string]float64
+	runRunning map[runRunningKey]float64
+	runStuck   map[string]float64
 
 	runtimeOnline map[runtimeOnlineKey]float64
 	heartbeatAge  map[string]samplerHistogram
@@ -373,9 +373,9 @@ func newSamplerSnapshot(t time.Time) *samplerSnapshot {
 		takenAt:          t,
 		activeUsers:      map[string]float64{},
 		activeWorkspaces: map[string]float64{},
-		taskQueued:       map[string]float64{},
-		taskRunning:      map[taskRunningKey]float64{},
-		taskStuck:        map[string]float64{},
+		runQueued:        map[string]float64{},
+		runRunning:       map[runRunningKey]float64{},
+		runStuck:         map[string]float64{},
 		runtimeOnline:    map[runtimeOnlineKey]float64{},
 		heartbeatAge:     map[string]samplerHistogram{},
 	}
@@ -404,14 +404,14 @@ func (c *BusinessSamplerCollector) refreshFromDB(ctx context.Context, now time.T
 	c.runQuery(ctx, conn, "active_workspaces", func(ctx context.Context, tx pgx.Tx) error {
 		return c.queryActiveWorkspaces(ctx, tx, snap)
 	})
-	c.runQuery(ctx, conn, "task_queued", func(ctx context.Context, tx pgx.Tx) error {
-		return c.queryTaskQueued(ctx, tx, snap)
+	c.runQuery(ctx, conn, "run_queued", func(ctx context.Context, tx pgx.Tx) error {
+		return c.queryRunQueued(ctx, tx, snap)
 	})
-	c.runQuery(ctx, conn, "task_running", func(ctx context.Context, tx pgx.Tx) error {
-		return c.queryTaskRunning(ctx, tx, snap)
+	c.runQuery(ctx, conn, "run_running", func(ctx context.Context, tx pgx.Tx) error {
+		return c.queryRunRunning(ctx, tx, snap)
 	})
-	c.runQuery(ctx, conn, "task_stuck", func(ctx context.Context, tx pgx.Tx) error {
-		return c.queryTaskStuck(ctx, tx, snap)
+	c.runQuery(ctx, conn, "run_stuck", func(ctx context.Context, tx pgx.Tx) error {
+		return c.queryRunStuck(ctx, tx, snap)
 	})
 	c.runQuery(ctx, conn, "runtime_online", func(ctx context.Context, tx pgx.Tx) error {
 		return c.queryRuntimeOnline(ctx, tx, snap)

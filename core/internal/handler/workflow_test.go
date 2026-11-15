@@ -35,7 +35,7 @@ func cleanupWorkflowTestData(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
 		ctx := context.Background()
-		testPool.Exec(ctx, `DELETE FROM agent_task_queue t USING workflow_stage_execution e WHERE t.workflow_stage_execution_id=e.id AND e.workspace_id=$1`, testWorkspaceID)
+		testPool.Exec(ctx, `DELETE FROM agent_run t USING workflow_stage_execution e WHERE t.workflow_stage_execution_id=e.id AND e.workspace_id=$1`, testWorkspaceID)
 		testPool.Exec(ctx, `DELETE FROM workflow_review_recovery WHERE workspace_id=$1`, testWorkspaceID)
 		testPool.Exec(ctx, `DELETE FROM workflow_rework WHERE workspace_id=$1`, testWorkspaceID)
 		testPool.Exec(ctx, `DELETE FROM workflow_execution_action WHERE workspace_id=$1`, testWorkspaceID)
@@ -44,7 +44,7 @@ func cleanupWorkflowTestData(t *testing.T) {
 		testPool.Exec(ctx, `DELETE FROM workflow_artifact_upload WHERE workspace_id=$1`, testWorkspaceID)
 		testPool.Exec(ctx, `DELETE FROM workflow_execution_result WHERE workspace_id=$1`, testWorkspaceID)
 		testPool.Exec(ctx, `DELETE FROM workflow_stage_execution WHERE workspace_id=$1`, testWorkspaceID)
-		testPool.Exec(ctx, `UPDATE issue SET workflow_instance_id = NULL, workflow_stage_id = NULL, workflow_stage_execution_id = NULL, workflow_invalidated_by_rework_id = NULL WHERE workspace_id = $1`, testWorkspaceID)
+		testPool.Exec(ctx, `UPDATE task SET workflow_instance_id = NULL, workflow_stage_id = NULL, workflow_stage_execution_id = NULL, workflow_invalidated_by_rework_id = NULL WHERE workspace_id = $1`, testWorkspaceID)
 		testPool.Exec(ctx, `DELETE FROM workflow_gate_decision WHERE workspace_id = $1`, testWorkspaceID)
 		testPool.Exec(ctx, `DELETE FROM workflow_instance_change WHERE workspace_id = $1`, testWorkspaceID)
 		testPool.Exec(ctx, `DELETE FROM workflow_instance_stage WHERE workspace_id = $1`, testWorkspaceID)
@@ -129,7 +129,7 @@ func TestWorkflowInstancePlanCanAdjustCurrentAndEmptyFutureStages(t *testing.T) 
 	testHandler.CreateWorkflow(createWorkflow, newRequest(http.MethodPost, "/api/workflows", map[string]any{
 		"name": "Adjustable SOP", "project_id": projectID, "publish": true,
 		"stages": []map[string]any{
-			{"name": "Plan", "required_skills": []string{"builtin:silieco-working-on-issues"}},
+			{"name": "Plan", "required_skills": []string{"builtin:silieco-working-on-tasks"}},
 			{"name": "Build", "output_spec": map[string]any{"default_artifact": "build.md"}},
 			{"name": "Unused review"},
 		},
@@ -159,7 +159,7 @@ func TestWorkflowInstancePlanCanAdjustCurrentAndEmptyFutureStages(t *testing.T) 
 	if len(run.Stages) != 3 || run.Revision != 1 {
 		t.Fatalf("unexpected initial run plan: %#v", run)
 	}
-	const historicalSnapshot = `[{"id":"builtin:silieco-working-on-issues","source":"builtin","name":"silieco-working-on-issues","content":"# Frozen earlier revision"}]`
+	const historicalSnapshot = `[{"id":"builtin:silieco-working-on-tasks","source":"builtin","name":"silieco-working-on-tasks","content":"# Frozen earlier revision"}]`
 	if _, err := testPool.Exec(context.Background(), `UPDATE workflow_instance_stage SET required_skill_snapshots=$2::jsonb WHERE id=$1`, run.Stages[0].ID, historicalSnapshot); err != nil {
 		t.Fatal(err)
 	}
@@ -306,22 +306,22 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 		t.Fatalf("expected published two-stage workflow: %#v", workflow)
 	}
 
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO issue (
+		INSERT INTO task (
 			workspace_id, title, status, priority, creator_type, creator_id,
 			position, number
 		)
 		VALUES (
 			$1, 'Ship release', 'todo', 'none', 'member', $2,
-			0, (SELECT issue_counter + 1000 FROM workspace WHERE id = $1)
+			0, (SELECT task_counter + 1000 FROM workspace WHERE id = $1)
 		)
 		RETURNING id
-	`, testWorkspaceID, testUserID).Scan(&taskID); err != nil {
-		t.Fatalf("create task: %v", err)
+	`, testWorkspaceID, testUserID).Scan(&runID); err != nil {
+		t.Fatalf("create run: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, runID)
 	})
 
 	mismatchedInstance := httptest.NewRecorder()
@@ -399,22 +399,22 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	// copied plan, not the source workflow_version Stage IDs. Run plans can be
 	// adjusted independently after migration 255, so the two ID spaces are
 	// intentionally different.
-	createBoundTask := httptest.NewRecorder()
-	testHandler.CreateIssue(createBoundTask, newRequest(http.MethodPost, "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+	createBoundRun := httptest.NewRecorder()
+	testHandler.CreateTask(createBoundRun, newRequest(http.MethodPost, "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 		"title":                "Created directly in the SOP Run",
 		"project_id":           projectID,
 		"workflow_instance_id": instance.ID,
 		"workflow_stage_id":    firstStage.ID,
 	}))
-	if createBoundTask.Code != http.StatusCreated {
-		t.Fatalf("create Task with Run Stage: status=%d body=%s", createBoundTask.Code, createBoundTask.Body.String())
+	if createBoundRun.Code != http.StatusCreated {
+		t.Fatalf("create Task with Run Stage: status=%d body=%s", createBoundRun.Code, createBoundRun.Body.String())
 	}
-	var directlyBound IssueResponse
-	if err := json.Unmarshal(createBoundTask.Body.Bytes(), &directlyBound); err != nil {
+	var directlyBound TaskResponse
+	if err := json.Unmarshal(createBoundRun.Body.Bytes(), &directlyBound); err != nil {
 		t.Fatalf("decode directly bound Task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, directlyBound.ID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, directlyBound.ID)
 	})
 	if directlyBound.WorkflowInstanceID == nil || *directlyBound.WorkflowInstanceID != instance.ID ||
 		directlyBound.WorkflowStageID == nil || *directlyBound.WorkflowStageID != firstStage.ID {
@@ -422,9 +422,9 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	}
 
 	moveDirectlyBound := httptest.NewRecorder()
-	testHandler.UpdateIssue(moveDirectlyBound, workflowRequest(
+	testHandler.UpdateTask(moveDirectlyBound, workflowRequest(
 		http.MethodPatch,
-		"/api/issues/"+directlyBound.ID,
+		"/api/tasks/"+directlyBound.ID,
 		map[string]any{
 			"workflow_instance_id": instance.ID,
 			"workflow_stage_id":    secondStage.ID,
@@ -434,7 +434,7 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	if moveDirectlyBound.Code != http.StatusOK {
 		t.Fatalf("move Task to another Run Stage: status=%d body=%s", moveDirectlyBound.Code, moveDirectlyBound.Body.String())
 	}
-	var directlyMoved IssueResponse
+	var directlyMoved TaskResponse
 	if err := json.Unmarshal(moveDirectlyBound.Body.Bytes(), &directlyMoved); err != nil {
 		t.Fatalf("decode directly moved Task: %v", err)
 	}
@@ -443,9 +443,9 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	}
 
 	crossRunStage := httptest.NewRecorder()
-	testHandler.UpdateIssue(crossRunStage, workflowRequest(
+	testHandler.UpdateTask(crossRunStage, workflowRequest(
 		http.MethodPatch,
-		"/api/issues/"+directlyBound.ID,
+		"/api/tasks/"+directlyBound.ID,
 		map[string]any{
 			"workflow_instance_id": instance.ID,
 			"workflow_stage_id":    emptyRun.Stages[0].ID,
@@ -455,31 +455,31 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	if crossRunStage.Code != http.StatusBadRequest {
 		t.Fatalf("Stage from another Run must be rejected, got %d: %s", crossRunStage.Code, crossRunStage.Body.String())
 	}
-	if _, err := testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, directlyBound.ID); err != nil {
+	if _, err := testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, directlyBound.ID); err != nil {
 		t.Fatalf("delete directly bound Task: %v", err)
 	}
 
 	attach := httptest.NewRecorder()
 	testHandler.AttachWorkflowTask(
 		attach,
-		workflowRequest(http.MethodPut, "/api/workflow-instances/"+instance.ID+"/tasks/"+taskID, map[string]any{
+		workflowRequest(http.MethodPut, "/api/workflow-instances/"+instance.ID+"/tasks/"+runID, map[string]any{
 			"stage_id": firstStage.ID,
-		}, map[string]string{"id": instance.ID, "taskId": taskID}),
+		}, map[string]string{"id": instance.ID, "taskId": runID}),
 	)
 	if attach.Code != http.StatusOK {
-		t.Fatalf("attach task: status=%d body=%s", attach.Code, attach.Body.String())
+		t.Fatalf("attach run: status=%d body=%s", attach.Code, attach.Body.String())
 	}
-	archiveWithTask := httptest.NewRecorder()
+	archiveWithRun := httptest.NewRecorder()
 	testHandler.ArchiveWorkflowInstance(
-		archiveWithTask,
+		archiveWithRun,
 		workflowRequest(http.MethodPost, "/api/workflow-instances/"+instance.ID+"/archive", nil, map[string]string{"id": instance.ID}),
 	)
-	if archiveWithTask.Code != http.StatusConflict {
-		t.Fatalf("run with Task must not be archived, got %d: %s", archiveWithTask.Code, archiveWithTask.Body.String())
+	if archiveWithRun.Code != http.StatusConflict {
+		t.Fatalf("run with Task must not be archived, got %d: %s", archiveWithRun.Code, archiveWithRun.Body.String())
 	}
-	var attached IssueResponse
+	var attached TaskResponse
 	if err := json.Unmarshal(attach.Body.Bytes(), &attached); err != nil {
-		t.Fatalf("decode attached task: %v", err)
+		t.Fatalf("decode attached run: %v", err)
 	}
 	if attached.ProjectID == nil || *attached.ProjectID != projectID {
 		t.Fatalf("Space-level Task must inherit the run project when attached: %#v", attached)
@@ -498,15 +498,15 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	if err := json.Unmarshal(listRuns.Body.Bytes(), &listed); err != nil {
 		t.Fatalf("decode workflow run list: %v", err)
 	}
-	listedTaskCount := int64(-1)
+	listedRunCount := int64(-1)
 	for _, listedRun := range listed.Instances {
 		if listedRun.ID == instance.ID {
-			listedTaskCount = listedRun.TaskCount
+			listedRunCount = listedRun.TaskCount
 			break
 		}
 	}
-	if listedTaskCount != 1 {
-		t.Fatalf("workflow run list must report one linked Task, got %d: %s", listedTaskCount, listRuns.Body.String())
+	if listedRunCount != 1 {
+		t.Fatalf("workflow run list must report one linked Task, got %d: %s", listedRunCount, listRuns.Body.String())
 	}
 
 	oldStateToken := workflowStateTokenForTest(t, instance.ID)
@@ -533,7 +533,7 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 		t.Fatalf("expected open task to block transition, got %d: %s", blocked.Code, blocked.Body.String())
 	}
 
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET status='cancelled' WHERE id=$1`, taskID); err != nil {
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET status='cancelled' WHERE id=$1`, runID); err != nil {
 		t.Fatal(err)
 	}
 	cancelled := httptest.NewRecorder()
@@ -541,8 +541,8 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	if cancelled.Code != http.StatusConflict {
 		t.Fatalf("cancelled required task passed gate: %d %s", cancelled.Code, cancelled.Body.String())
 	}
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET status = 'done' WHERE id = $1`, taskID); err != nil {
-		t.Fatalf("complete task: %v", err)
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET status = 'done' WHERE id = $1`, runID); err != nil {
+		t.Fatalf("complete run: %v", err)
 	}
 	advance := httptest.NewRecorder()
 	testHandler.TransitionWorkflowInstance(
@@ -559,16 +559,16 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	move := httptest.NewRecorder()
 	testHandler.AttachWorkflowTask(
 		move,
-		workflowRequest(http.MethodPut, "/api/workflow-instances/"+instance.ID+"/tasks/"+taskID, map[string]any{
+		workflowRequest(http.MethodPut, "/api/workflow-instances/"+instance.ID+"/tasks/"+runID, map[string]any{
 			"stage_id": secondStage.ID,
-		}, map[string]string{"id": instance.ID, "taskId": taskID}),
+		}, map[string]string{"id": instance.ID, "taskId": runID}),
 	)
 	if move.Code != http.StatusOK {
-		t.Fatalf("move task: status=%d body=%s", move.Code, move.Body.String())
+		t.Fatalf("move run: status=%d body=%s", move.Code, move.Body.String())
 	}
-	var moved IssueResponse
+	var moved TaskResponse
 	if err := json.Unmarshal(move.Body.Bytes(), &moved); err != nil {
-		t.Fatalf("decode moved task: %v", err)
+		t.Fatalf("decode moved run: %v", err)
 	}
 	if moved.Status != "done" || moved.WorkflowStageID == nil || *moved.WorkflowStageID != secondStage.ID {
 		t.Fatalf("stage move must preserve task status: %#v", moved)
@@ -618,15 +618,15 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	}
 	oldToken := workflowStateTokenForTest(t, instance.ID)
 	followup := httptest.NewRecorder()
-	testHandler.CreateIssue(followup, newRequest(http.MethodPost, "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+	testHandler.CreateTask(followup, newRequest(http.MethodPost, "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Next independent requirement", "status": "backlog", "project_id": projectID,
 		"workflow_instance_id": instance.ID, "workflow_stage_id": firstStage.ID,
 	}))
 	if followup.Code != http.StatusCreated {
 		t.Fatalf("follow-up creation: %d %s", followup.Code, followup.Body.String())
 	}
-	var nextTask IssueResponse
-	if err := json.Unmarshal(followup.Body.Bytes(), &nextTask); err != nil {
+	var nextRun TaskResponse
+	if err := json.Unmarshal(followup.Body.Bytes(), &nextRun); err != nil {
 		t.Fatal(err)
 	}
 	resumed, err := testHandler.Queries.GetWorkflowInstanceInWorkspace(context.Background(), db.GetWorkflowInstanceInWorkspaceParams{ID: parseUUID(instance.ID), WorkspaceID: parseUUID(testWorkspaceID)})
@@ -641,7 +641,7 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 	if freshReview.Code != http.StatusConflict {
 		t.Fatalf("unfinished new task bypassed review: %d %s", freshReview.Code, freshReview.Body.String())
 	}
-	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET status='done' WHERE id=$1`, nextTask.ID); err != nil {
+	if _, err := testPool.Exec(context.Background(), `UPDATE task SET status='done' WHERE id=$1`, nextRun.ID); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -661,19 +661,19 @@ func TestWorkflowLifecycleKeepsTaskStatusAndStageIndependent(t *testing.T) {
 			t.Fatal(err)
 		}
 		unbound := httptest.NewRecorder()
-		testHandler.CreateIssue(unbound, newRequest(http.MethodPost, "/api/issues?workspace_id="+testWorkspaceID, map[string]any{"title": "New membership via " + mode, "status": "backlog", "project_id": projectID}))
+		testHandler.CreateTask(unbound, newRequest(http.MethodPost, "/api/tasks?workspace_id="+testWorkspaceID, map[string]any{"title": "New membership via " + mode, "status": "backlog", "project_id": projectID}))
 		if unbound.Code != http.StatusCreated {
-			t.Fatalf("unbound task: %d %s", unbound.Code, unbound.Body.String())
+			t.Fatalf("unbound run: %d %s", unbound.Code, unbound.Body.String())
 		}
-		var task IssueResponse
-		if err := json.Unmarshal(unbound.Body.Bytes(), &task); err != nil {
+		var agentRun TaskResponse
+		if err := json.Unmarshal(unbound.Body.Bytes(), &agentRun); err != nil {
 			t.Fatal(err)
 		}
 		attached := httptest.NewRecorder()
 		if mode == "attach" {
-			testHandler.AttachWorkflowTask(attached, workflowRequest(http.MethodPost, "/tasks", map[string]any{"stage_id": firstStage.ID}, map[string]string{"id": instance.ID, "taskId": task.ID}))
+			testHandler.AttachWorkflowTask(attached, workflowRequest(http.MethodPost, "/tasks", map[string]any{"stage_id": firstStage.ID}, map[string]string{"id": instance.ID, "taskId": agentRun.ID}))
 		} else {
-			testHandler.UpdateIssue(attached, workflowRequest(http.MethodPut, "/api/issues/"+task.ID, map[string]any{"workflow_instance_id": instance.ID, "workflow_stage_id": firstStage.ID}, map[string]string{"id": task.ID}))
+			testHandler.UpdateTask(attached, workflowRequest(http.MethodPut, "/api/tasks/"+agentRun.ID, map[string]any{"workflow_instance_id": instance.ID, "workflow_stage_id": firstStage.ID}, map[string]string{"id": agentRun.ID}))
 		}
 		if attached.Code != http.StatusOK {
 			t.Fatalf("%s follow-up: %d %s", mode, attached.Code, attached.Body.String())
@@ -876,11 +876,11 @@ func TestWorkflowStartCreatesDispatchIntentAtomically(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM workflow_stage_execution e JOIN workflow_execution_action a ON a.execution_id=e.id WHERE e.workflow_instance_id=$1 AND e.input_snapshot#>>'{data,goal}'='Produce a report' AND e.input_snapshot->>'schema_version'='silieco.input-snapshot/v1' AND e.config_snapshot->'input_bindings'->>'schema_version'='silieco.input-bindings/v1'`, run.ID).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("missing atomic dispatch intent: %d %v", count, err)
 	}
-	executionSvc := &service.WorkflowExecutionService{Queries: testHandler.Queries, TxStarter: testHandler.TxStarter, TaskService: testHandler.TaskService}
+	executionSvc := &service.WorkflowExecutionService{Queries: testHandler.Queries, TxStarter: testHandler.TxStarter, AgentRunService: testHandler.AgentRunService}
 	if err := executionSvc.DispatchPending(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM issue WHERE workflow_instance_id=$1`, run.ID).Scan(&count); err != nil || count != 1 {
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM task WHERE workflow_instance_id=$1`, run.ID).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("start-to-dispatch failed: %d %v", count, err)
 	}
 	var executionID string

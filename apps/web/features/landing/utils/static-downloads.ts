@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { DownloadAssets } from "./parse-release-assets";
 
 /**
@@ -13,23 +15,26 @@ export interface StaticDownloadRelease {
 }
 
 const DOWNLOAD_BASE = "/downloads";
-const version = process.env.SILIECO_DESKTOP_VERSION?.trim() || "internal";
-
-function asset(name: string): string {
-  return `${DOWNLOAD_BASE}/${name}`;
-}
+const assetFiles = {
+  macArm64Dmg: "silieco-desktop-mac-arm64.dmg",
+  macArm64Zip: "silieco-desktop-mac-arm64.zip",
+  macX64Dmg: "silieco-desktop-mac-x64.dmg",
+  macX64Zip: "silieco-desktop-mac-x64.zip",
+  winX64Zip: "silieco-desktop-windows-x64.zip",
+} satisfies Partial<Record<keyof DownloadAssets, string>>;
 
 export function getStaticDownloadRelease(): StaticDownloadRelease {
+  const directory = process.env.SILIECO_DOWNLOAD_DIR || join(process.cwd(), "public/downloads");
+  const assets: DownloadAssets = {};
+  for (const [key, filename] of Object.entries(assetFiles)) {
+    if (existsSync(join(directory, filename))) {
+      assets[key as keyof DownloadAssets] = `${DOWNLOAD_BASE}/${filename}`;
+    }
+  }
   return {
-    version,
+    version: process.env.SILIECO_DESKTOP_VERSION?.trim() || "internal",
     publishedAt: new Date().toISOString(),
     htmlUrl: `${DOWNLOAD_BASE}/`,
-    assets: {
-      macArm64Dmg: asset("silieco-desktop-mac-arm64.dmg"),
-      macArm64Zip: asset("silieco-desktop-mac-arm64.zip"),
-      macX64Dmg: asset("silieco-desktop-mac-x64.dmg"),
-      macX64Zip: asset("silieco-desktop-mac-x64.zip"),
-      winX64Zip: asset("silieco-desktop-windows-x64.zip"),
-    },
+    assets,
   };
 }

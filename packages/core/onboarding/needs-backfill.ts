@@ -14,7 +14,7 @@ import type { QuestionnaireAnswers } from "./types";
 export const SOURCE_BACKFILL_MAX_DISMISSALS = 3;
 
 /**
- * Minimum number of issues completed by an AI assignee (agent or
+ * Minimum number of tasks completed by an AI assignee (agent or
  * squad) in the current workspace before the source prompt may open.
  *
  * Source is not asked during onboarding at all — attribution is a
@@ -25,10 +25,10 @@ export const SOURCE_BACKFILL_MAX_DISMISSALS = 3;
  * than at signup. 3 ≈ one Helper starter-task batch, so an engaged
  * new user typically crosses it within the first session.
  *
- * The count itself comes from `agentCompletedIssueCountOptions` in
+ * The count itself comes from `agentCompletedTaskCountOptions` in
  * `./queries.ts`; the modal combines it with `needsSourceBackfill`.
  */
-export const SOURCE_BACKFILL_MIN_AGENT_DONE_ISSUES = 3;
+export const SOURCE_BACKFILL_MIN_AGENT_DONE_TASKS = 3;
 
 /**
  * Should we ask this already-onboarded user where they heard about
@@ -41,8 +41,8 @@ export const SOURCE_BACKFILL_MIN_AGENT_DONE_ISSUES = 3;
  *  - have not closed this backfill prompt enough times to dismiss it.
  *
  * This is the user-level half of the gate. The workspace-level half —
- * "have agents completed at least SOURCE_BACKFILL_MIN_AGENT_DONE_ISSUES
- * issues here?" — needs a server query, so it lives in the modal
+ * "have agents completed at least SOURCE_BACKFILL_MIN_AGENT_DONE_TASKS
+ * tasks here?" — needs a server query, so it lives in the modal
  * (`source-backfill-modal.tsx`), which also uses this predicate to
  * decide whether that query is worth running at all.
  *

@@ -26,7 +26,7 @@
     "progress": "Progress",
     "lead": "Lead",
     "created": "Created",
-    "issues": "Tasks"
+    "tasks": "Tasks"
   },
   "status": {
     "planned": "Planned",
@@ -75,13 +75,13 @@
     "clear_date": "Clear date",
     "description_placeholder": "Add description...",
     "description_hint": "Shared with agents as context for every task in this project.",
-    "empty_issues_title": "No tasks linked",
-    "empty_issues_hint": "Create a new task or assign existing ones to this project.",
-    "empty_issues_new_button": "New Task",
-    "no_issues_yet": "No tasks yet",
+    "empty_tasks_title": "No tasks linked",
+    "empty_tasks_hint": "Create a new task or assign existing ones to this project.",
+    "empty_tasks_new_button": "New Task",
+    "no_tasks_yet": "No tasks yet",
     "toast_link_copied": "Link copied",
     "toast_project_deleted": "Project deleted",
-    "toast_move_issue_failed": "Failed to move task"
+    "toast_move_task_failed": "Failed to move task"
   },
   "resources": {
     "section_header": "Resources",

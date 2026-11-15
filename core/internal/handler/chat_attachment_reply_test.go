@@ -11,35 +11,35 @@ import (
 )
 
 // seedRunningChatTask inserts a running chat task (chat_session_id set) for the
-// given agent and returns its id. Mirrors createHandlerTestTaskForAgentOnIssue
-// but binds a chat session instead of an issue.
-func seedRunningChatTask(t *testing.T, agentID, sessionID string) string {
+// given agent and returns its id. Mirrors createHandlerTestRunForAgentOnTask
+// but binds a chat session instead of an task.
+func seedRunningChatRun(t *testing.T, agentID, sessionID string) string {
 	t.Helper()
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, chat_session_id, started_at)
+		INSERT INTO agent_run (agent_id, runtime_id, status, priority, chat_session_id, started_at)
 		VALUES ($1, $2, 'running', 0, $3, now())
 		RETURNING id
-	`, agentID, handlerTestRuntimeID(t), sessionID).Scan(&taskID); err != nil {
-		t.Fatalf("seed running chat task: %v", err)
+	`, agentID, handlerTestRuntimeID(t), sessionID).Scan(&runID); err != nil {
+		t.Fatalf("seed running chat run: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID)
 	})
-	return taskID
+	return runID
 }
 
 // seedAgentChatAttachment inserts an attachment as if the agent had uploaded it
-// during a chat task: tagged with task_id + chat_session_id, no owner message
+// during a chat run: tagged with run_id + chat_session_id, no owner message
 // yet. Returns the attachment id.
-func seedAgentChatAttachment(t *testing.T, agentID, sessionID, taskID string) string {
+func seedAgentChatAttachment(t *testing.T, agentID, sessionID, runID string) string {
 	t.Helper()
 	var id string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO attachment (workspace_id, task_id, chat_session_id, uploader_type, uploader_id, filename, url, content_type, size_bytes)
+		INSERT INTO attachment (workspace_id, run_id, chat_session_id, uploader_type, uploader_id, filename, url, content_type, size_bytes)
 		VALUES ($1, $2, $3, 'agent', $4, 'chart.png', 'https://cdn.example/chart.png', 'image/png', 123)
 		RETURNING id
-	`, testWorkspaceID, taskID, sessionID, agentID).Scan(&id); err != nil {
+	`, testWorkspaceID, runID, sessionID, agentID).Scan(&id); err != nil {
 		t.Fatalf("seed agent chat attachment: %v", err)
 	}
 	t.Cleanup(func() {
@@ -58,19 +58,19 @@ func attachmentMessageID(t *testing.T, attachmentID string) *string {
 	return msg
 }
 
-func assistantMessageForTask(t *testing.T, taskID string) (id, content string, ok bool) {
+func assistantMessageForRun(t *testing.T, runID string) (id, content string, ok bool) {
 	t.Helper()
 	err := testPool.QueryRow(context.Background(),
-		`SELECT id::text, content FROM chat_message WHERE task_id = $1 AND role = 'assistant'`, taskID).Scan(&id, &content)
+		`SELECT id::text, content FROM chat_message WHERE run_id = $1 AND role = 'assistant'`, runID).Scan(&id, &content)
 	if err != nil {
 		return "", "", false
 	}
 	return id, content, true
 }
 
-// doUpload performs a multipart upload of a task_id form field with the given
+// doUpload performs a multipart upload of a run_id form field with the given
 // request headers, and returns the recorder.
-func doUpload(t *testing.T, formTaskID string, headers map[string]string) *httptest.ResponseRecorder {
+func doUpload(t *testing.T, formRunID string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -79,7 +79,7 @@ func doUpload(t *testing.T, formTaskID string, headers map[string]string) *httpt
 		t.Fatal(err)
 	}
 	part.Write([]byte("\x89PNG\r\n\x1a\nrest-of-bytes"))
-	if err := writer.WriteField("task_id", formTaskID); err != nil {
+	if err := writer.WriteField("run_id", formRunID); err != nil {
 		t.Fatal(err)
 	}
 	writer.Close()
@@ -95,12 +95,12 @@ func doUpload(t *testing.T, formTaskID string, headers map[string]string) *httpt
 }
 
 // uploadWithTaskID performs a multipart upload as a genuine task-token agent
-// request: it stamps the server-set X-Actor-Source=task_token + X-Task-ID pair
+// request: it stamps the server-set X-Actor-Source=agent_run_token + X-Run-ID pair
 // exactly as the auth middleware would for a `mat_` token (the boundary the
-// handler trusts). actorTaskID is what goes on X-Task-ID (the token's task);
-// formTaskID is the upload's task_id form field. They match in the happy path.
+// handler trusts). actorTaskID is what goes on X-Run-ID (the token's task);
+// formTaskID is the upload's run_id form field. They match in the happy path.
 // When agentID is empty the caller is a plain member (no task-token headers).
-func uploadWithTaskID(t *testing.T, agentID, actorTaskID, formTaskID string) *httptest.ResponseRecorder {
+func uploadWithRunID(t *testing.T, agentID, actorRunID, formRunID string) *httptest.ResponseRecorder {
 	t.Helper()
 	headers := map[string]string{
 		"X-User-ID":      testUserID,
@@ -108,19 +108,19 @@ func uploadWithTaskID(t *testing.T, agentID, actorTaskID, formTaskID string) *ht
 	}
 	if agentID != "" {
 		// Mirror the middleware: a task token stamps the actor source and task.
-		headers["X-Actor-Source"] = "task_token"
+		headers["X-Actor-Source"] = "agent_run_token"
 		headers["X-Agent-ID"] = agentID
 	}
-	if actorTaskID != "" {
-		headers["X-Task-ID"] = actorTaskID
+	if actorRunID != "" {
+		headers["X-Run-ID"] = actorRunID
 	}
-	return doUpload(t, formTaskID, headers)
+	return doUpload(t, formRunID, headers)
 }
 
 // TestUploadFile_TaskScopedChatAttachment covers the write side: an agent
-// uploading a file for its chat reply gets a row tagged with task_id +
+// uploading a file for its chat reply gets a row tagged with run_id +
 // chat_session_id, and the permission/isolation gates reject the bad cases.
-func TestUploadFile_TaskScopedChatAttachment(t *testing.T) {
+func TestUploadFile_RunScopedChatAttachment(t *testing.T) {
 	if testPool == nil {
 		t.Skip("test database not available")
 	}
@@ -130,10 +130,10 @@ func TestUploadFile_TaskScopedChatAttachment(t *testing.T) {
 
 	agentID := createHandlerTestAgent(t, "ChatReplyAgent", []byte("[]"))
 	sessionID := createHandlerTestChatSession(t, agentID)
-	taskID := seedRunningChatTask(t, agentID, sessionID)
+	runID := seedRunningChatRun(t, agentID, sessionID)
 
 	t.Run("agent uploads for own chat task", func(t *testing.T) {
-		w := uploadWithTaskID(t, agentID, taskID, taskID)
+		w := uploadWithRunID(t, agentID, runID, runID)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
@@ -153,21 +153,21 @@ func TestUploadFile_TaskScopedChatAttachment(t *testing.T) {
 		if resp.UploaderType != "agent" {
 			t.Fatalf("uploader_type: want agent, got %s", resp.UploaderType)
 		}
-		// task_id is set on the row (not exposed in the DTO — verify via DB).
-		var dbTask *string
+		// run_id is set on the row (not exposed in the DTO — verify via DB).
+		var dbRun *string
 		if err := testPool.QueryRow(context.Background(),
-			`SELECT task_id::text FROM attachment WHERE id = $1`, resp.ID).Scan(&dbTask); err != nil {
-			t.Fatalf("query task_id: %v", err)
+			`SELECT run_id::text FROM attachment WHERE id = $1`, resp.ID).Scan(&dbRun); err != nil {
+			t.Fatalf("query run_id: %v", err)
 		}
-		if dbTask == nil || *dbTask != taskID {
-			t.Fatalf("task_id: want %s, got %v", taskID, dbTask)
+		if dbRun == nil || *dbRun != runID {
+			t.Fatalf("run_id: want %s, got %v", runID, dbRun)
 		}
 	})
 
 	t.Run("member actor rejected", func(t *testing.T) {
 		// A plain member request (no task-token headers) is rejected by the
 		// task-token boundary before any task lookup.
-		w := uploadWithTaskID(t, "", "", taskID)
+		w := uploadWithRunID(t, "", "", runID)
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("member upload: expected 403, got %d: %s", w.Code, w.Body.String())
 		}
@@ -175,17 +175,17 @@ func TestUploadFile_TaskScopedChatAttachment(t *testing.T) {
 
 	t.Run("forged agent headers without task token rejected", func(t *testing.T) {
 		// The real forgery vector: a normal JWT / sili_ PAT request that the auth
-		// middleware did NOT stamp with X-Actor-Source=task_token, but which
-		// forges a valid X-Agent-ID + X-Task-ID pair (resolveActor's fallback
-		// would otherwise accept it). Even with the form task_id equal to the
-		// forged X-Task-ID, the missing task-token source must make it 403 —
+		// middleware did NOT stamp with X-Actor-Source=agent_run_token, but which
+		// forges a valid X-Agent-ID + X-Run-ID pair (resolveActor's fallback
+		// would otherwise accept it). Even with the form run_id equal to the
+		// forged X-Run-ID, the missing task-token source must make it 403 —
 		// otherwise a member who learns a task ID could inject an attachment
 		// into that task's chat reply.
-		w := doUpload(t, taskID, map[string]string{
+		w := doUpload(t, runID, map[string]string{
 			"X-User-ID":      testUserID,
 			"X-Workspace-ID": testWorkspaceID,
 			"X-Agent-ID":     agentID,
-			"X-Task-ID":      taskID,
+			"X-Run-ID":       runID,
 			// deliberately NO X-Actor-Source
 		})
 		if w.Code != http.StatusForbidden {
@@ -195,58 +195,58 @@ func TestUploadFile_TaskScopedChatAttachment(t *testing.T) {
 
 	t.Run("different agent's task rejected", func(t *testing.T) {
 		otherAgent := createHandlerTestAgent(t, "OtherReplyAgent", []byte("[]"))
-		otherTask := createHandlerTestTaskForAgent(t, otherAgent)
-		// Actor is agentID (valid X-Agent-ID/X-Task-ID pair), but the upload
+		otherRun := createHandlerTestRunForAgent(t, otherAgent)
+		// Actor is agentID (valid X-Agent-ID/X-Run-ID pair), but the upload
 		// targets a task owned by a different agent.
-		w := uploadWithTaskID(t, agentID, taskID, otherTask)
+		w := uploadWithRunID(t, agentID, runID, otherRun)
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("foreign task upload: expected 403, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
 	t.Run("same agent's other chat task rejected", func(t *testing.T) {
-		// X-Task-ID is this run's own task, but the form targets a DIFFERENT
+		// X-Run-ID is this run's own task, but the form targets a DIFFERENT
 		// chat task of the SAME agent (another session, possibly another user).
-		// Without pinning the form task_id to the token's bound X-Task-ID this
+		// Without pinning the form run_id to the token's bound X-Run-ID this
 		// is a cross-session attachment-injection vector.
 		otherSession := createHandlerTestChatSession(t, agentID)
-		otherChatTask := seedRunningChatTask(t, agentID, otherSession)
-		w := uploadWithTaskID(t, agentID, taskID, otherChatTask)
+		otherChatRun := seedRunningChatRun(t, agentID, otherSession)
+		w := uploadWithRunID(t, agentID, runID, otherChatRun)
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("cross-task upload: expected 403, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
 	t.Run("non-chat task rejected", func(t *testing.T) {
-		issueTask := createHandlerTestTaskForAgent(t, agentID) // no chat_session_id
-		w := uploadWithTaskID(t, agentID, issueTask, issueTask)
+		taskRun := createHandlerTestRunForAgent(t, agentID) // no chat_session_id
+		w := uploadWithRunID(t, agentID, taskRun, taskRun)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("non-chat task upload: expected 400, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
-	t.Run("malformed task_id rejected", func(t *testing.T) {
-		w := uploadWithTaskID(t, agentID, taskID, "not-a-uuid")
+	t.Run("malformed run_id rejected", func(t *testing.T) {
+		w := uploadWithRunID(t, agentID, runID, "not-a-uuid")
 		if w.Code != http.StatusBadRequest {
-			t.Fatalf("bad task_id: expected 400, got %d: %s", w.Code, w.Body.String())
+			t.Fatalf("bad run_id: expected 400, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }
 
 // TestChatAttachment_UnboundOrphanReapedOnSessionDelete locks the cleanup
-// guarantee that lets us keep task_id as a plain (FK-less) transient column: an
-// unbound task-tagged upload (task_id set, chat_message_id NULL — e.g. the turn
+// guarantee that lets us keep run_id as a plain (FK-less) transient column: an
+// unbound task-tagged upload (run_id set, chat_message_id NULL — e.g. the turn
 // failed before binding) is reaped when its chat_session is deleted, via
 // attachment.chat_session_id's ON DELETE CASCADE. Cleanup does not depend on the
-// task relationship, so no attachment.task_id foreign key / cascade is needed.
+// task relationship, so no attachment.run_id foreign key / cascade is needed.
 func TestChatAttachment_UnboundOrphanReapedOnSessionDelete(t *testing.T) {
 	if testPool == nil {
 		t.Skip("test database not available")
 	}
 	agentID := createHandlerTestAgent(t, "OrphanCleanupAgent", []byte("[]"))
 	sessionID := createHandlerTestChatSession(t, agentID)
-	taskID := seedRunningChatTask(t, agentID, sessionID)
-	attID := seedAgentChatAttachment(t, agentID, sessionID, taskID)
+	runID := seedRunningChatRun(t, agentID, sessionID)
+	attID := seedAgentChatAttachment(t, agentID, sessionID, runID)
 
 	if _, err := testPool.Exec(context.Background(),
 		`DELETE FROM chat_session WHERE id = $1`, sessionID); err != nil {
@@ -265,7 +265,7 @@ func TestChatAttachment_UnboundOrphanReapedOnSessionDelete(t *testing.T) {
 
 // TestCompleteTask_BindsChatAttachments covers the read/bind side: on chat task
 // completion the agent's task-scoped attachments bind to the assistant reply.
-func TestCompleteTask_BindsChatAttachments(t *testing.T) {
+func TestCompleteRun_BindsChatAttachments(t *testing.T) {
 	if testPool == nil {
 		t.Skip("test database not available")
 	}
@@ -273,14 +273,14 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 	sessionID := createHandlerTestChatSession(t, agentID)
 
 	t.Run("output + attachment binds to reply", func(t *testing.T) {
-		taskID := seedRunningChatTask(t, agentID, sessionID)
-		attID := seedAgentChatAttachment(t, agentID, sessionID, taskID)
+		runID := seedRunningChatRun(t, agentID, sessionID)
+		attID := seedAgentChatAttachment(t, agentID, sessionID, runID)
 
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
-			parseUUID(taskID), []byte(`{"output":"here is the chart"}`), "", "", false, ""); err != nil {
+		if _, err := testHandler.AgentRunService.CompleteRun(context.Background(),
+			parseUUID(runID), []byte(`{"output":"here is the chart"}`), "", "", false, ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
-		msgID, content, ok := assistantMessageForTask(t, taskID)
+		msgID, content, ok := assistantMessageForRun(t, runID)
 		if !ok {
 			t.Fatal("expected an assistant message to be created")
 		}
@@ -294,14 +294,14 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 	})
 
 	t.Run("empty output + attachment still creates message and binds", func(t *testing.T) {
-		taskID := seedRunningChatTask(t, agentID, sessionID)
-		attID := seedAgentChatAttachment(t, agentID, sessionID, taskID)
+		runID := seedRunningChatRun(t, agentID, sessionID)
+		attID := seedAgentChatAttachment(t, agentID, sessionID, runID)
 
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
-			parseUUID(taskID), []byte(`{"output":""}`), "", "", false, ""); err != nil {
+		if _, err := testHandler.AgentRunService.CompleteRun(context.Background(),
+			parseUUID(runID), []byte(`{"output":""}`), "", "", false, ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
-		msgID, content, ok := assistantMessageForTask(t, taskID)
+		msgID, content, ok := assistantMessageForRun(t, runID)
 		if !ok {
 			t.Fatal("image-only reply must still create an assistant message")
 		}
@@ -315,19 +315,19 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 	})
 
 	t.Run("empty output + no attachment creates no message", func(t *testing.T) {
-		taskID := seedRunningChatTask(t, agentID, sessionID)
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
-			parseUUID(taskID), []byte(`{"output":""}`), "", "", false, ""); err != nil {
+		runID := seedRunningChatRun(t, agentID, sessionID)
+		if _, err := testHandler.AgentRunService.CompleteRun(context.Background(),
+			parseUUID(runID), []byte(`{"output":""}`), "", "", false, ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
-		if _, _, ok := assistantMessageForTask(t, taskID); ok {
+		if _, _, ok := assistantMessageForRun(t, runID); ok {
 			t.Fatal("no output and no attachments must not create an assistant message")
 		}
 	})
 
-	t.Run("null task_id attachment in same session is not bound", func(t *testing.T) {
-		taskID := seedRunningChatTask(t, agentID, sessionID)
-		// A loose session attachment with NO task_id (e.g. legacy row) must be
+	t.Run("null run_id attachment in same session is not bound", func(t *testing.T) {
+		runID := seedRunningChatRun(t, agentID, sessionID)
+		// A loose session attachment with NO run_id (e.g. legacy row) must be
 		// left alone — binding is scoped to the producing task.
 		var looseID string
 		if err := testPool.QueryRow(context.Background(), `
@@ -339,28 +339,28 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 		}
 		t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM attachment WHERE id = $1`, looseID) })
 
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
-			parseUUID(taskID), []byte(`{"output":"done"}`), "", "", false, ""); err != nil {
+		if _, err := testHandler.AgentRunService.CompleteRun(context.Background(),
+			parseUUID(runID), []byte(`{"output":"done"}`), "", "", false, ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
 		if got := attachmentMessageID(t, looseID); got != nil {
-			t.Fatalf("null-task_id attachment must not be bound, got %v", got)
+			t.Fatalf("null-run_id attachment must not be bound, got %v", got)
 		}
 	})
 
 	t.Run("already-owned attachment is not stolen", func(t *testing.T) {
 		// The bind's WHERE guards are symmetric: comment_id IS NULL AND
-		// issue_id IS NULL AND chat_message_id IS NULL. We exercise the guard
+		// task_id IS NULL AND chat_message_id IS NULL. We exercise the guard
 		// via an already-bound (chat_message_id set) row with this task's
-		// task_id — proving an attachment already claimed by another owner is
+		// run_id — proving an attachment already claimed by another owner is
 		// never re-pointed at the new reply.
-		taskID := seedRunningChatTask(t, agentID, sessionID)
+		runID := seedRunningChatRun(t, agentID, sessionID)
 		var claimedID string
 		if err := testPool.QueryRow(context.Background(), `
-			INSERT INTO attachment (workspace_id, task_id, chat_session_id, uploader_type, uploader_id, filename, url, content_type, size_bytes)
+			INSERT INTO attachment (workspace_id, run_id, chat_session_id, uploader_type, uploader_id, filename, url, content_type, size_bytes)
 			VALUES ($1, $2, $3, 'agent', $4, 'claimed.png', 'https://cdn.example/claimed.png', 'image/png', 10)
 			RETURNING id
-		`, testWorkspaceID, taskID, sessionID, agentID).Scan(&claimedID); err != nil {
+		`, testWorkspaceID, runID, sessionID, agentID).Scan(&claimedID); err != nil {
 			t.Fatalf("seed attachment: %v", err)
 		}
 		t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM attachment WHERE id = $1`, claimedID) })
@@ -377,8 +377,8 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 			t.Fatalf("pre-bind attachment: %v", err)
 		}
 
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
-			parseUUID(taskID), []byte(`{"output":"done"}`), "", "", false, ""); err != nil {
+		if _, err := testHandler.AgentRunService.CompleteRun(context.Background(),
+			parseUUID(runID), []byte(`{"output":"done"}`), "", "", false, ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
 		got := attachmentMessageID(t, claimedID)
@@ -388,10 +388,10 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 	})
 
 	t.Run("FailTask does not bind attachments", func(t *testing.T) {
-		taskID := seedRunningChatTask(t, agentID, sessionID)
-		attID := seedAgentChatAttachment(t, agentID, sessionID, taskID)
-		if _, err := testHandler.TaskService.FailTask(context.Background(),
-			parseUUID(taskID), "agent crashed", "", "", "", false, ""); err != nil {
+		runID := seedRunningChatRun(t, agentID, sessionID)
+		attID := seedAgentChatAttachment(t, agentID, sessionID, runID)
+		if _, err := testHandler.AgentRunService.FailRun(context.Background(),
+			parseUUID(runID), "agent crashed", "", "", "", false, ""); err != nil {
 			t.Fatalf("FailTask: %v", err)
 		}
 		if got := attachmentMessageID(t, attID); got != nil {

@@ -94,9 +94,9 @@ func TestPrepareIsolated_WindowsKillsDescendantBeforeRetry(t *testing.T) {
 	params := PrepareParams{
 		WorkspacesRoot: filepath.Join(dir, "workspaces"),
 		WorkspaceID:    "ws-windows-job",
-		TaskID:         "12345678-1111-2222-3333-444444444444",
+		RunID:          "12345678-1111-2222-3333-444444444444",
 		Provider:       "claude",
-		Task:           TaskContextForEnv{IssueID: "issue-windows-job"},
+		AgentRun:       RunContextForEnv{TaskID: "task-windows-job"},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -136,7 +136,7 @@ func TestPrepareIsolated_WindowsKillsDescendantBeforeRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("immediate retry PrepareIsolated: %v", err)
 	}
-	if env == nil || env.RootDir != PredictRootDir(params.WorkspacesRoot, params.WorkspaceID, params.TaskID) {
+	if env == nil || env.RootDir != PredictRootDir(params.WorkspacesRoot, params.WorkspaceID, params.RunID) {
 		t.Fatalf("retry environment = %#v, want the predicted root", env)
 	}
 }

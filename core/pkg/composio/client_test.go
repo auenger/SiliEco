@@ -512,7 +512,7 @@ func TestExecuteTool_Success(t *testing.T) {
 		}
 		writeJSON(t, w, http.StatusOK, map[string]any{
 			"successful": true,
-			"data":       map[string]any{"issue_number": float64(42)},
+			"data":       map[string]any{"task_number": float64(42)},
 			"log_id":     "log_1",
 		})
 	})
@@ -524,7 +524,7 @@ func TestExecuteTool_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
-	if !resp.Successful || resp.Data["issue_number"].(float64) != 42 || resp.LogID != "log_1" {
+	if !resp.Successful || resp.Data["task_number"].(float64) != 42 || resp.LogID != "log_1" {
 		t.Errorf("unexpected response: %+v", resp)
 	}
 }

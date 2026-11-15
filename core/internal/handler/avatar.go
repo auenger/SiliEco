@@ -63,7 +63,7 @@ import (
 //     the server never published as an avatar;
 //   - only image extensions resolve at all (see avatarContentType);
 //   - and the object must be AVATAR-CLASS — a standalone image upload that is
-//     not attached to an issue, comment, chat session, chat message, or task
+//     not attached to an task, comment, chat session, chat message, or task
 //     (see avatarKeyIsPublishable).
 //
 // That last rule is the authorization boundary, and it is enforced on BOTH
@@ -80,14 +80,14 @@ import (
 // legitimately reuses the source agent's avatar object, which a different
 // admin may have uploaded. The remaining theoretical case — publishing someone
 // else's *unbound* image — requires knowing that object's URL, and unbound
-// rows appear in no listing endpoint (ListAttachments is by issue,
+// rows appear in no listing endpoint (ListAttachments is by task,
 // groupAttachments by comment, chat attachments by message), so the only party
 // who ever sees one is its own uploader.
 
 const avatarURLPathPrefix = "/api/avatars/"
 
 // workspaceUploadNamespace is the storage prefix under which workspace-scoped
-// content lives — issue/comment/chat attachments, avatars, and channel media
+// content lives — task/comment/chat attachments, avatars, and channel media
 // ingest alike (see UploadFile and lark's mediaObjectKey). It is the only
 // namespace where an object can belong to somebody other than whoever is
 // setting the avatar, so it is the only one that has to prove itself.
@@ -246,7 +246,7 @@ func (h *Handler) normalizeStoredAvatarURL(raw string) string {
 
 // acceptAvatarURL validates a client-supplied avatar_url and returns the value
 // to persist. It writes the error response and returns ok=false when the
-// caller must abort — same shape as loadIssueForUser and friends.
+// caller must abort — same shape as loadTaskForUser and friends.
 //
 // `current` is the entity's stored avatar_url. An unchanged re-send is
 // accepted without re-validation: clients round-trip whole objects, and a
@@ -264,7 +264,7 @@ func (h *Handler) acceptAvatarURL(w http.ResponseWriter, r *http.Request, raw, c
 		return value, true
 	}
 	if !h.avatarKeyIsPublishable(r.Context(), key) {
-		writeError(w, http.StatusForbidden, "avatar_url must reference a standalone image upload, not a file attached to an issue, comment, or chat")
+		writeError(w, http.StatusForbidden, "avatar_url must reference a standalone image upload, not a file attached to an task, comment, or chat")
 		return "", false
 	}
 	return value, true
@@ -307,13 +307,13 @@ func (h *Handler) avatarKeyIsPublishable(ctx context.Context, key string) bool {
 }
 
 // attachmentIsBound reports whether an upload is attached to workspace content.
-// A bound row is somebody's issue/comment/chat file — never an avatar.
+// A bound row is somebody's task/comment/chat file — never an avatar.
 func attachmentIsBound(att db.Attachment) bool {
-	return att.IssueID.Valid ||
+	return att.TaskID.Valid ||
 		att.CommentID.Valid ||
 		att.ChatSessionID.Valid ||
 		att.ChatMessageID.Valid ||
-		att.TaskID.Valid
+		att.RunID.Valid
 }
 
 // attachmentIDFromStorageKey recovers the attachment id UploadFile embedded in

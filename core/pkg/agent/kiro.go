@@ -122,14 +122,14 @@ func (b *kiroBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 	//
 	// The only positive proof available at this layer is a terminal
 	// ToolResult with status=="completed" for a finishing tool
-	// (goal_complete or `silieco issue comment add`). We record the status
+	// (goal_complete or `silieco task comment add`). We record the status
 	// of the MOST RECENT such result (ordered, keyed per CallID) so a later
 	// failed delivery correctly overrides an earlier success — e.g.
 	// "progress comment completed → final comment failed → -32603" must stay
 	// failed, while "first attempt failed → retry completed → -32603" is a
 	// real completion.
 	var goalCompleteCallIDs sync.Map
-	var issueCommentCallIDs sync.Map
+	var taskCommentCallIDs sync.Map
 	var finishingMu sync.Mutex
 	var lastFinishingResultStatus string // "", "completed", or "failed"
 
@@ -152,20 +152,20 @@ func (b *kiroBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 				if msg.Tool == "goal_complete" && msg.CallID != "" {
 					goalCompleteCallIDs.Store(msg.CallID, struct{}{})
 				}
-				// Recognize `silieco issue comment add` by its command
+				// Recognize `silieco task comment add` by its command
 				// payload regardless of how the adapter titled the tool.
 				// GPT-5.6 Sol may label the shell tool something other than
 				// the aliases kiroToolNameFromTitle folds into "terminal"
 				// (e.g. "execute"/"run"), so gating on msg.Tool=="terminal"
-				// here would miss it entirely (issue #5509). We still require
+				// here would miss it entirely (task #5509). We still require
 				// a CallID so the tool use can be correlated to its result.
-				if msg.CallID != "" && isKiroIssueCommentAddTool(msg) {
-					issueCommentCallIDs.Store(msg.CallID, struct{}{})
+				if msg.CallID != "" && isKiroTaskCommentAddTool(msg) {
+					taskCommentCallIDs.Store(msg.CallID, struct{}{})
 				}
 			}
 			if msg.Type == MessageToolResult {
 				_, isGoal := goalCompleteCallIDs.LoadAndDelete(msg.CallID)
-				_, isComment := issueCommentCallIDs.LoadAndDelete(msg.CallID)
+				_, isComment := taskCommentCallIDs.LoadAndDelete(msg.CallID)
 				if isGoal || isComment {
 					// Record this finishing tool's terminal outcome. The
 					// most recent result wins, so the guard sees the final
@@ -526,22 +526,22 @@ func isKiroOversizedHistoryImage(err error) bool {
 		strings.Contains(data, "image dimensions exceed max allowed size")
 }
 
-// isKiroIssueCommentAddTool reports whether a tool-use message is a
-// `silieco issue comment add` invocation. It keys purely off the command
+// isKiroTaskCommentAddTool reports whether a tool-use message is a
+// `silieco task comment add` invocation. It keys purely off the command
 // payload, not the normalized tool name: GPT-5.6 Sol adapters may title the
 // shell tool with a name that doesn't fold into "terminal" (the earlier
 // msg.Tool=="terminal" gate silently dropped those and left completed tasks
-// marked failed — see #5509). isKiroIssueCommentAddCommand is strict enough
+// marked failed — see #5509). isKiroTaskCommentAddCommand is strict enough
 // that no non-shell tool's input will accidentally match.
-func isKiroIssueCommentAddTool(msg Message) bool {
+func isKiroTaskCommentAddTool(msg Message) bool {
 	command, _ := msg.Input["command"].(string)
-	return isKiroIssueCommentAddCommand(command)
+	return isKiroTaskCommentAddCommand(command)
 }
 
-func isKiroIssueCommentAddCommand(command string) bool {
+func isKiroTaskCommentAddCommand(command string) bool {
 	parts := trimLeadingEnvAssignments(strings.Fields(command))
 	// Some runtimes route terminal calls through a shell wrapper such as
-	// `sh -c "silieco issue comment add ..."`; unwrap a single such layer so
+	// `sh -c "silieco task comment add ..."`; unwrap a single such layer so
 	// the real invocation is still recognized.
 	if len(parts) >= 3 && isPOSIXShellName(parts[0]) && parts[1] == "-c" {
 		inner := strings.Trim(strings.Join(parts[2:], " "), "\"'")
@@ -554,11 +554,11 @@ func isKiroIssueCommentAddCommand(command string) bool {
 	if executable != "silieco" && !strings.HasSuffix(executable, "/silieco") {
 		return false
 	}
-	return parts[1] == "issue" && parts[2] == "comment" && parts[3] == "add"
+	return parts[1] == "task" && parts[2] == "comment" && parts[3] == "add"
 }
 
 // trimLeadingEnvAssignments drops leading `KEY=VALUE` tokens so an invocation
-// like `SILIECO_TOKEN=x silieco issue comment add ...` is still recognized.
+// like `SILIECO_TOKEN=x silieco task comment add ...` is still recognized.
 func trimLeadingEnvAssignments(parts []string) []string {
 	for len(parts) > 0 && isEnvAssignment(parts[0]) {
 		parts = parts[1:]

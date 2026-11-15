@@ -231,9 +231,9 @@
     "name_placeholder": "Acme Inc、我的实验室、副业...",
     "url_label": "URL",
     "slug_placeholder": "acme",
-    "issue_prefix_label": "task 前缀",
-    "issue_prefix_prefix": "task 编号会形如 ",
-    "issue_prefix_suffix": "。之后可以在设置里修改。",
+    "task_prefix_label": "task 前缀",
+    "task_prefix_prefix": "task 编号会形如 ",
+    "task_prefix_suffix": "。之后可以在设置里修改。",
     "create_new_title": "创建一个新工作区",
     "create_new_subtitle": "重新开始 —— 给工作的另一面留一个独立空间。",
     "hint_opening": "正在打开 {{name}}。",
@@ -267,8 +267,8 @@
     "preview": {
       "inbox_label": "收件箱",
       "inbox_meta": "你的通知",
-      "issues_label": "Tasks",
-      "issues_meta": "共享任务面板",
+      "tasks_label": "Tasks",
+      "tasks_meta": "共享任务面板",
       "agents_label": "智能体",
       "agents_meta": "你的 AI 队友",
       "projects_label": "项目",
@@ -355,5 +355,7 @@
   },
   "errors": {
     "skip_failed": "完成上手引导失败"
-  }
+  },
+  "skip_all": "全部跳过，稍后设置",
+  "skip_all_pending": "正在跳过…"
 }

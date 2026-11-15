@@ -20,8 +20,8 @@ import { useLocaleAdapter } from "@silieco/core/i18n/react";
 import { useAuthStore } from "@silieco/core/auth";
 import {
   useCommentComposerStore,
-  useIssueLinkStore,
-} from "@silieco/core/issues/stores";
+  useTaskLinkStore,
+} from "@silieco/core/tasks/stores";
 import { api } from "@silieco/core/api";
 import { browserTimezone, timezoneOptions } from "../../common/timezone-select";
 import { useT } from "../../i18n";
@@ -167,7 +167,7 @@ export function PreferencesTab() {
 
           <StickyCommentBarRow />
 
-          <IssueLinkNewTabRow />
+          <TaskLinkNewTabRow />
         </SettingsCard>
       </SettingsSection>
     </SettingsTab>
@@ -198,15 +198,15 @@ function StickyCommentBarRow() {
   );
 }
 
-function IssueLinkNewTabRow() {
+function TaskLinkNewTabRow() {
   const { t } = useT("settings");
-  const openInNewTab = useIssueLinkStore((s) => s.openInNewTab);
-  const setOpenInNewTab = useIssueLinkStore((s) => s.setOpenInNewTab);
+  const openInNewTab = useTaskLinkStore((s) => s.openInNewTab);
+  const setOpenInNewTab = useTaskLinkStore((s) => s.setOpenInNewTab);
 
   return (
     <SettingsRow
-      label={t(($) => $.preferences.issue_link_new_tab.title)}
-      description={t(($) => $.preferences.issue_link_new_tab.hint)}
+      label={t(($) => $.preferences.task_link_new_tab.title)}
+      description={t(($) => $.preferences.task_link_new_tab.hint)}
     >
       <Switch
         checked={openInNewTab}
@@ -216,7 +216,7 @@ function IssueLinkNewTabRow() {
             id: "settings-auto-save",
           });
         }}
-        aria-label={t(($) => $.preferences.issue_link_new_tab.title)}
+        aria-label={t(($) => $.preferences.task_link_new_tab.title)}
       />
     </SettingsRow>
   );

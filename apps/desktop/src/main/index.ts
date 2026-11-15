@@ -48,10 +48,10 @@ import {
   windowStateFilePath,
 } from "./window-state";
 import {
-  encodeIssueWindowArgument,
-  parseIssueWindowRequest,
-  type IssueWindowContext,
-} from "../shared/issue-window";
+  encodeTaskWindowArgument,
+  parseTaskWindowRequest,
+  type TaskWindowContext,
+} from "../shared/task-window";
 import {
   AUTH_SESSION_STATE_CHANNEL,
   parseAuthSessionUserId,
@@ -135,10 +135,10 @@ function freezeBreadcrumbPath(): string {
 }
 
 let mainWindow: BrowserWindow | null = null;
-const issueWindows = new Set<BrowserWindow>();
+const taskWindows = new Set<BrowserWindow>();
 const authSessionCoordinator = new AuthSessionCoordinator<BrowserWindow>(
   (window) => {
-    issueWindows.delete(window);
+    taskWindows.delete(window);
     if (!window.isDestroyed()) window.close();
   },
 );
@@ -274,7 +274,7 @@ function createRendererWebPreferences(
     //      `sandbox: false`, so `plugins: true` does not meaningfully widen
     //      the renderer's attack surface beyond what is already accepted.
     //   2. The only PDFs that reach an iframe here are signed CloudFront URLs
-    //      we ourselves issued (see useDownloadAttachment); user-supplied URLs
+    //      we ourselves taskd (see useDownloadAttachment); user-supplied URLs
     //      are routed through `setWindowOpenHandler` → `openExternalSafely` and
     //      cannot land in this renderer.
     //   3. Chromium's PDFium plugin is itself sandboxed inside its own process
@@ -299,7 +299,7 @@ function loadRenderer(window: BrowserWindow): void {
       : pathToFileURL(rendererEntry).toString();
 
   // Installed before the load so the very first navigation is already covered.
-  // Both the main window and every issue window load through here, so guarding
+  // Both the main window and every task window load through here, so guarding
   // this one site covers both — see navigation-guard.ts for what is and is not
   // in scope (it is origin hardening; in-app routing never reaches it).
   installNavigationGuard(window, rendererURL);
@@ -515,7 +515,7 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-function createIssueWindow(context: IssueWindowContext): void {
+function createTaskWindow(context: TaskWindowContext): void {
   const systemLocale = getSystemLocale();
   lastKnownSystemLocale = systemLocale;
 
@@ -533,15 +533,15 @@ function createIssueWindow(context: IssueWindowContext): void {
       ? { icon: BUNDLED_ICON_PATH }
       : {}),
     webPreferences: createRendererWebPreferences(systemLocale, [
-      encodeIssueWindowArgument(context),
+      encodeTaskWindowArgument(context),
     ]),
   });
 
-  issueWindows.add(window);
-  authSessionCoordinator.registerIssueWindow(window);
+  taskWindows.add(window);
+  authSessionCoordinator.registerTaskWindow(window);
   window.on("closed", () => {
-    issueWindows.delete(window);
-    authSessionCoordinator.unregisterIssueWindow(window);
+    taskWindows.delete(window);
+    authSessionCoordinator.unregisterTaskWindow(window);
   });
 
   window.on("ready-to-show", () => window.show());
@@ -579,7 +579,7 @@ function createIssueWindow(context: IssueWindowContext): void {
       ? undefined
       : (payload) =>
           writeFreezeBreadcrumb(freezeBreadcrumbPath(), {
-            ownerId: `issue:${window.id}`,
+            ownerId: `task:${window.id}`,
             kind: payload.kind,
             context: payload.context,
             ts: Date.now(),
@@ -588,7 +588,7 @@ function createIssueWindow(context: IssueWindowContext): void {
     clearBreadcrumb: is.dev
       ? undefined
       : () =>
-          clearFreezeBreadcrumb(freezeBreadcrumbPath(), `issue:${window.id}`),
+          clearFreezeBreadcrumb(freezeBreadcrumbPath(), `task:${window.id}`),
     log: devLog,
   });
 
@@ -714,20 +714,20 @@ if (!gotTheLock) {
     });
 
     // Renderer requests its own window close (e.g. Cmd+W on the last main
-    // tab, or Cmd+W anywhere in a dedicated issue window).
+    // tab, or Cmd+W anywhere in a dedicated task window).
     ipcMain.on("window:close", (event) => {
       BrowserWindow.fromWebContents(event.sender)?.close();
     });
 
-    ipcMain.handle("window:open-issue", (event, request: unknown) => {
+    ipcMain.handle("window:open-task", (event, request: unknown) => {
       if (!BrowserWindow.fromWebContents(event.sender)) {
         return { ok: false, reason: "invalid_request" } as const;
       }
-      const context = parseIssueWindowRequest(request);
+      const context = parseTaskWindowRequest(request);
       if (!context) {
         return { ok: false, reason: "invalid_request" } as const;
       }
-      createIssueWindow(context);
+      createTaskWindow(context);
       return { ok: true } as const;
     });
 
@@ -790,7 +790,7 @@ if (!gotTheLock) {
     });
 
     // Preload announces each listener only after it has been installed by the
-    // main renderer. Ignore issue-window senders so they can never drain a
+    // main renderer. Ignore task-window senders so they can never drain a
     // payload intended for the tabbed application window.
     ipcMain.on(
       MAIN_RENDERER_CHANNEL_STATE_CHANNEL,
@@ -807,7 +807,7 @@ if (!gotTheLock) {
     );
 
     // Account identity is the only cross-renderer auth signal. Main remains
-    // authoritative and closes issue windows instead of copying credentials.
+    // authoritative and closes task windows instead of copying credentials.
     ipcMain.on(AUTH_SESSION_STATE_CHANNEL, (event, value: unknown) => {
       const sourceWindow = BrowserWindow.fromWebContents(event.sender);
       const userId = parseAuthSessionUserId(value);
@@ -821,8 +821,8 @@ if (!gotTheLock) {
         }
         return;
       }
-      if (issueWindows.has(sourceWindow)) {
-        authSessionCoordinator.reportIssue(sourceWindow, userId);
+      if (taskWindows.has(sourceWindow)) {
+        authSessionCoordinator.reportTask(sourceWindow, userId);
       }
     });
 
@@ -845,8 +845,8 @@ if (!gotTheLock) {
       if (sourceWindow === mainWindow) {
         if (!authSessionCoordinator.hasActiveMainSession()) return;
       } else if (
-        !issueWindows.has(sourceWindow) ||
-        !authSessionCoordinator.isCurrentIssueSession(sourceWindow)
+        !taskWindows.has(sourceWindow) ||
+        !authSessionCoordinator.isCurrentTaskSession(sourceWindow)
       ) {
         return;
       }
@@ -869,12 +869,12 @@ if (!gotTheLock) {
         // A banner emitted for user A must not navigate after the main window
         // logs out or switches to user B.
         if (notificationSessionGeneration !== authSessionGeneration) return;
-        // Recreate the main window when an issue-only window outlived it, then
+        // Recreate the main window when an task-only window outlived it, then
         // wait for the inbox listener before delivering the navigation.
         dispatchToMainRenderer("inbox:open", {
           slug: payload.slug,
           itemId: payload.itemId,
-          issueKey: payload.issueKey,
+          taskKey: payload.taskKey,
         });
       });
       notification.show();

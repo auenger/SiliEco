@@ -706,7 +706,7 @@ func TestChannelMessageFromLark_NormalizesAndStashesRaw(t *testing.T) {
 		ChatType:          ChatTypeGroup,
 		SenderOpenID:      "ou_user",
 		Body:              "enriched body",
-		CommandBody:       "/issue do it",
+		CommandBody:       "/task do it",
 		MessageType:       "post",
 		AddressedToBot:    true,
 		ForceFreshSession: true,
@@ -738,7 +738,7 @@ func TestChannelMessageFromLark_NormalizesAndStashesRaw(t *testing.T) {
 	if err != nil {
 		t.Fatalf("larkMsgFromRaw: %v", err)
 	}
-	if got.AppID != "cli" || got.CommandBody != "/issue do it" || got.MessageType != "post" {
+	if got.AppID != "cli" || got.CommandBody != "/task do it" || got.MessageType != "post" {
 		t.Fatalf("raw round-trip lost platform fields: %+v", got)
 	}
 }
@@ -766,7 +766,7 @@ func TestDispatchResultFromEngine(t *testing.T) {
 	res := dispatchResultFromEngine(engine.Result{
 		Outcome:         engine.OutcomeNeedsBinding,
 		Sender:          "ou_user",
-		IssueIdentifier: "SILI-7",
+		TaskIdentifier: "SILI-7",
 	})
 	if res.Outcome != OutcomeNeedsBinding {
 		t.Fatalf("outcome not mapped: %q", res.Outcome)
@@ -774,7 +774,7 @@ func TestDispatchResultFromEngine(t *testing.T) {
 	if res.SenderOpenID != "ou_user" {
 		t.Fatalf("sender not mapped: %q", res.SenderOpenID)
 	}
-	if res.IssueIdentifier != "SILI-7" {
-		t.Fatalf("issue identifier not mapped: %q", res.IssueIdentifier)
+	if res.TaskIdentifier != "SILI-7" {
+		t.Fatalf("task identifier not mapped: %q", res.TaskIdentifier)
 	}
 }

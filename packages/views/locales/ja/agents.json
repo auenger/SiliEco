@@ -72,7 +72,7 @@
     "fallback_runtime_cloud": "クラウド",
     "fallback_runtime_local": "ローカル",
     "actions_aria": "行の操作",
-    "task_count_other": "{{count}} 件のタスク"
+    "run_count_other": "{{count}} 件のタスク"
   },
   "activity_tooltip": {
     "created_today": "今日作成",
@@ -562,18 +562,18 @@
       "avg_duration_label": "平均時間",
       "failed_count": "{{count}} 回失敗",
       "failed_label": "失敗",
-      "source_issue": "Task",
+      "source_task": "Task",
       "source_chat": "チャット",
       "source_autopilot": "オートパイロット",
       "source_untracked": "未追跡",
       "source_quick_create": "クイック作成",
-      "source_creating_issue": "Taskを作成中",
+      "source_creating_task": "Taskを作成中",
       "source_chat_session": "チャットセッション",
       "source_autopilot_run": "オートパイロット実行",
-      "issue_short_fallback": "Task {{prefix}}...",
+      "task_short_fallback": "Task {{prefix}}...",
       "triggered_by": "トリガーした人",
-      "open_issue_aria": "Taskを開く",
-      "open_issue_tooltip": "Taskを開く",
+      "open_task_aria": "Taskを開く",
+      "open_task_tooltip": "Taskを開く",
       "transcript_tooltip": "トランスクリプトを表示",
       "cancel_task_aria": "タスクをキャンセル",
       "cancel_task_tooltip": "タスクをキャンセル",
@@ -642,8 +642,8 @@
     "model_unset": "ランタイム既定"
   },
   "live_peek": {
-    "current_issue_label": "現在の作業",
-    "no_current_issue": "タスクなし",
+    "current_task_label": "現在の作業",
+    "no_current_task": "タスクなし",
     "last_activity_label": "最終アクセス",
     "no_recent_activity": "最近のアクティビティなし",
     "failed_indicator": "失敗"

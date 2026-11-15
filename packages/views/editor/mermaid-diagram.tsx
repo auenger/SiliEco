@@ -6,7 +6,7 @@
  * Extracted from `readonly-content.tsx` so the Tiptap CodeBlock NodeView
  * (`code-block-view.tsx`) can render the same component when a code block's
  * language is `mermaid`. Previously Mermaid only worked in read-only
- * markdown surfaces (comment cards) — issue descriptions, which always
+ * markdown surfaces (comment cards) — task descriptions, which always
  * stay in the Tiptap editor, never rendered diagrams.
  *
  * Theme variables are detected from the host's CSS custom properties so the
@@ -144,7 +144,7 @@ function getMermaidLayout(svg: string): Size | null {
 }
 
 // Default skeleton height while Mermaid loads + renders for the first time
-// in this session. Picked to absorb most issue-detail diagrams without
+// in this session. Picked to absorb most task-detail diagrams without
 // excessive empty space; web.dev's CLS guidance recommends reserving any
 // such space upfront so async content doesn't shift surrounding layout.
 export const MERMAID_SKELETON_HEIGHT_PX = 280;

@@ -74,7 +74,7 @@ func (s *WorkflowExecutionService) resumeInputBlockedExecution(ctx context.Conte
 		}
 		return e, nil
 	}
-	if e.Status != "blocked" || e.FailureCode.String != "input_unavailable" || e.MainIssueID.Valid || e.MainTaskID.Valid || e.ResultRevision != 0 {
+	if e.Status != "blocked" || e.FailureCode.String != "input_unavailable" || e.MainTaskID.Valid || e.MainRunID.Valid || e.ResultRevision != 0 {
 		return empty, ErrWorkflowExecutionConflict
 	}
 	if proposed != nil {

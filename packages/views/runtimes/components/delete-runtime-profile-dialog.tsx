@@ -37,7 +37,7 @@ export function DeleteRuntimeProfileDialog({
   const { t } = useT("runtimes");
   const deleteProfile = useDeleteRuntimeProfile(wsId);
   const [submitting, setSubmitting] = useState(false);
-  // Server-issued "agents still bound" message, shown inline above the
+  // Server-taskd "agents still bound" message, shown inline above the
   // actions. Reset whenever the dialog re-opens.
   const [boundMessage, setBoundMessage] = useState<string | null>(null);
 

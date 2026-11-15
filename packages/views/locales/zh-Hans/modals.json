@@ -10,7 +10,7 @@
     "title": "创建新工作区",
     "description": "工作区是团队协作处理项目和 task 的共享空间。"
   },
-  "delete_issue": {
+  "delete_task": {
     "title": "删除 task",
     "description": "将永久删除该 task 及其所有评论。此操作不可撤销。",
     "hint": "工作区任何成员都可以删除 task。",
@@ -32,7 +32,7 @@
     "github_hint_prefix": "想被更快处理、参与讨论？请去 ",
     "github_hint_link": "GitHub"
   },
-  "issue_picker": {
+  "task_picker": {
     "search_placeholder": "搜索 task...",
     "searching": "搜索中...",
     "no_results": "未找到 task。",
@@ -138,7 +138,7 @@
     "local_invalid_dir": "该目录不可用，请重新选择。",
     "local_hint": "其他机器上的 agent 看不到这个路径，会启动失败。需要协作请用仓库模式。"
   },
-  "create_issue": {
+  "create_task": {
     "sr_manual": "新建 task",
     "sr_agent": "快速创建 task",
     "manual_breadcrumb": "手动创建",
@@ -151,12 +151,12 @@
     "submit": "创建 task",
     "submitting": "创建中...",
     "toast_created": "已创建 task",
-    "view_issue": "查看 task",
+    "view_task": "查看 task",
     "toast_failed": "创建 task 失败",
     "toast_duplicate_title": "已存在同名 task",
     "toast_duplicate_view": "查看已有 task",
-    "toast_link_subissues_all_failed": "关联子 task 失败",
-    "toast_link_subissues_partial": "{{total}} 个子 task 中有 {{failed}} 个关联失败",
+    "toast_link_subtasks_all_failed": "关联子 task 失败",
+    "toast_link_subtasks_partial": "{{total}} 个子 task 中有 {{failed}} 个关联失败",
     "toast_link_labels_failed": "关联标签失败",
     "toast_set_properties_failed": "有 {{count}} 个自定义属性设置失败",
     "switch_to_agent": "切换到智能体",
@@ -165,14 +165,14 @@
     "switch_to_manual_tooltip": "切换到手动创建——自己填字段",
     "create_another": "继续创建",
     "remove_parent_aria": "移除父级",
-    "remove_subissue_aria": "移除子 task {{identifier}}",
-    "subissue_of": "{{identifier}} 的子 task",
-    "subissue_chip": "子 task：{{identifier}}",
+    "remove_subtask_aria": "移除子 task {{identifier}}",
+    "subtask_of": "{{identifier}} 的子 task",
+    "subtask_chip": "子 task：{{identifier}}",
     "parent_with_id": "父：{{identifier}}",
     "set_due_date": "设置截止日期...",
     "set_start_date": "设置开始日期...",
     "set_parent": "设置父 task...",
-    "add_subissue": "添加子 task...",
+    "add_subtask": "添加子 task...",
     "set_status": "设置状态...",
     "set_priority": "设置优先级...",
     "set_assignee": "设置负责人...",
@@ -185,7 +185,7 @@
       "title": "设置父 task",
       "description": "搜索一个 task 设为父级"
     },
-    "add_subissue_picker": {
+    "add_subtask_picker": {
       "title": "添加子 task",
       "description": "搜索一个 task 设为子级"
     },
@@ -215,7 +215,7 @@
       "error_agent_unavailable_fallback": "智能体不可用，请换一个。",
       "error_daemon_version": "该智能体的守护进程 CLI（{{current}}）低于要求的 {{min}}。请升级守护进程后再使用通过智能体创建。",
       "error_unknown": "提交失败，请重试。",
-      "sub_issue_of": "作为 {{identifier}} 的子 task"
+      "sub_task_of": "作为 {{identifier}} 的子 task"
     }
   }
 }

@@ -16,7 +16,7 @@ interface AgentAvatarStackProps {
   // Maximum head count before collapsing the tail into a `+N` chip. Three
   // is the plan default — beyond that the stack visually crowds.
   max?: number;
-  // `half` drops opacity to 50%. Used by IssueAgentActivityIndicator to
+  // `half` drops opacity to 50%. Used by TaskAgentActivityIndicator to
   // signal a queued-only state (no running task) — same heads, weakened
   // visual.
   opacity?: "full" | "half";
@@ -26,7 +26,7 @@ interface AgentAvatarStackProps {
 /**
  * Overlapping avatar group for agents. Pure presentational — no data
  * fetching, no hover handling. Wrap it in a HoverCardTrigger upstream
- * (IssueAgentActivityIndicator / WorkspaceAgentWorkingChip) to surface
+ * (TaskAgentActivityIndicator / WorkspaceAgentWorkingChip) to surface
  * per-agent detail.
  *
  * `agentIds` is the full input list. We render up to `max` heads; if the

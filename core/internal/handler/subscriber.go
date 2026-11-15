@@ -9,18 +9,18 @@ import (
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
-// SubscriberResponse is the JSON shape returned for each issue subscriber.
+// SubscriberResponse is the JSON shape returned for each task subscriber.
 type SubscriberResponse struct {
-	IssueID   string `json:"issue_id"`
+	TaskID    string `json:"task_id"`
 	UserType  string `json:"user_type"`
 	UserID    string `json:"user_id"`
 	Reason    string `json:"reason"`
 	CreatedAt string `json:"created_at"`
 }
 
-func subscriberToResponse(s db.IssueSubscriber) SubscriberResponse {
+func subscriberToResponse(s db.TaskSubscriber) SubscriberResponse {
 	return SubscriberResponse{
-		IssueID:   uuidToString(s.IssueID),
+		TaskID:    uuidToString(s.TaskID),
 		UserType:  s.UserType,
 		UserID:    uuidToString(s.UserID),
 		Reason:    s.Reason,
@@ -28,15 +28,15 @@ func subscriberToResponse(s db.IssueSubscriber) SubscriberResponse {
 	}
 }
 
-// ListIssueSubscribers returns all subscribers for an issue.
-func (h *Handler) ListIssueSubscribers(w http.ResponseWriter, r *http.Request) {
-	issueID := chi.URLParam(r, "id")
-	issue, ok := h.loadIssueForUser(w, r, issueID)
+// ListTaskSubscribers returns all subscribers for an task.
+func (h *Handler) ListTaskSubscribers(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
+	task, ok := h.loadTaskForUser(w, r, taskID)
 	if !ok {
 		return
 	}
 
-	subscribers, err := h.Queries.ListIssueSubscribers(r.Context(), issue.ID)
+	subscribers, err := h.Queries.ListTaskSubscribers(r.Context(), task.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list subscribers")
 		return
@@ -50,16 +50,16 @@ func (h *Handler) ListIssueSubscribers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// SubscribeToIssue subscribes a user to an issue with reason "manual".
+// SubscribeToTask subscribes a user to an task with reason "manual".
 // If request body contains user_id, subscribes that user; otherwise subscribes the caller.
-func (h *Handler) SubscribeToIssue(w http.ResponseWriter, r *http.Request) {
-	issueID := chi.URLParam(r, "id")
-	issue, ok := h.loadIssueForUser(w, r, issueID)
+func (h *Handler) SubscribeToTask(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
+	task, ok := h.loadTaskForUser(w, r, taskID)
 	if !ok {
 		return
 	}
 
-	workspaceID := uuidToString(issue.WorkspaceID)
+	workspaceID := uuidToString(task.WorkspaceID)
 	// Default target: the caller, derived via resolveActor so an agent caller
 	// (X-Agent-ID set) subscribes itself rather than the underlying member.
 	callerActorType, callerActorID := h.resolveActor(r, requestUserID(r), workspaceID)
@@ -84,8 +84,8 @@ func (h *Handler) SubscribeToIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.Queries.AddIssueSubscriber(r.Context(), db.AddIssueSubscriberParams{
-		IssueID:  issue.ID,
+	err := h.Queries.AddTaskSubscriber(r.Context(), db.AddTaskSubscriberParams{
+		TaskID:   task.ID,
 		UserType: targetUserType,
 		UserID:   parseUUID(targetUserID),
 		Reason:   "manual",
@@ -96,7 +96,7 @@ func (h *Handler) SubscribeToIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.publish(protocol.EventSubscriberAdded, workspaceID, callerActorType, callerActorID, map[string]any{
-		"issue_id":  issueID,
+		"task_id":   taskID,
 		"user_type": targetUserType,
 		"user_id":   targetUserID,
 		"reason":    "manual",
@@ -105,16 +105,16 @@ func (h *Handler) SubscribeToIssue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"subscribed": true})
 }
 
-// UnsubscribeFromIssue removes a user's subscription from an issue.
+// UnsubscribeFromTask removes a user's subscription from an task.
 // If request body contains user_id, unsubscribes that user; otherwise unsubscribes the caller.
-func (h *Handler) UnsubscribeFromIssue(w http.ResponseWriter, r *http.Request) {
-	issueID := chi.URLParam(r, "id")
-	issue, ok := h.loadIssueForUser(w, r, issueID)
+func (h *Handler) UnsubscribeFromTask(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
+	task, ok := h.loadTaskForUser(w, r, taskID)
 	if !ok {
 		return
 	}
 
-	workspaceID := uuidToString(issue.WorkspaceID)
+	workspaceID := uuidToString(task.WorkspaceID)
 	// Default target: the caller, derived via resolveActor so an agent caller
 	// (X-Agent-ID set) unsubscribes itself rather than the underlying member.
 	callerActorType, callerActorID := h.resolveActor(r, requestUserID(r), workspaceID)
@@ -139,8 +139,8 @@ func (h *Handler) UnsubscribeFromIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.Queries.RemoveIssueSubscriber(r.Context(), db.RemoveIssueSubscriberParams{
-		IssueID:  issue.ID,
+	err := h.Queries.RemoveTaskSubscriber(r.Context(), db.RemoveTaskSubscriberParams{
+		TaskID:   task.ID,
 		UserType: targetUserType,
 		UserID:   parseUUID(targetUserID),
 	})
@@ -150,7 +150,7 @@ func (h *Handler) UnsubscribeFromIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.publish(protocol.EventSubscriberRemoved, workspaceID, callerActorType, callerActorID, map[string]any{
-		"issue_id":  issueID,
+		"task_id":   taskID,
 		"user_type": targetUserType,
 		"user_id":   targetUserID,
 	})

@@ -14,11 +14,11 @@ vi.mock("@silieco/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
 
-// Paths only needs issueDetail for the "Now on" link. A simple stub keeps the
+// Paths only needs taskDetail for the "Now on" link. A simple stub keeps the
 // test free of WorkspaceSlugProvider wiring.
 vi.mock("@silieco/core/paths", () => ({
   useWorkspacePaths: () => ({
-    issueDetail: (id: string) => `/test/issues/${id}`,
+    taskDetail: (id: string) => `/test/tasks/${id}`,
   }),
 }));
 
@@ -49,13 +49,13 @@ vi.mock("../../navigation", () => ({
 // Each test sets these up via beforeEach.
 const mockAgents = vi.hoisted(() => ({ current: [] as unknown[] }));
 const mockSnapshot = vi.hoisted(() => ({ current: [] as unknown[] }));
-const mockIssue = vi.hoisted(() => ({ current: null as unknown }));
+const mockTask = vi.hoisted(() => ({ current: null as unknown }));
 const mockPresence = vi.hoisted(
   () => ({ current: "loading" as unknown }),
 );
 
 // Distinguish queries by the function reference of the queryFn — the agent
-// list, snapshot, and issue detail are all `queryOptions(...)` records that
+// list, snapshot, and task detail are all `queryOptions(...)` records that
 // the component spreads into useQuery. Match on `queryKey[2]` which we know
 // is unique per query factory.
 vi.mock("@tanstack/react-query", async () => {
@@ -68,19 +68,19 @@ vi.mock("@tanstack/react-query", async () => {
       const key = opts.queryKey;
       // Distinguish by the third segment which is the factory tag:
       //   ["workspaces", wsId, "agents"]                       — agent list
-      //   ["workspaces", wsId, "agent-task-snapshot", "list"]  — snapshot
-      //   ["issues",     wsId, "detail", id]                   — issue detail
+      //   ["workspaces", wsId, "agent-run-snapshot", "list"]  — snapshot
+      //   ["tasks",     wsId, "detail", id]                   — task detail
       const root = key[0];
       const marker = key[2];
       if (root === "workspaces" && marker === "agents") {
         return { data: mockAgents.current, isLoading: false };
       }
-      if (root === "workspaces" && marker === "agent-task-snapshot") {
+      if (root === "workspaces" && marker === "agent-run-snapshot") {
         return { data: mockSnapshot.current, isLoading: false };
       }
-      if (root === "issues" && marker === "detail") {
+      if (root === "tasks" && marker === "detail") {
         return {
-          data: opts.enabled ? mockIssue.current : undefined,
+          data: opts.enabled ? mockTask.current : undefined,
           isLoading: false,
         };
       }
@@ -116,7 +116,7 @@ function makeAgent(overrides: Record<string, unknown> = {}) {
     custom_args: [],
     visibility: "private" as const,
     status: "idle" as const,
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     model: "",
     owner_id: "user-me",
     skills: [],
@@ -133,7 +133,7 @@ function makeTask(overrides: Record<string, unknown>) {
     id: "task-x",
     agent_id: "agent-1",
     runtime_id: "rt-1",
-    issue_id: "",
+    task_id: "",
     status: "completed" as const,
     priority: 0,
     dispatched_at: null,
@@ -159,7 +159,7 @@ beforeEach(() => {
   cleanup();
   mockAgents.current = [makeAgent()];
   mockSnapshot.current = [];
-  mockIssue.current = null;
+  mockTask.current = null;
   mockPresence.current = {
     availability: "online",
     workload: "idle",
@@ -170,17 +170,17 @@ beforeEach(() => {
 });
 
 describe("AgentLivePeekCard", () => {
-  it("renders Working state with the linked current issue", () => {
+  it("renders Working state with the linked current task", () => {
     mockSnapshot.current = [
       makeTask({
         id: "task-running",
         status: "running",
-        issue_id: "issue-42",
+        task_id: "task-42",
         started_at: "2026-05-14T08:00:00Z",
       }),
     ];
-    mockIssue.current = {
-      id: "issue-42",
+    mockTask.current = {
+      id: "task-42",
       identifier: "SILI-42",
       title: "Wire up live peek",
     };
@@ -197,11 +197,11 @@ describe("AgentLivePeekCard", () => {
     expect(screen.getByText("Working")).toBeInTheDocument();
     // identifier + title both render under the same link.
     const link = screen.getByRole("link", { name: /SILI-42/ });
-    expect(link).toHaveAttribute("href", "/test/issues/issue-42");
+    expect(link).toHaveAttribute("href", "/test/tasks/task-42");
     expect(link.textContent).toContain("Wire up live peek");
   });
 
-  it("renders Idle + empty issue copy when nothing is running", () => {
+  it("renders Idle + empty task copy when nothing is running", () => {
     mockPresence.current = {
       availability: "online",
       workload: "idle",
@@ -220,7 +220,7 @@ describe("AgentLivePeekCard", () => {
     renderCard();
 
     expect(screen.getByText("Idle")).toBeInTheDocument();
-    expect(screen.getByText(enAgents.live_peek.no_current_issue)).toBeInTheDocument();
+    expect(screen.getByText(enAgents.live_peek.no_current_task)).toBeInTheDocument();
     // "5m ago" — proves last activity falls back to the most recent terminal
     // task in the snapshot.
     expect(screen.getByText(/5m ago/)).toBeInTheDocument();

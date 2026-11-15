@@ -102,7 +102,7 @@ interface ChatInputProps {
   placeholderOverride?: string;
   /** Rendered at the bottom-left of the input bar — typically the agent picker. */
   leftAdornment?: ReactNode;
-  /** Chat @ suggestions: current/recent issue/project entries. */
+  /** Chat @ suggestions: current/recent task/project entries. */
   contextItems?: MentionItem[];
   /** Optional project context for the draft or current chat session. */
   projects?: Project[];
@@ -441,7 +441,7 @@ export function ChatInput({
       // upload gate (re-checked inside useComposerSubmit) covers most of that
       // window, but not the sliver between the upload's final dispatch (node
       // gone) and the re-render that adopts: React flushes that state update on a
-      // scheduler task, so a submit can land first. Sending here would post the
+      // scheduler run, so a submit can land first. Sending here would post the
       // source draft's text into the selected session and then clear the wrong
       // draft.
       if (editorDraftKeyRef.current !== draftKey) {
@@ -538,7 +538,7 @@ export function ChatInput({
   const uploadEnabled = !!uploadAllowed && !disabled && !noAgent;
   // Lock only while the send request itself is creating/resolving the target
   // session. Once accepted, its project can still be detached while agent work
-  // continues: changing session metadata does not cancel or move that task.
+  // continues: changing session metadata does not cancel or move that run.
   const projectSelectionEnabled =
     !!onProjectChange &&
     !disabled &&

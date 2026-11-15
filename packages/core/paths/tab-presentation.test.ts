@@ -15,9 +15,9 @@ function present(url: string, data: TabEntityData = {}) {
 
 describe("resolveTabPresentation — pages", () => {
   it("uses the page icon and localized page name", () => {
-    expect(present("/acme/issues")).toEqual({
+    expect(present("/acme/tasks")).toEqual({
       visual: { kind: "icon", icon: "ListTodo" },
-      title: { kind: "nav", navKey: "issues" },
+      title: { kind: "nav", navKey: "tasks" },
     });
     expect(present("/acme/projects")).toEqual({
       visual: { kind: "icon", icon: "FolderKanban" },
@@ -27,17 +27,17 @@ describe("resolveTabPresentation — pages", () => {
 });
 
 describe("resolveTabPresentation — direct resources", () => {
-  it("issue shows live status + identifier:title, pending shows type label", () => {
-    expect(present("/acme/issues/i1")).toEqual({
-      visual: { kind: "issue-status", status: null },
-      title: { kind: "tab", tabKey: "issue" },
+  it("task shows live status + identifier:title, pending shows type label", () => {
+    expect(present("/acme/tasks/i1")).toEqual({
+      visual: { kind: "task-status", status: null },
+      title: { kind: "tab", tabKey: "task" },
     });
     expect(
-      present("/acme/issues/i1", {
-        issue: { identifier: "SILI-1", title: "Fix", status: "in_progress" },
+      present("/acme/tasks/i1", {
+        task: { identifier: "SILI-1", title: "Fix", status: "in_progress" },
       }),
     ).toEqual({
-      visual: { kind: "issue-status", status: "in_progress" },
+      visual: { kind: "task-status", status: "in_progress" },
       title: { kind: "text", text: "SILI-1: Fix" },
     });
   });
@@ -117,11 +117,11 @@ describe("resolveTabPresentation — direct resources", () => {
     });
   });
 
-  it("never borrows the Issues icon while a resource is loading", () => {
-    // A pending issue uses issue-status (not the ListTodo page icon); a pending
+  it("never borrows the Tasks icon while a resource is loading", () => {
+    // A pending task uses task-status (not the ListTodo page icon); a pending
     // project uses project-icon; neither is the generic page fallback.
-    expect(present("/acme/issues/i1").visual).toEqual({
-      kind: "issue-status",
+    expect(present("/acme/tasks/i1").visual).toEqual({
+      kind: "task-status",
       status: null,
     });
     expect(present("/acme/projects/p1").visual).toEqual({
@@ -138,23 +138,23 @@ describe("resolveTabPresentation — containers keep their icon, title tracks se
       title: { kind: "nav", navKey: "inbox" },
     });
     // Selected but not yet resolved → still Inbox, never a stale title.
-    expect(present("/acme/inbox?issue=SILI-9")).toEqual({
+    expect(present("/acme/inbox?task=SILI-9")).toEqual({
       visual: { kind: "icon", icon: "Inbox" },
       title: { kind: "nav", navKey: "inbox" },
     });
-    // Selected issue → Inbox icon + issue title (distinct from a direct issue,
+    // Selected task → Inbox icon + task title (distinct from a direct task,
     // which would show a status icon).
     expect(
-      present("/acme/inbox?issue=SILI-9", {
-        inboxSelection: { kind: "issue", identifier: "SILI-9", title: "Bug" },
+      present("/acme/inbox?task=SILI-9", {
+        inboxSelection: { kind: "task", identifier: "SILI-9", title: "Bug" },
       }),
     ).toEqual({
       visual: { kind: "icon", icon: "Inbox" },
       title: { kind: "text", text: "SILI-9: Bug" },
     });
-    // Selected non-issue notification → its display title.
+    // Selected non-task notification → its display title.
     expect(
-      present("/acme/inbox?issue=n1", {
+      present("/acme/inbox?task=n1", {
         inboxSelection: { kind: "item", title: "Quick create failed" },
       }),
     ).toEqual({
@@ -195,7 +195,7 @@ describe("resolveTabPresentation — flow and unknown", () => {
     });
   });
 
-  it("unknown route uses a neutral icon and label, never Issues", () => {
+  it("unknown route uses a neutral icon and label, never Tasks", () => {
     expect(present("/acme/mystery")).toEqual({
       visual: { kind: "icon", icon: "FileQuestion" },
       title: { kind: "tab", tabKey: "unknown" },

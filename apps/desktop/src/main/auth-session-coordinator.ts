@@ -6,35 +6,35 @@ export {
 } from "../shared/auth-session";
 
 /**
- * Keeps dedicated issue windows bound to the main window's authenticated
+ * Keeps dedicated task windows bound to the main window's authenticated
  * account. Tokens never cross renderer boundaries: only the resolved user id
- * is compared, and stale issue windows are closed on logout/account switch.
+ * is compared, and stale task windows are closed on logout/account switch.
  */
 export class AuthSessionCoordinator<T> {
   private mainUserId: AuthSessionUserId | undefined;
-  private readonly issueUserIds = new Map<
+  private readonly taskUserIds = new Map<
     T,
     AuthSessionUserId | undefined
   >();
 
-  constructor(private readonly closeIssueWindow: (window: T) => void) {}
+  constructor(private readonly closeTaskWindow: (window: T) => void) {}
 
-  registerIssueWindow(window: T): void {
-    this.issueUserIds.set(window, undefined);
+  registerTaskWindow(window: T): void {
+    this.taskUserIds.set(window, undefined);
   }
 
-  unregisterIssueWindow(window: T): void {
-    this.issueUserIds.delete(window);
+  unregisterTaskWindow(window: T): void {
+    this.taskUserIds.delete(window);
   }
 
   hasActiveMainSession(): boolean {
     return typeof this.mainUserId === "string";
   }
 
-  isCurrentIssueSession(window: T): boolean {
+  isCurrentTaskSession(window: T): boolean {
     return (
       typeof this.mainUserId === "string" &&
-      this.issueUserIds.get(window) === this.mainUserId
+      this.taskUserIds.get(window) === this.mainUserId
     );
   }
 
@@ -45,37 +45,37 @@ export class AuthSessionCoordinator<T> {
     this.mainUserId = userId;
 
     if (userId === null || accountChanged) {
-      this.closeAllIssueWindows();
+      this.closeAllTaskWindows();
       return becameLoggedOut || accountChanged;
     }
 
-    for (const [window, issueUserId] of this.issueUserIds) {
-      if (issueUserId !== undefined && issueUserId !== userId) {
-        this.closeIssue(window);
+    for (const [window, taskUserId] of this.taskUserIds) {
+      if (taskUserId !== undefined && taskUserId !== userId) {
+        this.closeTask(window);
       }
     }
     return false;
   }
 
-  reportIssue(window: T, userId: AuthSessionUserId): void {
-    if (!this.issueUserIds.has(window)) return;
-    this.issueUserIds.set(window, userId);
+  reportTask(window: T, userId: AuthSessionUserId): void {
+    if (!this.taskUserIds.has(window)) return;
+    this.taskUserIds.set(window, userId);
     if (
       userId === null ||
       (this.mainUserId !== undefined && this.mainUserId !== userId)
     ) {
-      this.closeIssue(window);
+      this.closeTask(window);
     }
   }
 
-  private closeAllIssueWindows(): void {
-    for (const window of [...this.issueUserIds.keys()]) {
-      this.closeIssue(window);
+  private closeAllTaskWindows(): void {
+    for (const window of [...this.taskUserIds.keys()]) {
+      this.closeTask(window);
     }
   }
 
-  private closeIssue(window: T): void {
-    this.issueUserIds.delete(window);
-    this.closeIssueWindow(window);
+  private closeTask(window: T): void {
+    this.taskUserIds.delete(window);
+    this.closeTaskWindow(window);
   }
 }

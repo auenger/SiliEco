@@ -2,7 +2,7 @@
  * Single-line text input. Notes:
  * - `fontSize` is set inline; do NOT use Tailwind `text-*` here. NativeWind
  *   maps those to fontSize+lineHeight, and `lineHeight` on iOS TextInput
- *   clips descenders (RN issues #41240, #28012, #45268, #49886).
+ *   clips descenders (RN tasks #41240, #28012, #45268, #49886).
  * - Height anchored by `h-10` so vertical centering doesn't depend on
  *   font metrics.
  * - `includeFontPadding` / `textAlignVertical` are Android-only; iOS no-op,

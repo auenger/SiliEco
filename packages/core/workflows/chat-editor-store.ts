@@ -8,21 +8,21 @@ type Editor = {
   apply: (draft: WorkflowTextDraft) => void;
   snapshot: () => () => void;
 };
-type Request = { editorId: string; baseline: WorkflowTextDraft; sessionId: string; taskId?: string };
+type Request = { editorId: string; baseline: WorkflowTextDraft; sessionId: string; runId?: string };
 type State = {
   editor: Editor | null; sessionId: string | null; request: Request | null;
-  taskIds: string[]; status: "ready" | "applied" | "conflict" | "invalid";
+  runIds: string[]; status: "ready" | "applied" | "conflict" | "invalid";
   undo: (() => void) | null;
 };
 export const useWorkflowChatEditorStore = create<State>(() => ({
-  editor: null, sessionId: null, request: null, taskIds: [], status: "ready", undo: null,
+  editor: null, sessionId: null, request: null, runIds: [], status: "ready", undo: null,
 }));
 export function attachWorkflowEditor(editor: Editor) {
-  useWorkflowChatEditorStore.setState({ editor, sessionId: null, request: null, taskIds: [], status: "ready", undo: null });
+  useWorkflowChatEditorStore.setState({ editor, sessionId: null, request: null, runIds: [], status: "ready", undo: null });
 }
 export function detachWorkflowEditor(id: string) {
   if (useWorkflowChatEditorStore.getState().editor?.id === id) {
-    useWorkflowChatEditorStore.setState({ editor: null, request: null, undo: null, taskIds: [], sessionId: null });
+    useWorkflowChatEditorStore.setState({ editor: null, request: null, undo: null, runIds: [], sessionId: null });
   }
 }
 export function prepareWorkflowChat(wsId: string, sessionId: string, content: string) {
@@ -33,10 +33,10 @@ export function prepareWorkflowChat(wsId: string, sessionId: string, content: st
   useWorkflowChatEditorStore.setState({ sessionId, request, status: "ready", undo: null });
   return { request, content: workflowDesignerPrompt(`${content}\n\nSelected stage: ${state.editor.selection()}`, baseline) };
 }
-export function acceptWorkflowChat(request: Request, taskId: string) {
+export function acceptWorkflowChat(request: Request, runId: string) {
   const state = useWorkflowChatEditorStore.getState();
   if (state.request !== request) return;
-  useWorkflowChatEditorStore.setState({ request: { ...request, taskId }, taskIds: [...state.taskIds, taskId] });
+  useWorkflowChatEditorStore.setState({ request: { ...request, runId }, runIds: [...state.runIds, runId] });
 }
 export function failWorkflowChat(request: Request) {
   if (useWorkflowChatEditorStore.getState().request === request) useWorkflowChatEditorStore.setState({ request: null });
@@ -64,10 +64,10 @@ export function mergeWorkflowDraft(base: WorkflowTextDraft, current: WorkflowTex
   };
   return conflict && !resolveConflicts ? null : result;
 }
-export function finishWorkflowChat(wsId: string, sessionId: string, taskId: string, content: string) {
+export function finishWorkflowChat(wsId: string, sessionId: string, runId: string, content: string) {
   const state = useWorkflowChatEditorStore.getState();
   const { editor, request } = state;
-  if (!editor || editor.wsId !== wsId || !request || request.editorId !== editor.id || request.sessionId !== sessionId || request.taskId !== taskId) return;
+  if (!editor || editor.wsId !== wsId || !request || request.editorId !== editor.id || request.sessionId !== sessionId || request.runId !== runId) return;
   useWorkflowChatEditorStore.setState({ request: null });
   const proposed = parseWorkflowDraft(content);
   if (!proposed) {
@@ -102,7 +102,7 @@ function fieldConflicts(base: WorkflowTextDraft, current: WorkflowTextDraft, pro
 }
 
 /** Explicit recovery; resolving conflicts requires the exact reviewed draft. */
-export function applyWorkflowChatHistory(wsId: string, sessionId: string, taskId: string, prompt: string, content: string, reviewed?: WorkflowTextDraft): WorkflowFillResult {
+export function applyWorkflowChatHistory(wsId: string, sessionId: string, runId: string, prompt: string, content: string, reviewed?: WorkflowTextDraft): WorkflowFillResult {
   const state = useWorkflowChatEditorStore.getState();
   const editor = state.editor;
   if (!editor || editor.wsId !== wsId || state.request) return { status: "unavailable" };
@@ -125,6 +125,6 @@ export function applyWorkflowChatHistory(wsId: string, sessionId: string, taskId
   if (JSON.stringify(merged) === JSON.stringify(current)) return { status: "unchanged" };
   const restore = editor.snapshot();
   editor.apply(merged);
-  useWorkflowChatEditorStore.setState({ status: "applied", undo: restore, taskIds: [...state.taskIds, taskId] });
+  useWorkflowChatEditorStore.setState({ status: "applied", undo: restore, runIds: [...state.runIds, runId] });
   return { status: "applied" };
 }

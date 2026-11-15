@@ -31,7 +31,7 @@
       "title": "固定评论栏",
       "hint": "滚动 task 页面时，评论栏始终固定在底部。"
     },
-    "issue_link_new_tab": {
+    "task_link_new_tab": {
       "title": "在新标签页打开 task 链接",
       "hint": "点击描述、评论或聊天中的 task 链接时，在新标签页中打开，而不是在当前页面跳转。"
     }
@@ -70,7 +70,7 @@
         "label": "打开搜索",
         "description": "随时搜索内容或运行命令。"
       },
-      "createIssue": {
+      "createTask": {
         "label": "新建 task",
         "description": "打开你常用的 task 创建流程。"
       },
@@ -78,7 +78,7 @@
         "label": "显示或隐藏侧边栏",
         "description": "切换主侧边栏的显示状态。"
       },
-      "findInIssue": {
+      "findInTask": {
         "label": "在 task 中查找",
         "description": "搜索当前打开的 task 详情。"
       },
@@ -94,11 +94,11 @@
         "label": "前往聊天",
         "description": "打开工作区聊天。"
       },
-      "goMyIssues": {
+      "goMyTasks": {
         "label": "前往我的 task",
         "description": "打开分配给你的 task。"
       },
-      "goIssues": {
+      "goTasks": {
         "label": "前往 Tasks",
         "description": "打开 task 列表。"
       },
@@ -150,7 +150,7 @@
     "floating_label": "悬浮聊天窗",
     "floating_hint": "在每个页面右下角显示悬浮聊天按钮。默认关闭——打开后可随处召唤聊天；关闭时，聊天只在此标签页中可用。"
   },
-  "issue": {
+  "task": {
     "description": "选择各创建方式的工具栏中常驻显示的字段。隐藏的字段仍可从 ⋯ 菜单使用，有值时会自动显示。",
     "quick_create_title": "通过智能体创建",
     "quick_create_description": "快速创建工具栏中显示的字段。",
@@ -174,7 +174,7 @@
       "profile": "个人资料",
       "preferences": "偏好设置",
       "shortcuts": "快捷键",
-      "issue": "Task",
+      "task": "Task",
       "chat": "聊天",
       "notifications": "通知",
       "tokens": "API Token",
@@ -259,7 +259,7 @@
     "title": "标签",
     "description": "分别管理工作区中用于整理 task、智能体和 skill 的标签。三类标签相互独立。",
     "scopes": {
-      "issue": "Task",
+      "task": "Task",
       "agent": "智能体",
       "skill": "Skill"
     },
@@ -415,8 +415,8 @@
     "context_label": "上下文",
     "context_placeholder": "供工作区中的智能体参考的背景信息和上下文",
     "slug_label": "Slug",
-    "issue_prefix_label": "Task 前缀",
-    "issue_prefix_hint": "用于 task 编号，例如 {{example}}。",
+    "task_prefix_label": "Task 前缀",
+    "task_prefix_hint": "用于 task 编号，例如 {{example}}。",
     "prefix_confirm_title": "确认修改 task 前缀？",
     "prefix_confirm_description": "所有 task 将从 {{oldPrefix}}-N 重命名为 {{newPrefix}}-N。任何使用旧编号的外部引用——PR 标题、分支名、文档与聊天中的链接——都会失效。",
     "save": "保存",

@@ -3,7 +3,7 @@ import type { AgentRuntime } from "@silieco/core/types";
 import { formatDeviceInfo } from "../utils";
 
 export type RuntimeMachineSection = "local" | "remote" | "cloud";
-export type RuntimeMachineFilter = "all" | "online" | "issues";
+export type RuntimeMachineFilter = "all" | "online" | "tasks";
 
 export interface RuntimeWorkloadSummary {
   runningCount: number;
@@ -24,7 +24,7 @@ export interface RuntimeMachine {
   health: RuntimeHealth;
   runtimes: AgentRuntime[];
   onlineCount: number;
-  issueCount: number;
+  taskCount: number;
   runningCount: number;
   queuedCount: number;
   providerNames: string[];
@@ -141,7 +141,7 @@ function placeholderLocalMachine(
     health: "offline",
     runtimes: [],
     onlineCount: 0,
-    issueCount: 0,
+    taskCount: 0,
     runningCount: 0,
     queuedCount: 0,
     providerNames: [],
@@ -157,7 +157,7 @@ export function filterRuntimeMachines(
   const q = query.trim().toLowerCase();
   return machines.filter((machine) => {
     if (filter === "online" && machine.onlineCount === 0) return false;
-    if (filter === "issues" && machine.issueCount === 0) return false;
+    if (filter === "tasks" && machine.taskCount === 0) return false;
     if (!q) return true;
 
     const haystack = [
@@ -180,12 +180,12 @@ export function filterRuntimeMachines(
 export function runtimeMachineCounts(machines: RuntimeMachine[]): {
   all: number;
   online: number;
-  issues: number;
+  tasks: number;
 } {
   return {
     all: machines.length,
     online: machines.filter((machine) => machine.onlineCount > 0).length,
-    issues: machines.filter((machine) => machine.issueCount > 0).length,
+    tasks: machines.filter((machine) => machine.taskCount > 0).length,
   };
 }
 
@@ -228,7 +228,7 @@ function finalizeRuntimeMachine(
     deriveRuntimeHealth(runtime, options.now),
   );
   const onlineCount = healthByRuntime.filter((h) => h === "online").length;
-  const issueCount = runtimes.length - onlineCount;
+  const taskCount = runtimes.length - onlineCount;
   const health =
     onlineCount > 0
       ? "online"
@@ -262,7 +262,7 @@ function finalizeRuntimeMachine(
     health,
     runtimes,
     onlineCount,
-    issueCount,
+    taskCount,
     runningCount: workload.runningCount,
     queuedCount: workload.queuedCount,
     providerNames,

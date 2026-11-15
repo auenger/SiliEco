@@ -11,7 +11,7 @@ import { ActorAvatar as ActorAvatarBase } from "@silieco/ui/components/common/ac
 import { Skeleton } from "@silieco/ui/components/ui/skeleton";
 import { PageHeader } from "../layout/page-header";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
-import { ActorIssuesPanel } from "../common/actor-issues-panel";
+import { ActorTasksPanel } from "../common/actor-tasks-panel";
 import { useT } from "../i18n";
 
 export function MemberDetailPage({ userId }: { userId: string }) {
@@ -72,7 +72,7 @@ export function MemberDetailPage({ userId }: { userId: string }) {
         </div>
       </div>
 
-      <ActorIssuesPanel actorType="member" actorId={userId} />
+      <ActorTasksPanel actorType="member" actorId={userId} />
     </div>
   );
 }

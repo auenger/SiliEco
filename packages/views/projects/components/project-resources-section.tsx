@@ -1,5 +1,6 @@
 "use client";
 
+import { ProjectDirectoryBinding } from "./project-directory-binding";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -327,6 +328,7 @@ export function ProjectResourcesSection({
       </button>
       {open && (
         <div className="pl-2 space-y-1.5">
+          <ProjectDirectoryBinding wsId={wsId} projectId={projectId} machines={runtimeMachines.filter(machine => machine.daemonId && (canManage || machine.runtimes.some(runtime => runtime.owner_id === userId)))} repositories={repositories.map(repository => ({id: repository.id, label: githubShortLabel(repository.resource_ref.url)}))} />
           {(repositories.length === 0 || standaloneMappings.length > 0) && (
             <ProjectLocalDirectoryCard
               mappings={standaloneMappings}

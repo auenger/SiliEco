@@ -1,14 +1,14 @@
 /**
- * Per-issue "last time the user looked at the timeline" timestamp. Drives
+ * Per-task "last time the user looked at the timeline" timestamp. Drives
  * the "New since last view" divider in `timeline-list.tsx`. In-memory only
  * (matches comment-drafts-store trade-off — no native AsyncStorage
  * available, expo-secure-store's 2KB cap is overkill anyway for a single
- * ISO string per issue but the cold-start loss is acceptable).
+ * ISO string per task but the cold-start loss is acceptable).
  *
  * Lifecycle:
- *   - First read for an unseen issue → undefined → divider draws at the
+ *   - First read for an unseen task → undefined → divider draws at the
  *     very first new entry after the user lands.
- *   - After the user scrolls past the divider, `markViewed(issueId)` is
+ *   - After the user scrolls past the divider, `markViewed(taskId)` is
  *     called with `now`, so next mount draws the divider forward (or no
  *     divider if there's nothing new).
  *   - If the user opens then leaves without scrolling past the divider,
@@ -18,17 +18,17 @@
 import { create } from "zustand";
 
 interface LastViewedState {
-  /** issueId → ISO timestamp of the last "the user scrolled past everything" event. */
+  /** taskId → ISO timestamp of the last "the user scrolled past everything" event. */
   lastViewed: Record<string, string>;
-  getLastViewed: (issueId: string) => string | undefined;
-  markViewed: (issueId: string, when?: string) => void;
+  getLastViewed: (taskId: string) => string | undefined;
+  markViewed: (taskId: string, when?: string) => void;
 }
 
 export const useLastViewedStore = create<LastViewedState>((set, get) => ({
   lastViewed: {},
-  getLastViewed: (issueId) => get().lastViewed[issueId],
-  markViewed: (issueId, when) => {
+  getLastViewed: (taskId) => get().lastViewed[taskId],
+  markViewed: (taskId, when) => {
     const ts = when ?? new Date().toISOString();
-    set({ lastViewed: { ...get().lastViewed, [issueId]: ts } });
+    set({ lastViewed: { ...get().lastViewed, [taskId]: ts } });
   },
 }));

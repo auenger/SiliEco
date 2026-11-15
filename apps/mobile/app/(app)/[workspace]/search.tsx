@@ -6,7 +6,7 @@
  * workspace switching in Settings, so a command-palette here would
  * duplicate them (see feedback_mobile_ia_main_vs_more).
  *
- * Result categories, ordering (projects first, issues second), debounce
+ * Result categories, ordering (projects first, tasks second), debounce
  * (300ms), abort policy, and Recent rendering mirror the web source.
  * Highlight + snippet line for `match_source` matches preserves the
  * "why did this match" signal users rely on when scanning results.
@@ -27,9 +27,9 @@ import { useQueries } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import type {
-  Issue,
-  IssueStatus,
-  SearchIssueResult,
+  Task,
+  TaskStatus,
+  SearchTaskResult,
   SearchProjectResult,
 } from "@silieco/core/types";
 import { Text } from "@/components/ui/text";
@@ -40,15 +40,15 @@ import { ProjectStatusIcon } from "@/components/ui/project-status-icon";
 import { api } from "@/data/api";
 import { useWorkspaceStore } from "@/data/workspace-store";
 import {
-  selectViewedIssueIds,
-  useViewedIssuesStore,
-} from "@/data/viewed-issues-store";
-import { issueDetailOptions } from "@/data/queries/issues";
-import { STATUS_LABEL } from "@/lib/issue-status";
+  selectViewedTaskIds,
+  useViewedTasksStore,
+} from "@/data/viewed-tasks-store";
+import { taskDetailOptions } from "@/data/queries/tasks";
+import { STATUS_LABEL } from "@/lib/task-status";
 import { projectStatusLabel } from "@/lib/project-status";
 
 const DEBOUNCE_MS = 300;
-const ISSUE_LIMIT = 20;
+const TASK_LIMIT = 20;
 const PROJECT_LIMIT = 10;
 const RECENT_LIMIT = 5;
 
@@ -118,12 +118,12 @@ function HighlightText({
 
 type RowItem =
   | { kind: "header"; key: string; title: string }
-  | { kind: "issue"; key: string; issue: SearchIssueResult; query: string }
+  | { kind: "task"; key: string; task: SearchTaskResult; query: string }
   | { kind: "project"; key: string; project: SearchProjectResult; query: string }
-  | { kind: "recent"; key: string; issue: Issue };
+  | { kind: "recent"; key: string; task: Task };
 
-function issueIconColor(status: IssueStatus): string {
-  // Tag color for the status label at the end of an issue row.
+function taskIconColor(status: TaskStatus): string {
+  // Tag color for the status label at the end of a task row.
   // Mirrors STATUS_CONFIG.iconColor (status-icon.tsx STATUS_COLOR) so the
   // text tint matches the leading status icon visually.
   switch (status) {
@@ -150,27 +150,27 @@ function navigateOnTap(slug: string | null, path: string) {
   router.replace(path);
 }
 
-interface SearchIssueRowProps {
-  item: SearchIssueResult;
+interface SearchTaskRowProps {
+  item: SearchTaskResult;
   query: string;
   slug: string | null;
 }
 
-function SearchIssueRow({ item, query, slug }: SearchIssueRowProps) {
+function SearchTaskRow({ item, query, slug }: SearchTaskRowProps) {
   // Web only renders the snippet line for comment matches
   // (packages/views/search/search-command.tsx:632) and the backend only
   // populates `matched_snippet` for comment matches anyway
-  // (core/internal/handler/issue.go:592). Keep mobile strictly aligned.
+  // (core/internal/handler/task.go:592). Keep mobile strictly aligned.
   const showSnippet =
     item.match_source === "comment" && !!item.matched_snippet;
-  const statusLabel = STATUS_LABEL[item.status as IssueStatus] ?? item.status;
+  const statusLabel = STATUS_LABEL[item.status as TaskStatus] ?? item.status;
   return (
     <Pressable
-      onPress={() => navigateOnTap(slug, `/${slug}/issue/${item.id}`)}
+      onPress={() => navigateOnTap(slug, `/${slug}/task/${item.id}`)}
       className="active:bg-secondary px-4 py-3"
     >
       <View className="flex-row items-center gap-3">
-        <StatusIcon status={item.status as IssueStatus} size={14} />
+        <StatusIcon status={item.status as TaskStatus} size={14} />
         <PriorityIcon priority={item.priority} size={14} />
         <Text className="text-xs text-muted-foreground shrink-0 w-16">
           {item.identifier}
@@ -183,7 +183,7 @@ function SearchIssueRow({ item, query, slug }: SearchIssueRowProps) {
             numberOfLines={1}
           />
         </View>
-        <Text className={`text-xs shrink-0 ${issueIconColor(item.status as IssueStatus)}`}>
+        <Text className={`text-xs shrink-0 ${taskIconColor(item.status as TaskStatus)}`}>
           {statusLabel}
         </Text>
       </View>
@@ -257,26 +257,26 @@ function SearchProjectRow({ item, query, slug }: SearchProjectRowProps) {
 }
 
 interface RecentRowProps {
-  item: Issue;
+  item: Task;
   slug: string | null;
 }
 
 function RecentRow({ item, slug }: RecentRowProps) {
-  const statusLabel = STATUS_LABEL[item.status as IssueStatus] ?? item.status;
+  const statusLabel = STATUS_LABEL[item.status as TaskStatus] ?? item.status;
   return (
     <Pressable
-      onPress={() => navigateOnTap(slug, `/${slug}/issue/${item.id}`)}
+      onPress={() => navigateOnTap(slug, `/${slug}/task/${item.id}`)}
       className="active:bg-secondary px-4 py-3"
     >
       <View className="flex-row items-center gap-3">
-        <StatusIcon status={item.status as IssueStatus} size={14} />
+        <StatusIcon status={item.status as TaskStatus} size={14} />
         <Text className="text-xs text-muted-foreground shrink-0 w-16">
           {item.identifier}
         </Text>
         <Text className="flex-1 text-sm text-foreground" numberOfLines={1}>
           {item.title}
         </Text>
-        <Text className={`text-xs shrink-0 ${issueIconColor(item.status as IssueStatus)}`}>
+        <Text className={`text-xs shrink-0 ${taskIconColor(item.status as TaskStatus)}`}>
           {statusLabel}
         </Text>
       </View>
@@ -289,11 +289,11 @@ function RecentRow({ item, slug }: RecentRowProps) {
 // =====================================================
 
 interface SearchResultsState {
-  issues: SearchIssueResult[];
+  tasks: SearchTaskResult[];
   projects: SearchProjectResult[];
 }
 
-const EMPTY_RESULTS: SearchResultsState = { issues: [], projects: [] };
+const EMPTY_RESULTS: SearchResultsState = { tasks: [], projects: [] };
 
 export default function SearchModal() {
   const wsId = useWorkspaceStore((s) => s.currentWorkspaceId);
@@ -307,19 +307,19 @@ export default function SearchModal() {
   const abortRef = useRef<AbortController | null>(null);
 
   // Recent — mirrors mention-suggestion-bar.tsx:85-95.
-  const viewedIds = useViewedIssuesStore(selectViewedIssueIds(wsId));
+  const viewedIds = useViewedTasksStore(selectViewedTaskIds(wsId));
   const recentIds = useMemo(
     () => viewedIds.slice(0, RECENT_LIMIT),
     [viewedIds],
   );
   const recentQueries = useQueries({
-    queries: recentIds.map((id) => issueDetailOptions(wsId, id)),
+    queries: recentIds.map((id) => taskDetailOptions(wsId, id)),
   });
-  const recentIssues = useMemo<Issue[]>(
+  const recentTasks = useMemo<Task[]>(
     () =>
       recentQueries
         .map((q) => q.data)
-        .filter((i): i is Issue => !!i),
+        .filter((i): i is Task => !!i),
     [recentQueries],
   );
 
@@ -353,9 +353,9 @@ export default function SearchModal() {
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const [issueRes, projectRes] = await Promise.all([
-          api.searchIssues(
-            { q: q.trim(), limit: ISSUE_LIMIT, include_closed: true },
+        const [taskRes, projectRes] = await Promise.all([
+          api.searchTasks(
+            { q: q.trim(), limit: TASK_LIMIT, include_closed: true },
             { signal: controller.signal },
           ),
           api.searchProjects(
@@ -364,7 +364,7 @@ export default function SearchModal() {
           ),
         ]);
         if (!controller.signal.aborted) {
-          setResults({ issues: issueRes.issues, projects: projectRes.projects });
+          setResults({ tasks: taskRes.tasks, projects: projectRes.projects });
           setIsLoading(false);
         }
       } catch {
@@ -386,20 +386,20 @@ export default function SearchModal() {
 
   const trimmedQuery = query.trim();
   const hasResults =
-    results.issues.length > 0 || results.projects.length > 0;
+    results.tasks.length > 0 || results.projects.length > 0;
 
   // Build the FlatList data. One flat array of discriminated rows means a
   // single virtualised list covers Recent (empty-state) and (Projects +
-  // Issues) results without nesting SectionList inside another scroller.
+  // Tasks) results without nesting SectionList inside another scroller.
   const data = useMemo<RowItem[]>(() => {
     if (!trimmedQuery) {
-      if (recentIssues.length === 0) return [];
+      if (recentTasks.length === 0) return [];
       return [
         { kind: "header", key: "h-recent", title: "Recent" },
-        ...recentIssues.map<RowItem>((issue) => ({
+        ...recentTasks.map<RowItem>((task) => ({
           kind: "recent",
-          key: `r-${issue.id}`,
-          issue,
+          key: `r-${task.id}`,
+          task,
         })),
       ];
     }
@@ -410,14 +410,14 @@ export default function SearchModal() {
         items.push({ kind: "project", key: `p-${p.id}`, project: p, query: trimmedQuery });
       }
     }
-    if (results.issues.length > 0) {
-      items.push({ kind: "header", key: "h-issues", title: "Tasks" });
-      for (const it of results.issues) {
-        items.push({ kind: "issue", key: `i-${it.id}`, issue: it, query: trimmedQuery });
+    if (results.tasks.length > 0) {
+      items.push({ kind: "header", key: "h-tasks", title: "Tasks" });
+      for (const it of results.tasks) {
+        items.push({ kind: "task", key: `i-${it.id}`, task: it, query: trimmedQuery });
       }
     }
     return items;
-  }, [trimmedQuery, recentIssues, results]);
+  }, [trimmedQuery, recentTasks, results]);
 
   const renderItem = useCallback<ListRenderItem<RowItem>>(
     ({ item }) => {
@@ -428,12 +428,12 @@ export default function SearchModal() {
               {item.title}
             </Text>
           );
-        case "issue":
-          return <SearchIssueRow item={item.issue} query={item.query} slug={slug} />;
+        case "task":
+          return <SearchTaskRow item={item.task} query={item.query} slug={slug} />;
         case "project":
           return <SearchProjectRow item={item.project} query={item.query} slug={slug} />;
         case "recent":
-          return <RecentRow item={item.issue} slug={slug} />;
+          return <RecentRow item={item.task} slug={slug} />;
       }
     },
     [slug],
@@ -451,7 +451,7 @@ export default function SearchModal() {
           <TextInput
             value={query}
             onChangeText={handleChange}
-            placeholder="Search issues and projects"
+            placeholder="Search tasks and projects"
             placeholderTextColor="#a1a1aa"
             autoFocus
             autoCorrect={false}
@@ -480,10 +480,10 @@ export default function SearchModal() {
                   No results for &ldquo;{trimmedQuery}&rdquo;
                 </Text>
               </View>
-            ) : !trimmedQuery && recentIssues.length === 0 ? (
+            ) : !trimmedQuery && recentTasks.length === 0 ? (
               <View className="items-center justify-center py-12 px-6">
                 <Text className="text-sm text-muted-foreground text-center">
-                  Type to search issues and projects.
+                  Type to search tasks and projects.
                 </Text>
               </View>
             ) : null

@@ -34,9 +34,9 @@ func TestParseMentions(t *testing.T) {
 			},
 		},
 		{
-			name:    "issue mention without @",
-			content: "[SILI-123](mention://issue/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa) is related",
-			want:    []Mention{{Type: "issue", ID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}},
+			name:    "task mention without @",
+			content: "[SILI-123](mention://task/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa) is related",
+			want:    []Mention{{Type: "task", ID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}},
 		},
 		{
 			name:    "member mention",

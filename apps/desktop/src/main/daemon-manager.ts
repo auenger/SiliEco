@@ -70,7 +70,7 @@ let cliResolvePromise: Promise<string | null> | null = null;
 let cachedCliBinaryVersion: string | null | undefined = undefined;
 // Set when a CLI version mismatch was detected but the running daemon is
 // busy executing tasks. The poll loop retries the check on each tick and
-// fires the restart once active_task_count drops to 0.
+// fires the restart once active_run_count drops to 0.
 let pendingVersionRestart = false;
 let targetApiBaseUrl: string | null = null;
 let activeProfile: ActiveProfile | null = null;
@@ -177,7 +177,7 @@ interface HealthPayload {
   device_name?: string;
   server_url?: string;
   cli_version?: string;
-  active_task_count?: number;
+  active_run_count?: number;
   agents?: string[];
   workspaces?: unknown[];
 }
@@ -219,7 +219,7 @@ async function probeTokenValidity(profile: string): Promise<AuthProbeResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4_000);
     const res = await fetch(`${targetApiBaseUrl.replace(/\/+$/, "")}/api/me`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, "X-Silieco-Protocol": "task-run-v1" },
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -567,7 +567,7 @@ async function getCliBinaryVersion(): Promise<string | null> {
  * Restart is only fired when ALL of:
  *   - a daemon is actually running on the active profile's port
  *   - both sides report a version and the strings differ
- *   - `active_task_count` is 0 (no in-flight agent work would be killed)
+ *   - `active_run_count` is 0 (no in-flight agent work would be killed)
  *
  * On a confirmed mismatch while the daemon is busy, `pendingVersionRestart`
  * is set; the poll loop retries this function on each 5s tick and will fire
@@ -599,9 +599,9 @@ async function ensureRunningDaemonVersionMatches(): Promise<
       return "ok";
     case "defer": {
       if (!pendingVersionRestart) {
-        const activeTasks = running?.active_task_count ?? 0;
+        const activeRuns = running?.active_run_count ?? 0;
         console.log(
-          `[daemon] CLI version mismatch (bundled=${bundled} running=${running?.cli_version}); deferring restart until ${activeTasks} active task(s) finish`,
+          `[daemon] CLI version mismatch (bundled=${bundled} running=${running?.cli_version}); deferring restart until ${activeRuns} active run(s) finish`,
         );
       }
       pendingVersionRestart = true;
@@ -632,6 +632,7 @@ async function mintPat(jwt: string): Promise<string> {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${jwt}`,
+      "X-Silieco-Protocol": "task-run-v1",
     },
     // Omit expires_in_days → server treats as null → non-expiring PAT.
     body: JSON.stringify({ name: "Silieco Desktop" }),

@@ -3,7 +3,7 @@
 import type { Agent, Skill } from "../types";
 import { useCurrentMember } from "./use-current-member";
 import {
-  canAssignAgentToIssue,
+  canAssignAgentToTask,
   canDeleteSkill,
   canEditAgent,
   canEditSkill,
@@ -47,7 +47,7 @@ export function useAgentPermissions(
   }
   return {
     canEdit: canEditAgent(agent, ctx),
-    canAssign: canAssignAgentToIssue(agent, ctx),
+    canAssign: canAssignAgentToTask(agent, ctx),
     isLoading,
   };
 }

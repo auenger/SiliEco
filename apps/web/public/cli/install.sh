@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${SILIECO_DOWNLOAD_BASE_URL:-http://yilia.me:6688/cli}"
+BASE_URL="${SILIECO_DOWNLOAD_BASE_URL:-}"
+[ -n "$BASE_URL" ] || { printf "Set SILIECO_DOWNLOAD_BASE_URL to this deployment\'s /cli URL.\n" >&2; exit 1; }
+BASE_URL="${BASE_URL%/}"
+APP_URL="${SILIECO_APP_URL:-${BASE_URL%/cli}}"
+SERVER_URL="${SILIECO_SERVER_URL:-$APP_URL}"
 
 info() { printf '==> %s\n' "$*"; }
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -44,27 +48,20 @@ fi
 tar -xzf "${tmp_dir}/${archive}" -C "$tmp_dir" silieco
 chmod +x "${tmp_dir}/silieco"
 
-bin_dir="${SILIECO_BIN_DIR:-/usr/local/bin}"
-if [ -d "$bin_dir" ] && [ -w "$bin_dir" ]; then
-  mv "${tmp_dir}/silieco" "${bin_dir}/silieco"
-elif command -v sudo >/dev/null 2>&1; then
-  sudo mkdir -p "$bin_dir"
-  sudo mv "${tmp_dir}/silieco" "${bin_dir}/silieco"
-else
-  bin_dir="$HOME/.local/bin"
-  mkdir -p "$bin_dir"
-  mv "${tmp_dir}/silieco" "${bin_dir}/silieco"
-  case ":$PATH:" in
-    *":${bin_dir}:"*) ;;
-    *)
-      shell_rc="$HOME/.profile"
-      [ -n "${ZSH_VERSION:-}" ] && shell_rc="$HOME/.zshrc"
-      printf '\n# Added by Silieco CLI installer\nexport PATH="%s:$PATH"\n' "$bin_dir" >> "$shell_rc"
-      export PATH="$bin_dir:$PATH"
-      ;;
-  esac
-fi
-
+bin_dir="${SILIECO_BIN_DIR:-$HOME/.local/bin}"
+mkdir -p "$bin_dir"
+[ -w "$bin_dir" ] || fail "安装目录不可写：$bin_dir"
+mv "${tmp_dir}/silieco" "${bin_dir}/silieco"
+case ":$PATH:" in
+  *":${bin_dir}:"*) ;;
+  *)
+    shell_rc="$HOME/.profile"
+    case "${SHELL:-}" in */zsh) shell_rc="$HOME/.zprofile" ;; */bash) shell_rc="$HOME/.bash_profile" ;; esac
+    printf '\n# Added by Silieco CLI installer\nexport PATH="%s:$PATH"\n' "$bin_dir" >> "$shell_rc"
+    export PATH="$bin_dir:$PATH"
+    info "已更新 ${shell_rc}；当前终端可运行：export PATH=\"$bin_dir:\$PATH\""
+    ;;
+esac
 info "Silieco CLI 已安装到 ${bin_dir}/silieco"
-"${bin_dir}/silieco" version
-printf '\n下一步：\n  silieco setup self-host --server-url http://yilia.me:6688 --app-url http://yilia.me:6688\n'
+"${bin_dir}/silieco" --version
+printf '\n下一步：\n  silieco setup self-host --server-url %s --app-url %s\n' "$SERVER_URL" "$APP_URL"

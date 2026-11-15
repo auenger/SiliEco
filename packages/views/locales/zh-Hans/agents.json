@@ -80,7 +80,7 @@
     "fallback_runtime_cloud": "云端",
     "fallback_runtime_local": "本地",
     "actions_aria": "行操作",
-    "task_count_other": "{{count}} 个任务"
+    "run_count_other": "{{count}} 个任务"
   },
   "activity_tooltip": {
     "created_today": "今天创建",
@@ -669,18 +669,18 @@
       "avg_duration_label": "平均耗时",
       "failed_count": "{{count}} 次失败",
       "failed_label": "失败",
-      "source_issue": "Task",
+      "source_task": "Task",
       "source_chat": "聊天",
       "source_autopilot": "自动化",
       "source_untracked": "未追踪",
       "source_quick_create": "快速创建",
-      "source_creating_issue": "正在创建 task",
+      "source_creating_task": "正在创建 task",
       "source_chat_session": "聊天会话",
       "source_autopilot_run": "自动化运行",
-      "issue_short_fallback": "Task {{prefix}}...",
+      "task_short_fallback": "Task {{prefix}}...",
       "triggered_by": "触发来源",
-      "open_issue_aria": "打开 task",
-      "open_issue_tooltip": "打开 task",
+      "open_task_aria": "打开 task",
+      "open_task_tooltip": "打开 task",
       "transcript_tooltip": "查看记录",
       "cancel_task_aria": "取消 task",
       "cancel_task_tooltip": "取消 task",
@@ -749,8 +749,8 @@
     "model_unset": "运行时默认"
   },
   "live_peek": {
-    "current_issue_label": "正在处理",
-    "no_current_issue": "暂无任务",
+    "current_task_label": "正在处理",
+    "no_current_task": "暂无任务",
     "last_activity_label": "最近活动",
     "no_recent_activity": "暂无活动",
     "failed_indicator": "失败"

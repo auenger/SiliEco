@@ -132,22 +132,22 @@ func (s *WorkflowExecutionService) ReworkExecution(ctx context.Context, p Rework
 	if err := tx.Commit(ctx); err != nil {
 		return empty, err
 	}
-	if s.TaskService != nil {
-		s.TaskService.BroadcastCancelledTasks(ctx, effects.CancelledTasks)
+	if s.AgentRunService != nil {
+		s.AgentRunService.BroadcastCancelledRuns(ctx, effects.CancelledRuns)
 	}
 	s.publishAcceptedWorkflow(p.WorkspaceID, run.ID)
 	return result, nil
 }
 
-func cancelWorkflowReworkCalls(ctx context.Context, q *db.Queries, calls []db.AgentTaskQueue) ([]db.AgentTaskQueue, error) {
-	cancelled := []db.AgentTaskQueue{}
+func cancelWorkflowReworkCalls(ctx context.Context, q *db.Queries, calls []db.AgentRun) ([]db.AgentRun, error) {
+	cancelled := []db.AgentRun{}
 	for _, call := range calls {
-		if err := q.DeleteTaskTokensByTask(ctx, call.ID); err != nil {
+		if err := q.DeleteAgentRunTokensByRun(ctx, call.ID); err != nil {
 			return nil, err
 		}
 		switch call.Status {
 		case "queued", "dispatched", "running", "waiting_local_directory", "deferred":
-			stopped, err := q.CancelAgentTask(ctx, call.ID)
+			stopped, err := q.CancelAgentRun(ctx, call.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -170,8 +170,8 @@ type WorkflowReworkInvalidationParams struct {
 }
 
 type WorkflowReworkEffects struct {
-	Record         db.WorkflowRework
-	CancelledTasks []db.AgentTaskQueue
+	Record        db.WorkflowRework
+	CancelledRuns []db.AgentRun
 }
 
 func InvalidateWorkflowForReworkInTx(ctx context.Context, q *db.Queries, p WorkflowReworkInvalidationParams) (WorkflowReworkEffects, error) {
@@ -217,7 +217,7 @@ func InvalidateWorkflowForReworkInTx(ctx context.Context, q *db.Queries, p Workf
 	if err != nil {
 		return empty, err
 	}
-	if err := q.InvalidateWorkflowStageIssuesForRework(ctx, db.InvalidateWorkflowStageIssuesForReworkParams{WorkspaceID: p.Run.WorkspaceID, InstanceID: p.Run.ID, Position: p.Target.Position, ReworkID: record.ID}); err != nil {
+	if err := q.InvalidateWorkflowStageTasksForRework(ctx, db.InvalidateWorkflowStageTasksForReworkParams{WorkspaceID: p.Run.WorkspaceID, InstanceID: p.Run.ID, Position: p.Target.Position, ReworkID: record.ID}); err != nil {
 		return empty, err
 	}
 	calls, err := q.ListInvalidatedWorkflowCallsForRework(ctx, db.ListInvalidatedWorkflowCallsForReworkParams{WorkspaceID: p.Run.WorkspaceID, WorkflowInstanceID: p.Run.ID, WorkflowInvalidatedByReworkID: record.ID})
@@ -232,7 +232,7 @@ func InvalidateWorkflowForReworkInTx(ctx context.Context, q *db.Queries, p Workf
 		return empty, err
 	}
 	for _, execution := range executions {
-		if err := q.BindLegacyIssuesForRework(ctx, db.BindLegacyIssuesForReworkParams{WorkspaceID: p.Run.WorkspaceID, ID: execution.ID}); err != nil {
+		if err := q.BindLegacyTasksForRework(ctx, db.BindLegacyTasksForReworkParams{WorkspaceID: p.Run.WorkspaceID, ID: execution.ID}); err != nil {
 			return empty, err
 		}
 		calls, err := q.ListWorkflowCallsForRework(ctx, db.ListWorkflowCallsForReworkParams{WorkspaceID: p.Run.WorkspaceID, ExecutionID: execution.ID})
@@ -255,5 +255,5 @@ func InvalidateWorkflowForReworkInTx(ctx context.Context, q *db.Queries, p Workf
 			return empty, err
 		}
 	}
-	return WorkflowReworkEffects{Record: record, CancelledTasks: cancelled}, nil
+	return WorkflowReworkEffects{Record: record, CancelledRuns: cancelled}, nil
 }

@@ -8,7 +8,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { WSClient } from "../api/ws-client";
 import { defaultStorage } from "../platform/storage";
 import { workflowKeys } from "../workflows/queries";
-import { issueKeys } from "../issues/queries";
+import { taskKeys } from "../tasks/queries";
 import { workspaceWorkingAgentsKeys } from "../agents/queries";
 import { workspaceKeys } from "../workspace/queries";
 import {
@@ -69,12 +69,12 @@ describe("useRealtimeSync — ws instance change", () => {
     invalidateSpy = vi.spyOn(qc, "invalidateQueries");
   });
 
-  it.each(["issue:created", "issue:updated"] as const)("refreshes SOP continuation after %s from another client", (event) => {
+  it.each(["task:created", "task:updated"] as const)("refreshes SOP continuation after %s from another client", (event) => {
     const ws = createMockWs();
     renderHook(() => useRealtimeSync(ws, stores), {wrapper: createWrapper(qc)});
     const callback = vi.mocked(ws.on).mock.calls.find(([name]) => name === event)?.[1];
     expect(callback).toBeDefined();
-    callback!({issue:{id:"task-1", workflow_instance_id:"run-1", status:"backlog"}} as never);
+    callback!({task:{id:"task-1", workflow_instance_id:"run-1", status:"backlog"}} as never);
     expect(invalidateSpy).toHaveBeenCalledWith({queryKey:workflowKeys.all("ws-1")});
   });
 
@@ -124,7 +124,7 @@ describe("useRealtimeSync — ws instance change", () => {
     rerender({ ws: ws2 });
 
     // Should have called invalidateQueries for all workspace-scoped keys
-    // (17 workspace-scoped [incl. property definitions and workflows] + 6 per-issue
+    // (17 workspace-scoped [incl. property definitions and workflows] + 6 per-task
     // prefixes + the workspace working-agents projection + 5 per-chat
     // prefixes + 1 workspaceKeys.list() + 1 cross-workspace inbox unread
     // summary = 31 calls)
@@ -164,8 +164,8 @@ describe("useRealtimeSync — ws instance change", () => {
     expect(calls).toContainEqual(["workspaces", "ws-1", "invitations"]);
   });
 
-  it("invalidates per-issue caches (no wsId in key) on ws instance change", () => {
-    // These keys are not under the ["issues", wsId] prefix, so they need
+  it("invalidates per-task caches (no wsId in key) on ws instance change", () => {
+    // These keys are not under the ["tasks", wsId] prefix, so they need
     // their own invalidation on recovery — otherwise events missed while
     // disconnected leave them stale forever (staleTime: Infinity, #3953).
     const ws1 = createMockWs();
@@ -181,12 +181,12 @@ describe("useRealtimeSync — ws instance change", () => {
     rerender({ ws: ws2 });
 
     const calls = invalidateSpy.mock.calls.map((call: [{ queryKey?: unknown }, ...unknown[]]) => call[0].queryKey);
-    expect(calls).toContainEqual(["issues", "timeline"]);
-    expect(calls).toContainEqual(["issues", "reactions"]);
-    expect(calls).toContainEqual(["issues", "subscribers"]);
-    expect(calls).toContainEqual(["issues", "usage"]);
-    expect(calls).toContainEqual(["issues", "attachments"]);
-    expect(calls).toContainEqual(["issues", "tasks"]);
+    expect(calls).toContainEqual(["tasks", "timeline"]);
+    expect(calls).toContainEqual(["tasks", "reactions"]);
+    expect(calls).toContainEqual(["tasks", "subscribers"]);
+    expect(calls).toContainEqual(["tasks", "usage"]);
+    expect(calls).toContainEqual(["tasks", "attachments"]);
+    expect(calls).toContainEqual(["tasks", "tasks"]);
   });
 
   it("invalidates per-chat-session caches (no wsId in key) on ws instance change", () => {
@@ -207,8 +207,8 @@ describe("useRealtimeSync — ws instance change", () => {
     const calls = invalidateSpy.mock.calls.map((call: [{ queryKey?: unknown }, ...unknown[]]) => call[0].queryKey);
     expect(calls).toContainEqual(["chat", "messages"]);
     expect(calls).toContainEqual(["chat", "messages-page"]);
-    expect(calls).toContainEqual(["chat", "pending-task"]);
-    expect(calls).toContainEqual(["task-messages"]);
+    expect(calls).toContainEqual(["chat", "pending-run"]);
+    expect(calls).toContainEqual(["run-messages"]);
   });
 });
 
@@ -225,7 +225,7 @@ describe("useRealtimeSync — Table server membership invalidation", () => {
     vi.useRealTimers();
   });
 
-  it("refreshes issues and the Run when workflow rework arrives over WebSocket", () => {
+  it("refreshes tasks and the Run when workflow rework arrives over WebSocket", () => {
     vi.useFakeTimers();
     const ws = createMockWs();
     const invalidate = vi.spyOn(qc, "invalidateQueries");
@@ -234,8 +234,8 @@ describe("useRealtimeSync — Table server membership invalidation", () => {
     onAny!({type:"workflow_instance:updated",payload:{}} as never);
     vi.advanceTimersByTime(100);
     expect(invalidate).toHaveBeenCalledWith({queryKey:workflowKeys.all("ws-1")});
-    expect(invalidate).toHaveBeenCalledWith({queryKey:issueKeys.all("ws-1")});
-    expect(invalidate).not.toHaveBeenCalledWith({queryKey:issueKeys.all("other")});
+    expect(invalidate).toHaveBeenCalledWith({queryKey:taskKeys.all("ws-1")});
+    expect(invalidate).not.toHaveBeenCalledWith({queryKey:taskKeys.all("other")});
   });
 
   it("invalidates Table queries after a task lifecycle event", () => {
@@ -248,11 +248,11 @@ describe("useRealtimeSync — Table server membership invalidation", () => {
     const onAny = vi.mocked(ws.onAny).mock.calls[0]?.[0];
     expect(onAny).toBeDefined();
 
-    onAny!({ type: "task:completed", payload: {} } as never);
+    onAny!({ type: "run:completed", payload: {} } as never);
     vi.advanceTimersByTime(100);
 
     expect(invalidate).toHaveBeenCalledWith({
-      queryKey: issueKeys.tableAll("ws-1"),
+      queryKey: taskKeys.tableAll("ws-1"),
     });
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: workspaceWorkingAgentsKeys.all("ws-1"),
@@ -273,7 +273,7 @@ describe("useRealtimeSync — Table server membership invalidation", () => {
     (propertyUpdated as (payload: unknown) => void)({});
 
     expect(invalidate).toHaveBeenCalledWith({
-      queryKey: issueKeys.tableAll("ws-1"),
+      queryKey: taskKeys.tableAll("ws-1"),
     });
   });
 });
@@ -310,14 +310,14 @@ describe("useRealtimeSync — workspace:deleted self-initiated suppression", () 
       wrapper: createWrapper(qc),
     });
     qc.setQueryData(workspaceKeys.list(), [{ id: "ws-2", slug: "delete-me" }]);
-    defaultStorage.setItem("silieco_issue_draft:delete-me", "draft");
+    defaultStorage.setItem("silieco_tr1_task_draft:delete-me", "draft");
 
     markWorkspaceDeletePending("ws-2");
     dispatchWorkspaceDeleted(ws, "ws-2");
 
     // useDeleteWorkspace.onSuccess owns cleanup for self-initiated deletes;
     // the handler must not have touched storage.
-    expect(defaultStorage.getItem("silieco_issue_draft:delete-me")).toBe("draft");
+    expect(defaultStorage.getItem("silieco_tr1_task_draft:delete-me")).toBe("draft");
   });
 
   it("still cleans up for a delete initiated elsewhere", () => {
@@ -326,10 +326,10 @@ describe("useRealtimeSync — workspace:deleted self-initiated suppression", () 
       wrapper: createWrapper(qc),
     });
     qc.setQueryData(workspaceKeys.list(), [{ id: "ws-2", slug: "delete-me" }]);
-    defaultStorage.setItem("silieco_issue_draft:delete-me", "draft");
+    defaultStorage.setItem("silieco_tr1_task_draft:delete-me", "draft");
 
     dispatchWorkspaceDeleted(ws, "ws-2");
 
-    expect(defaultStorage.getItem("silieco_issue_draft:delete-me")).toBeNull();
+    expect(defaultStorage.getItem("silieco_tr1_task_draft:delete-me")).toBeNull();
   });
 });

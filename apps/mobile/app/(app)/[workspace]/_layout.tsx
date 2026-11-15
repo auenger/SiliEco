@@ -6,15 +6,15 @@ import { workspaceListOptions } from "@/data/queries/workspaces";
 import { useWorkspaceStore } from "@/data/workspace-store";
 import { RealtimeProvider } from "@/data/realtime/realtime-provider";
 import { useInboxRealtime } from "@/data/realtime/use-inbox-realtime";
-import { useIssuesRealtime } from "@/data/realtime/use-issues-realtime";
-import { useMyIssuesRealtime } from "@/data/realtime/use-my-issues-realtime";
+import { useTasksRealtime } from "@/data/realtime/use-tasks-realtime";
+import { useMyTasksRealtime } from "@/data/realtime/use-my-tasks-realtime";
 import { useChatSessionsRealtime } from "@/data/realtime/use-chat-sessions-realtime";
 import { useProjectsRealtime } from "@/data/realtime/use-projects-realtime";
 import { usePinsRealtime } from "@/data/realtime/use-pins-realtime";
 import { usePresenceRealtime } from "@/data/realtime/use-presence-realtime";
 import { useWorkspacePresencePrefetch } from "@/lib/use-workspace-presence-prefetch";
 import { ModalCloseButton } from "@/components/ui/modal-close-button";
-import { useNewIssueDraftResetOnWorkspaceChange } from "@/data/stores/new-issue-draft-store";
+import { useNewTaskDraftResetOnWorkspaceChange } from "@/data/stores/new-task-draft-store";
 import { useNewProjectDraftResetOnWorkspaceChange } from "@/data/stores/new-project-draft-store";
 import { useChatSessionPickerResetOnWorkspaceChange } from "@/data/stores/chat-session-picker-store";
 
@@ -30,7 +30,7 @@ import { useChatSessionPickerResetOnWorkspaceChange } from "@/data/stores/chat-s
  *     (expo/expo#42904 padding inconsistency, expo/expo#42965 zero-size).
  *     Predictable two-snap presentation across every picker-row sheet >
  *     shrink-wrap; this is the right default for sheets that sit next to
- *     other sheets in the same chip row (issue / project AttributeRow) so
+ *     other sheets in the same chip row (task / project AttributeRow) so
  *     the user gets the same gesture regardless of which chip they tap.
  *     Isolated sheets that have no neighbour to be consistent with (e.g.
  *     the workspace `menu` sheet) override this with `"fitToContents"`
@@ -55,7 +55,7 @@ const SHEET_OPTIONS: ComponentProps<typeof Stack.Screen>["options"] = {
 /**
  * Cold-start deep-link anchor. Expo Router otherwise treats whatever
  * route resolves the URL as the root of the stack — if the user opens a
- * notification that targets `issue/[id]/picker/status` directly, they
+ * notification that targets `task/[id]/picker/status` directly, they
  * land on the formSheet with NO parent under it, no way to go back to
  * the tabs. `anchor: "(tabs)"` tells the router to mount the tab UI as
  * the implicit underlying screen so back/swipe-dismiss returns the user
@@ -67,15 +67,15 @@ export const unstable_settings = { anchor: "(tabs)" } as const;
  * Mounts every per-feature realtime subscription. Lives inside
  * RealtimeProvider so the WSClient context is available, and stays alive
  * for the whole workspace session — the inbox unread count must keep
- * refreshing even while the user is on an issue page or settings, not
+ * refreshing even while the user is on a task page or settings, not
  * just when the inbox tab is foregrounded.
  *
- * Add new realtime feature hooks here as they land (issue, chat, etc).
+ * Add new realtime feature hooks here as they land (task, chat, etc).
  */
 function RealtimeSubscriptions() {
   useInboxRealtime();
-  useIssuesRealtime();
-  useMyIssuesRealtime();
+  useTasksRealtime();
+  useMyTasksRealtime();
   useChatSessionsRealtime();
   useProjectsRealtime();
   usePinsRealtime();
@@ -115,7 +115,7 @@ export default function WorkspaceLayout() {
   // Wipe cross-route Zustand draft stores whenever the active workspace
   // changes — a draft picked under workspace A (assignee id, draft
   // session id, etc.) is invalid in workspace B and must not leak.
-  useNewIssueDraftResetOnWorkspaceChange(matched?.id ?? null);
+  useNewTaskDraftResetOnWorkspaceChange(matched?.id ?? null);
   useNewProjectDraftResetOnWorkspaceChange(matched?.id ?? null);
   useChatSessionPickerResetOnWorkspaceChange(matched?.id ?? null);
 
@@ -125,7 +125,7 @@ export default function WorkspaceLayout() {
 
   if (!matched) return <Redirect href="/select-workspace" />;
 
-  // Tabs hide their own header; pushed screens (issue/[id]) get a native
+  // Tabs hide their own header; pushed screens (task/[id]) get a native
   // iOS Stack header with the standard back button + swipe-to-dismiss.
   return (
     <RealtimeProvider>
@@ -133,7 +133,7 @@ export default function WorkspaceLayout() {
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
-          name="issue/[id]"
+          name="task/[id]"
           options={{
             title: "Task",
             headerBackTitle: "Back",
@@ -155,9 +155,9 @@ export default function WorkspaceLayout() {
           }}
         />
         <Stack.Screen
-          name="issue/[id]/edit"
+          name="task/[id]/edit"
           options={{
-            title: "Edit Issue",
+            title: "Edit Task",
             presentation: "modal",
             headerLeft: () => <ModalCloseButton />,
           }}
@@ -170,17 +170,17 @@ export default function WorkspaceLayout() {
             headerLeft: () => <ModalCloseButton />,
           }}
         />
-        {/* Issue-detail formSheet pickers. All share the same sheet config:
+        {/* Task-detail formSheet pickers. All share the same sheet config:
             explicit numeric detents to dodge expo/expo#42904+#42965 (the
             `fitToContents` zero-size / padding bugs on iOS 26 + Expo 55),
             iOS native grabber, and contentStyle.height=100% as a safety
             net against the same zero-size class of bugs. */}
         <Stack.Screen
-          name="issue/[id]/picker/status"
+          name="task/[id]/picker/status"
           options={SHEET_OPTIONS}
         />
         <Stack.Screen
-          name="issue/[id]/picker/priority"
+          name="task/[id]/picker/priority"
           options={SHEET_OPTIONS}
         />
         {/* Experiment: assignee uses iOS-native nav header + UISearchController
@@ -191,7 +191,7 @@ export default function WorkspaceLayout() {
             proves out, propagate to label / project / other search pickers
             and update CLAUDE.md Lesson 6 with a carve-out. */}
         <Stack.Screen
-          name="issue/[id]/picker/assignee"
+          name="task/[id]/picker/assignee"
           options={{
             ...SHEET_OPTIONS,
             headerShown: true,
@@ -199,7 +199,7 @@ export default function WorkspaceLayout() {
           }}
         />
         <Stack.Screen
-          name="issue/[id]/picker/label"
+          name="task/[id]/picker/label"
           options={SHEET_OPTIONS}
         />
         <Stack.Screen
@@ -211,19 +211,19 @@ export default function WorkspaceLayout() {
           }}
         />
         <Stack.Screen
-          name="issue/[id]/picker/project"
+          name="task/[id]/picker/project"
           options={SHEET_OPTIONS}
         />
         <Stack.Screen
-          name="issue/[id]/picker/due-date"
+          name="task/[id]/picker/due-date"
           options={SHEET_OPTIONS}
         />
-        <Stack.Screen name="issue/[id]/runs" options={SHEET_OPTIONS} />
+        <Stack.Screen name="task/[id]/runs" options={SHEET_OPTIONS} />
         {/* Full emoji picker for a comment reaction. Pushed from the "+"
             button inside the comment long-press tapback row — see
-            components/issue/comment-context-menu.tsx. */}
+            components/task/comment-context-menu.tsx. */}
         <Stack.Screen
-          name="issue/[id]/comment/[commentId]/emoji-picker"
+          name="task/[id]/comment/[commentId]/emoji-picker"
           options={SHEET_OPTIONS}
         />
         {/* Project-detail formSheet pickers. */}
@@ -243,20 +243,20 @@ export default function WorkspaceLayout() {
           name="project/[id]/add-resource"
           options={SHEET_OPTIONS}
         />
-        {/* New-issue draft formSheet pickers — stacked on top of the
-            new-issue.tsx Stack.Screen (which is itself a `modal`).
+        {/* New-task draft formSheet pickers — stacked on top of the
+            new-task.tsx Stack.Screen (which is itself a `modal`).
             Expo Router 55 / RN Screens 4 support a formSheet pushed on top
             of a modal in the same Stack. */}
         <Stack.Screen
-          name="new-issue-picker/status"
+          name="new-task-picker/status"
           options={SHEET_OPTIONS}
         />
         <Stack.Screen
-          name="new-issue-picker/priority"
+          name="new-task-picker/priority"
           options={SHEET_OPTIONS}
         />
         <Stack.Screen
-          name="new-issue-picker/assignee"
+          name="new-task-picker/assignee"
           options={{
             ...SHEET_OPTIONS,
             headerShown: true,
@@ -264,15 +264,15 @@ export default function WorkspaceLayout() {
           }}
         />
         <Stack.Screen
-          name="new-issue-picker/project"
+          name="new-task-picker/project"
           options={SHEET_OPTIONS}
         />
         <Stack.Screen
-          name="new-issue-picker/due-date"
+          name="new-task-picker/due-date"
           options={SHEET_OPTIONS}
         />
         {/* New-project draft formSheet pickers — same pattern as
-            new-issue-picker/*. Stacked on top of `project/new` (a modal). */}
+            new-task-picker/*. Stacked on top of `project/new` (a modal). */}
         <Stack.Screen
           name="new-project-picker/status"
           options={SHEET_OPTIONS}
@@ -281,16 +281,16 @@ export default function WorkspaceLayout() {
           name="new-project-picker/priority"
           options={SHEET_OPTIONS}
         />
-        {/* Shared filter sheet for My Issues and the workspace Issues page —
+        {/* Shared filter sheet for My Tasks and the workspace Tasks page —
             chooses the right view-store via `?scope=my|all` URL param. */}
-        <Stack.Screen name="issues-filter" options={SHEET_OPTIONS} />
+        <Stack.Screen name="tasks-filter" options={SHEET_OPTIONS} />
         {/* Chat session-switch sheet. */}
         <Stack.Screen name="chat-sessions" options={SHEET_OPTIONS} />
         {/* Workspace switcher — reached from the More popover's collapsed
             WorkspaceCard. Two-step (pick → iOS Alert confirm → switch). */}
         <Stack.Screen name="switch-workspace" options={SHEET_OPTIONS} />
         <Stack.Screen
-          name="more/issues"
+          name="more/tasks"
           options={{ title: "Tasks", headerBackTitle: "Back" }}
         />
         <Stack.Screen
@@ -318,9 +318,9 @@ export default function WorkspaceLayout() {
           options={{ title: "Notifications", headerBackTitle: "Settings" }}
         />
         <Stack.Screen
-          name="new-issue"
+          name="new-task"
           options={{
-            title: "New Issue",
+            title: "New Task",
             presentation: "modal",
             headerLeft: () => <ModalCloseButton />,
           }}

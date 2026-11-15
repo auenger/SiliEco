@@ -14,15 +14,16 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/logger"
 	obsmetrics "github.com/silieco-ai/silieco/core/internal/metrics"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
 var nonAlpha = regexp.MustCompile(`[^a-zA-Z]`)
 var workspaceSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// generateIssuePrefix produces a 2-5 char uppercase prefix from a workspace name.
+// generateTaskPrefix produces a 2-5 char uppercase prefix from a workspace name.
 // Examples: "Jiayuan's Workspace" → "JIA", "My Team" → "MYT", "AB" → "AB".
-func generateIssuePrefix(name string) string {
+func generateTaskPrefix(name string) string {
 	letters := nonAlpha.ReplaceAllString(name, "")
 	if len(letters) == 0 {
 		return "WS"
@@ -42,7 +43,7 @@ type WorkspaceResponse struct {
 	Context     *string `json:"context"`
 	Settings    any     `json:"settings"`
 	Repos       any     `json:"repos"`
-	IssuePrefix string  `json:"issue_prefix"`
+	TaskPrefix  string  `json:"task_prefix"`
 	AvatarURL   *string `json:"avatar_url"`
 	CreatedAt   string  `json:"created_at"`
 	UpdatedAt   string  `json:"updated_at"`
@@ -71,7 +72,7 @@ func (h *Handler) workspaceToResponse(w db.Workspace) WorkspaceResponse {
 		Context:     textToPtr(w.Context),
 		Settings:    settings,
 		Repos:       repos,
-		IssuePrefix: w.IssuePrefix,
+		TaskPrefix:  w.TaskPrefix,
 		AvatarURL:   h.resolveAvatarURLPtr(textToPtr(w.AvatarUrl)),
 		CreatedAt:   timestampToString(w.CreatedAt),
 		UpdatedAt:   timestampToString(w.UpdatedAt),
@@ -136,7 +137,7 @@ type CreateWorkspaceRequest struct {
 	Slug        string  `json:"slug"`
 	Description *string `json:"description"`
 	Context     *string `json:"context"`
-	IssuePrefix *string `json:"issue_prefix"`
+	TaskPrefix  *string `json:"task_prefix"`
 }
 
 func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -183,9 +184,9 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	issuePrefix := generateIssuePrefix(req.Name)
-	if req.IssuePrefix != nil && strings.TrimSpace(*req.IssuePrefix) != "" {
-		issuePrefix = strings.ToUpper(strings.TrimSpace(*req.IssuePrefix))
+	taskPrefix := generateTaskPrefix(req.Name)
+	if req.TaskPrefix != nil && strings.TrimSpace(*req.TaskPrefix) != "" {
+		taskPrefix = strings.ToUpper(strings.TrimSpace(*req.TaskPrefix))
 	}
 
 	qtx := h.Queries.WithTx(tx)
@@ -194,7 +195,7 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		Slug:        req.Slug,
 		Description: ptrToText(req.Description),
 		Context:     ptrToText(req.Context),
-		IssuePrefix: issuePrefix,
+		TaskPrefix:  taskPrefix,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -247,7 +248,7 @@ type UpdateWorkspaceRequest struct {
 	Context     *string `json:"context"`
 	Settings    any     `json:"settings"`
 	Repos       any     `json:"repos"`
-	IssuePrefix *string `json:"issue_prefix"`
+	TaskPrefix  *string `json:"task_prefix"`
 	AvatarURL   *string `json:"avatar_url"`
 }
 
@@ -334,10 +335,10 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		}
 		params.Repos = reposJSON
 	}
-	if req.IssuePrefix != nil {
-		prefix := strings.ToUpper(strings.TrimSpace(*req.IssuePrefix))
+	if req.TaskPrefix != nil {
+		prefix := strings.ToUpper(strings.TrimSpace(*req.TaskPrefix))
 		if prefix != "" {
-			params.IssuePrefix = pgtype.Text{String: prefix, Valid: true}
+			params.TaskPrefix = pgtype.Text{String: prefix, Valid: true}
 		}
 	}
 	if req.AvatarURL != nil {
@@ -781,6 +782,11 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
+
+	if err := relational.LockForDelete(r.Context(), tx, relational.DeleteWorkspace, requester.WorkspaceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock deletion dependencies")
+		return
+	}
 
 	if _, err := qtx.LockWorkspaceForDelete(r.Context(), requester.WorkspaceID); err != nil {
 		slog.Warn("lock workspace for delete failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)

@@ -192,7 +192,7 @@ func formatProjectResource(r ProjectResourceForEnv) string {
 // For Traecli:     writes {workDir}/AGENTS.md  (traecli reads .trae/rules/ not AGENTS.md, so the brief is delivered inline via providerNeedsInlineSystemPrompt; the file is written for parity/visibility only)
 // For Grok:        writes {workDir}/AGENTS.md  (Grok Build CLI reads AGENTS.md natively from the workdir)
 // For Qwen:        writes {workDir}/QWEN.md (Qwen Code's native context file; it also reads AGENTS.md, but QWEN.md avoids cross-runtime ambiguity)
-func InjectRuntimeConfig(workDir, provider string, ctx TaskContextForEnv) (string, error) {
+func InjectRuntimeConfig(workDir, provider string, ctx RunContextForEnv) (string, error) {
 	content := buildMetaSkillContent(provider, ctx)
 	path := runtimeConfigPath(workDir, provider)
 	if path == "" {
@@ -344,7 +344,7 @@ func locateMarkerBlock(content string) (start, end int, found bool) {
 // Required for the local_directory flow (WorkDir is the user's own repo):
 // without this pass, a manual `claude` / `codex` run started by
 // the user inside the same directory after a Silieco task would pick up
-// the stale brief and act on the previous task's issue id, trigger
+// the stale brief and act on the previous task's task id, trigger
 // comment id, and reply rules. Cloud workspace runs never trigger this
 // pollution because their workdir is daemon scratch that the GC loop
 // deletes wholesale; the daemon skips this Cleanup on those workdirs.
@@ -406,6 +406,6 @@ func CleanupRuntimeConfig(workDir, provider string) error {
 // This used to be gated behind the `runtime_brief_slim` feature flag against a
 // legacy verbose brief; the flag has been retired (SILI-4297) and the slim brief
 // is now the only path.
-func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
+func buildMetaSkillContent(provider string, ctx RunContextForEnv) string {
 	return buildMetaSkillContentSlim(provider, ctx)
 }

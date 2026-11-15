@@ -31,7 +31,7 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
   const wsId = useWorkspaceId();
   const user = useAuthStore((s) => s.user);
 
-  // Both queries are already issued by LarkAgentBindButton (and keyed per
+  // Both queries are already taskd by LarkAgentBindButton (and keyed per
   // workspace), so re-reading them here is free — TanStack dedupes by key.
   // We only need the derived booleans to pick which copy sits next to the
   // button, mirroring the branch order LarkTab uses in Settings.

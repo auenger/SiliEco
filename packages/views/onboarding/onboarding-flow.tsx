@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Button } from "@silieco/ui/components/ui/button";
 import { toast } from "sonner";
 import { setCurrentWorkspace } from "@silieco/core/platform";
 import { useAuthStore } from "@silieco/core/auth";
@@ -22,26 +23,27 @@ import {
 } from "./steps/step-runtime-detection";
 import { StepWorkspaceDescription } from "./steps/step-workspace-description";
 import { useT } from "../i18n";
+import { useLogout } from "../auth";
 
 /**
  * Shell's onComplete contract:
- *   onComplete(workspace?, issueId?) — if an issue id is present, navigate
- *   straight into that onboarding issue; otherwise navigate into the
- *   workspace issues list.
+ *   onComplete(workspace?, taskId?) — if an task id is present, navigate
+ *   straight into that onboarding task; otherwise navigate into the
+ *   workspace tasks list.
  *
  * Three exit shapes feed onComplete:
  *   - Skip-existing (Welcome): completeOnboarding marks onboarded; navigate
- *     to the existing workspace's issue list.
+ *     to the existing workspace's task list.
  *   - Runtime-skipped (no runtime on Step 3): completeOnboarding marks
  *     onboarded; we push a {choice:"skip"} welcome signal and navigate
  *     to the workspace. The welcome hook in the workspace shell creates
- *     the install-runtime / create-agent guide issues on landing.
+ *     the install-runtime / create-agent guide tasks on landing.
  *   - Runtime-connected (runtime picked on Step 3): completeOnboarding
  *     marks onboarded; we push a {choice:"runtime", runtimeId} welcome
  *     signal and navigate. The welcome hook creates Sili Agent
  *     agent on the picked runtime and shows the starter-card Modal.
  *
- * V3 contract: this file never touches createAgent / createIssue. The
+ * V3 contract: this file never touches createAgent / createTask. The
  * "what runs in the workspace shell after onboarding" decision is in
  * `packages/views/workspace/welcome-after-onboarding.tsx`.
  */
@@ -51,7 +53,7 @@ export function OnboardingFlow({
   onRuntimeProbe,
   onRuntimeRefresh,
 }: {
-  onComplete: (workspace?: Workspace, issueId?: string) => void;
+  onComplete: (workspace?: Workspace, taskId?: string) => void;
   runtimeInstructions?: React.ReactNode;
   /** Desktop probes installed local Agent tools before a workspace exists. */
   onRuntimeProbe?: () => Promise<RuntimeDetectionResult>;
@@ -62,6 +64,8 @@ export function OnboardingFlow({
   onRuntimeRefresh?: () => void | Promise<void>;
 }) {
   const { t } = useT("onboarding");
+  const logout = useLogout();
+  const { t: tw } = useT("workspace");
   const user = useAuthStore((s) => s.user);
   if (!user) {
     throw new Error("OnboardingFlow requires an authenticated user");
@@ -70,19 +74,29 @@ export function OnboardingFlow({
   const [step, setStep] = useState<OnboardingStep>("welcome");
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
 
-  // Fetched at Step 0 + Step 2. Step 2 uses it to detect a pre-existing
-  // workspace from an earlier abandoned onboarding (so StepWorkspace shows
-  // "Continue with {name}" instead of CreateWorkspaceForm — avoiding the
-  // slug conflict that creation would hit). Step 0 uses it to decide
-  // whether to render the "I've done this before" skip button — only
-  // shown when the user already has at least one workspace, otherwise
-  // skipping would land them in limbo.
+  // Keep existing membership available throughout setup and when skipping.
   const { data: workspaces = [], isFetched: workspacesFetched } = useQuery({
     ...workspaceListOptions(),
-    enabled: step === "welcome" || step === "workspace",
+    enabled: true,
   });
   const existingWorkspace = workspace ?? workspaces[0] ?? null;
   const canSkipWelcome = workspacesFetched && workspaces.length > 0;
+  const [skipping, setSkipping] = useState(false);
+  const skipInFlight = useRef(false);
+  const handleSkipAll = async () => {
+    if (skipInFlight.current) return;
+    skipInFlight.current = true;
+    setSkipping(true);
+    try {
+      await completeOnboarding();
+      onComplete(existingWorkspace ?? undefined);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t(($) => $.errors.skip_failed));
+    } finally {
+      skipInFlight.current = false;
+      setSkipping(false);
+    }
+  };
 
   // The `runtimeInstructions` slot is only plumbed by the web shell
   // (desktop bundles a daemon, so a CLI install card would be noise
@@ -119,7 +133,7 @@ export function OnboardingFlow({
   // workspace and just wants to land there. Marks onboarding complete
   // server-side (idempotent via COALESCE on onboarded_at); when the
   // target workspace has no runtime yet, the server seeds the same
-  // install-runtime issue as Step 3 Skip so the user lands on a
+  // install-runtime task as Step 3 Skip so the user lands on a
   // concrete next step.
   const handleWelcomeSkip = useCallback(async () => {
     try {
@@ -213,6 +227,7 @@ export function OnboardingFlow({
   }, []);
 
   // Welcome and all three setup steps own full-bleed layouts.
+  const renderStep = () => {
   if (step === "welcome") {
     return (
       <StepWelcome
@@ -255,6 +270,19 @@ export function OnboardingFlow({
   }
 
   return null;
+  };
+  return (
+    <div className="flex min-h-full flex-col">
+      <div className="flex shrink-0 items-center justify-end gap-3 border-b bg-background px-6 pt-12 pb-2">
+        <span className="min-w-0 truncate text-caption text-muted-foreground">{user.email}</span>
+        <Button variant="ghost" disabled={skipping} onClick={logout}>{tw(($) => $.new_page.log_out)}</Button>
+        <Button variant="ghost" disabled={skipping || !workspacesFetched} onClick={() => void handleSkipAll()}>
+          {skipping ? t(($) => $.skip_all_pending) : t(($) => $.skip_all)}
+        </Button>
+      </div>
+      <fieldset disabled={skipping} className="min-w-0 flex-1 border-0 p-0">{renderStep()}</fieldset>
+    </div>
+  );
 }
 
 export type { OnboardingStep };

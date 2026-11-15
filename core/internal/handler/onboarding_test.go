@@ -201,7 +201,7 @@ func TestJoinCloudWaitlistSecondCallOverwrites(t *testing.T) {
 // onboarding_shim.go in the same commit.
 // ---------------------------------------------------------------------------
 
-func TestBootstrapOnboardingRuntimeCreatesSingleGuideIssue(t *testing.T) {
+func TestBootstrapOnboardingRuntimeCreatesSingleGuideTask(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -209,15 +209,15 @@ func TestBootstrapOnboardingRuntimeCreatesSingleGuideIssue(t *testing.T) {
 	ctx := context.Background()
 	t.Cleanup(func() {
 		testPool.Exec(ctx, `
-			DELETE FROM agent_task_queue
+			DELETE FROM agent_run
 			 WHERE agent_id IN (
 			       SELECT id FROM agent
 			        WHERE workspace_id = $1 AND name = $2
 			 )
 		`, testWorkspaceID, onboardingAssistantName)
 		testPool.Exec(ctx,
-			`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-			testWorkspaceID, onboardingIssueTitle,
+			`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+			testWorkspaceID, onboardingTaskTitle,
 		)
 		testPool.Exec(ctx,
 			`DELETE FROM agent WHERE workspace_id = $1 AND name = $2`,
@@ -229,8 +229,8 @@ func TestBootstrapOnboardingRuntimeCreatesSingleGuideIssue(t *testing.T) {
 		)
 	})
 	testPool.Exec(ctx,
-		`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-		testWorkspaceID, onboardingIssueTitle,
+		`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+		testWorkspaceID, onboardingTaskTitle,
 	)
 	testPool.Exec(ctx,
 		`DELETE FROM agent WHERE workspace_id = $1 AND name = $2`,
@@ -255,7 +255,7 @@ func TestBootstrapOnboardingRuntimeCreatesSingleGuideIssue(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.WorkspaceID != testWorkspaceID || resp.AgentID == "" || resp.IssueID == "" {
+	if resp.WorkspaceID != testWorkspaceID || resp.AgentID == "" || resp.TaskID == "" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 
@@ -286,27 +286,27 @@ func TestBootstrapOnboardingRuntimeCreatesSingleGuideIssue(t *testing.T) {
 	}
 
 	var (
-		issueTitle    string
-		assigneeType  string
-		assigneeID    string
-		issueStatus   string
-		issuePriority string
+		taskTitle    string
+		assigneeType string
+		assigneeID   string
+		taskStatus   string
+		taskPriority string
 	)
 	if err := testPool.QueryRow(ctx, `
 		SELECT title, assignee_type, assignee_id, status, priority
-		  FROM issue
+		  FROM task
 		 WHERE id = $1
-	`, resp.IssueID).Scan(&issueTitle, &assigneeType, &assigneeID, &issueStatus, &issuePriority); err != nil {
-		t.Fatalf("lookup onboarding issue: %v", err)
+	`, resp.TaskID).Scan(&taskTitle, &assigneeType, &assigneeID, &taskStatus, &taskPriority); err != nil {
+		t.Fatalf("lookup onboarding task: %v", err)
 	}
-	if issueTitle != onboardingIssueTitle {
-		t.Fatalf("issue title = %q, want %q", issueTitle, onboardingIssueTitle)
+	if taskTitle != onboardingTaskTitle {
+		t.Fatalf("task title = %q, want %q", taskTitle, onboardingTaskTitle)
 	}
 	if assigneeType != "agent" || assigneeID != resp.AgentID {
-		t.Fatalf("issue assignee = %s/%s, want agent/%s", assigneeType, assigneeID, resp.AgentID)
+		t.Fatalf("task assignee = %s/%s, want agent/%s", assigneeType, assigneeID, resp.AgentID)
 	}
-	if issueStatus != "todo" || issuePriority != "high" {
-		t.Fatalf("issue status/priority = %s/%s, want todo/high", issueStatus, issuePriority)
+	if taskStatus != "todo" || taskPriority != "high" {
+		t.Fatalf("task status/priority = %s/%s, want todo/high", taskStatus, taskPriority)
 	}
 
 	var (
@@ -327,16 +327,16 @@ func TestBootstrapOnboardingRuntimeCreatesSingleGuideIssue(t *testing.T) {
 		t.Fatalf("starter_content_state = %v, want imported", starterContentState)
 	}
 
-	var taskCount int
+	var runCount int
 	if err := testPool.QueryRow(ctx, `
 		SELECT count(*)
-		  FROM agent_task_queue
-		 WHERE issue_id = $1 AND agent_id = $2
-	`, resp.IssueID, resp.AgentID).Scan(&taskCount); err != nil {
+		  FROM agent_run
+		 WHERE task_id = $1 AND agent_id = $2
+	`, resp.TaskID, resp.AgentID).Scan(&runCount); err != nil {
 		t.Fatalf("count queued tasks: %v", err)
 	}
-	if taskCount == 0 {
-		t.Fatal("expected onboarding issue to enqueue an agent task")
+	if runCount == 0 {
+		t.Fatal("expected onboarding task to enqueue an agent task")
 	}
 
 	w2 := httptest.NewRecorder()
@@ -348,7 +348,7 @@ func TestBootstrapOnboardingRuntimeCreatesSingleGuideIssue(t *testing.T) {
 	if err := json.NewDecoder(w2.Body).Decode(&resp2); err != nil {
 		t.Fatalf("decode second response: %v", err)
 	}
-	if resp2.AgentID != resp.AgentID || resp2.IssueID != resp.IssueID {
+	if resp2.AgentID != resp.AgentID || resp2.TaskID != resp.TaskID {
 		t.Fatalf("bootstrap should be idempotent: first=%+v second=%+v", resp, resp2)
 	}
 }
@@ -361,15 +361,15 @@ func TestBootstrapOnboardingRuntime_WithStarterPrompt(t *testing.T) {
 	ctx := context.Background()
 	t.Cleanup(func() {
 		testPool.Exec(ctx, `
-			DELETE FROM agent_task_queue
+			DELETE FROM agent_run
 			 WHERE agent_id IN (
 			       SELECT id FROM agent
 			        WHERE workspace_id = $1 AND name = $2
 			 )
 		`, testWorkspaceID, onboardingAssistantName)
 		testPool.Exec(ctx,
-			`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-			testWorkspaceID, onboardingIssueTitle,
+			`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+			testWorkspaceID, onboardingTaskTitle,
 		)
 		testPool.Exec(ctx,
 			`DELETE FROM agent WHERE workspace_id = $1 AND name = $2`,
@@ -381,8 +381,8 @@ func TestBootstrapOnboardingRuntime_WithStarterPrompt(t *testing.T) {
 		)
 	})
 	testPool.Exec(ctx,
-		`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-		testWorkspaceID, onboardingIssueTitle,
+		`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+		testWorkspaceID, onboardingTaskTitle,
 	)
 	testPool.Exec(ctx,
 		`DELETE FROM agent WHERE workspace_id = $1 AND name = $2`,
@@ -411,12 +411,12 @@ func TestBootstrapOnboardingRuntime_WithStarterPrompt(t *testing.T) {
 
 	var description *string
 	if err := testPool.QueryRow(ctx, `
-		SELECT description FROM issue WHERE id = $1
-	`, resp.IssueID).Scan(&description); err != nil {
-		t.Fatalf("lookup issue description: %v", err)
+		SELECT description FROM task WHERE id = $1
+	`, resp.TaskID).Scan(&description); err != nil {
+		t.Fatalf("lookup task description: %v", err)
 	}
 	if description == nil || *description != wantPrompt {
-		t.Fatalf("issue description = %v, want %q", description, wantPrompt)
+		t.Fatalf("task description = %v, want %q", description, wantPrompt)
 	}
 }
 
@@ -428,15 +428,15 @@ func TestBootstrapOnboardingRuntime_NoStarterPrompt(t *testing.T) {
 	ctx := context.Background()
 	t.Cleanup(func() {
 		testPool.Exec(ctx, `
-			DELETE FROM agent_task_queue
+			DELETE FROM agent_run
 			 WHERE agent_id IN (
 			       SELECT id FROM agent
 			        WHERE workspace_id = $1 AND name = $2
 			 )
 		`, testWorkspaceID, onboardingAssistantName)
 		testPool.Exec(ctx,
-			`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-			testWorkspaceID, onboardingIssueTitle,
+			`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+			testWorkspaceID, onboardingTaskTitle,
 		)
 		testPool.Exec(ctx,
 			`DELETE FROM agent WHERE workspace_id = $1 AND name = $2`,
@@ -448,8 +448,8 @@ func TestBootstrapOnboardingRuntime_NoStarterPrompt(t *testing.T) {
 		)
 	})
 	testPool.Exec(ctx,
-		`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-		testWorkspaceID, onboardingIssueTitle,
+		`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+		testWorkspaceID, onboardingTaskTitle,
 	)
 	testPool.Exec(ctx,
 		`DELETE FROM agent WHERE workspace_id = $1 AND name = $2`,
@@ -476,16 +476,16 @@ func TestBootstrapOnboardingRuntime_NoStarterPrompt(t *testing.T) {
 
 	var description *string
 	if err := testPool.QueryRow(ctx, `
-		SELECT description FROM issue WHERE id = $1
-	`, resp.IssueID).Scan(&description); err != nil {
-		t.Fatalf("lookup issue description: %v", err)
+		SELECT description FROM task WHERE id = $1
+	`, resp.TaskID).Scan(&description); err != nil {
+		t.Fatalf("lookup task description: %v", err)
 	}
-	if description == nil || *description != onboardingIssueDescription {
-		t.Fatalf("issue description = %v, want fallback onboardingIssueDescription", description)
+	if description == nil || *description != onboardingTaskDescription {
+		t.Fatalf("task description = %v, want fallback onboardingTaskDescription", description)
 	}
 }
 
-func TestBootstrapOnboardingNoRuntimeCreatesSingleGuideIssue(t *testing.T) {
+func TestBootstrapOnboardingNoRuntimeCreatesSingleGuideTask(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -493,8 +493,8 @@ func TestBootstrapOnboardingNoRuntimeCreatesSingleGuideIssue(t *testing.T) {
 	ctx := context.Background()
 	t.Cleanup(func() {
 		testPool.Exec(ctx,
-			`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-			testWorkspaceID, noRuntimeIssueTitle,
+			`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+			testWorkspaceID, noRuntimeTaskTitle,
 		)
 		testPool.Exec(ctx,
 			`UPDATE "user" SET onboarded_at = NULL, starter_content_state = NULL, language = NULL WHERE id = $1`,
@@ -502,8 +502,8 @@ func TestBootstrapOnboardingNoRuntimeCreatesSingleGuideIssue(t *testing.T) {
 		)
 	})
 	testPool.Exec(ctx,
-		`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-		testWorkspaceID, noRuntimeIssueTitle,
+		`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+		testWorkspaceID, noRuntimeTaskTitle,
 	)
 	testPool.Exec(ctx,
 		`UPDATE "user" SET onboarded_at = NULL, starter_content_state = NULL, language = 'en' WHERE id = $1`,
@@ -523,33 +523,33 @@ func TestBootstrapOnboardingNoRuntimeCreatesSingleGuideIssue(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.WorkspaceID != testWorkspaceID || resp.IssueID == "" {
+	if resp.WorkspaceID != testWorkspaceID || resp.TaskID == "" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 
 	var (
-		issueTitle    string
-		assigneeType  string
-		assigneeID    string
-		issueStatus   string
-		issuePriority string
-		description   string
+		taskTitle    string
+		assigneeType string
+		assigneeID   string
+		taskStatus   string
+		taskPriority string
+		description  string
 	)
 	if err := testPool.QueryRow(ctx, `
 		SELECT title, assignee_type, assignee_id, status, priority, description
-		  FROM issue
+		  FROM task
 		 WHERE id = $1
-	`, resp.IssueID).Scan(&issueTitle, &assigneeType, &assigneeID, &issueStatus, &issuePriority, &description); err != nil {
-		t.Fatalf("lookup no-runtime onboarding issue: %v", err)
+	`, resp.TaskID).Scan(&taskTitle, &assigneeType, &assigneeID, &taskStatus, &taskPriority, &description); err != nil {
+		t.Fatalf("lookup no-runtime onboarding task: %v", err)
 	}
-	if issueTitle != noRuntimeIssueTitle {
-		t.Fatalf("issue title = %q, want %q", issueTitle, noRuntimeIssueTitle)
+	if taskTitle != noRuntimeTaskTitle {
+		t.Fatalf("task title = %q, want %q", taskTitle, noRuntimeTaskTitle)
 	}
 	if assigneeType != "member" || assigneeID != testUserID {
-		t.Fatalf("issue assignee = %s/%s, want member/%s", assigneeType, assigneeID, testUserID)
+		t.Fatalf("task assignee = %s/%s, want member/%s", assigneeType, assigneeID, testUserID)
 	}
-	if issueStatus != "todo" || issuePriority != "high" {
-		t.Fatalf("issue status/priority = %s/%s, want todo/high", issueStatus, issuePriority)
+	if taskStatus != "todo" || taskPriority != "high" {
+		t.Fatalf("task status/priority = %s/%s, want todo/high", taskStatus, taskPriority)
 	}
 	for _, want := range []string{
 		"Try Silieco first",
@@ -557,11 +557,11 @@ func TestBootstrapOnboardingNoRuntimeCreatesSingleGuideIssue(t *testing.T) {
 		"npm i -g @openai/codex",
 	} {
 		if !strings.Contains(description, want) {
-			t.Fatalf("issue description missing %q: %q", want, description)
+			t.Fatalf("task description missing %q: %q", want, description)
 		}
 	}
 	if !strings.Contains(description, "Agents need a runtime before they can execute work") {
-		t.Fatalf("issue description was not seeded: %q", description)
+		t.Fatalf("task description was not seeded: %q", description)
 	}
 
 	var (
@@ -582,16 +582,16 @@ func TestBootstrapOnboardingNoRuntimeCreatesSingleGuideIssue(t *testing.T) {
 		t.Fatalf("starter_content_state = %v, want imported", starterContentState)
 	}
 
-	var taskCount int
+	var runCount int
 	if err := testPool.QueryRow(ctx, `
 		SELECT count(*)
-		  FROM agent_task_queue
-		 WHERE issue_id = $1
-	`, resp.IssueID).Scan(&taskCount); err != nil {
+		  FROM agent_run
+		 WHERE task_id = $1
+	`, resp.TaskID).Scan(&runCount); err != nil {
 		t.Fatalf("count queued tasks: %v", err)
 	}
-	if taskCount != 0 {
-		t.Fatalf("expected no agent tasks for no-runtime issue, got %d", taskCount)
+	if runCount != 0 {
+		t.Fatalf("expected no agent tasks for no-runtime task, got %d", runCount)
 	}
 
 	w2 := httptest.NewRecorder()
@@ -603,7 +603,7 @@ func TestBootstrapOnboardingNoRuntimeCreatesSingleGuideIssue(t *testing.T) {
 	if err := json.NewDecoder(w2.Body).Decode(&resp2); err != nil {
 		t.Fatalf("decode second response: %v", err)
 	}
-	if resp2.IssueID != resp.IssueID {
+	if resp2.TaskID != resp.TaskID {
 		t.Fatalf("bootstrap should be idempotent: first=%+v second=%+v", resp, resp2)
 	}
 }
@@ -616,8 +616,8 @@ func TestBootstrapOnboardingNoRuntimeUsesChineseGuideForChineseUsers(t *testing.
 	ctx := context.Background()
 	t.Cleanup(func() {
 		testPool.Exec(ctx,
-			`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-			testWorkspaceID, noRuntimeIssueTitle,
+			`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+			testWorkspaceID, noRuntimeTaskTitle,
 		)
 		testPool.Exec(ctx,
 			`UPDATE "user" SET onboarded_at = NULL, starter_content_state = NULL, language = NULL WHERE id = $1`,
@@ -625,8 +625,8 @@ func TestBootstrapOnboardingNoRuntimeUsesChineseGuideForChineseUsers(t *testing.
 		)
 	})
 	testPool.Exec(ctx,
-		`DELETE FROM issue WHERE workspace_id = $1 AND title = $2`,
-		testWorkspaceID, noRuntimeIssueTitle,
+		`DELETE FROM task WHERE workspace_id = $1 AND title = $2`,
+		testWorkspaceID, noRuntimeTaskTitle,
 	)
 	testPool.Exec(ctx,
 		`UPDATE "user" SET onboarded_at = NULL, starter_content_state = NULL, language = 'zh-Hans' WHERE id = $1`,
@@ -650,10 +650,10 @@ func TestBootstrapOnboardingNoRuntimeUsesChineseGuideForChineseUsers(t *testing.
 	var description string
 	if err := testPool.QueryRow(ctx, `
 		SELECT description
-		  FROM issue
+		  FROM task
 		 WHERE id = $1
-	`, resp.IssueID).Scan(&description); err != nil {
-		t.Fatalf("lookup no-runtime onboarding issue: %v", err)
+	`, resp.TaskID).Scan(&description); err != nil {
+		t.Fatalf("lookup no-runtime onboarding task: %v", err)
 	}
 	for _, want := range []string{
 		"先体验项目管理功能",
@@ -662,7 +662,7 @@ func TestBootstrapOnboardingNoRuntimeUsesChineseGuideForChineseUsers(t *testing.
 		"kimi --version",
 	} {
 		if !strings.Contains(description, want) {
-			t.Fatalf("Chinese issue description missing %q: %q", want, description)
+			t.Fatalf("Chinese task description missing %q: %q", want, description)
 		}
 	}
 }

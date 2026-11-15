@@ -12,7 +12,7 @@ import (
 // (or the agent's whole runtime_config being null/empty) keeps the
 // historical embedded behaviour so existing agents are unaffected.
 //
-// Schema (issue #3260):
+// Schema (task #3260):
 //
 //	{
 //	  "mode": "local" | "gateway",     // default: "local"

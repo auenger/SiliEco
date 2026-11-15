@@ -50,7 +50,7 @@ function makeAgent(
     avatar_url: null,
     runtime_mode: "local" as const,
     runtime_config: {},
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     owner_id: ownerId,
     archived_at: null,
     custom_args: [] as string[],

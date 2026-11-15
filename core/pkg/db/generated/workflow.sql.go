@@ -47,9 +47,11 @@ UPDATE workflow_instance SET
     archived_at = now(),
     archived_by = $3,
     updated_at = now()
-WHERE id = $1
-  AND workspace_id = $2
+WHERE workflow_instance.id = $1
+  AND workflow_instance.workspace_id = $2
   AND archived_at IS NULL
+
+  AND (($3)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_archived_by WHERE ref_archived_by.id = ($3) FOR KEY SHARE))
 RETURNING id, workspace_id, workflow_id, workflow_version_id, title, description, status, current_stage_id, project_id, created_by, started_at, completed_at, created_at, updated_at, archived_at, archived_by, revision, inputs
 `
 
@@ -85,18 +87,20 @@ func (q *Queries) ArchiveWorkflowInstance(ctx context.Context, arg ArchiveWorkfl
 	return i, err
 }
 
-const attachIssueToWorkflowStage = `-- name: AttachIssueToWorkflowStage :one
-UPDATE issue SET
+const attachTaskToWorkflowStage = `-- name: AttachTaskToWorkflowStage :one
+UPDATE task SET
     workflow_instance_id = $3,
     workflow_stage_id = $4,
-    workflow_stage_execution_id = CASE WHEN issue.workflow_instance_id=$3 AND issue.workflow_stage_id=$4 THEN issue.workflow_stage_execution_id ELSE (SELECT e.id FROM workflow_stage_execution e WHERE e.workspace_id=$2 AND e.workflow_instance_id=$3 AND e.workflow_stage_id=$4 ORDER BY e.attempt DESC LIMIT 1) END,
+    workflow_stage_execution_id = CASE WHEN task.workflow_instance_id=$3 AND task.workflow_stage_id=$4 THEN task.workflow_stage_execution_id ELSE (SELECT e.id FROM workflow_stage_execution e WHERE e.workspace_id=$2 AND e.workflow_instance_id=$3 AND e.workflow_stage_id=$4 ORDER BY e.attempt DESC LIMIT 1) END,
     project_id = $5,
     updated_at = now()
-WHERE issue.id = $1 AND issue.workspace_id = $2
-RETURNING issue.id, issue.workspace_id, issue.title, issue.description, issue.status, issue.priority, issue.assignee_type, issue.assignee_id, issue.creator_type, issue.creator_id, issue.parent_issue_id, issue.acceptance_criteria, issue.context_refs, issue.position, issue.due_date, issue.created_at, issue.updated_at, issue.number, issue.project_id, issue.origin_type, issue.origin_id, issue.first_executed_at, issue.start_date, issue.metadata, issue.stage, issue.properties, issue.workflow_instance_id, issue.workflow_stage_id, issue.workflow_stage_execution_id, issue.workflow_invalidated_by_rework_id
+WHERE task.id = $1 AND task.workspace_id = $2
+
+  AND (($5)::uuid IS NULL OR EXISTS (SELECT 1 FROM project AS ref_project_id WHERE ref_project_id.id = ($5) FOR KEY SHARE))
+RETURNING task.id, task.workspace_id, task.title, task.description, task.status, task.priority, task.assignee_type, task.assignee_id, task.creator_type, task.creator_id, task.parent_task_id, task.acceptance_criteria, task.context_refs, task.position, task.due_date, task.created_at, task.updated_at, task.number, task.project_id, task.origin_type, task.origin_id, task.first_executed_at, task.start_date, task.metadata, task.stage, task.properties, task.workflow_instance_id, task.workflow_stage_id, task.workflow_stage_execution_id, task.workflow_invalidated_by_rework_id
 `
 
-type AttachIssueToWorkflowStageParams struct {
+type AttachTaskToWorkflowStageParams struct {
 	ID                 pgtype.UUID `json:"id"`
 	WorkspaceID        pgtype.UUID `json:"workspace_id"`
 	WorkflowInstanceID pgtype.UUID `json:"workflow_instance_id"`
@@ -104,15 +108,15 @@ type AttachIssueToWorkflowStageParams struct {
 	ProjectID          pgtype.UUID `json:"project_id"`
 }
 
-func (q *Queries) AttachIssueToWorkflowStage(ctx context.Context, arg AttachIssueToWorkflowStageParams) (Issue, error) {
-	row := q.db.QueryRow(ctx, attachIssueToWorkflowStage,
+func (q *Queries) AttachTaskToWorkflowStage(ctx context.Context, arg AttachTaskToWorkflowStageParams) (Task, error) {
+	row := q.db.QueryRow(ctx, attachTaskToWorkflowStage,
 		arg.ID,
 		arg.WorkspaceID,
 		arg.WorkflowInstanceID,
 		arg.WorkflowStageID,
 		arg.ProjectID,
 	)
-	var i Issue
+	var i Task
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -124,7 +128,7 @@ func (q *Queries) AttachIssueToWorkflowStage(ctx context.Context, arg AttachIssu
 		&i.AssigneeID,
 		&i.CreatorType,
 		&i.CreatorID,
-		&i.ParentIssueID,
+		&i.ParentTaskID,
 		&i.AcceptanceCriteria,
 		&i.ContextRefs,
 		&i.Position,
@@ -148,33 +152,33 @@ func (q *Queries) AttachIssueToWorkflowStage(ctx context.Context, arg AttachIssu
 	return i, err
 }
 
-const countIssuesByWorkflowStage = `-- name: CountIssuesByWorkflowStage :many
+const countTasksByWorkflowStage = `-- name: CountTasksByWorkflowStage :many
 SELECT workflow_stage_id, count(*)::bigint AS task_count
-FROM issue
+FROM task
 WHERE workspace_id = $1
   AND workflow_instance_id = $2
 GROUP BY workflow_stage_id
 `
 
-type CountIssuesByWorkflowStageParams struct {
+type CountTasksByWorkflowStageParams struct {
 	WorkspaceID        pgtype.UUID `json:"workspace_id"`
 	WorkflowInstanceID pgtype.UUID `json:"workflow_instance_id"`
 }
 
-type CountIssuesByWorkflowStageRow struct {
+type CountTasksByWorkflowStageRow struct {
 	WorkflowStageID pgtype.UUID `json:"workflow_stage_id"`
 	TaskCount       int64       `json:"task_count"`
 }
 
-func (q *Queries) CountIssuesByWorkflowStage(ctx context.Context, arg CountIssuesByWorkflowStageParams) ([]CountIssuesByWorkflowStageRow, error) {
-	rows, err := q.db.Query(ctx, countIssuesByWorkflowStage, arg.WorkspaceID, arg.WorkflowInstanceID)
+func (q *Queries) CountTasksByWorkflowStage(ctx context.Context, arg CountTasksByWorkflowStageParams) ([]CountTasksByWorkflowStageRow, error) {
+	rows, err := q.db.Query(ctx, countTasksByWorkflowStage, arg.WorkspaceID, arg.WorkflowInstanceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CountIssuesByWorkflowStageRow{}
+	items := []CountTasksByWorkflowStageRow{}
 	for rows.Next() {
-		var i CountIssuesByWorkflowStageRow
+		var i CountTasksByWorkflowStageRow
 		if err := rows.Scan(&i.WorkflowStageID, &i.TaskCount); err != nil {
 			return nil, err
 		}
@@ -186,20 +190,20 @@ func (q *Queries) CountIssuesByWorkflowStage(ctx context.Context, arg CountIssue
 	return items, nil
 }
 
-const countIssuesInWorkflowInstance = `-- name: CountIssuesInWorkflowInstance :one
+const countTasksInWorkflowInstance = `-- name: CountTasksInWorkflowInstance :one
 SELECT count(*)::bigint
-FROM issue
+FROM task
 WHERE workspace_id = $1
   AND workflow_instance_id = $2
 `
 
-type CountIssuesInWorkflowInstanceParams struct {
+type CountTasksInWorkflowInstanceParams struct {
 	WorkspaceID        pgtype.UUID `json:"workspace_id"`
 	WorkflowInstanceID pgtype.UUID `json:"workflow_instance_id"`
 }
 
-func (q *Queries) CountIssuesInWorkflowInstance(ctx context.Context, arg CountIssuesInWorkflowInstanceParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countIssuesInWorkflowInstance, arg.WorkspaceID, arg.WorkflowInstanceID)
+func (q *Queries) CountTasksInWorkflowInstance(ctx context.Context, arg CountTasksInWorkflowInstanceParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countTasksInWorkflowInstance, arg.WorkspaceID, arg.WorkflowInstanceID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -224,8 +228,8 @@ func (q *Queries) CountWorkflowInstances(ctx context.Context, arg CountWorkflowI
 
 const countWorkflowStageRuns = `-- name: CountWorkflowStageRuns :one
 SELECT COUNT(*)
-FROM agent_task_queue t
-JOIN issue i ON i.id = t.issue_id
+FROM agent_run t
+JOIN task i ON i.id = t.task_id
 LEFT JOIN workflow_stage_execution e ON e.id = t.workflow_stage_execution_id AND e.workspace_id = i.workspace_id
 WHERE i.workspace_id = $1
   AND ((t.workflow_stage_execution_id IS NOT NULL AND e.workflow_instance_id = $2 AND e.workflow_stage_id = $3)
@@ -294,7 +298,7 @@ INSERT INTO workflow_gate_decision (
 ) VALUES (
     $1, $2, $3, $4,
     $5, $6, $7, $8
-) RETURNING id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_task_id, invalidated_by_rework_id
+) RETURNING id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_run_id, invalidated_by_rework_id
 `
 
 type CreateWorkflowGateDecisionParams struct {
@@ -336,7 +340,7 @@ func (q *Queries) CreateWorkflowGateDecision(ctx context.Context, arg CreateWork
 		&i.ReviewStep,
 		&i.BasisHash,
 		&i.BasisSnapshot,
-		&i.ReviewTaskID,
+		&i.ReviewRunID,
 		&i.InvalidatedByReworkID,
 	)
 	return i, err
@@ -675,8 +679,8 @@ func (q *Queries) DeleteWorkflowInstanceStage(ctx context.Context, arg DeleteWor
 	return result.RowsAffected(), nil
 }
 
-const detachIssueFromWorkflow = `-- name: DetachIssueFromWorkflow :one
-UPDATE issue SET
+const detachTaskFromWorkflow = `-- name: DetachTaskFromWorkflow :one
+UPDATE task SET
     workflow_instance_id = NULL,
     workflow_stage_id = NULL,
     workflow_stage_execution_id = NULL,
@@ -684,18 +688,18 @@ UPDATE issue SET
 WHERE id = $1
   AND workspace_id = $2
   AND workflow_instance_id = $3
-RETURNING issue.id, issue.workspace_id, issue.title, issue.description, issue.status, issue.priority, issue.assignee_type, issue.assignee_id, issue.creator_type, issue.creator_id, issue.parent_issue_id, issue.acceptance_criteria, issue.context_refs, issue.position, issue.due_date, issue.created_at, issue.updated_at, issue.number, issue.project_id, issue.origin_type, issue.origin_id, issue.first_executed_at, issue.start_date, issue.metadata, issue.stage, issue.properties, issue.workflow_instance_id, issue.workflow_stage_id, issue.workflow_stage_execution_id, issue.workflow_invalidated_by_rework_id
+RETURNING task.id, task.workspace_id, task.title, task.description, task.status, task.priority, task.assignee_type, task.assignee_id, task.creator_type, task.creator_id, task.parent_task_id, task.acceptance_criteria, task.context_refs, task.position, task.due_date, task.created_at, task.updated_at, task.number, task.project_id, task.origin_type, task.origin_id, task.first_executed_at, task.start_date, task.metadata, task.stage, task.properties, task.workflow_instance_id, task.workflow_stage_id, task.workflow_stage_execution_id, task.workflow_invalidated_by_rework_id
 `
 
-type DetachIssueFromWorkflowParams struct {
+type DetachTaskFromWorkflowParams struct {
 	ID                 pgtype.UUID `json:"id"`
 	WorkspaceID        pgtype.UUID `json:"workspace_id"`
 	WorkflowInstanceID pgtype.UUID `json:"workflow_instance_id"`
 }
 
-func (q *Queries) DetachIssueFromWorkflow(ctx context.Context, arg DetachIssueFromWorkflowParams) (Issue, error) {
-	row := q.db.QueryRow(ctx, detachIssueFromWorkflow, arg.ID, arg.WorkspaceID, arg.WorkflowInstanceID)
-	var i Issue
+func (q *Queries) DetachTaskFromWorkflow(ctx context.Context, arg DetachTaskFromWorkflowParams) (Task, error) {
+	row := q.db.QueryRow(ctx, detachTaskFromWorkflow, arg.ID, arg.WorkspaceID, arg.WorkflowInstanceID)
+	var i Task
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -707,7 +711,7 @@ func (q *Queries) DetachIssueFromWorkflow(ctx context.Context, arg DetachIssueFr
 		&i.AssigneeID,
 		&i.CreatorType,
 		&i.CreatorID,
-		&i.ParentIssueID,
+		&i.ParentTaskID,
 		&i.AcceptanceCriteria,
 		&i.ContextRefs,
 		&i.Position,
@@ -1164,27 +1168,27 @@ func (q *Queries) GetWorkflowVersionInWorkspace(ctx context.Context, arg GetWork
 	return i, err
 }
 
-const listIssuesForWorkflowInstance = `-- name: ListIssuesForWorkflowInstance :many
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id FROM issue
+const listTasksForWorkflowInstance = `-- name: ListTasksForWorkflowInstance :many
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_task_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id FROM task
 WHERE workspace_id = $1
   AND workflow_instance_id = $2
 ORDER BY workflow_stage_id, position ASC, created_at ASC
 `
 
-type ListIssuesForWorkflowInstanceParams struct {
+type ListTasksForWorkflowInstanceParams struct {
 	WorkspaceID        pgtype.UUID `json:"workspace_id"`
 	WorkflowInstanceID pgtype.UUID `json:"workflow_instance_id"`
 }
 
-func (q *Queries) ListIssuesForWorkflowInstance(ctx context.Context, arg ListIssuesForWorkflowInstanceParams) ([]Issue, error) {
-	rows, err := q.db.Query(ctx, listIssuesForWorkflowInstance, arg.WorkspaceID, arg.WorkflowInstanceID)
+func (q *Queries) ListTasksForWorkflowInstance(ctx context.Context, arg ListTasksForWorkflowInstanceParams) ([]Task, error) {
+	rows, err := q.db.Query(ctx, listTasksForWorkflowInstance, arg.WorkspaceID, arg.WorkflowInstanceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Issue{}
+	items := []Task{}
 	for rows.Next() {
-		var i Issue
+		var i Task
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -1196,7 +1200,7 @@ func (q *Queries) ListIssuesForWorkflowInstance(ctx context.Context, arg ListIss
 			&i.AssigneeID,
 			&i.CreatorType,
 			&i.CreatorID,
-			&i.ParentIssueID,
+			&i.ParentTaskID,
 			&i.AcceptanceCriteria,
 			&i.ContextRefs,
 			&i.Position,
@@ -1228,7 +1232,7 @@ func (q *Queries) ListIssuesForWorkflowInstance(ctx context.Context, arg ListIss
 }
 
 const listWorkflowGateDecisions = `-- name: ListWorkflowGateDecisions :many
-SELECT id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_task_id, invalidated_by_rework_id FROM workflow_gate_decision
+SELECT id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_run_id, invalidated_by_rework_id FROM workflow_gate_decision
 WHERE workflow_instance_id = $1 AND workspace_id = $2
 ORDER BY created_at DESC
 `
@@ -1263,7 +1267,7 @@ func (q *Queries) ListWorkflowGateDecisions(ctx context.Context, arg ListWorkflo
 			&i.ReviewStep,
 			&i.BasisHash,
 			&i.BasisSnapshot,
-			&i.ReviewTaskID,
+			&i.ReviewRunID,
 			&i.InvalidatedByReworkID,
 		); err != nil {
 			return nil, err
@@ -1433,14 +1437,14 @@ func (q *Queries) ListWorkflowInstances(ctx context.Context, arg ListWorkflowIns
 }
 
 const listWorkflowStageRuns = `-- name: ListWorkflowStageRuns :many
-SELECT t.id, t.issue_id, i.title AS task_title, t.agent_id, a.name AS agent_name,
+SELECT t.id, t.task_id, i.title AS task_title, t.agent_id, a.name AS agent_name,
        t.status, t.trigger_summary, t.started_at, t.completed_at, t.result,
        t.error, t.failure_reason, t.execution_manifest, t.originator_source,
        t.originator_user_id, t.accountable_user_id, t.created_at,
        t.worktree_branch, t.worktree_base_sha, t.worktree_final_sha,
        t.worktree_delivery_status
-FROM agent_task_queue t
-JOIN issue i ON i.id = t.issue_id
+FROM agent_run t
+JOIN task i ON i.id = t.task_id
 LEFT JOIN agent a ON a.id = t.agent_id
 LEFT JOIN workflow_stage_execution e ON e.id = t.workflow_stage_execution_id AND e.workspace_id = i.workspace_id
 WHERE i.workspace_id = $1
@@ -1460,7 +1464,7 @@ type ListWorkflowStageRunsParams struct {
 
 type ListWorkflowStageRunsRow struct {
 	ID                     pgtype.UUID        `json:"id"`
-	IssueID                pgtype.UUID        `json:"issue_id"`
+	TaskID                 pgtype.UUID        `json:"task_id"`
 	TaskTitle              string             `json:"task_title"`
 	AgentID                pgtype.UUID        `json:"agent_id"`
 	AgentName              pgtype.Text        `json:"agent_name"`
@@ -1499,7 +1503,7 @@ func (q *Queries) ListWorkflowStageRuns(ctx context.Context, arg ListWorkflowSta
 		var i ListWorkflowStageRunsRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.IssueID,
+			&i.TaskID,
 			&i.TaskTitle,
 			&i.AgentID,
 			&i.AgentName,
@@ -1737,34 +1741,34 @@ func (q *Queries) LockWorkflowInstanceInWorkspace(ctx context.Context, arg LockW
 	return i, err
 }
 
-const lockWorkflowStageIssues = `-- name: LockWorkflowStageIssues :many
-SELECT id, status FROM issue
+const lockWorkflowStageTasks = `-- name: LockWorkflowStageTasks :many
+SELECT id, status FROM task
 WHERE workspace_id=$1 AND workflow_instance_id=$2 AND workflow_stage_id=$3
 AND workflow_invalidated_by_rework_id IS NULL
 ORDER BY id FOR UPDATE
 `
 
-type LockWorkflowStageIssuesParams struct {
+type LockWorkflowStageTasksParams struct {
 	WorkspaceID        pgtype.UUID `json:"workspace_id"`
 	WorkflowInstanceID pgtype.UUID `json:"workflow_instance_id"`
 	WorkflowStageID    pgtype.UUID `json:"workflow_stage_id"`
 }
 
-type LockWorkflowStageIssuesRow struct {
+type LockWorkflowStageTasksRow struct {
 	ID     pgtype.UUID `json:"id"`
 	Status string      `json:"status"`
 }
 
 // The transition transaction rechecks delivery after acquiring the Run lock.
-func (q *Queries) LockWorkflowStageIssues(ctx context.Context, arg LockWorkflowStageIssuesParams) ([]LockWorkflowStageIssuesRow, error) {
-	rows, err := q.db.Query(ctx, lockWorkflowStageIssues, arg.WorkspaceID, arg.WorkflowInstanceID, arg.WorkflowStageID)
+func (q *Queries) LockWorkflowStageTasks(ctx context.Context, arg LockWorkflowStageTasksParams) ([]LockWorkflowStageTasksRow, error) {
+	rows, err := q.db.Query(ctx, lockWorkflowStageTasks, arg.WorkspaceID, arg.WorkflowInstanceID, arg.WorkflowStageID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []LockWorkflowStageIssuesRow{}
+	items := []LockWorkflowStageTasksRow{}
 	for rows.Next() {
-		var i LockWorkflowStageIssuesRow
+		var i LockWorkflowStageTasksRow
 		if err := rows.Scan(&i.ID, &i.Status); err != nil {
 			return nil, err
 		}

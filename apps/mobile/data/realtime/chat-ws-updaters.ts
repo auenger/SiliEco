@@ -11,24 +11,24 @@
  *     are compared structurally so it'd *appear* to work, but binding cache
  *     mutation to a foreign key factory invites silent drift the moment
  *     either side adjusts its key shape.
- *   - Mobile has a smaller cache surface (no taskMessages live timeline in
- *     v1, no per-user pending-tasks aggregate).
+ *   - Mobile has a smaller cache surface (no runMessages live timeline in
+ *     v1, no per-user pending-runs aggregate).
  *
  * Cache shapes (the design contract):
  *   - chatKeys.sessions(wsId)       → ChatSession[]
  *   - chatKeys.messages(sessionId)  → ChatMessage[]   (flat, ASC oldest→newest)
- *   - chatKeys.pendingTask(sessionId)→ ChatPendingTask (empty `{}` = no in-flight)
+ *   - chatKeys.pendingRun(sessionId)→ ChatPendingRun (empty `{}` = no in-flight)
  */
 import type { QueryClient } from "@tanstack/react-query";
 import type {
   ChatDonePayload,
   ChatMessage,
-  ChatPendingTask,
+  ChatPendingRun,
   ChatSession,
   ChatSessionDeletedPayload,
-  TaskMessagePayload,
-  TaskQueuedPayload,
-  TaskDispatchPayload,
+  AgentRunMessagePayload,
+  RunQueuedPayload,
+  RunDispatchPayload,
 } from "@silieco/core/types";
 import { chatKeys } from "@/data/queries/chat";
 
@@ -68,7 +68,7 @@ export function dropSessionFromList(
   );
   qc.removeQueries({ queryKey: chatKeys.messages(payload.chat_session_id) });
   qc.removeQueries({
-    queryKey: chatKeys.pendingTask(payload.chat_session_id),
+    queryKey: chatKeys.pendingRun(payload.chat_session_id),
   });
 }
 
@@ -94,11 +94,11 @@ export function flipSessionUnread(
  *
  * When the payload carries the freshly-persisted assistant message inline
  * (message_id + content + created_at), patch the cache directly so the
- * assistant bubble lands in the same render tick that clears pendingTask
+ * assistant bubble lands in the same render tick that clears pendingRun
  * — no live-timeline → final-bubble flicker.
  *
  * Older servers (pre-#2123 in web's commit history) sent only chat_session_id
- * + task_id. Detect that and fall back to invalidate; we'll refetch the
+ * + run_id. Detect that and fall back to invalidate; we'll refetch the
  * messages list and accept a one-frame window with no bubble.
  *
  * The inline patch never carries attachments: `ChatDonePayload` has no
@@ -119,7 +119,7 @@ export function applyChatDoneToCache(
       chat_session_id: payload.chat_session_id,
       role: "assistant",
       content: payload.content,
-      task_id: payload.task_id,
+      run_id: payload.run_id,
       created_at: payload.created_at,
       elapsed_ms: payload.elapsed_ms ?? null,
       // Mirror web's applyChatDoneToCache: carry the kind so a no_response turn
@@ -144,57 +144,57 @@ export function applyChatDoneToCache(
   });
   // Clear in-flight pointer in the same tick so StatusPill unmounts and
   // the AssistantMessage owns the rendering.
-  qc.setQueryData(chatKeys.pendingTask(payload.chat_session_id), {});
+  qc.setQueryData(chatKeys.pendingRun(payload.chat_session_id), {});
 }
 
 // =====================================================
-// Pending task (ChatPendingTask keyed by sessionId)
+// Pending run (ChatPendingRun keyed by sessionId)
 // =====================================================
 
-export function seedPendingTaskFromQueued(
+export function seedPendingRunFromQueued(
   qc: QueryClient,
-  payload: TaskQueuedPayload,
+  payload: RunQueuedPayload,
 ) {
   if (!payload.chat_session_id) return;
-  qc.setQueryData<ChatPendingTask>(
-    chatKeys.pendingTask(payload.chat_session_id),
+  qc.setQueryData<ChatPendingRun>(
+    chatKeys.pendingRun(payload.chat_session_id),
     (old) => ({
       ...(old ?? {}),
-      task_id: payload.task_id,
+      run_id: payload.run_id,
       status: "queued",
     }),
   );
 }
 
-export function promotePendingTaskToRunning(
+export function promotePendingRunToRunning(
   qc: QueryClient,
-  payload: TaskDispatchPayload,
+  payload: RunDispatchPayload,
 ) {
   if (!payload.chat_session_id) return;
-  qc.setQueryData<ChatPendingTask>(
-    chatKeys.pendingTask(payload.chat_session_id),
+  qc.setQueryData<ChatPendingRun>(
+    chatKeys.pendingRun(payload.chat_session_id),
     (old) => {
-      // Only upgrade if it's the task we already know about. A stale
-      // dispatch event for a finished task shouldn't reanimate the pill.
-      if (!old || old.task_id !== payload.task_id) return old;
+      // Only upgrade if it's the run we already know about. A stale
+      // dispatch event for a finished run shouldn't reanimate the pill.
+      if (!old || old.run_id !== payload.run_id) return old;
       return { ...old, status: "running" };
     },
   );
 }
 
-export function clearPendingTask(
+export function clearPendingRun(
   qc: QueryClient,
   sessionId: string,
 ) {
-  qc.setQueryData(chatKeys.pendingTask(sessionId), {});
+  qc.setQueryData(chatKeys.pendingRun(sessionId), {});
 }
 
 // =====================================================
-// Task messages (live timeline, keyed by taskId)
+// Run messages (live timeline, keyed by runId)
 // =====================================================
 
 /**
- * Append a `task:message` payload into the per-task timeline cache.
+ * Append a `run:message` payload into the per-run timeline cache.
  *
  * - De-dupes on `seq` (server may re-emit on flaky network).
  * - Sorts by `seq` ASC after insert so reordered late-arriving rows still
@@ -208,12 +208,12 @@ export function clearPendingTask(
  * `use-chat-session-realtime` instead — see the WS strategy note in
  * `apps/mobile/CLAUDE.md` for why mobile prefers per-record mounts.
  */
-export function appendTaskMessage(
+export function appendRunMessage(
   qc: QueryClient,
-  payload: TaskMessagePayload,
+  payload: AgentRunMessagePayload,
 ) {
-  qc.setQueryData<TaskMessagePayload[]>(
-    chatKeys.taskMessages(payload.task_id),
+  qc.setQueryData<AgentRunMessagePayload[]>(
+    chatKeys.runMessages(payload.run_id),
     (old = []) => {
       if (old.some((m) => m.seq === payload.seq)) return old;
       return [...old, payload].sort((a, b) => a.seq - b.seq);

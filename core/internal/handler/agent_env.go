@@ -23,8 +23,8 @@ const envSentinel = "****"
 
 // agentEnvActivityRevealed and agentEnvActivityUpdated are the
 // activity_log `action` constants for the two env-management
-// endpoints. Stored on rows where `issue_id IS NULL` (env access is not
-// tied to any issue). Owners can later query them — a queryable audit
+// endpoints. Stored on rows where `task_id IS NULL` (env access is not
+// tied to any task). Owners can later query them — a queryable audit
 // UI is out of scope for this PR, but the rows are written now so the
 // data is captured from day one. Workspace activity history will
 // eventually surface them; for now they're forensic-only.
@@ -84,7 +84,7 @@ func (h *Handler) authorizeAgentEnv(w http.ResponseWriter, r *http.Request) (db.
 	userID := requestUserID(r)
 
 	// Reject agent actors before anything else. resolveActor returns
-	// "agent" iff both X-Agent-ID and a valid X-Task-ID are present and
+	// "agent" iff both X-Agent-ID and a valid X-Run-ID are present and
 	// the task belongs to that agent — so this guard is precise and
 	// cannot be tricked by a member-supplied header.
 	actorType, _ := h.resolveActor(r, userID, workspaceID)
@@ -154,7 +154,7 @@ func (h *Handler) GetAgentEnv(w http.ResponseWriter, r *http.Request) {
 	})
 	if _, err := h.Queries.CreateActivity(r.Context(), db.CreateActivityParams{
 		WorkspaceID: agent.WorkspaceID,
-		IssueID:     pgtype.UUID{}, // env access is not tied to an issue
+		TaskID:      pgtype.UUID{}, // env access is not tied to an task
 		ActorType:   pgtype.Text{String: "member", Valid: true},
 		ActorID:     parseUUID(uuidToString(member.UserID)),
 		Action:      agentEnvActivityRevealed,
@@ -241,7 +241,7 @@ func (h *Handler) UpdateAgentEnv(w http.ResponseWriter, r *http.Request) {
 	details, _ := json.Marshal(auditDetails)
 	if _, err := qtx.CreateActivity(r.Context(), db.CreateActivityParams{
 		WorkspaceID: agent.WorkspaceID,
-		IssueID:     pgtype.UUID{},
+		TaskID:      pgtype.UUID{},
 		ActorType:   pgtype.Text{String: "member", Valid: true},
 		ActorID:     parseUUID(uuidToString(member.UserID)),
 		Action:      agentEnvActivityUpdated,

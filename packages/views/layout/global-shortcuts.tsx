@@ -10,7 +10,7 @@ import {
   useShortcutStore,
   type ShortcutActionId,
 } from "@silieco/core/shortcuts";
-import { openCreateIssueWithPreference } from "@silieco/core/issues/stores";
+import { openCreateTaskWithPreference } from "@silieco/core/tasks/stores";
 import { useModalStore } from "@silieco/core/modals";
 import { useWorkspacePaths } from "@silieco/core/paths";
 import { isImeComposing } from "@silieco/core/utils";
@@ -19,12 +19,12 @@ import { useSearchStore } from "../search/search-store";
 
 const GLOBAL_ACTIONS: readonly ShortcutActionId[] = [
   "openSearch",
-  "createIssue",
+  "createTask",
   "toggleSidebar",
   "goInbox",
   "goChat",
-  "goMyIssues",
-  "goIssues",
+  "goMyTasks",
+  "goTasks",
   "goProjects",
   "goAutopilots",
   "goAgents",
@@ -53,8 +53,8 @@ export function GlobalShortcuts() {
     const destinations: Partial<Record<ShortcutActionId, string>> = {
       goInbox: workspacePaths.inbox(),
       goChat: workspacePaths.chat(),
-      goMyIssues: workspacePaths.myIssues(),
-      goIssues: workspacePaths.issues(),
+      goMyTasks: workspacePaths.myTasks(),
+      goTasks: workspacePaths.tasks(),
       goProjects: workspacePaths.projects(),
       goAutopilots: workspacePaths.autopilots(),
       goAgents: workspacePaths.agents(),
@@ -89,7 +89,7 @@ export function GlobalShortcuts() {
         toggleSidebar();
         return;
       }
-      if (actionId === "createIssue") {
+      if (actionId === "createTask") {
         if (useModalStore.getState().modal) return;
         const projectMatch = navigation.pathname.match(
           /^\/[^/]+\/projects\/([^/]+)$/,
@@ -97,7 +97,7 @@ export function GlobalShortcuts() {
         const data = projectMatch
           ? { project_id: projectMatch[1] }
           : undefined;
-        openCreateIssueWithPreference(data);
+        openCreateTaskWithPreference(data);
         return;
       }
 

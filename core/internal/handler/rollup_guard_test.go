@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// rollupSingletonTestLock guards the global task_usage_hourly_rollup_state
-// singleton (id = 1) and the cron entrypoint rollup_task_usage_hourly()
+// rollupSingletonTestLock guards the global agent_run_usage_hourly_rollup_state
+// singleton (id = 1) and the cron entrypoint rollup_agent_run_usage_hourly()
 // across concurrently-running test binaries.
 //
 // `go test ./...` compiles internal/handler and internal/scheduler into
@@ -25,13 +25,13 @@ import (
 // rollup function's own 4246 (reusing 4246 would make the function's
 // pg_try_advisory_lock fail from other pool connections) — serialises every
 // test that touches the singleton. 42463980 = 4246 (rollup family) + 3980
-// (the tracking issue) and collides with no production key.
+// (the tracking task) and collides with no production key.
 const rollupSingletonTestLock int64 = 42463980
 
 // lockRollupSingleton blocks until this test owns the rollup-singleton guard,
 // then releases it (and the pinned connection) on cleanup. Call it at the very
-// TOP of any test that writes task_usage_hourly_rollup_state or invokes
-// rollup_task_usage_hourly(). Because it registers its release via t.Cleanup
+// TOP of any test that writes agent_run_usage_hourly_rollup_state or invokes
+// rollup_agent_run_usage_hourly(). Because it registers its release via t.Cleanup
 // first, later cleanups in the same test (e.g. restoring the watermark) still
 // run while the guard is held, then the guard is released last.
 func lockRollupSingleton(t *testing.T) {

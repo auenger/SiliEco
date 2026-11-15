@@ -75,7 +75,7 @@ type OpenclawConfigPrep struct {
 	// openclaw (see ExecOptions.OpenclawMode); zero means "inherit whatever
 	// the user's global openclaw.json already configures under `gateway.*`"
 	// — which is the right default when the user already has a working
-	// gateway set up locally. See issue #3260.
+	// gateway set up locally. See task #3260.
 	Gateway OpenclawGatewayPin
 }
 
@@ -101,7 +101,7 @@ func (p OpenclawGatewayPin) IsZero() bool {
 // `%v` / `%+v` / direct `fmt.Stringer` use cases all go through here. The
 // raw Token field still exists for the wrapper-config emitter that needs
 // it; this is a belt against a future caller that logs a whole task-prep
-// summary at a level a non-admin can see (issue #3260 CR).
+// summary at a level a non-admin can see (task #3260 CR).
 func (p OpenclawGatewayPin) String() string {
 	tok := ""
 	if p.Token != "" {
@@ -271,7 +271,7 @@ func prepareOpenclawConfig(envRoot, workDir string, opts OpenclawConfigPrep) (Op
 		}
 	}
 
-	cfg := buildPerTaskOpenclawConfig(activePath, exists, snapshotPath, resolvedList, agentsFromRegistry, workDir, managedMcp, hasManagedMcp, opts.Gateway)
+	cfg := buildPerRunOpenclawConfig(activePath, exists, snapshotPath, resolvedList, agentsFromRegistry, workDir, managedMcp, hasManagedMcp, opts.Gateway)
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -327,7 +327,7 @@ func prepareOpenclawConfig(envRoot, workDir string, opts OpenclawConfigPrep) (Op
 // snapshot $include has already dropped the user's `mcp` block, the
 // resulting view of `mcp.servers` is exactly the managed set — including
 // `{}` for "admin saved no servers" (mirrors `hasManagedCodexMcpConfig`).
-func buildPerTaskOpenclawConfig(activePath string, exists bool, snapshotPath string, resolvedList []any, agentsFromRegistry bool, workDir string, managedMcp map[string]any, hasManagedMcp bool, gateway OpenclawGatewayPin) map[string]any {
+func buildPerRunOpenclawConfig(activePath string, exists bool, snapshotPath string, resolvedList []any, agentsFromRegistry bool, workDir string, managedMcp map[string]any, hasManagedMcp bool, gateway OpenclawGatewayPin) map[string]any {
 	agents := map[string]any{
 		"defaults": map[string]any{"workspace": workDir},
 	}
@@ -358,7 +358,7 @@ func buildPerTaskOpenclawConfig(activePath string, exists bool, snapshotPath str
 		}
 		cfg["mcp"] = map[string]any{"servers": servers}
 	}
-	// Gateway endpoint pin (issue #3260). Mirrors the user's openclaw.json
+	// Gateway endpoint pin (task #3260). Mirrors the user's openclaw.json
 	// `gateway.*` shape so OpenClaw's deep-merge $include semantics produce
 	// the right composed config: anything we set here wins over the user's
 	// global, anything we omit inherits from the user's global. Only emit

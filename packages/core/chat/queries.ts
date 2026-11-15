@@ -1,6 +1,6 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { api } from "../api";
-import type { TaskMessagePayload } from "../types/events";
+import type { AgentRunMessagePayload } from "../types/events";
 import type { ChatSession } from "../types/chat";
 
 // NOTE on workspace scoping:
@@ -19,31 +19,31 @@ export const chatKeys = {
   messages: (sessionId: string) => [...chatKeys.messagesAll(), sessionId] as const,
   messagesPageAll: () => ["chat", "messages-page"] as const,
   messagesPage: (sessionId: string) => [...chatKeys.messagesPageAll(), sessionId] as const,
-  pendingTaskAll: () => ["chat", "pending-task"] as const,
-  pendingTask: (sessionId: string) => [...chatKeys.pendingTaskAll(), sessionId] as const,
+  pendingRunAll: () => ["chat", "pending-run"] as const,
+  pendingRun: (sessionId: string) => [...chatKeys.pendingRunAll(), sessionId] as const,
   draftRestoresAll: () => ["chat", "draft-restores"] as const,
   /** Durable deferred-cancellation draft restores for a session (#5219). */
   draftRestores: (sessionId: string) => [...chatKeys.draftRestoresAll(), sessionId] as const,
-  /** Aggregate of in-flight chat tasks for the current user — FAB reads this. */
-  pendingTasks: (wsId: string) => [...chatKeys.all(wsId), "pending-tasks"] as const,
+  /** Aggregate of in-flight chat runs for the current user — FAB reads this. */
+  pendingRuns: (wsId: string) => [...chatKeys.all(wsId), "pending-runs"] as const,
   /** Per-user pinned agents for the quick-agent bar. */
   pinnedAgents: (wsId: string) => [...chatKeys.all(wsId), "pinned-agents"] as const,
   /**
-   * Boolean "does the user have any in-flight chat task" — the FAB's cheap
-   * running indicator. Separate cache from the detailed `pendingTasks` list so
+   * Boolean "does the user have any in-flight chat run" — the FAB's cheap
+   * running indicator. Separate cache from the detailed `pendingRuns` list so
    * the FAB (closed-window) and ChatWindow (open) can subscribe independently.
    */
-  pendingTasksHasAny: (wsId: string) =>
-    [...chatKeys.all(wsId), "pending-tasks", "has-any"] as const,
-  /** Per-task execution messages — shared with issue agent cards. */
-  taskMessagesAll: () => ["task-messages"] as const,
-  taskMessages: (taskId: string) => [...chatKeys.taskMessagesAll(), taskId] as const,
+  pendingRunsHasAny: (wsId: string) =>
+    [...chatKeys.all(wsId), "pending-runs", "has-any"] as const,
+  /** Per-run execution messages — shared with task agent cards. */
+  agentRunMessagesAll: () => ["run-messages"] as const,
+  agentRunMessages: (runId: string) => [...chatKeys.agentRunMessagesAll(), runId] as const,
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function isTaskMessageTaskId(taskId: string | null | undefined): taskId is string {
-  return typeof taskId === "string" && UUID_PATTERN.test(taskId);
+export function isAgentRunMessageRunId(runId: string | null | undefined): runId is string {
+  return typeof runId === "string" && UUID_PATTERN.test(runId);
 }
 
 export function chatSessionsOptions(wsId: string) {
@@ -130,14 +130,14 @@ export function chatMessagesPageOptions(sessionId: string, limit = 50) {
 }
 
 /**
- * Pending task for a chat session — the "is something still running?" signal.
+ * Pending run for a chat session — the "is something still running?" signal.
  * Refetched via WS invalidation in useRealtimeSync when chat:message / chat:done
- * / task:completed / task:failed arrive.
+ * / run:completed / run:failed arrive.
  */
-export function pendingChatTaskOptions(sessionId: string) {
+export function pendingChatRunOptions(sessionId: string) {
   return queryOptions({
-    queryKey: chatKeys.pendingTask(sessionId),
-    queryFn: () => api.getPendingChatTask(sessionId),
+    queryKey: chatKeys.pendingRun(sessionId),
+    queryFn: () => api.getPendingChatRun(sessionId),
     enabled: !!sessionId,
     staleTime: Infinity,
   });
@@ -164,66 +164,66 @@ export function chatDraftRestoresOptions(sessionId: string) {
 }
 
 /**
- * Timeline for a single task — rendered by both the live chat view (while a
- * task is running) and AssistantMessage (for completed tasks). WS
- * `task:message` events seed this cache in real time via useRealtimeSync.
+ * Timeline for a single run — rendered by both the live chat view (while a
+ * run is running) and AssistantMessage (for completed runs). WS
+ * `run:message` events seed this cache in real time via useRealtimeSync.
  */
-export function taskMessagesOptions(taskId: string) {
+export function agentRunMessagesOptions(runId: string) {
   return queryOptions({
-    queryKey: chatKeys.taskMessages(taskId),
-    queryFn: () => api.listTaskMessages(taskId),
-    enabled: isTaskMessageTaskId(taskId),
+    queryKey: chatKeys.agentRunMessages(runId),
+    queryFn: () => api.listAgentRunMessages(runId),
+    enabled: isAgentRunMessageRunId(runId),
     staleTime: Infinity,
   });
 }
 
 /**
- * Merge task-message batches into one seq-ordered, seq-deduplicated list for
- * the shared `["task-messages", taskId]` cache. Existing entries win on
+ * Merge run-message batches into one seq-ordered, seq-deduplicated list for
+ * the shared `["run-messages", runId]` cache. Existing entries win on
  * conflict, and the original array reference is preserved when nothing new
  * arrives so React Query observers don't re-render on duplicate events.
  *
- * Both the realtime `task:message` handler (a single payload) and the
+ * Both the realtime `run:message` handler (a single payload) and the
  * transcript backfill (a full refetch) write this cache. Routing both through
  * one helper keeps a forced backfill from blind-replacing a seq the WebSocket
  * already delivered — and keeps a late WS event from being lost to an
  * in-flight backfill.
  */
-export function mergeTaskMessagesBySeq(
-  existing: readonly TaskMessagePayload[],
-  incoming: readonly TaskMessagePayload[],
-): TaskMessagePayload[] {
-  if (incoming.length === 0) return existing as TaskMessagePayload[];
+export function mergeAgentRunMessagesBySeq(
+  existing: readonly AgentRunMessagePayload[],
+  incoming: readonly AgentRunMessagePayload[],
+): AgentRunMessagePayload[] {
+  if (incoming.length === 0) return existing as AgentRunMessagePayload[];
   const knownSeqs = new Set(existing.map((m) => m.seq));
   const fresh = incoming.filter((m) => !knownSeqs.has(m.seq));
-  if (fresh.length === 0) return existing as TaskMessagePayload[];
+  if (fresh.length === 0) return existing as AgentRunMessagePayload[];
   return [...existing, ...fresh].sort((a, b) => a.seq - b.seq);
 }
 
 /**
- * Aggregate of in-flight chat tasks for the current user in this workspace.
+ * Aggregate of in-flight chat runs for the current user in this workspace.
  * Drives the FAB "running" indicator while the chat window is minimised —
  * no per-session query is active then, so we need this roll-up.
  */
-export function pendingChatTasksOptions(wsId: string) {
+export function pendingChatRunsOptions(wsId: string) {
   return queryOptions({
-    queryKey: chatKeys.pendingTasks(wsId),
-    queryFn: () => api.listPendingChatTasks(),
+    queryKey: chatKeys.pendingRuns(wsId),
+    queryFn: () => api.listPendingChatRuns(),
     staleTime: Infinity,
   });
 }
 
 /**
- * Boolean "is any chat task running for me right now" — the cheap sibling of
- * pendingChatTasksOptions. The FAB uses this (with `enabled: !isOpen`) so the
- * minimised chat button never fetches or holds the full task list; the
+ * Boolean "is any chat run running for me right now" — the cheap sibling of
+ * pendingChatRunsOptions. The FAB uses this (with `enabled: !isOpen`) so the
+ * minimised chat button never fetches or holds the full run list; the
  * detailed list is reserved for the open ChatWindow (history + stop flows).
- * Both caches are kept in sync by the task-lifecycle WS handlers.
+ * Both caches are kept in sync by the run-lifecycle WS handlers.
  */
-export function hasPendingChatTasksOptions(wsId: string) {
+export function hasPendingChatRunsOptions(wsId: string) {
   return queryOptions({
-    queryKey: chatKeys.pendingTasksHasAny(wsId),
-    queryFn: () => api.hasAnyPendingChatTasks(),
+    queryKey: chatKeys.pendingRunsHasAny(wsId),
+    queryFn: () => api.hasAnyPendingChatRuns(),
     staleTime: Infinity,
   });
 }

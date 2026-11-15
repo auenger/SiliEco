@@ -9,10 +9,10 @@ function file(id: string, project: string, task: string): FileResource {
   return {
     id, workspace_id: "ws", filename: `${id}.png`, content_type: "image/png",
     size_bytes: 1, created_at: "2026-01-01", url: "", download_url: "", markdown_url: "",
-    issue_id: task, comment_id: null, chat_session_id: null, chat_message_id: null,
+    task_id: task, comment_id: null, chat_session_id: null, chat_message_id: null,
     uploader_id: "user", uploader_type: "user", reference_count: 0,
     source_project_id: project, source_project_title: project,
-    source_issue_title: task, source_issue_number: 1,
+    source_task_title: task, source_task_number: 1,
   };
 }
 

@@ -3,10 +3,10 @@ export { CodeBlock, InlineCode, type CodeBlockProps } from './CodeBlock'
 export { StreamingMarkdown, type StreamingMarkdownProps } from './StreamingMarkdown'
 export { preprocessLinks, detectLinks, hasLinks, shouldAutoLink } from './linkify'
 export {
-  preprocessIssueIdentifiers,
-  isIssueIdentifier,
-  ISSUE_IDENTIFIER_PATTERN,
-} from './issue-identifiers'
+  preprocessTaskIdentifiers,
+  isTaskIdentifier,
+  TASK_IDENTIFIER_PATTERN,
+} from './task-identifiers'
 export { preprocessMentionShortcodes } from './mentions'
 export { markdownSanitizeSchema, markdownUrlTransform } from './sanitize'
 export {

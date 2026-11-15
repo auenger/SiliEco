@@ -5,11 +5,11 @@ describe("parseTabSubject", () => {
   // Table-driven over every desktop workspace route, including collection vs
   // detail, the /new flow, nested runtime, container query selection, and
   // unknown paths. A new route type that isn't handled here will surface as
-  // `unknown` — which the presentation layer renders neutrally, never as Issues.
+  // `unknown` — which the presentation layer renders neutrally, never as Tasks.
   const cases: Array<[string, TabSubject]> = [
     // Collection / tool pages
-    ["/acme/issues", { kind: "page", page: "issues" }],
-    ["/acme/my-issues", { kind: "page", page: "myIssues" }],
+    ["/acme/tasks", { kind: "page", page: "tasks" }],
+    ["/acme/my-tasks", { kind: "page", page: "myTasks" }],
     ["/acme/projects", { kind: "page", page: "projects" }],
     ["/acme/autopilots", { kind: "page", page: "autopilots" }],
     ["/acme/agents", { kind: "page", page: "agents" }],
@@ -19,7 +19,7 @@ describe("parseTabSubject", () => {
     ["/acme/skills", { kind: "page", page: "skills" }],
     ["/acme/settings", { kind: "page", page: "settings" }],
     // Resource details
-    ["/acme/issues/bug-1", { kind: "issue", id: "bug-1" }],
+    ["/acme/tasks/bug-1", { kind: "task", id: "bug-1" }],
     ["/acme/projects/p1", { kind: "project", id: "p1" }],
     ["/acme/autopilots/a1", { kind: "autopilot", id: "a1" }],
     ["/acme/skills/s1", { kind: "skill", id: "s1" }],
@@ -46,10 +46,10 @@ describe("parseTabSubject", () => {
     ],
     // Containers — selection (and archived sub-list) live in the query string
     ["/acme/inbox", { kind: "inbox", selectedKey: null, archived: false }],
-    ["/acme/inbox?issue=SILI-9", { kind: "inbox", selectedKey: "SILI-9", archived: false }],
+    ["/acme/inbox?task=SILI-9", { kind: "inbox", selectedKey: "SILI-9", archived: false }],
     ["/acme/inbox?view=archived", { kind: "inbox", selectedKey: null, archived: true }],
     [
-      "/acme/inbox?view=archived&issue=SILI-9",
+      "/acme/inbox?view=archived&task=SILI-9",
       { kind: "inbox", selectedKey: "SILI-9", archived: true },
     ],
     ["/acme/chat", { kind: "chat", sessionId: null }],
@@ -69,8 +69,8 @@ describe("parseTabSubject", () => {
   });
 
   it("ignores hash fragments", () => {
-    expect(parseTabSubject("/acme/issues/bug-1#comment-3")).toEqual({
-      kind: "issue",
+    expect(parseTabSubject("/acme/tasks/bug-1#comment-3")).toEqual({
+      kind: "task",
       id: "bug-1",
     });
     expect(parseTabSubject("/acme/chat?session=s1#x")).toEqual({
@@ -79,9 +79,9 @@ describe("parseTabSubject", () => {
     });
   });
 
-  it("keeps sub-route ids at index 2 (issue filters/anchors don't leak)", () => {
-    expect(parseTabSubject("/acme/issues/bug-1?comment=c1")).toEqual({
-      kind: "issue",
+  it("keeps sub-route ids at index 2 (task filters/anchors don't leak)", () => {
+    expect(parseTabSubject("/acme/tasks/bug-1?comment=c1")).toEqual({
+      kind: "task",
       id: "bug-1",
     });
   });
@@ -89,7 +89,7 @@ describe("parseTabSubject", () => {
 
 describe("tabSubjectKey", () => {
   it("is stable for the same subject and distinct across selections", () => {
-    expect(tabSubjectKey({ kind: "issue", id: "x" })).toBe("issue:x");
+    expect(tabSubjectKey({ kind: "task", id: "x" })).toBe("task:x");
     expect(tabSubjectKey({ kind: "chat", sessionId: null })).toBe("chat:");
     expect(tabSubjectKey({ kind: "chat", sessionId: "s1" })).toBe("chat:s1");
     expect(
@@ -108,4 +108,9 @@ describe("tabSubjectKey", () => {
       tabSubjectKey({ kind: "attachment", id: "a1", filename: "x.pdf" }),
     ).toBe("attachment:a1:x.pdf");
   });
+});
+
+ it("gives project files a distinct tab identity", () => {
+  expect(parseTabSubject("/acme/projects/p1/files")).toEqual({ kind: "project-files", id: "p1" });
+  expect(tabSubjectKey(parseTabSubject("/acme/projects/p1/files"))).not.toBe(tabSubjectKey(parseTabSubject("/acme/projects/p1")));
 });

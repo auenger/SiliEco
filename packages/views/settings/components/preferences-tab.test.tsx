@@ -81,7 +81,7 @@ vi.mock("@silieco/core/auth", async () => {
 });
 
 import { PreferencesTab } from "./preferences-tab";
-import { useCommentComposerStore } from "@silieco/core/issues/stores";
+import { useCommentComposerStore } from "@silieco/core/tasks/stores";
 
 const TEST_RESOURCES = {
   en: { common: enCommon, auth: enAuth, settings: enSettings },

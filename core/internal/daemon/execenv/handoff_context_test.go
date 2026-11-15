@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// TestRenderIssueContext_HandoffNote verifies the handoff note lands in
-// issue_context.md under its own section, distinct from the comment-reply
+// TestRenderTaskContext_HandoffNote verifies the handoff note lands in
+// task_context.md under its own section, distinct from the comment-reply
 // trigger framing.
-func TestRenderIssueContext_HandoffNote(t *testing.T) {
+func TestRenderTaskContext_HandoffNote(t *testing.T) {
 	note := "Scope to the auth module only."
-	md := renderIssueContext("claude", TaskContextForEnv{IssueID: "issue-1", HandoffNote: note})
+	md := renderTaskContext("claude", RunContextForEnv{TaskID: "task-1", HandoffNote: note})
 
 	if !strings.Contains(md, "## Handoff Note") {
 		t.Fatalf("expected Handoff Note section:\n%s", md)
@@ -23,10 +23,10 @@ func TestRenderIssueContext_HandoffNote(t *testing.T) {
 	}
 }
 
-// TestRenderIssueContext_NoHandoffNote keeps the assignment context clean when
+// TestRenderTaskContext_NoHandoffNote keeps the assignment context clean when
 // no note is present.
-func TestRenderIssueContext_NoHandoffNote(t *testing.T) {
-	md := renderIssueContext("claude", TaskContextForEnv{IssueID: "issue-1"})
+func TestRenderTaskContext_NoHandoffNote(t *testing.T) {
+	md := renderTaskContext("claude", RunContextForEnv{TaskID: "task-1"})
 	if strings.Contains(md, "## Handoff Note") {
 		t.Fatalf("unexpected Handoff Note section when no note set:\n%s", md)
 	}

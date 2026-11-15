@@ -45,7 +45,7 @@ export function DownloadClient({ release }: { release: LatestRelease }) {
           <DownloadCard icon={<WindowsIcon className="text-[#f2f4f7]" />} title="Windows x64" note="便携版，解压后即可运行" primary={{ label: "下载 ZIP", href: release.assets.winX64Zip }} />
         </div>
 
-        <p className="mt-8 font-mono text-micro leading-6 text-[#667080]">内测版本仅提供 macOS 与 Windows 桌面端。下载后按系统提示完成首次启动。</p>
+        <p className="mt-8 font-mono text-micro leading-6 text-[#667080]">仅展示当前服务对应的内测包；其他平台准备完成后提供。macOS 内测包尚未签名和公证。</p>
       </section>
     </main>
   );

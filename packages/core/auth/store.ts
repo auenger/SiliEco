@@ -53,7 +53,7 @@ export function createAuthStore(options: AuthStoreOptions) {
       }
 
       // Token mode: read from localStorage (Electron / legacy).
-      const token = storage.getItem("silieco_token");
+      const token = storage.getItem("silieco_tr1_token");
       if (!token) {
         set({ isLoading: false });
         return;
@@ -87,7 +87,7 @@ export function createAuthStore(options: AuthStoreOptions) {
       const { token, user } = await api.verifyCode(email, code);
       if (!cookieAuth) {
         // Token mode: persist for Electron / legacy.
-        storage.setItem("silieco_token", token);
+        storage.setItem("silieco_tr1_token", token);
         api.setToken(token);
       }
       onLogin?.();
@@ -99,7 +99,7 @@ export function createAuthStore(options: AuthStoreOptions) {
     passwordAuth: async (mode, email, password) => {
       const { token, user } = await api.passwordAuth(mode, email, password);
       if (!cookieAuth) {
-        storage.setItem("silieco_token", token);
+        storage.setItem("silieco_tr1_token", token);
         api.setToken(token);
       }
       onLogin?.();
@@ -111,7 +111,7 @@ export function createAuthStore(options: AuthStoreOptions) {
     loginWithGoogle: async (code: string, redirectUri: string) => {
       const { token, user } = await api.googleLogin(code, redirectUri);
       if (!cookieAuth) {
-        storage.setItem("silieco_token", token);
+        storage.setItem("silieco_tr1_token", token);
         api.setToken(token);
       }
       onLogin?.();
@@ -121,7 +121,7 @@ export function createAuthStore(options: AuthStoreOptions) {
     },
 
     loginWithToken: async (token: string) => {
-      storage.setItem("silieco_token", token);
+      storage.setItem("silieco_tr1_token", token);
       api.setToken(token);
       const user = await api.getMe();
       onLogin?.();
@@ -135,7 +135,7 @@ export function createAuthStore(options: AuthStoreOptions) {
         // Clear server-side HttpOnly cookie.
         api.logout().catch(() => {});
       }
-      storage.removeItem("silieco_token");
+      storage.removeItem("silieco_tr1_token");
       api.setToken(null);
       setCurrentWorkspace(null, null);
       resetAnalytics();

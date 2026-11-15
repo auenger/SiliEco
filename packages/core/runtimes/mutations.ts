@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { runtimeKeys } from "./queries";
 import { workspaceKeys } from "../workspace/queries";
-import { agentTaskSnapshotKeys } from "../agents/queries";
+import { agentRunSnapshotKeys } from "../agents/queries";
 
 export function useDeleteRuntime(wsId: string) {
   const qc = useQueryClient();
@@ -37,7 +37,7 @@ export function useArchiveAgentsAndDeleteRuntime(wsId: string) {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: runtimeKeys.all(wsId) });
       qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
-      qc.invalidateQueries({ queryKey: agentTaskSnapshotKeys.all(wsId) });
+      qc.invalidateQueries({ queryKey: agentRunSnapshotKeys.all(wsId) });
     },
   });
 }

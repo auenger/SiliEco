@@ -146,7 +146,7 @@ type ExecOptions struct {
 	// config wrapper that the daemon writes from execenv.OpenclawGatewayPin —
 	// see core/internal/daemon/execenv/openclaw_config.go). Other backends
 	// ignore this field, mirroring ThinkingLevel's renderer-side fall-through
-	// pattern. See issue #3260.
+	// pattern. See task #3260.
 	OpenclawMode string
 	// ClaudeSettingsPath is a daemon-owned, task-local settings file passed
 	// through Claude Code's --settings flag. It currently carries restrictive
@@ -274,7 +274,7 @@ type Config struct {
 	CLIVersion     string            // detected version paired with ExecutablePath; observation only, never used to choose behavior
 	Env            map[string]string // extra environment variables
 	Logger         *slog.Logger
-	TaskID         string
+	RunID         string
 	RuntimeID      string
 	DaemonVersion  string
 	CodexVersion   string

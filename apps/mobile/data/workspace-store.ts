@@ -17,7 +17,9 @@
 import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
 
-const SLUG_KEY = "silieco_current_workspace_slug";
+import { PROTOCOL_GENERATION } from "./protocol";
+
+const SLUG_KEY = `silieco_${PROTOCOL_GENERATION}_current_workspace_slug`;
 
 interface WorkspaceState {
   currentWorkspaceId: string | null;

@@ -16,7 +16,7 @@ import { RESOURCES } from "./index";
 
 // Derive the canonical namespace list from disk so the test fails if a JSON
 // file ships without a matching RESOURCES entry. Without this guard the test
-// would still pass when EN and a non-English bundle skip a namespace (e.g. issues +
+// would still pass when EN and a non-English bundle skip a namespace (e.g. tasks +
 // agents both unregistered), since the iteration happens over RESOURCES.en
 // itself — that's a tautology, not parity.
 const LOCALES_DIR = dirname(fileURLToPath(import.meta.url));

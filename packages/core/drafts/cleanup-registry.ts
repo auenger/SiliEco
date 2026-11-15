@@ -7,8 +7,8 @@ import { abortAll as abortAllUploads } from "./upload-coordinator";
  *
  * The old model required every new draft store to remember to append its
  * persist key to a list living in a different file; that list drifted and
- * left `silieco_comment_drafts`, `silieco_quick_create`, `silieco_project_draft`,
- * `silieco_feedback_draft`, and the chat draft-attachment / restore keys
+ * left `silieco_tr1_comment_drafts`, `silieco_tr1_quick_create`, `silieco_tr1_project_draft`,
+ * `silieco_tr1_feedback_draft`, and the chat draft-attachment / restore keys
  * uncleared on logout and workspace deletion (persistence-layer leak), while
  * the in-memory Zustand singletons kept a previous user's draft after a
  * client-side logout navigation (memory-layer leak, cross-user on a shared

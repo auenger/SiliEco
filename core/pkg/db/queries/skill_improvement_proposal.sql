@@ -4,10 +4,10 @@ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 ON CONFLICT(workspace_id,created_by,request_id) DO NOTHING RETURNING *;
 
 -- name: GetSkillImprovementProposalByRequest :one
-SELECT * FROM skill_improvement_proposal WHERE workspace_id=$1 AND created_by=$2 AND request_id=$3;
+SELECT * FROM skill_improvement_proposal WHERE skill_improvement_proposal.workspace_id=$1 AND created_by=$2 AND request_id=$3;
 
 -- name: GetSkillImprovementProposal :one
-SELECT * FROM skill_improvement_proposal WHERE workspace_id=$1 AND skill_id=$2 AND id=$3;
+SELECT * FROM skill_improvement_proposal WHERE skill_improvement_proposal.workspace_id=$1 AND skill_id=$2 AND id=$3;
 
 -- name: ListSkillImprovementProposals :many
 SELECT * FROM skill_improvement_proposal

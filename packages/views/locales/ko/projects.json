@@ -25,7 +25,7 @@
     "progress": "진행률",
     "lead": "리드",
     "created": "생성일",
-    "issues": "Task 수"
+    "tasks": "Task 수"
   },
   "status": {
     "planned": "계획됨",
@@ -74,13 +74,13 @@
     "clear_date": "날짜 지우기",
     "description_placeholder": "설명 추가...",
     "description_hint": "이 프로젝트의 모든 작업에서 컨텍스트로 에이전트에게 공유됩니다.",
-    "empty_issues_title": "연결된 Task가 없습니다",
-    "empty_issues_hint": "새 Task를 만들거나 기존 Task를 이 프로젝트에 할당하세요.",
-    "empty_issues_new_button": "새 Task",
-    "no_issues_yet": "아직 Task가 없습니다",
+    "empty_tasks_title": "연결된 Task가 없습니다",
+    "empty_tasks_hint": "새 Task를 만들거나 기존 Task를 이 프로젝트에 할당하세요.",
+    "empty_tasks_new_button": "새 Task",
+    "no_tasks_yet": "아직 Task가 없습니다",
     "toast_link_copied": "링크를 복사했습니다",
     "toast_project_deleted": "프로젝트를 삭제했습니다",
-    "toast_move_issue_failed": "Task를 이동하지 못했습니다"
+    "toast_move_task_failed": "Task를 이동하지 못했습니다"
   },
   "resources": {
     "section_header": "리소스",

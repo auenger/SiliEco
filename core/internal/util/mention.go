@@ -4,16 +4,16 @@ import "regexp"
 
 // Mention represents a parsed @mention from markdown content.
 type Mention struct {
-	Type string // "member", "agent", "issue", or "all"
-	ID   string // user_id, agent_id, issue_id, or "all"
+	Type string // "member", "agent", "task", or "all"
+	ID   string // user_id, agent_id, task_id, or "all"
 }
 
-// MentionRe matches [@Label](mention://type/id) or [Label](mention://issue/id) in markdown.
-// The @ prefix is optional to support issue mentions which use [SILI-123](mention://issue/...).
+// MentionRe matches [@Label](mention://type/id) or [Label](mention://task/id) in markdown.
+// The @ prefix is optional to support task mentions which use [SILI-123](mention://task/...).
 // Uses .+? (non-greedy) instead of [^\]]* so labels containing square brackets
 // (e.g. "David[TF]") are matched correctly — the ](mention:// anchor is specific
 // enough to prevent over-matching.
-var MentionRe = regexp.MustCompile(`\[@?(.+?)\]\(mention://(member|agent|squad|issue|all)/([0-9a-fA-F-]+|all)\)`)
+var MentionRe = regexp.MustCompile(`\[@?(.+?)\]\(mention://(member|agent|squad|task|all)/([0-9a-fA-F-]+|all)\)`)
 
 // IsMentionAll returns true if the mention is an @all mention.
 func (m Mention) IsMentionAll() bool {

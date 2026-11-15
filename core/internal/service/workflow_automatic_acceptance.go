@@ -76,8 +76,8 @@ func (s *WorkflowExecutionService) AcceptAutomaticExecution(ctx context.Context,
 }
 
 func (s *WorkflowExecutionService) publishAcceptedWorkflow(workspaceID, instanceID pgtype.UUID) {
-	if s.TaskService != nil && s.TaskService.Bus != nil {
-		s.TaskService.Bus.Publish(events.Event{Type: protocol.EventWorkflowInstanceUpdated, WorkspaceID: util.UUIDToString(workspaceID), ActorType: "system", Payload: map[string]any{"instance_id": util.UUIDToString(instanceID)}})
+	if s.AgentRunService != nil && s.AgentRunService.Bus != nil {
+		s.AgentRunService.Bus.Publish(events.Event{Type: protocol.EventWorkflowInstanceUpdated, WorkspaceID: util.UUIDToString(workspaceID), ActorType: "system", Payload: map[string]any{"instance_id": util.UUIDToString(instanceID)}})
 	}
 }
 

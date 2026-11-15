@@ -144,7 +144,7 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	// combined OpenCode config slice before the env append.
 	//
 	// This deliberately leaves <workdir>/opencode.json untouched — the
-	// workdir is reused across turns for the same (agent, issue), and any
+	// workdir is reused across turns for the same (agent, task), and any
 	// agent- or user-written model / tools / permission settings in it must
 	// survive across runs.
 	mcpContent, err := buildOpenCodeMCPConfigContent(opts.McpConfig)

@@ -143,7 +143,7 @@ export function deriveAgentActivity(
     const daysAgo = Math.floor((today - startOfDay(ts)) / DAY_MS);
     if (daysAgo < 0 || daysAgo >= DAYS) continue;
     const slot = DAYS - 1 - daysAgo;
-    series[slot]!.total += b.task_count;
+    series[slot]!.total += b.run_count;
     series[slot]!.failed += b.failed_count;
   }
 

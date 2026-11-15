@@ -33,15 +33,15 @@ describe("shortcut store", () => {
 
   it("removes structurally equal overrides when restoring a default", () => {
     useShortcutStore.getState().setShortcut(
-      "createIssue",
+      "createTask",
       createShortcutChord("I", { primary: true }),
     );
     useShortcutStore.getState().setShortcut(
-      "createIssue",
+      "createTask",
       createShortcutChord("C"),
     );
 
-    expect(useShortcutStore.getState().overrides.createIssue).toBeUndefined();
+    expect(useShortcutStore.getState().overrides.createTask).toBeUndefined();
   });
 
   it("rejects unsafe programmatic overrides as a store invariant", () => {
@@ -88,7 +88,7 @@ describe("shortcut store", () => {
   it("finds conflicts against defaults and overrides", () => {
     expect(
       findShortcutConflict(
-        "createIssue",
+        "createTask",
         createShortcutChord("K", { primary: true }),
       ),
     ).toBe("openSearch");
@@ -101,12 +101,12 @@ describe("shortcut store", () => {
   it("migrates v1 string overrides without losing disabled actions", () => {
     expect(
       migrateShortcutState({
-        overrides: { openSearch: "Mod+Shift+J", createIssue: null },
+        overrides: { openSearch: "Mod+Shift+J", createTask: null },
       }, 1),
     ).toEqual({
       overrides: {
         openSearch: createShortcutChord("J", { primary: true, shift: true }),
-        createIssue: null,
+        createTask: null,
       },
     });
   });
@@ -115,7 +115,7 @@ describe("shortcut store", () => {
     expect(
       sanitizeShortcutOverrides({
         openSearch: { key: "J", modifiers: { primary: true } },
-        findInIssue: createShortcutChord("J"),
+        findInTask: createShortcutChord("J"),
         send: createShortcutChord("Enter"),
         goInbox: null,
         goChat: createShortcutChord("Meta"),
@@ -136,7 +136,7 @@ describe("shortcut store", () => {
       migrateShortcutState({
         overrides: {
           openSearch: "",
-          createIssue: 42,
+          createTask: 42,
           goInbox: null,
           unknownAction: "Mod+X",
         },

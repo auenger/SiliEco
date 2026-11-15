@@ -170,9 +170,9 @@ export interface UpdateRuntimeProfileRequest {
 }
 
 // Coarse classifier set by the backend when a task transitions to "failed".
-// Mirrors the migration-055 enum in agent_task_queue.failure_reason. Used by
+// Mirrors the failure reason enum in agent_run.failure_reason. Used by
 // the agent presence derivation and the UI failure-message lookup.
-export type TaskFailureReason =
+export type AgentRunFailureReason =
   | "agent_error"
   | "timeout"
   | "codex_semantic_inactivity"
@@ -189,7 +189,7 @@ export interface AgentActivityBucket {
   agent_id: string;
   // ISO timestamp at midnight UTC of the day.
   bucket_at: string;
-  task_count: number;
+  run_count: number;
   failed_count: number;
 }
 
@@ -206,13 +206,13 @@ export interface WorkspaceWorkingAgent {
   id: string;
   name: string;
   avatar_url: string | null;
-  running_task_count: number;
-  /** Distinct issues referenced by this agent's currently running tasks after
+  running_run_count: number;
+  /** Distinct tasks referenced by this agent's currently running tasks after
    *  applying the endpoint's type/scope/relation filters. */
-  issue_ids: string[];
+  task_ids: string[];
 }
 
-export type WorkspaceWorkingAgentType = "issue" | "autopilot" | "chat";
+export type WorkspaceWorkingAgentType = "task" | "autopilot" | "chat";
 
 export type WorkspaceWorkingAgentMineRelation =
   | "assigned"
@@ -234,7 +234,7 @@ export interface AttributionUser {
 }
 
 /** The kind-tagged handle to a run's direct cause (comment, autopilot run, ...). */
-export interface TaskEvidence {
+export interface AgentRunEvidence {
   kind: string;
   ref_id: string;
 }
@@ -243,7 +243,7 @@ export interface TaskEvidence {
  * The resolved accountable-human provenance of an agent run (SILI-4302 §9). Free-text
  * `source` (server may add new levels), so switch on it with a default branch.
  */
-export interface TaskAttribution {
+export interface AgentRunAttribution {
   /**
    * Waterfall level that resolved the accountable human:
    * `direct_human` | `delegation` | `comment_source` | `rule_owner` |
@@ -257,21 +257,21 @@ export interface TaskAttribution {
   /** The authorization human; absent for autopilot runs (rule_owner / owner_fallback). */
   originator?: AttributionUser;
   /** The direct cause of the run, for a jump-to-evidence affordance. */
-  evidence?: TaskEvidence;
+  evidence?: AgentRunEvidence;
   rule_version_id?: string;
-  delegated_from_task_id?: string;
-  retry_of_task_id?: string;
-  rerun_of_task_id?: string;
+  delegated_from_run_id?: string;
+  retry_of_run_id?: string;
+  rerun_of_run_id?: string;
 }
 
-export interface AgentTask {
+export interface AgentRun {
   id: string;
   agent_id: string;
   runtime_id: string;
-  // Empty string ("") when the task has no linked issue — either chat- or
+  // Empty string ("") when the task has no linked task — either chat- or
   // autopilot-spawned. Check chat_session_id / autopilot_run_id to tell
   // which source produced it.
-  issue_id: string;
+  task_id: string;
   // `waiting_local_directory` is the daemon-emitted hold state for the
   // local_directory flow: a task that has been dispatched but is parked
   // because another task currently owns the same on-disk path lock.
@@ -293,17 +293,17 @@ export interface AgentTask {
   error: string | null;
   // Empty string when the task is not in a failed state (the backend uses
   // `omitempty`, so the field may also be missing on non-failed tasks).
-  failure_reason?: TaskFailureReason | "";
+  failure_reason?: AgentRunFailureReason | "";
   created_at: string;
   /** Non-empty when the task was spawned from a chat session. */
   chat_session_id?: string;
   /** Non-empty when the task was spawned by an autopilot run. */
   autopilot_run_id?: string;
   /** Set when this task was created as an auto-retry of a parent task. */
-  parent_task_id?: string;
+  parent_run_id?: string;
   /** 1-based attempt counter; >1 means this is a retry. */
   attempt?: number;
-  /** Set when an issue comment triggered this task (@mention or assignee comment). */
+  /** Set when an task comment triggered this task (@mention or assignee comment). */
   trigger_comment_id?: string;
   /**
    * Earlier comment IDs folded into this run before it was claimed. This does
@@ -338,7 +338,7 @@ export interface AgentTask {
   handoff_note?: string;
   /**
    * Server-computed source discriminator used by the activity row to label
-   * tasks that have no linked issue (so e.g. quick-create tasks render
+   * tasks that have no linked task (so e.g. quick-create tasks render
    * with a meaningful title instead of falling through to "Untracked").
    */
   kind?: "comment" | "autopilot" | "chat" | "quick_create" | "direct";
@@ -371,7 +371,7 @@ export interface AgentTask {
    * "on behalf of", how that was resolved, and the evidence/lineage. Present on
    * user-facing task surfaces; older backends omit it — render conditionally.
    */
-  attribution?: TaskAttribution;
+  attribution?: AgentRunAttribution;
 }
 
 export interface Agent {
@@ -456,7 +456,7 @@ export interface Agent {
    */
   invocation_targets: AgentInvocationTarget[];
   status: AgentStatus;
-  max_concurrent_tasks: number;
+  max_concurrent_runs: number;
   model: string;
   /**
    * Runtime-native reasoning/effort token (e.g. Claude's
@@ -538,7 +538,7 @@ export interface CreateAgentRequest {
   permission_mode?: AgentPermissionMode;
   /** Invocation grants — see `AgentInvocationTargetInput`. */
   invocation_targets?: AgentInvocationTargetInput[];
-  max_concurrent_tasks?: number;
+  max_concurrent_runs?: number;
   model?: string;
   /** Optional runtime-native reasoning/effort token. See `Agent.thinking_level`. */
   thinking_level?: string;
@@ -615,7 +615,7 @@ export interface CreateAgentFromTemplateRequest {
   permission_mode?: AgentPermissionMode;
   /** Invocation grants — see `AgentInvocationTargetInput`. */
   invocation_targets?: AgentInvocationTargetInput[];
-  max_concurrent_tasks?: number;
+  max_concurrent_runs?: number;
   /** Optional overrides applied to the template before creation. nil/omit
    *  uses the template's own value. */
   description?: string;
@@ -695,7 +695,7 @@ export interface UpdateAgentRequest {
   /** Invocation grants — see `AgentInvocationTargetInput`. */
   invocation_targets?: AgentInvocationTargetInput[];
   status?: AgentStatus;
-  max_concurrent_tasks?: number;
+  max_concurrent_runs?: number;
   model?: string;
   /**
    * Runtime-native reasoning/effort token. Tri-state semantics (SILI-2339):
@@ -815,20 +815,19 @@ export interface SetAgentSkillsRequest {
   skill_ids: string[];
 }
 
-export interface IssueUsageSummary {
+export interface TaskUsageSummary {
   total_input_tokens: number;
   total_output_tokens: number;
   total_cache_read_tokens: number;
   total_cache_write_tokens: number;
-  // Optional unlike the usage-row types: `getIssueUsage` returns this shape
-  // unvalidated (no zod schema), so nothing guarantees the field is present
-  // when the backend is older than the cost split.
+  // Optional provider pricing; the API schema validates present values.
+  // Missing prices remain distinguishable from a measured zero cost.
   cost_usd_ticks?: number;
   uncosted_input_tokens?: number;
   uncosted_output_tokens?: number;
   uncosted_cache_read_tokens?: number;
   uncosted_cache_write_tokens?: number;
-  task_count: number;
+  run_count: number;
 }
 
 // `cost_usd_ticks` + `uncosted_*`: the cost split every usage row carries.
@@ -880,7 +879,7 @@ export interface RuntimeUsageByAgent {
   uncosted_output_tokens?: number;
   uncosted_cache_read_tokens?: number;
   uncosted_cache_write_tokens?: number;
-  task_count: number;
+  run_count: number;
 }
 
 // One (hour, model) row for the "By hour" tab; hour ∈ 0..23. Hours with
@@ -898,7 +897,7 @@ export interface RuntimeUsageByHour {
   uncosted_output_tokens?: number;
   uncosted_cache_read_tokens?: number;
   uncosted_cache_write_tokens?: number;
-  task_count: number;
+  run_count: number;
 }
 
 // One (date, provider, model) bucket of token usage for the workspace
@@ -920,7 +919,7 @@ export interface DashboardUsageDaily {
   uncosted_output_tokens?: number;
   uncosted_cache_read_tokens?: number;
   uncosted_cache_write_tokens?: number;
-  task_count: number;
+  run_count: number;
 }
 
 // Per-(agent, model) token totals for the workspace dashboard. Identical
@@ -939,17 +938,17 @@ export interface DashboardUsageByAgent {
   uncosted_output_tokens?: number;
   uncosted_cache_read_tokens?: number;
   uncosted_cache_write_tokens?: number;
-  task_count: number;
+  run_count: number;
 }
 
 // Per-agent total terminal-task run-time + counts. Powers the workspace
 // dashboard's "time by agent" list. failed_count is a subset of
-// task_count (failed tasks still contribute to total_seconds because
+// run_count (failed tasks still contribute to total_seconds because
 // they consumed runtime to fail).
 export interface DashboardAgentRunTime {
   agent_id: string;
   total_seconds: number;
-  task_count: number;
+  run_count: number;
   failed_count: number;
 }
 
@@ -960,7 +959,7 @@ export interface DashboardAgentRunTime {
 export interface DashboardRunTimeDaily {
   date: string;
   total_seconds: number;
-  task_count: number;
+  run_count: number;
   failed_count: number;
 }
 
@@ -972,13 +971,13 @@ export interface DashboardRunTimeDaily {
 // empty column) — EXCEPT for the empty string, which is the *succeeded*
 // bucket. Shipping successes in the same series is deliberate: the error rate
 // then has a denominator built on exactly the same filters as its numerator.
-// `DashboardRunTimeDaily.task_count` is NOT a safe denominator here, because
+// `DashboardRunTimeDaily.run_count` is NOT a safe denominator here, because
 // it only counts tasks that actually started and a queue-expired task never
 // does.
 export interface DashboardFailureDaily {
   date: string;
   failure_reason: string;
-  task_count: number;
+  run_count: number;
 }
 
 // Per-(agent, failure_reason) terminal-task counts. Same succeeded-bucket
@@ -987,7 +986,7 @@ export interface DashboardFailureDaily {
 export interface DashboardFailureByAgent {
   agent_id: string;
   failure_reason: string;
-  task_count: number;
+  run_count: number;
 }
 
 export type RuntimeUpdateStatus =

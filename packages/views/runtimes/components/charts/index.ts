@@ -3,9 +3,9 @@ export { DailyTokensChart, tokenStackConfig } from "./daily-tokens-chart";
 export { WeeklyCostChart, weeklyCostStackConfig } from "./weekly-cost-chart";
 export { WeeklyTokensChart, weeklyTokenStackConfig } from "./weekly-tokens-chart";
 export { DailyTimeChart, type DailyTimeData } from "./daily-time-chart";
-export { DailyTasksChart, type DailyTasksData } from "./daily-tasks-chart";
+export { DailyRunsChart, type DailyRunsData } from "./daily-runs-chart";
 export { WeeklyTimeChart, type WeeklyTimeData } from "./weekly-time-chart";
-export { WeeklyTasksChart, type WeeklyTasksData } from "./weekly-tasks-chart";
+export { WeeklyRunsChart, type WeeklyRunsData } from "./weekly-runs-chart";
 export { DailyErrorsChart, type DailyErrorsData } from "./daily-errors-chart";
 export { WeeklyErrorsChart, type WeeklyErrorsData } from "./weekly-errors-chart";
 export {

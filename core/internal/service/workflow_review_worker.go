@@ -50,13 +50,13 @@ func (s *WorkflowExecutionService) processAgentReviewCandidate(ctx context.Conte
 		_, err = s.DispatchAgentReview(ctx, row.WorkspaceID, request.ID)
 		return err
 	}
-	if request.TaskID.Valid {
-		task, err := s.Queries.GetAgentTask(ctx, request.TaskID)
+	if request.RunID.Valid {
+		agentRun, err := s.Queries.GetAgentRun(ctx, request.RunID)
 		if err != nil {
 			return err
 		}
-		if task.Status == "failed" {
-			return s.RetryAgentReview(ctx, row.WorkspaceID, request.ID, task.ID)
+		if agentRun.Status == "failed" {
+			return s.RetryAgentReview(ctx, row.WorkspaceID, request.ID, agentRun.ID)
 		}
 	}
 	if request.Status == "decided" && row.GateType == "agent" {

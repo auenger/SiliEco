@@ -119,7 +119,7 @@ const baseAgent: Agent = {
   permission_mode: "public_to",
   invocation_targets: [{ target_type: "workspace", target_id: null }],
   status: "idle",
-  max_concurrent_tasks: 1,
+  max_concurrent_runs: 1,
   model: "",
   owner_id: "user-2",
   skills: [],

@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.project_resource_project_id_resource_type_resource_ref_key;

@@ -113,7 +113,7 @@ type BindingTokenRow struct {
 type OutboundCardMessage struct {
 	ID                   pgtype.UUID
 	ChatSessionID        pgtype.UUID
-	TaskID               pgtype.UUID
+	RunID               pgtype.UUID
 	ChannelChatID        string
 	ChannelCardMessageID string
 	Status               string
@@ -263,7 +263,7 @@ func outboundCardFromRow(row db.ChannelOutboundCardMessage) OutboundCardMessage 
 	return OutboundCardMessage{
 		ID:                   row.ID,
 		ChatSessionID:        row.ChatSessionID,
-		TaskID:               row.TaskID,
+		RunID:               row.RunID,
 		ChannelChatID:        row.ChannelChatID,
 		ChannelCardMessageID: row.ChannelCardMessageID,
 		Status:               row.Status,

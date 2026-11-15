@@ -27,7 +27,7 @@ type streamTerminalState struct {
 // finalizeStreamResult applies the shared fail-closed terminal contract used by
 // Claude Code and CodeBuddy. A clean process exit is not proof that the
 // stream-json protocol completed: success requires a result event. Failed runs
-// always return an empty output so upstream issue/chat fallbacks can never
+// always return an empty output so upstream task/chat fallbacks can never
 // mistake a partial transcript for a final answer.
 func finalizeStreamResult(
 	provider string,

@@ -1054,7 +1054,7 @@ export function aggregateCostByAgent(rows: RuntimeUsageByAgent[]): CostByKey[] {
     entry.tokens +=
       r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_write_tokens;
     entry.cost += estimateCost(r);
-    entry.taskCount += r.task_count;
+    entry.taskCount += r.run_count;
     map.set(r.agent_id, entry);
   }
   return Array.from(map.values()).toSorted((a, b) => b.cost - a.cost);

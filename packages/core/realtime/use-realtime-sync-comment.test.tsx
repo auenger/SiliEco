@@ -6,8 +6,8 @@ import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { WSClient } from "../api/ws-client";
-import { issueKeys, type IssueSortParam } from "../issues/queries";
-import type { ListIssuesCache } from "../types";
+import { taskKeys, type TaskSortParam } from "../tasks/queries";
+import type { ListTasksCache } from "../types";
 import { useRealtimeSync, type RealtimeSyncStores } from "./use-realtime-sync";
 
 vi.mock("../platform/workspace-storage", () => ({
@@ -58,16 +58,16 @@ function createWrapper(qc: QueryClient) {
   };
 }
 
-const updatedSort: IssueSortParam = {
+const updatedSort: TaskSortParam = {
   sort_by: "updated_at",
   sort_direction: "desc",
 };
-const positionSort: IssueSortParam = { sort_by: "position" };
-const updatedBoardKey = issueKeys.listSorted("ws-1", updatedSort);
-const positionBoardKey = issueKeys.listSorted("ws-1", positionSort);
+const positionSort: TaskSortParam = { sort_by: "position" };
+const updatedBoardKey = taskKeys.listSorted("ws-1", updatedSort);
+const positionBoardKey = taskKeys.listSorted("ws-1", positionSort);
 
-function bucketed(): ListIssuesCache {
-  return { byStatus: { todo: { issues: [], total: 1 } } };
+function bucketed(): ListTasksCache {
+  return { byStatus: { todo: { tasks: [], total: 1 } } };
 }
 
 describe("useRealtimeSync — comment:created re-sorts Updated date lists", () => {
@@ -83,9 +83,9 @@ describe("useRealtimeSync — comment:created re-sorts Updated date lists", () =
   });
 
   it("invalidates the updated_at-sorted board but leaves the position board", () => {
-    qc.setQueryData<ListIssuesCache>(updatedBoardKey, bucketed());
-    qc.setQueryData<ListIssuesCache>(positionBoardKey, bucketed());
-    qc.setQueryData(issueKeys.timeline("issue-1"), []);
+    qc.setQueryData<ListTasksCache>(updatedBoardKey, bucketed());
+    qc.setQueryData<ListTasksCache>(positionBoardKey, bucketed());
+    qc.setQueryData(taskKeys.timeline("task-1"), []);
 
     const { ws, handlers } = createRecordingWs();
     renderHook(() => useRealtimeSync(ws, createStores()), {
@@ -93,19 +93,19 @@ describe("useRealtimeSync — comment:created re-sorts Updated date lists", () =
     });
 
     handlers["comment:created"]?.({
-      comment: { id: "c1", issue_id: "issue-1" },
+      comment: { id: "c1", task_id: "task-1" },
     });
 
     expect(qc.getQueryState(updatedBoardKey)?.isInvalidated).toBe(true);
     expect(qc.getQueryState(positionBoardKey)?.isInvalidated).toBe(false);
-    // The per-issue timeline is still invalidated as before.
+    // The per-task timeline is still invalidated as before.
     expect(
-      qc.getQueryState(issueKeys.timeline("issue-1"))?.isInvalidated,
+      qc.getQueryState(taskKeys.timeline("task-1"))?.isInvalidated,
     ).toBe(true);
   });
 
-  it("ignores a comment event with no issue_id", () => {
-    qc.setQueryData<ListIssuesCache>(updatedBoardKey, bucketed());
+  it("ignores a comment event with no task_id", () => {
+    qc.setQueryData<ListTasksCache>(updatedBoardKey, bucketed());
 
     const { handlers } = (() => {
       const rec = createRecordingWs();

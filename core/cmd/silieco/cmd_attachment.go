@@ -34,17 +34,17 @@ var attachmentDownloadCmd = &cobra.Command{
 var attachmentUploadCmd = &cobra.Command{
 	Use:   "upload <path>",
 	Short: "Upload a file to attach to your chat reply",
-	Long: `Upload a local file so it is attached to the reply of the current chat task.
+	Long: `Upload a local file so it is attached to the reply of the current chat run.
 
-Intended for agents running inside a chat task: the file is tagged with the
-task and, when the task completes, the server binds it to the assistant reply
+Intended for agents running inside a chat run: the file is tagged with the
+run and, when the run completes, the server binds it to the assistant reply
 it produces — it appears as an attachment card below your reply even if you
 paste nothing. The command also returns a markdown snippet you may paste on its
 own line to place the item: files use !file[name](url) (a card), images use
 ![name](url) (inline).
 
-The task id is read from SILIECO_TASK_ID (set by the daemon inside a task);
-override it with --task when needed.`,
+The run ID is read from SILIECO_RUN_ID (set by the daemon inside a run);
+override it with --run when needed.`,
 	Example: `  # Attach an image to the current chat reply
   $ silieco attachment upload ./chart.png`,
 	Args: exactArgs(1),
@@ -56,7 +56,7 @@ func init() {
 	attachmentCmd.AddCommand(attachmentUploadCmd)
 
 	attachmentDownloadCmd.Flags().StringP("output-dir", "o", ".", "Directory to save the downloaded file")
-	attachmentUploadCmd.Flags().String("task", "", "Chat task id to attach to (defaults to SILIECO_TASK_ID)")
+	attachmentUploadCmd.Flags().String("run", "", "Chat run ID to attach to (defaults to SILIECO_RUN_ID)")
 }
 
 func runAttachmentUpload(cmd *cobra.Command, args []string) error {
@@ -65,12 +65,12 @@ func runAttachmentUpload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	taskID, _ := cmd.Flags().GetString("task")
-	if taskID == "" {
-		taskID = client.TaskID
+	runID, _ := cmd.Flags().GetString("run")
+	if runID == "" {
+		runID = client.RunID
 	}
-	if taskID == "" {
-		return fmt.Errorf("no chat task in context: run inside a chat task (SILIECO_TASK_ID set) or pass --task <id>")
+	if runID == "" {
+		return fmt.Errorf("no chat run in context: run inside a chat run (SILIECO_RUN_ID set) or pass --run <id>")
 	}
 
 	path := args[0]
@@ -85,7 +85,7 @@ func runAttachmentUpload(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cli.AtLeastAPITimeout(60*time.Second))
 	defer cancel()
 
-	att, err := client.UploadChatAttachment(ctx, data, path, taskID)
+	att, err := client.UploadChatAttachment(ctx, data, path, runID)
 	if err != nil {
 		return fmt.Errorf("upload attachment: %w", err)
 	}

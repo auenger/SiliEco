@@ -34,10 +34,10 @@ func TestWorkflowHumanDecisionBindsReviewedEvidence(t *testing.T) {
 	if _, err := prepare(submit.ActorID); !errors.Is(err, ErrWorkflowExecutionConflict) {
 		t.Fatalf("incomplete review: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, execution.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, execution.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := prepare(util.MustParseUUID(uuid.NewString())); !errors.Is(err, ErrWorkflowReviewAccess) {
@@ -87,7 +87,7 @@ func TestWorkflowHumanDecisionBindsReviewedEvidence(t *testing.T) {
 	}
 	// A changed completed delivery invalidates the old decision even when the
 	// completion counts and result revision remain identical.
-	if _, err := pool.Exec(ctx, `UPDATE issue SET title='Revised delivery',updated_at=now() WHERE id=$1`, execution.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET title='Revised delivery',updated_at=now() WHERE id=$1`, execution.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
 	next, err := prepare(submit.ActorID)
@@ -145,10 +145,10 @@ func TestWorkflowHumanReviewLocksCallsAndRun(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE workflow_stage_execution SET config_snapshot=jsonb_set(config_snapshot,'{gate}',jsonb_build_object('type','human','decider',$2::text)) WHERE id=$1`, execution.ID, util.UUIDToString(p.ActorID)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE issue SET status='done' WHERE id=$1`, execution.MainIssueID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE task SET status='done' WHERE id=$1`, execution.MainTaskID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)
@@ -156,7 +156,7 @@ func TestWorkflowHumanReviewLocksCallsAndRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT id FROM agent_task_queue WHERE id=$1 FOR UPDATE`, execution.MainTaskID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT id FROM agent_run WHERE id=$1 FOR UPDATE`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	short, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
@@ -164,7 +164,7 @@ func TestWorkflowHumanReviewLocksCallsAndRun(t *testing.T) {
 	if _, err := svc.PrepareHumanReview(short, p.WorkspaceID, p.InstanceID, p.ExecutionID, p.ActorID); err == nil {
 		t.Fatal("review escaped call lock")
 	}
-	if _, err := tx.Exec(ctx, `UPDATE agent_task_queue SET status='cancelled' WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE agent_run SET status='cancelled' WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -173,7 +173,7 @@ func TestWorkflowHumanReviewLocksCallsAndRun(t *testing.T) {
 	if _, err := svc.PrepareHumanReview(ctx, p.WorkspaceID, p.InstanceID, p.ExecutionID, p.ActorID); !errors.Is(err, ErrWorkflowExecutionConflict) {
 		t.Fatalf("cancelled main call accepted: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, execution.MainTaskID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE agent_run SET status='completed' WHERE id=$1`, execution.MainRunID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE workflow_instance SET status='completed' WHERE id=$1`, p.InstanceID); err != nil {

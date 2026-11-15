@@ -63,10 +63,10 @@ func TestRuntimeSetWatcherFanOut(t *testing.T) {
 	}
 }
 
-// TestRunRuntimeHeartbeatIsolatesSlowRuntime is the heartbeat-side mirror of
+// TestExecuteRuntimeHeartbeatIsolatesSlowRuntime is the heartbeat-side mirror of
 // the poll-isolation test: a slow SendHeartbeat for one runtime must not
 // block other runtimes' heartbeats.
-func TestRunRuntimeHeartbeatIsolatesSlowRuntime(t *testing.T) {
+func TestExecuteRuntimeHeartbeatIsolatesSlowRuntime(t *testing.T) {
 	t.Parallel()
 
 	var fastBeats atomic.Int64
@@ -133,7 +133,7 @@ type noopWriter struct{}
 func (noopWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // TestRunBatchPollerClaimsAcrossRuntimes pins the machine-level cutover
-// (SILI-4257): a single batch poller issues one claim across ALL of the daemon's
+// (SILI-4257): a single batch poller tasks one claim across ALL of the daemon's
 // runtimes (HTTP fallback here, since no WS is attached) and dispatches each
 // returned task to its runtime.
 func TestRunBatchPollerClaimsAcrossRuntimes(t *testing.T) {
@@ -142,15 +142,15 @@ func TestRunBatchPollerClaimsAcrossRuntimes(t *testing.T) {
 	var claimCalls atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if strings.HasSuffix(r.URL.Path, "/api/daemon/tasks/claim") {
+		if strings.HasSuffix(r.URL.Path, "/api/daemon/runs/claim") {
 			if claimCalls.Add(1) == 1 {
-				w.Write([]byte(`{"tasks":[
-					{"id":"t1","runtime_id":"rt-1","issue_id":"i1","agent":{"name":"a"}},
-					{"id":"t2","runtime_id":"rt-2","issue_id":"i2","agent":{"name":"b"}}
+				w.Write([]byte(`{"runs":[
+					{"id":"t1","runtime_id":"rt-1","task_id":"i1","agent":{"name":"a"}},
+					{"id":"t2","runtime_id":"rt-2","task_id":"i2","agent":{"name":"b"}}
 				]}`))
 				return
 			}
-			w.Write([]byte(`{"tasks":[]}`))
+			w.Write([]byte(`{"runs":[]}`))
 			return
 		}
 		w.Write([]byte(`{}`))
@@ -158,28 +158,28 @@ func TestRunBatchPollerClaimsAcrossRuntimes(t *testing.T) {
 	defer srv.Close()
 
 	d := New(Config{
-		ServerBaseURL:      srv.URL,
-		HeartbeatInterval:  time.Hour,
-		PollInterval:       20 * time.Millisecond,
-		MaxConcurrentTasks: 4,
+		ServerBaseURL:     srv.URL,
+		HeartbeatInterval: time.Hour,
+		PollInterval:      20 * time.Millisecond,
+		MaxConcurrentRuns: 4,
 	}, slog.New(slog.NewTextHandler(noopWriter{}, nil)))
 	d.workspaces["ws-1"] = &workspaceState{workspaceID: "ws-1", runtimeIDs: []string{"rt-1", "rt-2"}}
 	d.cancelPollInterval = time.Hour // no server-side cancellation polling in this test
 
 	var mu sync.Mutex
 	dispatched := map[string]int{}
-	d.runner = taskRunnerFunc(func(ctx context.Context, task Task, provider string, slot int, log *slog.Logger) (TaskResult, error) {
+	d.runner = runRunnerFunc(func(ctx context.Context, agentRun AgentRun, provider string, slot int, log *slog.Logger) (RunResult, error) {
 		mu.Lock()
-		dispatched[task.RuntimeID]++
+		dispatched[agentRun.RuntimeID]++
 		mu.Unlock()
-		return TaskResult{Status: "completed"}, nil
+		return RunResult{Status: "completed"}, nil
 	})
 
-	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
-	var taskWG sync.WaitGroup
+	sem := newRunSlotSemaphore(d.cfg.MaxConcurrentRuns)
+	var runWG sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go d.runBatchPoller(ctx, ctx, sem, make(chan struct{}, 1), &taskWG)
+	go d.runBatchPoller(ctx, ctx, sem, make(chan struct{}, 1), &runWG)
 
 	deadline := time.After(3 * time.Second)
 	for {
@@ -196,30 +196,30 @@ func TestRunBatchPollerClaimsAcrossRuntimes(t *testing.T) {
 		}
 	}
 	cancel()
-	taskWG.Wait()
+	runWG.Wait()
 }
 
 // TestRunBatchPollerWakesAfterTaskExit guards the gap where a queued task is
-// temporarily unclaimable (for example, because the same agent/issue task is
+// temporarily unclaimable (for example, because the same agent/task task is
 // still running), the batch claim returns empty, and the poller goes to sleep
 // for PollInterval. Finishing the active task must wake that sleep locally;
 // relying only on the enqueue-time websocket hint can leave the successor
 // queued for the full default 30 seconds.
-func TestRunBatchPollerWakesAfterTaskExit(t *testing.T) {
+func TestRunBatchPollerWakesAfterRunExit(t *testing.T) {
 	t.Parallel()
-	testRunBatchPollerTaskExitWakeup(t, 2, 50*time.Millisecond)
+	testRunBatchPollerRunExitWakeup(t, 2, 50*time.Millisecond)
 }
 
 // The max-concurrency=1 shape takes a different sleep branch: after the
 // two-second slot wait expires, the poller parks on the five-second capacity
 // backoff. A returned semaphore slot alone does not wake that sleep, so the
 // explicit completion signal is required there too.
-func TestRunBatchPollerWakesFromCapacityBackoffAfterTaskExit(t *testing.T) {
+func TestRunBatchPollerWakesFromCapacityBackoffAfterRunExit(t *testing.T) {
 	t.Parallel()
-	testRunBatchPollerTaskExitWakeup(t, 1, taskSlotWaitTimeout+250*time.Millisecond)
+	testRunBatchPollerRunExitWakeup(t, 1, runSlotWaitTimeout+250*time.Millisecond)
 }
 
-func testRunBatchPollerTaskExitWakeup(t *testing.T, maxConcurrent int, releaseDelay time.Duration) {
+func testRunBatchPollerRunExitWakeup(t *testing.T, maxConcurrent int, releaseDelay time.Duration) {
 	t.Helper()
 
 	var firstCompleted atomic.Bool
@@ -232,17 +232,17 @@ func testRunBatchPollerTaskExitWakeup(t *testing.T, maxConcurrent int, releaseDe
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case strings.HasSuffix(r.URL.Path, "/api/daemon/tasks/claim"):
+		case strings.HasSuffix(r.URL.Path, "/api/daemon/runs/claim"):
 			claimCalls.Add(1)
 			switch {
 			case !firstCompleted.Load():
-				w.Write([]byte(`{"tasks":[{"id":"t1","runtime_id":"rt-1","issue_id":"i1","agent":{"name":"a"}}]}`))
+				w.Write([]byte(`{"runs":[{"id":"t1","runtime_id":"rt-1","task_id":"i1","agent":{"name":"a"}}]}`))
 			case secondServed.CompareAndSwap(false, true):
-				w.Write([]byte(`{"tasks":[{"id":"t2","runtime_id":"rt-1","issue_id":"i1","agent":{"name":"a"}}]}`))
+				w.Write([]byte(`{"runs":[{"id":"t2","runtime_id":"rt-1","task_id":"i1","agent":{"name":"a"}}]}`))
 			default:
-				w.Write([]byte(`{"tasks":[]}`))
+				w.Write([]byte(`{"runs":[]}`))
 			}
-		case strings.HasSuffix(r.URL.Path, "/api/daemon/tasks/t1/complete"):
+		case strings.HasSuffix(r.URL.Path, "/api/daemon/runs/t1/complete"):
 			firstCompleted.Store(true)
 			w.Write([]byte(`{}`))
 		default:
@@ -252,37 +252,37 @@ func testRunBatchPollerTaskExitWakeup(t *testing.T, maxConcurrent int, releaseDe
 	defer srv.Close()
 
 	d := New(Config{
-		ServerBaseURL:      srv.URL,
-		HeartbeatInterval:  time.Hour,
-		PollInterval:       time.Hour,
-		MaxConcurrentTasks: maxConcurrent,
+		ServerBaseURL:     srv.URL,
+		HeartbeatInterval: time.Hour,
+		PollInterval:      time.Hour,
+		MaxConcurrentRuns: maxConcurrent,
 	}, slog.New(slog.NewTextHandler(noopWriter{}, nil)))
 	d.workspaces["ws-1"] = &workspaceState{workspaceID: "ws-1", runtimeIDs: []string{"rt-1"}}
 	d.runtimeIndex["rt-1"] = Runtime{ID: "rt-1"}
 	d.cancelPollInterval = time.Hour
-	d.runner = taskRunnerFunc(func(ctx context.Context, task Task, provider string, slot int, log *slog.Logger) (TaskResult, error) {
-		switch task.ID {
+	d.runner = runRunnerFunc(func(ctx context.Context, agentRun AgentRun, provider string, slot int, log *slog.Logger) (RunResult, error) {
+		switch agentRun.ID {
 		case "t1":
 			close(firstStarted)
 			select {
 			case <-releaseFirst:
 			case <-ctx.Done():
-				return TaskResult{Status: "cancelled"}, ctx.Err()
+				return RunResult{Status: "cancelled"}, ctx.Err()
 			}
 		case "t2":
 			close(secondStarted)
 		}
-		return TaskResult{Status: "completed"}, nil
+		return RunResult{Status: "completed"}, nil
 	})
 
-	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
+	sem := newRunSlotSemaphore(d.cfg.MaxConcurrentRuns)
 	wakeup := make(chan struct{}, 1)
-	var taskWG sync.WaitGroup
+	var runWG sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 	pollDone := make(chan struct{})
 	go func() {
 		defer close(pollDone)
-		d.runBatchPoller(ctx, ctx, sem, wakeup, &taskWG)
+		d.runBatchPoller(ctx, ctx, sem, wakeup, &runWG)
 	}()
 
 	select {
@@ -308,7 +308,7 @@ func testRunBatchPollerTaskExitWakeup(t *testing.T, maxConcurrent int, releaseDe
 
 	cancel()
 	<-pollDone
-	taskWG.Wait()
+	runWG.Wait()
 }
 
 func TestSignalPollerWakeupCoalescesAndIsNilSafe(t *testing.T) {
@@ -346,24 +346,24 @@ func TestRunBatchPollerSkipsClaimWhenAtCapacity(t *testing.T) {
 			claimAttempts.Add(1)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"tasks":[]}`))
+		w.Write([]byte(`{"runs":[]}`))
 	}))
 	defer srv.Close()
 
 	d := New(Config{
-		ServerBaseURL:      srv.URL,
-		HeartbeatInterval:  time.Hour,
-		PollInterval:       20 * time.Millisecond,
-		MaxConcurrentTasks: 1,
+		ServerBaseURL:     srv.URL,
+		HeartbeatInterval: time.Hour,
+		PollInterval:      20 * time.Millisecond,
+		MaxConcurrentRuns: 1,
 	}, slog.New(slog.NewTextHandler(noopWriter{}, nil)))
 	d.workspaces["ws-1"] = &workspaceState{workspaceID: "ws-1", runtimeIDs: []string{"rt-1"}}
 
-	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
+	sem := newRunSlotSemaphore(d.cfg.MaxConcurrentRuns)
 	<-sem // hold the only slot for the whole test
 
-	var taskWG sync.WaitGroup
+	var runWG sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
-	go d.runBatchPoller(ctx, ctx, sem, make(chan struct{}, 1), &taskWG)
+	go d.runBatchPoller(ctx, ctx, sem, make(chan struct{}, 1), &runWG)
 
 	time.Sleep(200 * time.Millisecond)
 	if got := claimAttempts.Load(); got != 0 {
@@ -380,8 +380,8 @@ func TestPollLoopBatchShutdown(t *testing.T) {
 	releaseRun := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if strings.HasSuffix(r.URL.Path, "/api/daemon/tasks/claim") {
-			w.Write([]byte(`{"tasks":[{"id":"t1","runtime_id":"rt-1","issue_id":"i1","agent":{"name":"a"}}]}`))
+		if strings.HasSuffix(r.URL.Path, "/api/daemon/runs/claim") {
+			w.Write([]byte(`{"runs":[{"id":"t1","runtime_id":"rt-1","task_id":"i1","agent":{"name":"a"}}]}`))
 			return
 		}
 		w.Write([]byte(`{}`))
@@ -390,20 +390,20 @@ func TestPollLoopBatchShutdown(t *testing.T) {
 	defer close(releaseRun)
 
 	d := New(Config{
-		ServerBaseURL:      srv.URL,
-		HeartbeatInterval:  time.Hour,
-		PollInterval:       20 * time.Millisecond,
-		MaxConcurrentTasks: 1,
+		ServerBaseURL:     srv.URL,
+		HeartbeatInterval: time.Hour,
+		PollInterval:      20 * time.Millisecond,
+		MaxConcurrentRuns: 1,
 	}, slog.New(slog.NewTextHandler(noopWriter{}, nil)))
 	d.workspaces["ws-1"] = &workspaceState{workspaceID: "ws-1", runtimeIDs: []string{"rt-1"}}
 	d.cancelPollInterval = time.Hour
-	d.runner = taskRunnerFunc(func(ctx context.Context, task Task, provider string, slot int, log *slog.Logger) (TaskResult, error) {
+	d.runner = runRunnerFunc(func(ctx context.Context, agentRun AgentRun, provider string, slot int, log *slog.Logger) (RunResult, error) {
 		// Block until the test releases or the run ctx is cancelled by shutdown.
 		select {
 		case <-releaseRun:
 		case <-ctx.Done():
 		}
-		return TaskResult{Status: "completed"}, nil
+		return RunResult{Status: "completed"}, nil
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

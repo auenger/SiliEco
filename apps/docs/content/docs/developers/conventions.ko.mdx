@@ -22,7 +22,7 @@ Silieco 코드를 작성하거나, 번역을 변경하거나, 중국어 제품 �
 
 ### 워크스페이스 범위 라우트
 
-항상 `/{slug}/{section}` 아래에 둡니다 — `/{slug}/issues`, `/{slug}/agents`, `/{slug}/settings`. 워크스페이스 라우팅 로직을 절대 중복하지 말고, 공유 코드에서는 프레임워크별 link API 대신 `useNavigation().push()`를 사용하세요.
+항상 `/{slug}/{section}` 아래에 둡니다 — `/{slug}/tasks`, `/{slug}/agents`, `/{slug}/settings`. 워크스페이스 라우팅 로직을 절대 중복하지 말고, 공유 코드에서는 프레임워크별 link API 대신 `useNavigation().push()`를 사용하세요.
 
 ### 패키지와 모듈
 
@@ -66,21 +66,22 @@ Silieco 코드를 작성하거나, 번역을 변경하거나, 중국어 제품 �
 
 ### TypeScript
 
-- 네트워크상의 API 응답은 `snake_case`이며, api client가 경계에서 `camelCase`로 변환합니다. TS 코드 내부에서는 **항상 camelCase**.
-- 타입: `PascalCase` (`Issue`, `AgentRuntime`); `IPrefix` 금지, `_t` 접미사 금지.
+- API DTO는 네트워크와 TypeScript 모두에서 `snake_case`를 유지합니다. 지역 변수, 함수, 클라이언트 상태에는 `camelCase`를 사용합니다.
+- 타입: `PascalCase` (`Task`, `AgentRuntime`); `IPrefix` 금지, `_t` 접미사 금지.
 - 열거형: string literal union을 선호하고, 런타임 순회가 필요한 경우에만 `enum`을 사용.
-- TanStack Query 키: `<feature>/queries.ts` 안의 팩토리 함수, 예: `issueKeys.detail(id)`.
+- TanStack Query 키: `<feature>/queries.ts` 안의 팩토리 함수, 예: `taskKeys.detail(wsId, id)`.
 
 ### API 경계
+
+클라이언트와 서버는 같은 프로토콜 세대를 사용합니다. 폐기한 엔티티의 호환 처리를 추가하지 않으며 현재 계약 안에서 누락, 잘못된 값, 알 수 없는 값을 검증합니다.
 
 - 네트워크 응답은 `packages/core/api/schema.ts`의 `parseWithFallback`과 zod schema로 parsing하며 `as T`로 직접 강제 변환하지 않음
 - endpoint를 추가하거나 변경할 때 schema도 업데이트하고 필드 누락 또는 잘못된 형식을 테스트로 포함
 - 하위 UI는 선택 필드에 기본값을 제공하고 서버 enum의 `switch`에는 반드시 `default` 분기를 포함
-- 설치된 Desktop이 더 새로운 backend에 연결될 수 있으므로 프런트엔드와 backend가 항상 같은 버전이라고 가정하지 않음
 
-### 이슈 키
+### Task 키
 
-모든 이슈에는 `SILI-123` 같은 사람이 읽을 수 있는 키가 있습니다: 워크스페이스 `issue_prefix`(대문자와 숫자, 보통 3자, 최대 10자) + 일련번호. 워크스페이스 admin은 Settings → General에서 접두사를 변경할 수 있는데, 변경하면 기존의 모든 이슈가 다시 번호 매겨지므로 옛 접두사가 박혀 있는 외부 참조(PR 제목, 브랜치 이름, 문서와 채팅 속 링크)는 더 이상 연결되지 않습니다.
+모든 Task에는 `SILI-123` 같은 사람이 읽을 수 있는 키가 있습니다: 워크스페이스 `task_prefix`(대문자와 숫자, 보통 3자, 최대 10자) + 일련번호. 워크스페이스 admin은 Settings → General에서 접두사를 변경할 수 있는데, 변경하면 기존의 모든 Task가 다시 번호 매겨지므로 옛 접두사가 박혀 있는 외부 참조(PR 제목, 브랜치 이름, 문서와 채팅 속 링크)는 더 이상 연결되지 않습니다.
 
 ### 코드 내 주석
 
@@ -105,29 +106,15 @@ Silieco의 제품 명사는 두 가지 범주로 나뉩니다:
 
 이 규칙은 `apps/docs/content/docs/*.zh.mdx`와 정렬되어 있습니다 — 이 문서들은 사실상의 중국어 보이스 표준이며 20개 이상의 페이지에서 실전 검증되었습니다.
 
-### 엔티티 — 혼합 규칙 (`issue` / `skill` / `task`)
+### Task, AgentRun, Skill 용어
 
-`issue` / `skill` / `task`는 Silieco의 핵심 엔티티입니다. 스키마 컬럼, API 필드, 제품 UI 레이블이 모두 영어입니다. 중국어 텍스트에서는 **혼합 규칙**을 따르며 — 무엇을 사용할지는 단어가 어디에 나타나는지에 따라 달라집니다:
+Task는 업무 항목이고 AgentRun은 에이전트의 한 번의 실행 기록입니다. 하나의 Task에 여러 AgentRun이 연결될 수 있으며, 채팅이나 자동화 실행에는 Task가 없을 수도 있습니다.
 
-| 맥락 | 표기 | 예시 |
-| --- | --- | --- |
-| **UI 문자열, 상태 이름, 코드 참조** | 소문자 영문 | "排队中的 task"、"创建子 issue"、"为智能体注入 skill" |
-| **문서 제목 / 섹션 헤딩** | Title-case 영문 **또는** 중국어 용어 | "Issue 与 project"、"Skills"、"执行任务" |
-| **장문 문서 산문에서 엔티티가 진행 중인 주어일 때** | 중국어 용어, 첫 언급 시 괄호 안에 영문 | "**执行任务**（task）是智能体每一次工作的单位" |
-| **API / DB 필드** | 항상 `task` / `issue` / `skill` | `task_id`, `issue_status`, `skill_uuid` |
-
-중국어 용어 참고:
-
-- `task` ↔ `执行任务` (맥락이 분명해지면 `任务`로 줄여서 사용)
-- `issue`에는 정착된 중국어 번역이 없습니다 — 영문 유지; 제목에서는 `Issue`처럼 대문자로 표기 가능
-- `skill`에는 정착된 중국어 번역이 없습니다 — 영문 유지; 제목에서는 `Skills`처럼 대문자로 표기 가능
-
-**`issue` / `skill` / `task`가 `project` / `autopilot`처럼 중국어로 강제 번역되지 않는 이유**:
-
-- **`issue` / `task`**: 개발 팀은 영어로 대화합니다. 중국어 후보들("任务" — 너무 모호하고 "工作"과 거의 동의어; "工单" — IT 티켓 어감; "议题" — GitHub 스타일이지만 제품 느낌과 맞지 않음)은 모두 `issue`보다 못하게 읽힙니다. **하지만** 장문 문서 산문에서 소문자 `task`를 50번 반복하면 리듬이 깨지므로 — 산문에서는 `执行任务`를 허용하되, UI 문자열과 상태 이름은 소문자 영문으로 유지합니다.
-- **`skill`**: 정착된 중국어 용어가 없는 Silieco 고유 개념입니다.
-- **`project` → "项目"**: 정착된 주류 중국어 단어. Feishu / Tower / Teambition / PingCode / GitHub Projects — 모든 중국어 제품이 이를 번역합니다. 중국어 맥락에서 `project`를 그대로 두는 제품은 없습니다.
-- **`autopilot` → "自动化"**: 중국어에서 "autopilot"은 Tesla의 "自动驾驶"를 연상시키며, 이 기능이 하는 일(일정에 따라 task 실행)과 맞지 않습니다. Notion과 Feishu 모두 "自动化"를 사용하며, 그것이 업계 합의입니다.
+- 업무 ID는 `task_id`, 실행 ID는 `run_id`를 사용합니다.
+- 업무 부모 관계는 `parent_task_id`, 실행 재시도 관계는 `parent_run_id`입니다.
+- 중국어에서 Task는 "业务任务", AgentRun은 "执行记录"입니다. 실행 기록을 또 다른 Task라고 부르지 않습니다.
+- `skill`은 제품 엔티티 이름으로 유지합니다. `project`는 "项目", `autopilot`는 "自动化"입니다.
+- UI와 문서의 타입 이름은 Task / AgentRun을 사용하며 이전 엔티티의 별칭을 추가하지 않습니다.
 
 ### 번역하지 않음 — 브랜드와 약어
 
@@ -189,7 +176,7 @@ Silieco의 제품 명사는 두 가지 범주로 나뉩니다:
 이것들은 스키마 수준의 식별자입니다; 중국어 맥락에서도 소문자 영문으로 표기합니다.
 
 - 역할: `owner` / `admin` / `member`
-- 이슈 상태: `backlog` / `todo` / `in_progress` / `in_review` / `done` / `blocked` / `cancelled`
+- Task 상태: `backlog` / `todo` / `in_progress` / `in_review` / `done` / `blocked` / `cancelled`
 
 UI에서는 이 값들을 영어로 표시합니다(필요 시 `code-style`로 감쌈):
 
@@ -200,7 +187,7 @@ UI에서는 이 값들을 영어로 표시합니다(필요 시 `code-style`로 �
 
 영문 단어(엔티티 / 브랜드 / 약어)와 주변 중국어 사이에는 항상 **단일 공백**을 둡니다:
 
-- "Create new issue" → "新建 issue"
+- "Create new task" → "新建 task"
 - "Assign to agent" → "分配给智能体"
 - "Configure runtime" → "配置运行时"
 - "Stop daemon" → "停止守护进程"
@@ -210,21 +197,21 @@ UI에서는 이 값들을 영어로 표시합니다(필요 시 `code-style`로 �
 i18next는 `_one` / `_other`를 사용합니다; 중국어에는 문법적 수가 없으므로 `_other`만 채웁니다.
 
 ```json
-// en/issues.json
+// en/tasks.json
 {
-  "issue_count_one": "{{count}} issue",
-  "issue_count_other": "{{count}} issues"
+  "task_count_one": "{{count}} task",
+  "task_count_other": "{{count}} tasks"
 }
 
-// zh-Hans/issues.json
+// zh-Hans/tasks.json
 {
-  "issue_count_other": "{{count}} 个 issue"
+  "task_count_other": "{{count}} 个 task"
 }
 ```
 
 일반적인 개수 형식:
 
-- `{{count}} issues` → `{{count}} 个 issue`
+- `{{count}} tasks` → `{{count}} 个 task`
 - `{{count}} agents` → `{{count}} 个智能体`
 - `{{count}} workspaces` → `{{count}} 个工作区`
 - `{{count}} comments` → `{{count}} 条评论`
@@ -259,8 +246,8 @@ i18next는 `_one` / `_other`를 사용합니다; 중국어에는 문법적 수�
 
 예시:
 
-- `issues.toolbar.batch_update_success`
-- `issues.detail.comment_form.placeholder`
+- `tasks.toolbar.batch_update_success`
+- `tasks.detail.comment_form.placeholder`
 - `inbox.empty.title`
 - `settings.preferences.language.title`
 
@@ -289,7 +276,7 @@ i18next는 `_one` / `_other`를 사용합니다; 중국어에는 문법적 수�
 - **오류 메시지**: 부드럽지만 명확하게. "无法保存修改"가 "保存修改失败了！"보다 낫습니다.
 - **버튼**: 동사를 먼저, 2~4자. "取消"、"保存修改"、"立即同步".
 - **툴팁**: 완결된 짧은 문장. "复制链接到剪贴板".
-- **플레이스홀더**: 예시 형태. "输入 issue 标题...".
+- **플레이스홀더**: 예시 형태. "输入 task 标题...".
 
 ### 막힐 때 참고할 곳
 

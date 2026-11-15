@@ -557,7 +557,7 @@ func TestCreateAutopilotTrigger_AcceptsGitHubProvider(t *testing.T) {
 	}
 }
 
-// run_only autopilots have no issue-title duplicate guard, so dedupe via
+// run_only autopilots have no task-title duplicate guard, so dedupe via
 // the delivery layer is the only thing keeping a retried provider event
 // from re-running the agent. This regression test pins that path
 // explicitly — it's the largest concrete win over the v1 ingress flow.
@@ -587,14 +587,14 @@ func TestWebhookHandler_RunOnlyDedupeOnGitHubDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list runs: %v", err)
 	}
-	runCount := 0
+	autopilotRunCount := 0
 	for _, r := range rows {
 		if r.TriggerID.Valid && uuidToString(r.TriggerID) == trig.ID {
-			runCount++
+			autopilotRunCount++
 		}
 	}
-	if runCount != 1 {
-		t.Fatalf("expected exactly 1 run from 3 retried deliveries, got %d", runCount)
+	if autopilotRunCount != 1 {
+		t.Fatalf("expected exactly 1 run from 3 retried deliveries, got %d", autopilotRunCount)
 	}
 	deliveries := listDeliveries(t, apID)
 	if len(deliveries) != 1 || deliveries[0]["status"] != deliveryStatusDispatched {
@@ -657,16 +657,16 @@ func TestWebhookDeliveryWorker_PerTriggerLimitDefersWithoutDropping(t *testing.T
 		t.Fatalf("paced delivery was not released with a future availability: %#v", deferred)
 	}
 
-	var runCount, dispatchedRunCount int
+	var autopilotRunCount, dispatchedRunCount int
 	if err := testPool.QueryRow(context.Background(), `
-		SELECT count(*), count(task_id)
+		SELECT count(*), count(run_id)
 		FROM autopilot_run
 		WHERE webhook_delivery_id IN ($1, $2)
-	`, firstID, secondID).Scan(&runCount, &dispatchedRunCount); err != nil {
+	`, firstID, secondID).Scan(&autopilotRunCount, &dispatchedRunCount); err != nil {
 		t.Fatalf("count paced runs: %v", err)
 	}
-	if runCount != 2 || dispatchedRunCount != 1 {
-		t.Fatalf("pacing should admit both runs but dispatch only one: runs=%d dispatched=%d", runCount, dispatchedRunCount)
+	if autopilotRunCount != 2 || dispatchedRunCount != 1 {
+		t.Fatalf("pacing should admit both runs but dispatch only one: runs=%d dispatched=%d", autopilotRunCount, dispatchedRunCount)
 	}
 }
 
@@ -689,7 +689,7 @@ func TestWebhookDeliveryWorker_DispatchesRunAdmittedBeforePause(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load admitted run: %v", err)
 	}
-	if !run.TaskID.Valid {
+	if !run.RunID.Valid {
 		t.Fatalf("accepted run was not dispatched after pause: %#v", run)
 	}
 }
@@ -733,19 +733,19 @@ func TestWebhookDeliveryWorker_RecoversExpiredLeaseAndReusesRun(t *testing.T) {
 		t.Fatalf("worker did not reuse idempotent run: got %s want %s", got, firstRunID)
 	}
 
-	var runCount, taskCount int
+	var autopilotRunCount, runCount int
 	if err := testPool.QueryRow(context.Background(), `
 		SELECT count(*) FROM autopilot_run WHERE webhook_delivery_id = $1
-	`, deliveryID).Scan(&runCount); err != nil {
+	`, deliveryID).Scan(&autopilotRunCount); err != nil {
 		t.Fatalf("count runs: %v", err)
 	}
 	if err := testPool.QueryRow(context.Background(), `
-		SELECT count(*) FROM agent_task_queue WHERE autopilot_run_id = $1
-	`, firstRunID).Scan(&taskCount); err != nil {
+		SELECT count(*) FROM agent_run WHERE autopilot_run_id = $1
+	`, firstRunID).Scan(&runCount); err != nil {
 		t.Fatalf("count tasks: %v", err)
 	}
-	if runCount != 1 || taskCount != 1 {
-		t.Fatalf("recovery duplicated side effects: runs=%d tasks=%d", runCount, taskCount)
+	if autopilotRunCount != 1 || runCount != 1 {
+		t.Fatalf("recovery duplicated side effects: runs=%d tasks=%d", autopilotRunCount, runCount)
 	}
 }
 
@@ -801,30 +801,30 @@ func TestWebhookDeliveryWorker_RunStopsBoundedPool(t *testing.T) {
 	}
 }
 
-func TestWebhookDeliveryWorker_RepairsCreateIssueTaskCrashWindow(t *testing.T) {
-	agentID := createWebhookTestAgent(t, "WorkerIssueRecovery Agent")
-	apID := createWebhookTestAutopilot(t, agentID, "active", "create_issue")
+func TestWebhookDeliveryWorker_RepairsCreateTaskRunCrashWindow(t *testing.T) {
+	agentID := createWebhookTestAgent(t, "WorkerTaskRecovery Agent")
+	apID := createWebhookTestAutopilot(t, agentID, "active", "create_task")
 	trig := createWebhookTriggerViaHandler(t, apID)
 
-	post := postWebhook(t, *trig.WebhookToken, map[string]any{"event": "issue-recovery"}, map[string]string{
-		"Idempotency-Key": "worker-issue-recovery",
+	post := postWebhook(t, *trig.WebhookToken, map[string]any{"event": "task-recovery"}, map[string]string{
+		"Idempotency-Key": "worker-task-recovery",
 	})
 	deliveryID := requireAcceptedWebhookResponse(t, post)
 	first := processQueuedWebhookDelivery(t, deliveryID)
 	run, err := testHandler.Queries.GetAutopilotRun(context.Background(), first.AutopilotRunID)
-	if err != nil || !run.IssueID.Valid {
-		t.Fatalf("load create_issue run: run=%#v err=%v", run, err)
+	if err != nil || !run.TaskID.Valid {
+		t.Fatalf("load create_task run: run=%#v err=%v", run, err)
 	}
-	issueID := uuidToString(run.IssueID)
+	taskID := uuidToString(run.TaskID)
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
+		testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, taskID)
 	})
 
-	// Remove the task to model a process exit after the issue/run transaction
+	// Remove the task to model a process exit after the task/run transaction
 	// but before task enqueue, then make the delivery recoverable again.
-	if _, err := testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID); err != nil {
-		t.Fatalf("remove issue task: %v", err)
+	if _, err := testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE task_id = $1`, taskID); err != nil {
+		t.Fatalf("remove task run: %v", err)
 	}
 	if _, err := testPool.Exec(context.Background(), `
 		UPDATE webhook_delivery
@@ -838,12 +838,12 @@ func TestWebhookDeliveryWorker_RepairsCreateIssueTaskCrashWindow(t *testing.T) {
 	if got := uuidToString(second.AutopilotRunID); got != uuidToString(first.AutopilotRunID) {
 		t.Fatalf("repair should reuse run: got %s want %s", got, uuidToString(first.AutopilotRunID))
 	}
-	var taskCount int
-	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM agent_task_queue WHERE issue_id = $1`, issueID).Scan(&taskCount); err != nil {
-		t.Fatalf("count repaired task: %v", err)
+	var runCount int
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM agent_run WHERE task_id = $1`, taskID).Scan(&runCount); err != nil {
+		t.Fatalf("count repaired run: %v", err)
 	}
-	if taskCount != 1 {
-		t.Fatalf("expected one repaired issue task, got %d", taskCount)
+	if runCount != 1 {
+		t.Fatalf("expected one repaired task run, got %d", runCount)
 	}
 }
 

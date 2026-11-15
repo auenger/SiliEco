@@ -25,8 +25,8 @@ func setupAutopilotScheduleJob(t *testing.T, cron string) (db.AutopilotTrigger, 
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
-	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, taskSvc)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
+	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, runSvc)
 
 	var agentID string
 	if err := testPool.QueryRow(ctx,
@@ -37,16 +37,16 @@ func setupAutopilotScheduleJob(t *testing.T, cron string) (db.AutopilotTrigger, 
 	}
 
 	ap, err := queries.CreateAutopilot(ctx, db.CreateAutopilotParams{
-		WorkspaceID:        parseUUID(testWorkspaceID),
-		Title:              "Schedule dispatch fixture",
-		Description:        pgtype.Text{String: "schedule dispatch test", Valid: true},
-		AssigneeType:       "agent",
-		AssigneeID:         parseUUID(agentID),
-		Status:             "active",
-		ExecutionMode:      "run_only",
-		IssueTitleTemplate: pgtype.Text{},
-		CreatedByType:      "member",
-		CreatedByID:        parseUUID(testUserID),
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "Schedule dispatch fixture",
+		Description:       pgtype.Text{String: "schedule dispatch test", Valid: true},
+		AssigneeType:      "agent",
+		AssigneeID:        parseUUID(agentID),
+		Status:            "active",
+		ExecutionMode:     "run_only",
+		TaskTitleTemplate: pgtype.Text{},
+		CreatedByType:     "member",
+		CreatedByID:       parseUUID(testUserID),
 	})
 	if err != nil {
 		t.Fatalf("CreateAutopilot: %v", err)
@@ -210,7 +210,7 @@ func TestAutopilotScheduleJobMissedSchedulesCollapse(t *testing.T) {
 
 // TestAutopilotScheduleJobCrashRecovery covers SILI-3551 §5: a runner
 // that crashes after claiming a plan_time and creating its
-// downstream issue/task — but before writing terminal SUCCESS — must
+// downstream task/task — but before writing terminal SUCCESS — must
 // be recovered on the next tick. The stale lease is swept to FAILED
 // (error_code='stale_timeout'), the planner returns the SAME
 // plan_time (because latest.RetryEligible(now) is true), tryClaim's
@@ -248,14 +248,14 @@ func TestAutopilotScheduleJobCrashRecovery(t *testing.T) {
 	// that's the "complete" snapshot the retry must reuse, not
 	// duplicate.
 	var firstRunID pgtype.UUID
-	var firstRunTaskValid bool
+	var firstRunRunValid bool
 	if err := testPool.QueryRow(ctx, `
-		SELECT id, task_id IS NOT NULL FROM autopilot_run WHERE trigger_id = $1
-	`, trigger.ID).Scan(&firstRunID, &firstRunTaskValid); err != nil {
+		SELECT id, run_id IS NOT NULL FROM autopilot_run WHERE trigger_id = $1
+	`, trigger.ID).Scan(&firstRunID, &firstRunRunValid); err != nil {
 		t.Fatalf("read first run: %v", err)
 	}
-	if !firstRunTaskValid {
-		t.Fatalf("first attempt must have created a real downstream task; task_id is NULL")
+	if !firstRunRunValid {
+		t.Fatalf("first attempt must have created a real downstream task; run_id is NULL")
 	}
 
 	// Simulate a crash AFTER the first attempt's terminal write
@@ -344,8 +344,8 @@ func TestAutopilotScheduleJobTwoRunnersSingleWinner(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
-	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, taskSvc)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
+	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, runSvc)
 
 	trigger, _, _ := setupAutopilotScheduleJob(t, "*/1 * * * *")
 
@@ -480,8 +480,8 @@ func TestAutopilotScheduleJobPausedAutopilotSkipsAtHandler(t *testing.T) {
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
-	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, taskSvc)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
+	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, runSvc)
 
 	trigger, _, _ := setupAutopilotScheduleJob(t, "*/1 * * * *")
 
@@ -601,8 +601,8 @@ func seedColdStartTrigger(t *testing.T, cron string) (db.AutopilotTrigger, *db.Q
 	ctx := context.Background()
 	queries := db.New(testPool)
 	bus := events.New()
-	taskSvc := service.NewTaskService(queries, testPool, nil, bus)
-	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, taskSvc)
+	runSvc := service.NewAgentRunService(queries, testPool, nil, bus)
+	autopilotSvc := service.NewAutopilotService(queries, testPool, bus, runSvc)
 
 	var agentID string
 	if err := testPool.QueryRow(ctx,
@@ -613,16 +613,16 @@ func seedColdStartTrigger(t *testing.T, cron string) (db.AutopilotTrigger, *db.Q
 	}
 
 	ap, err := queries.CreateAutopilot(ctx, db.CreateAutopilotParams{
-		WorkspaceID:        parseUUID(testWorkspaceID),
-		Title:              "Cold-start regression",
-		Description:        pgtype.Text{String: "deterministic cold-start", Valid: true},
-		AssigneeType:       "agent",
-		AssigneeID:         parseUUID(agentID),
-		Status:             "active",
-		ExecutionMode:      "run_only",
-		IssueTitleTemplate: pgtype.Text{},
-		CreatedByType:      "member",
-		CreatedByID:        parseUUID(testUserID),
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "Cold-start regression",
+		Description:       pgtype.Text{String: "deterministic cold-start", Valid: true},
+		AssigneeType:      "agent",
+		AssigneeID:        parseUUID(agentID),
+		Status:            "active",
+		ExecutionMode:     "run_only",
+		TaskTitleTemplate: pgtype.Text{},
+		CreatedByType:     "member",
+		CreatedByID:       parseUUID(testUserID),
 	})
 	if err != nil {
 		t.Fatalf("CreateAutopilot: %v", err)

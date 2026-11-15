@@ -20,7 +20,7 @@ func TestEnsureWorkspacesRootMarker(t *testing.T) {
 		if err := EnsureWorkspacesRootMarker(root); err != nil {
 			t.Fatalf("EnsureWorkspacesRootMarker: %v", err)
 		}
-		data, err := os.ReadFile(filepath.Join(root, TaskContextMarkerRelPath))
+		data, err := os.ReadFile(filepath.Join(root, RunContextMarkerRelPath))
 		if err != nil {
 			t.Fatalf("read root marker: %v", err)
 		}
@@ -30,8 +30,8 @@ func TestEnsureWorkspacesRootMarker(t *testing.T) {
 		if err := json.Unmarshal(data, &marker); err != nil {
 			t.Fatalf("unmarshal root marker: %v\n%s", err, string(data))
 		}
-		if marker.ManagedBy != TaskContextMarkerManagedBy {
-			t.Fatalf("managed_by = %q, want %q", marker.ManagedBy, TaskContextMarkerManagedBy)
+		if marker.ManagedBy != RunContextMarkerManagedBy {
+			t.Fatalf("managed_by = %q, want %q", marker.ManagedBy, RunContextMarkerManagedBy)
 		}
 	})
 
@@ -47,7 +47,7 @@ func TestEnsureWorkspacesRootMarker(t *testing.T) {
 
 	t.Run("refuses to overwrite a foreign file", func(t *testing.T) {
 		root := t.TempDir()
-		path := filepath.Join(root, TaskContextMarkerRelPath)
+		path := filepath.Join(root, RunContextMarkerRelPath)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
@@ -74,7 +74,7 @@ func TestEnsureWorkspacesRootMarker(t *testing.T) {
 		// unparseable content is our own torn write, so it must be reclaimed.
 		for _, corrupt := range []string{"", "{", "not-json", `{"managed_by":`} {
 			root := t.TempDir()
-			path := filepath.Join(root, TaskContextMarkerRelPath)
+			path := filepath.Join(root, RunContextMarkerRelPath)
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatalf("mkdir: %v", err)
 			}
@@ -94,8 +94,8 @@ func TestEnsureWorkspacesRootMarker(t *testing.T) {
 			if err := json.Unmarshal(data, &marker); err != nil {
 				t.Fatalf("reclaimed marker not valid JSON for input %q: %v\n%s", corrupt, err, string(data))
 			}
-			if marker.ManagedBy != TaskContextMarkerManagedBy {
-				t.Fatalf("managed_by = %q, want %q (input %q)", marker.ManagedBy, TaskContextMarkerManagedBy, corrupt)
+			if marker.ManagedBy != RunContextMarkerManagedBy {
+				t.Fatalf("managed_by = %q, want %q (input %q)", marker.ManagedBy, RunContextMarkerManagedBy, corrupt)
 			}
 		}
 	})
@@ -115,10 +115,10 @@ func TestPrepare_WritesWorkspacesRootMarker(t *testing.T) {
 	env, err := Prepare(PrepareParams{
 		WorkspacesRoot: root,
 		WorkspaceID:    "ws-test-001",
-		TaskID:         "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		RunID:          "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		AgentName:      "Test Agent",
-		Task: TaskContextForEnv{
-			IssueID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		AgentRun: RunContextForEnv{
+			TaskID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		},
 	}, testLogger())
 	if err != nil {
@@ -126,11 +126,11 @@ func TestPrepare_WritesWorkspacesRootMarker(t *testing.T) {
 	}
 	defer env.Cleanup(true)
 
-	data, err := os.ReadFile(filepath.Join(root, TaskContextMarkerRelPath))
+	data, err := os.ReadFile(filepath.Join(root, RunContextMarkerRelPath))
 	if err != nil {
 		t.Fatalf("read root marker after Prepare: %v", err)
 	}
-	if !strings.Contains(string(data), TaskContextMarkerManagedBy) {
+	if !strings.Contains(string(data), RunContextMarkerManagedBy) {
 		t.Fatalf("root marker missing managed_by discriminator: %s", string(data))
 	}
 }
@@ -143,16 +143,16 @@ func TestReuse_SelfHealsWorkspacesRootMarker(t *testing.T) {
 	env, err := Prepare(PrepareParams{
 		WorkspacesRoot: root,
 		WorkspaceID:    "ws-reuse-001",
-		TaskID:         "b2c3d4e5-f6a7-8901-bcde-f23456789012",
+		RunID:          "b2c3d4e5-f6a7-8901-bcde-f23456789012",
 		AgentName:      "Reuse Agent",
-		Task:           TaskContextForEnv{IssueID: "b2c3d4e5-f6a7-8901-bcde-f23456789012"},
+		AgentRun:       RunContextForEnv{TaskID: "b2c3d4e5-f6a7-8901-bcde-f23456789012"},
 	}, testLogger())
 	if err != nil {
 		t.Fatalf("Prepare failed: %v", err)
 	}
 	defer env.Cleanup(true)
 
-	rootMarker := filepath.Join(root, TaskContextMarkerRelPath)
+	rootMarker := filepath.Join(root, RunContextMarkerRelPath)
 	if err := os.Remove(rootMarker); err != nil {
 		t.Fatalf("remove root marker: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestReuse_SelfHealsWorkspacesRootMarker(t *testing.T) {
 	reused := Reuse(ReuseParams{
 		WorkspacesRoot: root,
 		WorkDir:        env.WorkDir,
-		Task:           TaskContextForEnv{IssueID: "b2c3d4e5-f6a7-8901-bcde-f23456789012"},
+		AgentRun:       RunContextForEnv{TaskID: "b2c3d4e5-f6a7-8901-bcde-f23456789012"},
 	}, testLogger())
 	if reused == nil {
 		t.Fatal("Reuse returned nil for an existing workdir")

@@ -5,7 +5,7 @@ interface FeedbackDraft {
 }
 
 export const useFeedbackDraftStore = createDraftStore<FeedbackDraft>({
-  storageKey: "silieco_feedback_draft",
+  storageKey: "silieco_tr1_feedback_draft",
   emptyData: { message: "" },
   hasMeaningful: (d) => !!d.message,
 });

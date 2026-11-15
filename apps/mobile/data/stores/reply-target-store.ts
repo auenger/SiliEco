@@ -8,13 +8,13 @@
  *     the bottom of the screen) live in different component trees. Threading
  *     a callback through TimelineList → CommentCard → useCommentLongPress
  *     would mean three layers of prop drilling for one boolean signal.
- *   - Only one reply can be in-flight at a time per issue detail screen,
+ *   - Only one reply can be in-flight at a time per task detail screen,
  *     so a singleton store is the right shape.
  *
- * Lifecycle: the issue-detail screen clears the store on unmount (same
+ * Lifecycle: the task-detail screen clears the store on unmount (same
  * pattern as `comment-select-store.ts`). Each fresh navigation into an
- * issue starts with no reply target, so a stale target can't leak across
- * issues.
+ * task starts with no reply target, so a stale target can't leak across
+ * tasks.
  */
 import { create } from "zustand";
 

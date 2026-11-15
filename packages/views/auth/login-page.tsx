@@ -89,6 +89,8 @@ export function validateCliCallback(cliCallback: string): boolean {
     if (/^10\./.test(h)) return true;
     if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
     if (/^192\.168\./.test(h)) return true;
+    // Tailscale uses the RFC 6598 shared address range, 100.64.0.0/10.
+    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
     return false;
   } catch {
     return false;
@@ -121,7 +123,7 @@ export function LoginPage({
   const [cooldown, setCooldown] = useState(0);
   const [existingUser, setExistingUser] = useState<User | null>(null);
   // Tracks how the existing session was detected so handleCliAuthorize
-  // uses the matching token source (cookie → issueCliToken, localStorage → direct).
+  // uses the matching token source (cookie → mintCliToken, localStorage → direct).
   const authSourceRef = useRef<"cookie" | "localStorage">("cookie");
 
   // Check for existing session when CLI callback is present.
@@ -290,7 +292,7 @@ export function LoginPage({
         token = stored;
       } else {
         // Session was detected via cookie — obtain a bearer token from the server.
-        const res = await api.issueCliToken();
+        const res = await api.mintCliToken();
         token = res.token;
       }
 

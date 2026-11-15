@@ -198,10 +198,10 @@ func serveAvatarRequest(t *testing.T, sig, key string) *httptest.ResponseRecorde
 // have written it: the attachment row's id IS the object filename.
 type avatarObjectOpts struct {
 	contentType string
-	// boundToIssue attaches the row to a real issue — the shape a private
+	// boundToTask attaches the row to a real task — the shape a private
 	// image attachment has, and the shape that must never become a public
 	// avatar.
-	boundToIssue bool
+	boundToTask bool
 	// foreignWorkspace seeds the object in a freshly created workspace the
 	// fixture user is not a member of.
 	foreignWorkspace bool
@@ -214,7 +214,7 @@ func seedForeignWorkspace(t *testing.T) string {
 	slug := "avatar-foreign-" + uuid.NewString()[:8]
 	var id string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO workspace (name, slug, description, issue_prefix)
+		INSERT INTO workspace (name, slug, description, task_prefix)
 		VALUES ($1, $1, '', 'AVF')
 		RETURNING id::text
 	`, slug).Scan(&id); err != nil {
@@ -226,20 +226,20 @@ func seedForeignWorkspace(t *testing.T) string {
 	return id
 }
 
-// seedIssueForAvatarTest creates an issue an attachment can hang off.
-func seedIssueForAvatarTest(t *testing.T, workspaceID string) string {
+// seedTaskForAvatarTest creates an task an attachment can hang off.
+func seedTaskForAvatarTest(t *testing.T, workspaceID string) string {
 	t.Helper()
 	var id string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, number)
+		INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, number)
 		VALUES ($1, 'avatar authorization fixture', 'todo', 'medium', 'member', $2,
-		        (SELECT COALESCE(MAX(number), 0) + 1 FROM issue WHERE workspace_id = $1))
+		        (SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE workspace_id = $1))
 		RETURNING id::text
 	`, workspaceID, testUserID).Scan(&id); err != nil {
-		t.Fatalf("seed issue: %v", err)
+		t.Fatalf("seed task: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, id)
+		testPool.Exec(context.Background(), `DELETE FROM task WHERE id = $1`, id)
 	})
 	return id
 }
@@ -258,16 +258,16 @@ func seedAvatarObject(t *testing.T, opts avatarObjectOpts) string {
 	if opts.foreignWorkspace {
 		workspaceID = seedForeignWorkspace(t)
 	}
-	var issueID any
-	if opts.boundToIssue {
-		issueID = seedIssueForAvatarTest(t, workspaceID)
+	var taskID any
+	if opts.boundToTask {
+		taskID = seedTaskForAvatarTest(t, workspaceID)
 	}
 	key := "workspaces/" + workspaceID + "/" + id.String() + ".png"
 	if _, err := testPool.Exec(context.Background(), `
-		INSERT INTO attachment (id, workspace_id, uploader_type, uploader_id, filename, url, content_type, size_bytes, issue_id)
+		INSERT INTO attachment (id, workspace_id, uploader_type, uploader_id, filename, url, content_type, size_bytes, task_id)
 		VALUES ($1, $2, 'member', $3, 'avatar.png', $4, $5, 10, $6)
 	`, id.String(), workspaceID, testUserID,
-		"https://cdn.example.com/"+key, opts.contentType, issueID); err != nil {
+		"https://cdn.example.com/"+key, opts.contentType, taskID); err != nil {
 		t.Fatalf("seed attachment row: %v", err)
 	}
 	t.Cleanup(func() {
@@ -353,28 +353,28 @@ func TestServeAvatar_ProxiesPrivateHostBody(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Naming a storage object is not permission to publish it. These cover the
-// reproduced escalation: a private image attached to an issue must not become
+// reproduced escalation: a private image attached to an task must not become
 // a permanently public, unauthenticated avatar link — on the read side or the
 // write side, in this workspace or any other.
 
-// TestServeAvatar_RejectsAttachmentBoundToIssue is the reproduced attack. Even
+// TestServeAvatar_RejectsAttachmentBoundToTask is the reproduced attack. Even
 // with a valid signature (i.e. the value really did get stored in avatar_url),
 // an object attached to workspace content must never be served.
-func TestServeAvatar_RejectsAttachmentBoundToIssue(t *testing.T) {
+func TestServeAvatar_RejectsAttachmentBoundToTask(t *testing.T) {
 	withAvatarStorage(t, &mockStorageNoCdn{}, "")
-	key := seedAvatarObject(t, avatarObjectOpts{boundToIssue: true})
+	key := seedAvatarObject(t, avatarObjectOpts{boundToTask: true})
 
 	if w := serveAvatarRequest(t, signAvatarKey(key), key); w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404 for an issue attachment", w.Code)
+		t.Fatalf("status = %d, want 404 for an task attachment", w.Code)
 	}
 }
 
 // TestServeAvatar_RejectsForeignWorkspaceAttachment — the cross-workspace leg:
 // a private image from a workspace the avatar's owner has nothing to do with
-// is still an issue attachment, so it stays unreachable.
+// is still an task attachment, so it stays unreachable.
 func TestServeAvatar_RejectsForeignWorkspaceAttachment(t *testing.T) {
 	withAvatarStorage(t, &mockStorageNoCdn{}, "")
-	key := seedAvatarObject(t, avatarObjectOpts{foreignWorkspace: true, boundToIssue: true})
+	key := seedAvatarObject(t, avatarObjectOpts{foreignWorkspace: true, boundToTask: true})
 
 	if w := serveAvatarRequest(t, signAvatarKey(key), key); w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 for another workspace's attachment", w.Code)
@@ -406,7 +406,7 @@ func TestServeAvatar_RejectsWorkspaceKeyWithoutAttachmentRow(t *testing.T) {
 
 // TestServeAvatar_AllowsUserNamespaceUpload — UploadFile's no-workspace branch
 // writes to users/<id>/ and creates no attachment row. That namespace never
-// holds issue/comment/chat content, so it stays serveable.
+// holds task/comment/chat content, so it stays serveable.
 func TestServeAvatar_AllowsUserNamespaceUpload(t *testing.T) {
 	withAvatarStorage(t, &mockStorageNoCdn{}, "")
 	key := "users/" + testUserID + "/" + uuid.NewString() + ".png"
@@ -433,11 +433,11 @@ func acceptAvatarURL(t *testing.T, raw, current string) (string, int) {
 // the value at all, so the escalation is stopped before anything is persisted.
 func TestAcceptAvatarURL_RejectsBoundAttachment(t *testing.T) {
 	withAvatarStorage(t, &mockStorageNoCdn{}, "")
-	key := seedAvatarObject(t, avatarObjectOpts{boundToIssue: true})
+	key := seedAvatarObject(t, avatarObjectOpts{boundToTask: true})
 
 	_, status := acceptAvatarURL(t, "https://cdn.example.com/"+key, "")
 	if status != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403 for an issue attachment", status)
+		t.Fatalf("status = %d, want 403 for an task attachment", status)
 	}
 }
 
@@ -463,7 +463,7 @@ func TestAcceptAvatarURL_AcceptsStandaloneUpload(t *testing.T) {
 // resubmit).
 func TestAcceptAvatarURL_AcceptsUnchangedResend(t *testing.T) {
 	withAvatarStorage(t, &mockStorageNoCdn{}, "")
-	key := seedAvatarObject(t, avatarObjectOpts{boundToIssue: true})
+	key := seedAvatarObject(t, avatarObjectOpts{boundToTask: true})
 	raw := "https://cdn.example.com/" + key
 
 	if _, status := acceptAvatarURL(t, raw, raw); status != http.StatusOK {

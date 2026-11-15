@@ -25,7 +25,7 @@ export class NotificationGate {
 export interface NativeNotificationPayload {
   slug: string;
   itemId: string;
-  issueKey: string;
+  taskKey: string;
   title: string;
   body: string;
 }
@@ -38,7 +38,7 @@ export function parseNativeNotificationPayload(
   const limits: Record<keyof NativeNotificationPayload, number> = {
     slug: 256,
     itemId: 256,
-    issueKey: 256,
+    taskKey: 256,
     title: 512,
     body: 2_000,
   };

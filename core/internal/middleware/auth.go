@@ -63,11 +63,11 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 			// Agent task token: "mat_" prefix. Minted by the server at
 			// task-claim time and injected by the daemon into the agent
 			// process. Authoritative for actor identity — the bound
-			// (user_id, agent_id, task_id, workspace_id) triple is
+			// (user_id, agent_id, run_id, workspace_id) triple is
 			// written into request headers here, OVERRIDING whatever the
 			// client sent, so a downstream actor-resolver cannot be
 			// tricked by a client that strips or forges X-Agent-ID /
-			// X-Task-ID. Human-only endpoints (e.g. agent env
+			// X-Run-ID. Human-only endpoints (e.g. agent env
 			// management) reject requests authenticated this way; see
 			// `actorSourceFromRequest`. SILI-2600.
 			if strings.HasPrefix(tokenString, "mat_") {
@@ -76,7 +76,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 					return
 				}
 				hash := auth.HashToken(tokenString)
-				tt, err := queries.GetTaskTokenByHash(r.Context(), hash)
+				tt, err := queries.GetAgentRunTokenByHash(r.Context(), hash)
 				if err != nil {
 					slog.Warn("auth: invalid task token", "path", r.URL.Path, "error", err)
 					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
@@ -84,14 +84,14 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				}
 				r.Header.Set("X-User-ID", uuidToString(tt.UserID))
 				r.Header.Set("X-Agent-ID", uuidToString(tt.AgentID))
-				r.Header.Set("X-Task-ID", uuidToString(tt.TaskID))
+				r.Header.Set("X-Run-ID", uuidToString(tt.RunID))
 				r.Header.Set("X-Workspace-ID", uuidToString(tt.WorkspaceID))
 				// X-Actor-Source flags the auth path so resolveActor and
 				// any owner-only handler can deny without re-querying the
-				// token table. The value "task_token" is the only signal
+				// token table. The value "agent_run_token" is the only signal
 				// this header is allowed to carry — strip anything else a
 				// client tried to send.
-				r.Header.Set("X-Actor-Source", "task_token")
+				r.Header.Set("X-Actor-Source", "agent_run_token")
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -141,7 +141,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				// handler.RequireHumanActor on /api/cloud-billing/*)
 				// can distinguish a cloud-node machine credential
 				// from a human PAT/JWT. Mirrors the mat_ branch's
-				// stamp of "task_token" — both are server-set,
+				// stamp of "agent_run_token" — both are server-set,
 				// authoritative, and stripped from any client-
 				// supplied value at the top of this middleware. Same
 				// rationale as SILI-2600: a machine credential

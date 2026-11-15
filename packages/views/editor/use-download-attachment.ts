@@ -64,7 +64,7 @@ function hasDesktopDownloadBridge(): boolean {
  * - **Desktop**: uses `desktopAPI.downloadURL()` which invokes Electron's
  *   native `webContents.downloadURL()`, showing a save dialog and saving
  *   the file directly. This avoids the system browser entirely and fixes
- *   the Linux/Ubuntu issue where HTML files are rendered inline instead
+ *   the Linux/Ubuntu task where HTML files are rendered inline instead
  *   of being downloaded.
  */
 export function useDownloadAttachment(): (attachmentId: string) => Promise<void> {

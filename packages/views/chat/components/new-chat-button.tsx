@@ -10,7 +10,7 @@ import {
   PickerItem,
   PickerSection,
   PropertyPicker,
-} from "../../issues/components/pickers/property-picker";
+} from "../../tasks/components/pickers/property-picker";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import type { Agent } from "@silieco/core/types";
 import { useT } from "../../i18n";

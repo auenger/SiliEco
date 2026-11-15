@@ -40,6 +40,7 @@ export function useCreateProjectResource(wsId: string, projectId: string) {
       );
     },
     onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["project-directory", wsId, projectId] });
       qc.invalidateQueries({
         queryKey: projectResourceKeys.list(wsId, projectId),
       });
@@ -72,6 +73,7 @@ export function useUpdateProjectResource(wsId: string, projectId: string) {
       );
     },
     onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["project-directory", wsId, projectId] });
       qc.invalidateQueries({
         queryKey: projectResourceKeys.list(wsId, projectId),
       });
@@ -112,6 +114,7 @@ export function useDeleteProjectResource(wsId: string, projectId: string) {
       }
     },
     onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["project-directory", wsId, projectId] });
       qc.invalidateQueries({
         queryKey: projectResourceKeys.list(wsId, projectId),
       });

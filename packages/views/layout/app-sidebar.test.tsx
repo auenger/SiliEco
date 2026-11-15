@@ -10,7 +10,7 @@ const { appForeground, chatSessions, chatStore, detail, deletePin, inboxItems, n
   detail: { current: { isPending: false, isError: false, data: null as unknown, error: null as unknown } },
   deletePin: vi.fn(),
   inboxItems: { current: [] as { id: string; read: boolean }[] },
-  navigation: { current: { pathname: "/acme/issues" } },
+  navigation: { current: { pathname: "/acme/tasks" } },
   navigationSearch: { current: "" },
   openModal: vi.fn(),
   projects: {
@@ -35,8 +35,8 @@ const { appForeground, chatSessions, chatStore, detail, deletePin, inboxItems, n
         id: "pin-1",
         workspace_id: "ws-1",
         user_id: "user-1",
-        item_type: "issue" as const,
-        item_id: "issue-1",
+        item_type: "task" as const,
+        item_id: "task-1",
         position: 0,
         created_at: "2026-05-06T00:00:00Z",
       },
@@ -115,7 +115,7 @@ vi.mock("../common/use-app-foreground", () => ({
   useAppForeground: () => appForeground.current,
 }));
 vi.mock("../auth", () => ({ useLogout: () => vi.fn() }));
-vi.mock("../issues/components/status-icon", () => ({ StatusIcon: () => <span /> }));
+vi.mock("../tasks/components/status-icon", () => ({ StatusIcon: () => <span /> }));
 vi.mock("../navigation", () => ({
   AppLink: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
   useNavigation: () => ({
@@ -144,13 +144,13 @@ vi.mock("@silieco/core/paths", async (importOriginal) => ({
   // nav to derive each item's icon from its href) stay intact; only the
   // workspace/context hooks below are stubbed to control routes in tests.
   ...(await importOriginal<typeof import("@silieco/core/paths")>()),
-  paths: { workspace: (slug: string) => ({ issues: () => `/${slug}/issues` }) },
+  paths: { workspace: (slug: string) => ({ tasks: () => `/${slug}/tasks` }) },
   useCurrentWorkspace: () => ({ id: "ws-1", name: "Acme", slug: "acme" }),
   useWorkspacePaths: () => ({
     inbox: () => "/acme/inbox",
     chat: () => "/acme/chat",
-    myIssues: () => "/acme/my-issues",
-    issues: () => "/acme/issues",
+    myTasks: () => "/acme/my-tasks",
+    tasks: () => "/acme/tasks",
     projects: () => "/acme/projects",
     resources: () => "/acme/resources",
     workflows: () => "/acme/workflows",
@@ -161,7 +161,7 @@ vi.mock("@silieco/core/paths", async (importOriginal) => ({
     runtimes: () => "/acme/runtimes",
     skills: () => "/acme/skills",
     settings: () => "/acme/settings",
-    issueDetail: (id: string) => `/acme/issues/${id}`,
+    taskDetail: (id: string) => `/acme/tasks/${id}`,
     projectDetail: (id: string) => `/acme/projects/${id}`,
     projectResources: (id: string) => `/acme/projects/${id}?section=resources`,
     projectSop: (id: string) => `/acme/projects/${id}?section=sop`,
@@ -191,12 +191,12 @@ vi.mock("@silieco/core/inbox/queries", () => ({
   unreadWorkspaceIds: (entries: { workspace_id: string; count: number }[]) =>
     new Set(entries.filter((s) => s.count > 0).map((s) => s.workspace_id)),
 }));
-vi.mock("@silieco/core/issues/queries", () => ({ issueDetailOptions: () => ({ queryKey: ["issue"] }) }));
-vi.mock("@silieco/core/issues/stores/create-mode-store", () => ({
+vi.mock("@silieco/core/tasks/queries", () => ({ taskDetailOptions: () => ({ queryKey: ["task"] }) }));
+vi.mock("@silieco/core/tasks/stores/create-mode-store", () => ({
   useCreateModeStore: { getState: () => ({ lastMode: "agent" }) },
-  openCreateIssueWithPreference: vi.fn(),
+  openCreateTaskWithPreference: vi.fn(),
 }));
-vi.mock("@silieco/core/issues/stores/draft-store", () => ({ useIssueDraftStore: () => false }));
+vi.mock("@silieco/core/tasks/stores/draft-store", () => ({ useTaskDraftStore: () => false }));
 vi.mock("@silieco/core/modals", () => ({ useModalStore: { getState: () => ({ modal: null, open: openModal }) } }));
 vi.mock("@silieco/core/pins/mutations", () => ({ useDeletePin: () => ({ mutate: deletePin }), useReorderPins: () => ({ mutate: vi.fn() }) }));
 vi.mock("@silieco/core/pins/queries", () => ({ pinListOptions: () => ({ queryKey: ["pins"] }) }));
@@ -217,7 +217,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
   useMutation: () => ({ isPending: false, mutate: vi.fn() }),
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
     if (queryKey[0] === "pins") return { data: pins.current };
-    if (queryKey[0] === "issue") return detail.current;
+    if (queryKey[0] === "task") return detail.current;
     if (queryKey[0] === "inbox" && queryKey[1] === "unread-summary") return { data: summary.current };
     if (queryKey[0] === "inbox") return { data: inboxItems.current };
     if (queryKey[0] === "workspaces") return { data: workspaces.current };
@@ -232,7 +232,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
 describe("PinRow", () => {
   beforeEach(() => {
     deletePin.mockReset();
-    navigation.current.pathname = "/acme/issues";
+    navigation.current.pathname = "/acme/tasks";
     detail.current = { isPending: false, isError: false, data: null, error: null };
     summary.current = [];
     navigationSearch.current = "";
@@ -262,7 +262,7 @@ describe("PinRow", () => {
   });
 
   it("does not also highlight the parent workspace nav for an active pin", async () => {
-    navigation.current.pathname = "/acme/issues/issue-1";
+    navigation.current.pathname = "/acme/tasks/task-1";
     detail.current = {
       isPending: false,
       isError: false,
@@ -276,7 +276,7 @@ describe("PinRow", () => {
       "data-active",
       "true",
     );
-    expect(container.querySelector('button[data-href="/acme/issues"]')).not.toHaveAttribute("data-active");
+    expect(container.querySelector('button[data-href="/acme/tasks"]')).not.toHaveAttribute("data-active");
   });
 });
 
@@ -437,7 +437,7 @@ describe("personal nav — Chat", () => {
   beforeEach(() => {
     chatSessions.current = [];
     inboxItems.current = [];
-    navigation.current = { pathname: "/acme/issues" };
+    navigation.current = { pathname: "/acme/tasks" };
     chatStore.current = { activeSessionId: null, isOpen: false };
     appForeground.current = true;
     workspaces.current = [
@@ -495,7 +495,7 @@ describe("personal nav — Chat", () => {
 
   it("excludes the viewed session when the floating chat window is open off-route", () => {
     chatSessions.current = [{ id: "a", unread_count: 2 }, { id: "b", unread_count: 3 }];
-    navigation.current = { pathname: "/acme/issues" };
+    navigation.current = { pathname: "/acme/tasks" };
     chatStore.current = { activeSessionId: "a", isOpen: true };
     const { container } = render(<AppSidebar />);
     expect(chatBadge(container)).toHaveAttribute("aria-label", "3");
@@ -505,7 +505,7 @@ describe("personal nav — Chat", () => {
     // activeSessionId persists after the chat page closes; with both
     // surfaces closed nothing will auto mark-read, so the badge must count.
     chatSessions.current = [{ id: "a", unread_count: 2 }, { id: "b", unread_count: 3 }];
-    navigation.current = { pathname: "/acme/issues" };
+    navigation.current = { pathname: "/acme/tasks" };
     chatStore.current = { activeSessionId: "a", isOpen: false };
     const { container } = render(<AppSidebar />);
     expect(chatBadge(container)).toHaveAttribute("aria-label", "5");
@@ -516,7 +516,7 @@ describe("personal nav — Chat", () => {
     // marked-read (SILI-4485), so its unread must still badge — otherwise the
     // notification is silently eaten while the user is away.
     chatSessions.current = [{ id: "a", unread_count: 2 }, { id: "b", unread_count: 3 }];
-    navigation.current = { pathname: "/acme/issues" };
+    navigation.current = { pathname: "/acme/tasks" };
     chatStore.current = { activeSessionId: "a", isOpen: true };
     appForeground.current = false;
     const { container } = render(<AppSidebar />);

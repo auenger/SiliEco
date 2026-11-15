@@ -203,7 +203,7 @@ describe("before_send $exception pipeline", () => {
     analytics.initAnalytics({ key: "k", host: "" });
     const beforeSend = getBeforeSend(posthog);
 
-    const evt = { event: "$pageview", properties: { $current_url: "/acme/issues" } };
+    const evt = { event: "$pageview", properties: { $current_url: "/acme/tasks" } };
     expect(beforeSend(evt)).toBe(evt);
   });
 });

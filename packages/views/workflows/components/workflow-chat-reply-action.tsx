@@ -5,8 +5,8 @@ import { useChatStore } from "@silieco/core/chat";
 import { Button } from "@silieco/ui/components/ui/button";
 import { useT } from "../../i18n";
 
-export function WorkflowChatReplyAction({ wsId, sessionId, taskId, prompt, content, pending }: {
-  wsId: string; sessionId: string; taskId: string; prompt: string; content: string; pending: boolean;
+export function WorkflowChatReplyAction({ wsId, sessionId, runId, prompt, content, pending }: {
+  wsId: string; sessionId: string; runId: string; prompt: string; content: string; pending: boolean;
 }) {
   const { t } = useT("workflows");
   const editor = useWorkflowChatEditorStore((s) => s.editor);
@@ -15,7 +15,7 @@ export function WorkflowChatReplyAction({ wsId, sessionId, taskId, prompt, conte
   const valid = useMemo(() => !!parseWorkflowDraft(content) && !!workflowDraftFromPrompt(prompt), [content, prompt]);
   if (editor?.wsId !== wsId || !content.includes("<sop_draft>")) return null;
   const fill = (resolve = false) => {
-    const next = applyWorkflowChatHistory(wsId, sessionId, taskId, prompt, content, resolve && result?.status === "conflict" ? result.current : undefined);
+    const next = applyWorkflowChatHistory(wsId, sessionId, runId, prompt, content, resolve && result?.status === "conflict" ? result.current : undefined);
     setResult(next);
     if (next.status === "applied") useChatStore.getState().setExpanded(false);
   };

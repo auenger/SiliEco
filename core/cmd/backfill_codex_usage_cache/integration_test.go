@@ -44,8 +44,8 @@ func TestExecuteBackfillUpdatesOnlyEligibleCodexRowsAndRebuildsRollup(t *testing
 	}
 	t.Cleanup(pool.Close)
 
-	if err := testApplyMigrationsUpTo(ctx, pool, "102_task_usage_hourly_pipeline"); err != nil {
-		t.Fatalf("apply migrations to 102: %v", err)
+	if err := testApplyMigrationsUpTo(ctx, pool, ""); err != nil {
+		t.Fatalf("apply current baseline: %v", err)
 	}
 
 	cutoff := time.Date(2026, 6, 13, 8, 0, 0, 0, time.UTC)
@@ -53,14 +53,14 @@ func TestExecuteBackfillUpdatesOnlyEligibleCodexRowsAndRebuildsRollup(t *testing
 	oldUpdatedAt := cutoff.Add(-24 * time.Hour)
 	newUpdatedAt := cutoff.Add(24 * time.Hour)
 
-	workspaceID, _, _, targetTaskID := seedBackfillTaskUsageFixture(t, ctx, pool, "target")
-	_, _, _, otherWorkspaceTaskID := seedBackfillTaskUsageFixture(t, ctx, pool, "other")
+	workspaceID, _, _, targetRunID := seedBackfillAgentRunUsageFixture(t, ctx, pool, "target")
+	_, _, _, otherWorkspaceRunID := seedBackfillAgentRunUsageFixture(t, ctx, pool, "other")
 
-	targetID := seedTaskUsageRow(t, ctx, pool, targetTaskID, "codex", "gpt-5-codex", 1000, 50, 300, createdAt, oldUpdatedAt)
-	postCutoffID := seedTaskUsageRow(t, ctx, pool, targetTaskID, "codex", "gpt-5-codex-new", 900, 50, 200, createdAt, newUpdatedAt)
-	nonCodexID := seedTaskUsageRow(t, ctx, pool, targetTaskID, "claude", "claude-test", 800, 50, 200, createdAt, oldUpdatedAt)
-	zeroCacheID := seedTaskUsageRow(t, ctx, pool, targetTaskID, "codex", "gpt-5-codex-no-cache", 700, 50, 0, createdAt, oldUpdatedAt)
-	otherWorkspaceID := seedTaskUsageRow(t, ctx, pool, otherWorkspaceTaskID, "codex", "gpt-5-codex-other-workspace", 600, 50, 100, createdAt, oldUpdatedAt)
+	targetID := seedAgentRunUsageRow(t, ctx, pool, targetRunID, "codex", "gpt-5-codex", 1000, 50, 300, createdAt, oldUpdatedAt)
+	postCutoffID := seedAgentRunUsageRow(t, ctx, pool, targetRunID, "codex", "gpt-5-codex-new", 900, 50, 200, createdAt, newUpdatedAt)
+	nonCodexID := seedAgentRunUsageRow(t, ctx, pool, targetRunID, "claude", "claude-test", 800, 50, 200, createdAt, oldUpdatedAt)
+	zeroCacheID := seedAgentRunUsageRow(t, ctx, pool, targetRunID, "codex", "gpt-5-codex-no-cache", 700, 50, 0, createdAt, oldUpdatedAt)
+	otherWorkspaceID := seedAgentRunUsageRow(t, ctx, pool, otherWorkspaceRunID, "codex", "gpt-5-codex-other-workspace", 600, 50, 100, createdAt, oldUpdatedAt)
 
 	cfg := config{
 		cutoff:      cutoff,
@@ -78,7 +78,7 @@ func TestExecuteBackfillUpdatesOnlyEligibleCodexRowsAndRebuildsRollup(t *testing
 	if total.Rows != 1 || total.InputBefore != 1000 || total.InputAfter != 700 || total.Overcount != 300 {
 		t.Fatalf("unexpected dry-run total: %+v", total)
 	}
-	assertTaskUsageInput(t, ctx, pool, targetID, 1000)
+	assertAgentRunUsageInput(t, ctx, pool, targetID, 1000)
 
 	updateStartedAt, err := databaseClock(ctx, pool)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestExecuteBackfillUpdatesOnlyEligibleCodexRowsAndRebuildsRollup(t *testing
 	rollupFrom, rollupTo := rollupWindow(updateStartedAt, updateFinishedAt)
 	var rollupRows int64
 	if err := pool.QueryRow(ctx,
-		`SELECT rollup_task_usage_hourly_window($1::timestamptz, $2::timestamptz)`,
+		`SELECT rollup_agent_run_usage_hourly_window($1::timestamptz, $2::timestamptz)`,
 		rollupFrom, rollupTo,
 	).Scan(&rollupRows); err != nil {
 		t.Fatalf("rebuild hourly rollup: %v", err)
@@ -107,14 +107,14 @@ func TestExecuteBackfillUpdatesOnlyEligibleCodexRowsAndRebuildsRollup(t *testing
 		t.Fatalf("expected hourly rollup rows to be touched")
 	}
 
-	assertTaskUsageInput(t, ctx, pool, targetID, 700)
-	assertTaskUsageInput(t, ctx, pool, postCutoffID, 900)
-	assertTaskUsageInput(t, ctx, pool, nonCodexID, 800)
-	assertTaskUsageInput(t, ctx, pool, zeroCacheID, 700)
-	assertTaskUsageInput(t, ctx, pool, otherWorkspaceID, 600)
+	assertAgentRunUsageInput(t, ctx, pool, targetID, 700)
+	assertAgentRunUsageInput(t, ctx, pool, postCutoffID, 900)
+	assertAgentRunUsageInput(t, ctx, pool, nonCodexID, 800)
+	assertAgentRunUsageInput(t, ctx, pool, zeroCacheID, 700)
+	assertAgentRunUsageInput(t, ctx, pool, otherWorkspaceID, 600)
 
 	var targetUpdatedAt time.Time
-	if err := pool.QueryRow(ctx, `SELECT updated_at FROM task_usage WHERE id = $1`, targetID).Scan(&targetUpdatedAt); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT updated_at FROM agent_run_usage WHERE id = $1`, targetID).Scan(&targetUpdatedAt); err != nil {
 		t.Fatalf("read target updated_at: %v", err)
 	}
 	if !targetUpdatedAt.After(cutoff) {
@@ -133,7 +133,7 @@ func TestExecuteBackfillUpdatesOnlyEligibleCodexRowsAndRebuildsRollup(t *testing
 	if err := pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(input_tokens), 0)::bigint,
 		       COALESCE(SUM(cache_read_tokens), 0)::bigint
-		  FROM task_usage_hourly
+		  FROM agent_run_usage_hourly
 		 WHERE workspace_id = $1
 		   AND provider = 'codex'
 		   AND model = 'gpt-5-codex'
@@ -145,11 +145,11 @@ func TestExecuteBackfillUpdatesOnlyEligibleCodexRowsAndRebuildsRollup(t *testing
 	}
 }
 
-func seedTaskUsageRow(
+func seedAgentRunUsageRow(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	taskID, provider, model string,
+	runID, provider, model string,
 	input, output, cacheRead int64,
 	createdAt, updatedAt time.Time,
 ) string {
@@ -157,33 +157,33 @@ func seedTaskUsageRow(
 
 	var id string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO task_usage (
-			task_id, provider, model,
+		INSERT INTO agent_run_usage (
+			run_id, provider, model,
 			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
 			created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8)
 		RETURNING id
-	`, taskID, provider, model, input, output, cacheRead, createdAt, updatedAt).Scan(&id); err != nil {
-		t.Fatalf("seed task_usage row %s/%s: %v", provider, model, err)
+	`, runID, provider, model, input, output, cacheRead, createdAt, updatedAt).Scan(&id); err != nil {
+		t.Fatalf("seed agent_run_usage row %s/%s: %v", provider, model, err)
 	}
 	return id
 }
 
-func assertTaskUsageInput(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id string, want int64) {
+func assertAgentRunUsageInput(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id string, want int64) {
 	t.Helper()
 	var got int64
-	if err := pool.QueryRow(ctx, `SELECT input_tokens FROM task_usage WHERE id = $1`, id).Scan(&got); err != nil {
-		t.Fatalf("read task_usage %s: %v", id, err)
+	if err := pool.QueryRow(ctx, `SELECT input_tokens FROM agent_run_usage WHERE id = $1`, id).Scan(&got); err != nil {
+		t.Fatalf("read agent_run_usage %s: %v", id, err)
 	}
 	if got != want {
-		t.Fatalf("task_usage %s input_tokens = %d, want %d", id, got, want)
+		t.Fatalf("agent_run_usage %s input_tokens = %d, want %d", id, got, want)
 	}
 }
 
-func seedBackfillTaskUsageFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, suffix string) (string, string, string, string) {
+func seedBackfillAgentRunUsageFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, suffix string) (string, string, string, string) {
 	t.Helper()
 
-	var wsID, runtimeID, agentID, taskID string
+	var wsID, runtimeID, agentID, runID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO workspace (name, slug)
 		VALUES ($1, $2)
@@ -205,30 +205,18 @@ func seedBackfillTaskUsageFixture(t *testing.T, ctx context.Context, pool *pgxpo
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks
+			runtime_id, visibility, max_concurrent_runs
 		)
 		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'workspace', 1)
 		RETURNING id
 	`, wsID, "codex backfill agent "+suffix, runtimeID).Scan(&agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (
-			agent_id, runtime_id, status, payload
-		)
-		VALUES ($1, $2, 'queued', '{}'::jsonb)
-		RETURNING id
-	`, agentID, runtimeID).Scan(&taskID); err != nil {
-		altErr := pool.QueryRow(ctx, `
-			INSERT INTO agent_task_queue (agent_id, runtime_id)
-			VALUES ($1, $2)
-			RETURNING id
-		`, agentID, runtimeID).Scan(&taskID)
-		if altErr != nil {
-			t.Fatalf("seed agent_task_queue: %v / %v", err, altErr)
-		}
+	if err := pool.QueryRow(ctx, `INSERT INTO agent_run (agent_id, runtime_id) VALUES ($1, $2) RETURNING id`, agentID, runtimeID).Scan(&runID); err != nil {
+		t.Fatalf("seed agent_run: %v", err)
 	}
-	return wsID, runtimeID, agentID, taskID
+
+	return wsID, runtimeID, agentID, runID
 }
 
 func testResolveMigrationsDir() (string, error) {
@@ -327,6 +315,9 @@ func testApplyMigrationsUpTo(ctx context.Context, pool *pgxpool.Pool, lastVersio
 		if v == lastVersion {
 			return nil
 		}
+	}
+	if lastVersion == "" {
+		return nil
 	}
 	return fmt.Errorf("migration %q not found", lastVersion)
 }

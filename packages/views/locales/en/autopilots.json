@@ -30,7 +30,7 @@
     "archived": "Archived"
   },
   "execution_mode": {
-    "create_issue": "Create Task",
+    "create_task": "Create Task",
     "run_only": "Run Only"
   },
   "relative_date": {
@@ -122,7 +122,7 @@
     "owner_note": "The creator and workspace admins always have access."
   },
   "run_status": {
-    "issue_created": "Task Created",
+    "task_created": "Task Created",
     "running": "Running",
     "skipped": "Skipped",
     "completed": "Completed",
@@ -135,7 +135,7 @@
     "api": "API"
   },
   "run": {
-    "issue_linked": "Task linked",
+    "task_linked": "Task linked",
     "view_log": "View execution log",
     "skipped_group": {
       "label": "Skipped",
@@ -307,7 +307,7 @@
     "event_filter_hint": "Only process webhooks matching these events. Leave empty to accept all.",
     "schedule_disabled_reason": "This autopilot has multiple schedules — edit them in the detail page.",
     "output_modes": {
-      "create_issue": {
+      "create_task": {
         "label": "Create task",
         "description": "Each run creates a tracked task"
       },

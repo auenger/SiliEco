@@ -32,8 +32,8 @@
     "unarchive": "取消归档"
   },
   "types": {
-    "issue_assigned": "已分配",
-    "issue_subscribed": "已订阅",
+    "task_assigned": "已分配",
+    "task_subscribed": "已订阅",
     "unassigned": "已取消分配",
     "assignee_changed": "分配人已更改",
     "status_changed": "状态已更改",
@@ -43,8 +43,8 @@
     "new_comment": "新评论",
     "mentioned": "提及了你",
     "review_requested": "请求审阅",
-    "task_completed": "task 已完成",
-    "task_failed": "task 失败",
+    "run_completed": "task 已完成",
+    "run_failed": "task 失败",
     "agent_blocked": "智能体被阻塞",
     "agent_completed": "智能体已完成",
     "reaction_added": "添加了表情反应",

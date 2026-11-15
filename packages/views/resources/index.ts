@@ -1,1 +1,1 @@
-export { AttachExistingFileButton, IssueFilesSection, ProjectFilesPage, ResourcesPage } from "./resources-page";
+export { AttachExistingFileButton, TaskFilesSection, ProjectFilesPage, ResourcesPage } from "./resources-page";

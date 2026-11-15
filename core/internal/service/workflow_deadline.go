@@ -14,7 +14,7 @@ import (
 // does not consume the timeout; a retry gets its own started_at and deadline.
 // Existing runtime-liveness watchdogs remain independent of this opt-in limit.
 func (s *WorkflowExecutionService) ExpireStageCalls(ctx context.Context) error {
-	if s.TaskService == nil {
+	if s.AgentRunService == nil {
 		return nil
 	}
 	after := pgtype.UUID{Valid: true}
@@ -32,19 +32,19 @@ func (s *WorkflowExecutionService) ExpireStageCalls(ctx context.Context) error {
 				RetryPolicy json.RawMessage `json:"retry_policy"`
 			}
 			if err := json.Unmarshal(call.ConfigSnapshot, &frozen); err != nil {
-				slog.Error("workflow deadline invalid snapshot", "task_id", call.ID, "error", err)
+				slog.Error("workflow deadline invalid snapshot", "run_id", call.ID, "error", err)
 				continue
 			}
 			policy, err := workflowcontract.ParseRetryPolicy(frozen.RetryPolicy)
 			if err != nil {
-				slog.Error("workflow deadline invalid policy", "task_id", call.ID, "error", err)
+				slog.Error("workflow deadline invalid policy", "run_id", call.ID, "error", err)
 				continue
 			}
 			if policy.TimeoutSeconds == nil || time.Now().Before(call.StartedAt.Time.Add(time.Duration(*policy.TimeoutSeconds)*time.Second)) {
 				continue
 			}
 			attemptCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			_, err = s.TaskService.FailTask(attemptCtx, call.ID, "Configured SOP call timeout exceeded", "", "", "timeout", false, "")
+			_, err = s.AgentRunService.FailRun(attemptCtx, call.ID, "Configured SOP call timeout exceeded", "", "", "timeout", false, "")
 			cancel()
 			if err != nil {
 				return err

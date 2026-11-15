@@ -22,7 +22,7 @@ import { useT } from "../../i18n";
  * the DOM. Selection, hover, archive, and scroll semantics are unchanged —
  * the row component and the callbacks are the same as the non-virtualized
  * list. `customScrollParent` keeps Virtuoso reading/writing the existing
- * `overflow-y-auto` element (same pattern as the issue-detail timeline), so
+ * `overflow-y-auto` element (same pattern as the task-detail timeline), so
  * scroll position behaves exactly as before.
  *
  * Known virtualization tradeoff: keyboard Tab only reaches currently-mounted
@@ -42,7 +42,7 @@ export function InboxList({
   items: InboxItem[];
   view: InboxView;
   selectedKey: string;
-  // Deduplicated archived-issue count. Only read in the main view, to label the
+  // Deduplicated archived-task count. Only read in the main view, to label the
   // entry into the archive; the entry hides at zero.
   archivedCount: number;
   onSelect: (item: InboxItem) => void;
@@ -109,7 +109,7 @@ export function InboxList({
     <InboxListItem
       item={item}
       view={view}
-      isSelected={(item.issue_id ?? item.id) === selectedKey}
+      isSelected={(item.task_id ?? item.id) === selectedKey}
       onClick={() => onSelect(item)}
       onAction={() => onAction(item.id)}
     />

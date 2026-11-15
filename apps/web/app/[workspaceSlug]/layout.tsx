@@ -102,7 +102,7 @@ export default function WorkspaceLayout({
       {/* Reads the welcome-store transient signal parked by
        *  OnboardingFlow.handleRuntimeNext. Runtime path → loading veil →
        *  blocking Modal with Helper + starter cards. Skip path → Modal
-       *  with two seeded issues. No signal → null. */}
+       *  with two seeded tasks. No signal → null. */}
       <WelcomeAfterOnboarding />
     </WorkspaceSlugProvider>
   );

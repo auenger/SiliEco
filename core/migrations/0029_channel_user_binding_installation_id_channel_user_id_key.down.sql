@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.channel_user_binding_installation_id_channel_user_id_key;

@@ -49,7 +49,7 @@ describe("useProjectViewStore", () => {
     await flush();
     useProjectViewStore.getState().setViewMode("comfortable");
 
-    const raw = localStorage.getItem("silieco_projects_view:acme");
+    const raw = localStorage.getItem("silieco_tr1_projects_view:acme");
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw as string);
     expect(Object.keys(parsed.state).sort()).toEqual([
@@ -64,11 +64,11 @@ describe("useProjectViewStore", () => {
 
   it("rehydrates a different saved viewMode on workspace switch", async () => {
     localStorage.setItem(
-      "silieco_projects_view:acme",
+      "silieco_tr1_projects_view:acme",
       JSON.stringify({ state: { viewMode: "comfortable" }, version: 0 }),
     );
     localStorage.setItem(
-      "silieco_projects_view:beta",
+      "silieco_tr1_projects_view:beta",
       JSON.stringify({ state: { viewMode: "compact" }, version: 0 }),
     );
 
@@ -85,7 +85,7 @@ describe("useProjectViewStore", () => {
 
   it("resets to 'compact' when switching to a workspace with no persisted value", async () => {
     localStorage.setItem(
-      "silieco_projects_view:acme",
+      "silieco_tr1_projects_view:acme",
       JSON.stringify({ state: { viewMode: "comfortable" }, version: 0 }),
     );
 
@@ -98,6 +98,6 @@ describe("useProjectViewStore", () => {
     await flush();
     await flush();
     expect(useProjectViewStore.getState().viewMode).toBe("compact");
-    expect(localStorage.getItem("silieco_projects_view:acme")).not.toBeNull();
+    expect(localStorage.getItem("silieco_tr1_projects_view:acme")).not.toBeNull();
   });
 });

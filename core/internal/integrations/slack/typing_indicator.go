@@ -177,13 +177,13 @@ func (m *TypingIndicatorManager) Clear(ctx context.Context, sessionID pgtype.UUI
 // EventChatDone (bus delivery is synchronous, in subscription order).
 func (m *TypingIndicatorManager) Register(bus *events.Bus) {
 	bus.Subscribe(protocol.EventChatDone, m.handleEvent)
-	bus.Subscribe(protocol.EventTaskFailed, m.handleEvent)
+	bus.Subscribe(protocol.EventRunFailed, m.handleEvent)
 }
 
 func (m *TypingIndicatorManager) handleEvent(e events.Event) {
 	sessionID, ok := chatSessionIDFromEvent(e)
 	if !ok {
-		// Issue / autopilot tasks carry no chat_session — nothing to clear.
+		// Task / autopilot tasks carry no chat_session — nothing to clear.
 		return
 	}
 	// Bus delivery is synchronous; bound the reaction calls so a stuck Slack

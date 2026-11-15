@@ -18,24 +18,24 @@ import (
 // token kind the caller used:
 //
 //   - JWT cookie / sili_ PAT  → X-User-ID = the human's user id.
-//                              X-Actor-Source is left empty.
+//     X-Actor-Source is left empty.
 //   - mat_ task token        → X-User-ID = the OWNING human's user id,
-//                              plus X-Agent-ID, X-Task-ID, and the
-//                              authoritative server-set header
-//                              `X-Actor-Source: task_token`.
+//     plus X-Agent-ID, X-Run-ID, and the
+//     authoritative server-set header
+//     `X-Actor-Source: agent_run_token`.
 //   - mcn_ cloud-node PAT    → X-User-ID = the OWNING human's user id,
-//                              plus `X-Actor-Source: cloud_pat`.
-//                              The token authenticates a cloud-runtime
-//                              EC2 node operating on the owner's
-//                              behalf — same conceptual category as
-//                              mat_ (machine running owner-scoped
-//                              code) for authorization purposes.
+//     plus `X-Actor-Source: cloud_pat`.
+//     The token authenticates a cloud-runtime
+//     EC2 node operating on the owner's
+//     behalf — same conceptual category as
+//     mat_ (machine running owner-scoped
+//     code) for authorization purposes.
 //
 // The mat_ and mcn_ designs (SILI-2600 and the cloud-node PAT story
 // respectively) were both deliberately built this way: every request
 // the agent / node makes is treated as the owner's, so they can
-// post comments, claim issues, register runtimes, etc., as if the
-// owner had done it. That is correct for issue / comment / chat
+// post comments, claim tasks, register runtimes, etc., as if the
+// owner had done it. That is correct for task / comment / chat
 // scopes — those are bounded by workspace membership and by the
 // task or runtime binding.
 //
@@ -63,9 +63,9 @@ import (
 // We deliberately do NOT use h.resolveActor() here:
 //
 //   - resolveActor's primary job is "agent vs member" classification
-//     for ownership / authorship attribution (issue creator, comment
+//     for ownership / authorship attribution (task creator, comment
 //     author, etc.). It also has a fallback path that trusts
-//     X-Agent-ID + X-Task-ID for legacy CLI flows; that fallback is
+//     X-Agent-ID + X-Run-ID for legacy CLI flows; that fallback is
 //     valid for resolving authorship but is irrelevant here. Billing
 //     authorization needs the strict "machine credential → forbidden"
 //     gate, nothing else.
@@ -80,7 +80,7 @@ import (
 //
 // Apply via `r.Use(handler.RequireHumanActor)` on a chi route group.
 // The middleware is intentionally NOT wired in via the router's main
-// Auth chain — the default contract elsewhere (issues, chat, etc.) is
+// Auth chain — the default contract elsewhere (tasks, chat, etc.) is
 // "agent and human are interchangeable", and adding a global gate
 // would break legitimate agent traffic. Only attach it where the
 // scope is truly human-only.
@@ -99,7 +99,7 @@ func RequireHumanActor(next http.Handler) http.Handler {
 		// strips any client-supplied value before stamping its own,
 		// so a non-empty value here is authoritative.
 		switch r.Header.Get("X-Actor-Source") {
-		case "task_token", "cloud_pat":
+		case "agent_run_token", "cloud_pat":
 			writeError(w, http.StatusForbidden, "this endpoint is only available to human actors")
 			return
 		}

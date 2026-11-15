@@ -134,7 +134,7 @@ const PREVIEW_COLUMNS = [
     label: "Backlog",
     count: 3,
     accent: "bg-white/30",
-    issues: [
+    tasks: [
       ["SILI-24", "Map the next product release"],
       ["SILI-31", "Review workspace permissions"],
     ],
@@ -143,7 +143,7 @@ const PREVIEW_COLUMNS = [
     label: "In progress",
     count: 2,
     accent: "bg-[#f3b743]",
-    issues: [
+    tasks: [
       ["SILI-18", "Build the runtime health view"],
       ["SILI-27", "Connect the release daemon"],
     ],
@@ -152,7 +152,7 @@ const PREVIEW_COLUMNS = [
     label: "Agent review",
     count: 2,
     accent: "bg-[#5a8dff]",
-    issues: [
+    tasks: [
       ["SILI-12", "Prepare onboarding content"],
       ["SILI-29", "Validate the Core API"],
     ],
@@ -161,7 +161,7 @@ const PREVIEW_COLUMNS = [
     label: "Done",
     count: 4,
     accent: "bg-[#45c486]",
-    issues: [
+    tasks: [
       ["SILI-08", "Create the Silieco workspace"],
       ["SILI-16", "Register Sili Agent"],
     ],
@@ -204,7 +204,7 @@ function ProductImage({ alt }: { alt: string }) {
               <div className="mb-5 px-2 font-mono text-micro font-semibold tracking-[0.16em] text-black/35">
                 WORKSPACE
               </div>
-              {["Inbox", "My issues", "Board", "Agents", "Runtimes"].map(
+              {["Inbox", "My tasks", "Board", "Agents", "Runtimes"].map(
                 (item) => (
                   <div
                     key={item}
@@ -242,7 +242,7 @@ function ProductImage({ alt }: { alt: string }) {
                   </div>
                 </div>
                 <button className="rounded-md bg-[#08111f] px-3 py-2 text-micro font-semibold text-white">
-                  + New issue
+                  + New task
                 </button>
               </div>
 
@@ -259,7 +259,7 @@ function ProductImage({ alt }: { alt: string }) {
                       </span>
                     </div>
                     <div className="space-y-2">
-                      {column.issues.map(([id, title], issueIndex) => (
+                      {column.tasks.map(([id, title], taskIndex) => (
                         <div
                           key={id}
                           className="min-h-[112px] rounded-lg border border-black/8 bg-white p-3 shadow-[0_2px_8px_rgba(15,23,42,0.04)]"
@@ -273,12 +273,12 @@ function ProductImage({ alt }: { alt: string }) {
                           <div className="mt-4 flex items-center justify-between">
                             <span
                               className={`rounded px-1.5 py-0.5 text-micro font-semibold ${
-                                issueIndex === 0
+                                taskIndex === 0
                                   ? "bg-[#eaf0ff] text-[#245dcc]"
                                   : "bg-black/[0.045] text-black/42"
                               }`}
                             >
-                              {issueIndex === 0 ? "SILI AGENT" : "TEAM"}
+                              {taskIndex === 0 ? "SILI AGENT" : "TEAM"}
                             </span>
                             <span className="size-4 rounded-full bg-gradient-to-br from-[#3978f6] to-[#08111f]" />
                           </div>

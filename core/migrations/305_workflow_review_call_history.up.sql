@@ -1,1 +1,0 @@
-CREATE INDEX CONCURRENTLY workflow_review_call_history_idx ON agent_task_queue(workflow_review_request_id) WHERE workflow_review_request_id IS NOT NULL;

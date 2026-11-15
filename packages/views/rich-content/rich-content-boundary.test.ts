@@ -19,7 +19,7 @@ const VIEWS_ROOT = join(__dirname, "..");
 
 // Product surfaces that render user/agent-authored content. Any of these
 // reaching for a generic Markdown renderer is the regression.
-const PRODUCT_SURFACES = ["chat", "issues", "skills", "autopilots", "inbox"];
+const PRODUCT_SURFACES = ["chat", "tasks", "skills", "autopilots", "inbox"];
 
 function walk(dir: string, out: string[] = []): string[] {
   let entries: string[];
@@ -160,7 +160,7 @@ describe("chat renders every text entry through RichContent", () => {
   it("keys the live row and the persisted assistant row on the task", () => {
     // The identity contract in source form: if someone reverts to `msg.id`,
     // the parity test's remount assertion and this both fail.
-    expect(chatList).toMatch(/task:\$\{/);
+    expect(chatList).toMatch(/run:\$\{/);
     expect(chatList).not.toMatch(/computeItemKey=\{\(_, msg\) => msg\.id\}/);
   });
 });

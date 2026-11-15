@@ -5,7 +5,7 @@
  * Invalidates the queries that back the presence dot:
  *   - runtimeListOptions      ← daemon:register, runtime sweeper transitions
  *   - agentListOptions        ← agent:status / created / archived / restored
- *   - agentTaskSnapshotOptions← task:queued / dispatch / completed / failed /
+ *   - agentRunSnapshotOptions← run:queued / dispatch / completed / failed /
  *                               cancelled
  *
  * Deliberately NOT subscribed (cellular-data rule, apps/mobile/CLAUDE.md):
@@ -13,11 +13,11 @@
  *     (packages/core/realtime/use-realtime-sync.ts:147). An invalidate per
  *     heartbeat would refetch agents+runtimes+snapshot 4× a minute per
  *     online runtime — guaranteed to wedge the user on cellular.
- *   - task:progress / task:message — fire many times per active task. The
+ *   - run:progress / run:message — fire many times per active run. The
  *     presence cache only needs lifecycle transitions, not per-step updates.
  *
  * Reconnect: re-invalidate runtimes + snapshot (NOT agents — agent identity
- * doesn't drift while we're offline; runtime status and task counts do).
+ * doesn't drift while we're offline; runtime status and run counts do).
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useWSSubscriptions } from "@/lib/use-ws-subscriptions";
@@ -29,7 +29,7 @@ export function usePresenceRealtime() {
     (ws, wsId) => {
       const runtimesKey = ["runtimes", wsId];
       const agentsKey = ["agents", wsId];
-      const snapshotKey = ["agent-task-snapshot", wsId];
+      const snapshotKey = ["agent-run-snapshot", wsId];
 
       const invalidateRuntimes = () =>
         queryClient.invalidateQueries({ queryKey: runtimesKey });
@@ -41,7 +41,7 @@ export function usePresenceRealtime() {
       return [
         // Daemon lifecycle — register events mean a runtime came online or
         // re-registered; the sweeper's offline transitions are NOT pushed as
-        // a WS event, but the next agent:status / task:* event will pull a
+        // a WS event, but the next agent:status / run:* event will pull a
         // fresh runtime list anyway, and the 30s wall-clock tick masks the
         // gap. Heartbeats deliberately omitted.
         ws.on("daemon:register", invalidateRuntimes),
@@ -53,13 +53,13 @@ export function usePresenceRealtime() {
         ws.on("agent:archived", invalidateAgents),
         ws.on("agent:restored", invalidateAgents),
 
-        // Task lifecycle — drives the workload dimension of presence and the
+        // Run lifecycle — drives the workload dimension of presence and the
         // reserved-for-P1 peek sheet. progress / message intentionally absent.
-        ws.on("task:queued", invalidateSnapshot),
-        ws.on("task:dispatch", invalidateSnapshot),
-        ws.on("task:completed", invalidateSnapshot),
-        ws.on("task:failed", invalidateSnapshot),
-        ws.on("task:cancelled", invalidateSnapshot),
+        ws.on("run:queued", invalidateSnapshot),
+        ws.on("run:dispatch", invalidateSnapshot),
+        ws.on("run:completed", invalidateSnapshot),
+        ws.on("run:failed", invalidateSnapshot),
+        ws.on("run:cancelled", invalidateSnapshot),
 
         // We may have missed sweeper-driven runtime offline transitions
         // while disconnected — refetch runtimes + snapshot. Agents not

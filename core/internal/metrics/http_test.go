@@ -18,12 +18,12 @@ func TestHTTPMiddlewareUsesRoutePatternLabels(t *testing.T) {
 
 	r := chi.NewRouter()
 	r.Use(registry.HTTP.Middleware)
-	r.Get("/api/issues/{id}", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get("/api/tasks/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/issues/secret-issue-id?token=secret-token", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/secret-task-id?token=secret-token", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
@@ -35,14 +35,14 @@ func TestHTTPMiddlewareUsesRoutePatternLabels(t *testing.T) {
 	body := metricsRec.Body.String()
 
 	for _, want := range []string{
-		`silieco_http_requests_total{method="GET",route="/api/issues/{id}",status="201"} 1`,
+		`silieco_http_requests_total{method="GET",route="/api/tasks/{id}",status="201"} 1`,
 		`silieco_build_info{commit="abc123",version="v-test"} 1`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics body missing %q\n%s", want, body)
 		}
 	}
-	for _, leaked := range []string{"secret-issue-id", "secret-token"} {
+	for _, leaked := range []string{"secret-task-id", "secret-token"} {
 		if strings.Contains(body, leaked) {
 			t.Fatalf("metrics body leaked %q\n%s", leaked, body)
 		}

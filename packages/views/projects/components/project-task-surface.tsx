@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@silieco/ui/components/ui/select";
 import { cn } from "@silieco/ui/lib/utils";
-import { IssueSurface } from "../../issues/surface/issue-surface";
+import { TaskSurface } from "../../tasks/surface/task-surface";
 import { WorkflowBoard } from "../../workflows/components";
 import { useT } from "../../i18n";
 import { useNavigation } from "../../navigation";
@@ -99,14 +99,14 @@ export function ProjectTaskSurface({
         (item) => selectedRun.status !== "completed" && item.id === selectedRun.current_stage_id,
       ) ?? selectedRun?.stages?.[0];
     if (!selectedRun || !stage) return;
-    useModalStore.getState().open("create-issue", {
+    useModalStore.getState().open("create-task", {
       project_id: projectId,
       workflow_instance_id: selectedRun.id,
       workflow_stage_id: stage.id,
     });
   };
   const openLifecycleTask = () => {
-    useModalStore.getState().open("create-issue", {
+    useModalStore.getState().open("create-task", {
       project_id: projectId,
     });
   };
@@ -231,7 +231,7 @@ export function ProjectTaskSurface({
       </div>
 
       {effectiveMode === "lifecycle" ? (
-        <IssueSurface
+        <TaskSurface
           scope={{ type: "project", projectId }}
           modes={["board", "list", "table", "swimlane", "gantt"]}
         />

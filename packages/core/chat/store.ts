@@ -13,13 +13,13 @@ import { createLogger } from "../logger";
 
 const logger = createLogger("chat.store");
 
-const AGENT_STORAGE_KEY = "silieco:chat:selectedAgentId";
-const PROJECT_STORAGE_KEY = "silieco:chat:selectedProjectId";
-const SESSION_STORAGE_KEY = "silieco:chat:activeSessionId";
+const AGENT_STORAGE_KEY = "silieco:tr1:chat:selectedAgentId";
+const PROJECT_STORAGE_KEY = "silieco:tr1:chat:selectedProjectId";
+const SESSION_STORAGE_KEY = "silieco:tr1:chat:activeSessionId";
 /** Drafts are stored as one JSON blob per workspace: { [sessionId]: text }. */
-const DRAFTS_KEY = "silieco:chat:drafts";
+const DRAFTS_KEY = "silieco:tr1:chat:drafts";
 /** Draft attachment records per workspace: { [sessionId]: Attachment[] }. */
-const DRAFT_ATTACHMENTS_KEY = "silieco:chat:draft-attachments";
+const DRAFT_ATTACHMENTS_KEY = "silieco:tr1:chat:draft-attachments";
 /**
  * Ids of durable draft restores (#5219) this client has already written into a
  * composer. Persisted, because the server-side consume that follows can be lost
@@ -28,7 +28,7 @@ const DRAFT_ATTACHMENTS_KEY = "silieco:chat:draft-attachments";
  * The ledger makes the hand-off at-most-once regardless: an id in here is never
  * offered again, only reconciled (consumed again) until the row is gone.
  */
-const APPLIED_RESTORES_KEY = "silieco:chat:applied-draft-restores";
+const APPLIED_RESTORES_KEY = "silieco:tr1:chat:applied-draft-restores";
 /**
  * Local restore requests waiting to reach a composer, queued per session (#5219).
  *
@@ -42,7 +42,7 @@ const APPLIED_RESTORES_KEY = "silieco:chat:applied-draft-restores";
  * Durable restores (which have a server row) deliberately do NOT go in here —
  * they are refetchable, so dropping one loses nothing.
  */
-const PENDING_SEND_RESTORES_KEY = "silieco:chat:pending-send-restores";
+const PENDING_SEND_RESTORES_KEY = "silieco:tr1:chat:pending-send-restores";
 /**
  * Draft slot for a chat that hasn't been created yet. There is exactly one per
  * workspace: the new-chat composer's identity is "the chat I have not created",
@@ -54,9 +54,9 @@ export const DRAFT_NEW_SESSION = "__new__";
 
 /** Pre-SILI-4864 per-agent new-chat slots, shaped `__new__:<agentId>`. */
 const LEGACY_NEW_SESSION_PREFIX = `${DRAFT_NEW_SESSION}:`;
-const CHAT_WIDTH_KEY = "silieco:chat:width";
-const CHAT_HEIGHT_KEY = "silieco:chat:height";
-const CHAT_EXPANDED_KEY = "silieco:chat:expanded";
+const CHAT_WIDTH_KEY = "silieco:tr1:chat:width";
+const CHAT_HEIGHT_KEY = "silieco:tr1:chat:height";
+const CHAT_EXPANDED_KEY = "silieco:tr1:chat:expanded";
 /**
  * Open/closed preference, persisted globally (not per-workspace) — most users
  * have one habitual chat-panel preference across workspaces. Missing key =
@@ -65,7 +65,7 @@ const CHAT_EXPANDED_KEY = "silieco:chat:expanded";
  * Once the user toggles even once, their explicit choice is respected on
  * every subsequent reload.
  */
-const OPEN_KEY = "silieco:chat:isOpen";
+const OPEN_KEY = "silieco:tr1:chat:isOpen";
 /**
  * Whether the floating chat window (FAB + overlay) is available at all,
  * persisted globally like OPEN_KEY. This is the Settings → Chat preference:
@@ -73,7 +73,7 @@ const OPEN_KEY = "silieco:chat:isOpen";
  * Missing key = default ON — the floating window is on by default and can
  * be turned off from the Settings → Chat tab.
  */
-const FLOATING_KEY = "silieco:chat:floatingChatEnabled";
+const FLOATING_KEY = "silieco:tr1:chat:floatingChatEnabled";
 
 function readDrafts(storage: StorageAdapter, key: string): Record<string, string> {
   const raw = storage.getItem(key);
@@ -275,7 +275,7 @@ export const CHAT_DEFAULT_H = 600;
 /**
  * Kept as a public type because existing consumers (chat-message-list,
  * views/chat types) import it. Items themselves no longer live in the
- * store — they flow through the React Query cache keyed by task id.
+ * store — they flow through the React Query cache keyed by run id.
  */
 export interface ChatTimelineItem {
   seq: number;

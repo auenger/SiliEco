@@ -29,7 +29,7 @@ import (
 //   - when two outcomes tie on completed_at AND created_at, exactly one row
 //     comes back and the pick is deterministic (id DESC) — the old
 //     completed_at-only ordering returned an arbitrary row here
-func TestListWorkspaceAgentTaskSnapshot(t *testing.T) {
+func TestListWorkspaceAgentRunSnapshot(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -41,14 +41,14 @@ func TestListWorkspaceAgentTaskSnapshot(t *testing.T) {
 	agentC := createHandlerTestAgent(t, "snapshot-agent-c", []byte(`{}`))
 	agentD := createHandlerTestAgent(t, "snapshot-agent-d", []byte(`{}`))
 
-	type taskFixture struct {
+	type runFixture struct {
 		agentID     string
 		status      string
 		completedAt string // SQL expression; "" for NULL
 		createdAt   string // SQL expression; "" for the column default
 		label       string
 	}
-	fixtures := []taskFixture{
+	fixtures := []runFixture{
 		// Agent A — actives + a newer completed supersedes an older failed.
 		{agentA, "queued", "", "", "A.queued"},
 		{agentA, "dispatched", "", "", "A.dispatched"},
@@ -86,7 +86,7 @@ func TestListWorkspaceAgentTaskSnapshot(t *testing.T) {
 		if f.createdAt != "" {
 			createdExpr = f.createdAt
 		}
-		query := `INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, completed_at, created_at)
+		query := `INSERT INTO agent_run (agent_id, runtime_id, status, priority, completed_at, created_at)
 		          VALUES ($1, $2, $3, 0, ` + completedExpr + `, ` + createdExpr + `) RETURNING id`
 		if err := testPool.QueryRow(ctx, query, f.agentID, testRuntimeID, f.status).Scan(&id); err != nil {
 			t.Fatalf("insert %s: %v", f.label, err)
@@ -96,19 +96,19 @@ func TestListWorkspaceAgentTaskSnapshot(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for _, id := range insertedIDs {
-			testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, id)
+			testPool.Exec(ctx, `DELETE FROM agent_run WHERE id = $1`, id)
 		}
 	})
 
 	w := httptest.NewRecorder()
-	req := newRequest(http.MethodGet, "/api/agent-task-snapshot", nil)
-	testHandler.ListWorkspaceAgentTaskSnapshot(w, req)
+	req := newRequest(http.MethodGet, "/api/agent-run-snapshot", nil)
+	testHandler.ListWorkspaceAgentRunSnapshot(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("ListWorkspaceAgentTaskSnapshot: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var tasks []AgentTaskResponse
-	if err := json.NewDecoder(w.Body).Decode(&tasks); err != nil {
+	var agentRuns []AgentRunResponse
+	if err := json.NewDecoder(w.Body).Decode(&agentRuns); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 
@@ -117,14 +117,14 @@ func TestListWorkspaceAgentTaskSnapshot(t *testing.T) {
 	type key struct{ agent, status string }
 	counts := map[key]int{}
 	returnedForD := make([]string, 0, 2)
-	for _, task := range tasks {
-		if task.AgentID != agentA && task.AgentID != agentB &&
-			task.AgentID != agentC && task.AgentID != agentD {
+	for _, agentRun := range agentRuns {
+		if agentRun.AgentID != agentA && agentRun.AgentID != agentB &&
+			agentRun.AgentID != agentC && agentRun.AgentID != agentD {
 			continue
 		}
-		counts[key{task.AgentID, task.Status}]++
-		if task.AgentID == agentD {
-			returnedForD = append(returnedForD, task.ID)
+		counts[key{agentRun.AgentID, agentRun.Status}]++
+		if agentRun.AgentID == agentD {
+			returnedForD = append(returnedForD, agentRun.ID)
 		}
 	}
 
@@ -208,7 +208,7 @@ func TestListWorkspaceWorkingAgents(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, permission_mode, max_concurrent_tasks, owner_id,
+			runtime_id, visibility, permission_mode, max_concurrent_runs, owner_id,
 			instructions, custom_env, custom_args, mcp_config
 		)
 		VALUES (
@@ -276,25 +276,25 @@ func TestListWorkspaceWorkingAgents(t *testing.T) {
 		}
 	})
 
-	// Insert source issues directly: this test is about the working-agent
-	// projection, so it must not inherit unrelated CreateIssue validation or
-	// side effects. The fixtures cover every direct My Issues relation plus
+	// Insert source tasks directly: this test is about the working-agent
+	// projection, so it must not inherit unrelated CreateTask validation or
+	// side effects. The fixtures cover every direct My Tasks relation plus
 	// all three squad-involvement branches.
-	insertedIssueIDs := make([]string, 0, 6)
-	insertIssue := func(
+	insertedTaskIDs := make([]string, 0, 6)
+	insertTask := func(
 		title, creatorType, creatorID string,
 		assigneeType, assigneeID any,
 	) string {
 		t.Helper()
-		var issueID string
+		var taskID string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO issue (
+			INSERT INTO task (
 				workspace_id, number, title, status, priority,
 				assignee_type, assignee_id, creator_type, creator_id
 			)
 			SELECT $1, COALESCE(MIN(number), 0) - 1, $2, 'todo', 'none',
 			       $3, $4, $5, $6
-			FROM issue
+			FROM task
 			WHERE workspace_id = $1
 			RETURNING id
 		`,
@@ -304,48 +304,48 @@ func TestListWorkspaceWorkingAgents(t *testing.T) {
 			assigneeID,
 			creatorType,
 			creatorID,
-		).Scan(&issueID); err != nil {
-			t.Fatalf("insert source issue %q: %v", title, err)
+		).Scan(&taskID); err != nil {
+			t.Fatalf("insert source task %q: %v", title, err)
 		}
-		insertedIssueIDs = append(insertedIssueIDs, issueID)
-		return issueID
+		insertedTaskIDs = append(insertedTaskIDs, taskID)
+		return taskID
 	}
-	assignedIssueID := insertIssue(
+	assignedTaskID := insertTask(
 		"working-agent-assigned-to-me",
 		"member",
 		testUserID,
 		"member",
 		testUserID,
 	)
-	ownedAgentIssueID := insertIssue(
+	ownedAgentTaskID := insertTask(
 		"working-agent-owned-agent",
 		"agent",
 		outsiderAgentID,
 		"agent",
 		workingAgentID,
 	)
-	outsideIssueID := insertIssue(
+	outsideTaskID := insertTask(
 		"working-agent-outside-mine",
 		"agent",
 		outsiderAgentID,
 		nil,
 		nil,
 	)
-	directMemberSquadIssueID := insertIssue(
+	directMemberSquadTaskID := insertTask(
 		"working-agent-direct-member-squad",
 		"agent",
 		outsiderAgentID,
 		"squad",
 		directMemberSquadID,
 	)
-	ownedLeaderSquadIssueID := insertIssue(
+	ownedLeaderSquadTaskID := insertTask(
 		"working-agent-owned-leader-squad",
 		"agent",
 		outsiderAgentID,
 		"squad",
 		ownedLeaderSquadID,
 	)
-	ownedMemberSquadIssueID := insertIssue(
+	ownedMemberSquadTaskID := insertTask(
 		"working-agent-owned-member-squad",
 		"agent",
 		outsiderAgentID,
@@ -353,8 +353,8 @@ func TestListWorkspaceWorkingAgents(t *testing.T) {
 		ownedMemberSquadID,
 	)
 	t.Cleanup(func() {
-		for _, issueID := range insertedIssueIDs {
-			testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID)
+		for _, taskID := range insertedTaskIDs {
+			testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID)
 		}
 	})
 	chatSessionID := createHandlerTestChatSession(t, workingAgentID)
@@ -368,32 +368,32 @@ func TestListWorkspaceWorkingAgents(t *testing.T) {
 		t.Fatalf("insert autopilot run: %v", err)
 	}
 
-	// Nine running tasks on one agent: six issue relations, chat, autopilot,
-	// and quick-create (no source FK). The autopilot task also carries issue_id
-	// to prove source precedence keeps it out of type=issue.
-	insertedTaskIDs := make([]string, 0, 10)
+	// Nine running tasks on one agent: six task relations, chat, autopilot,
+	// and quick-create (no source FK). The autopilot task also carries task_id
+	// to prove source precedence keeps it out of type=task.
+	insertedRunIDs := make([]string, 0, 10)
 	for _, fixture := range []struct {
 		agentID        string
 		status         string
-		issueID        any
+		taskID         any
 		chatSessionID  any
 		autopilotRunID any
 	}{
-		{workingAgentID, "running", assignedIssueID, nil, nil},
-		{workingAgentID, "running", ownedAgentIssueID, nil, nil},
-		{workingAgentID, "running", outsideIssueID, nil, nil},
-		{workingAgentID, "running", directMemberSquadIssueID, nil, nil},
-		{workingAgentID, "running", ownedLeaderSquadIssueID, nil, nil},
-		{workingAgentID, "running", ownedMemberSquadIssueID, nil, nil},
+		{workingAgentID, "running", assignedTaskID, nil, nil},
+		{workingAgentID, "running", ownedAgentTaskID, nil, nil},
+		{workingAgentID, "running", outsideTaskID, nil, nil},
+		{workingAgentID, "running", directMemberSquadTaskID, nil, nil},
+		{workingAgentID, "running", ownedLeaderSquadTaskID, nil, nil},
+		{workingAgentID, "running", ownedMemberSquadTaskID, nil, nil},
 		{workingAgentID, "running", nil, chatSessionID, nil},
-		{workingAgentID, "running", assignedIssueID, nil, autopilotRunID},
+		{workingAgentID, "running", assignedTaskID, nil, autopilotRunID},
 		{workingAgentID, "running", nil, nil, nil},
 		{queuedAgentID, "queued", nil, nil, nil},
 	} {
-		var taskID string
+		var runID string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO agent_task_queue (
-				agent_id, runtime_id, status, priority, issue_id,
+			INSERT INTO agent_run (
+				agent_id, runtime_id, status, priority, task_id,
 				chat_session_id, autopilot_run_id, started_at
 			)
 			VALUES ($1, $2, $3, 0, $4, $5, $6, now())
@@ -402,103 +402,103 @@ func TestListWorkspaceWorkingAgents(t *testing.T) {
 			fixture.agentID,
 			testRuntimeID,
 			fixture.status,
-			fixture.issueID,
+			fixture.taskID,
 			fixture.chatSessionID,
 			fixture.autopilotRunID,
-		).Scan(&taskID); err != nil {
-			t.Fatalf("insert %s task: %v", fixture.status, err)
+		).Scan(&runID); err != nil {
+			t.Fatalf("insert %s run: %v", fixture.status, err)
 		}
-		insertedTaskIDs = append(insertedTaskIDs, taskID)
+		insertedRunIDs = append(insertedRunIDs, runID)
 	}
 	t.Cleanup(func() {
-		for _, taskID := range insertedTaskIDs {
-			testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+		for _, runID := range insertedRunIDs {
+			testPool.Exec(ctx, `DELETE FROM agent_run WHERE id = $1`, runID)
 		}
 	})
 
 	for _, tc := range []struct {
-		name         string
-		query        string
-		wantCount    int32
-		wantIssueIDs []string
+		name        string
+		query       string
+		wantCount   int32
+		wantTaskIDs []string
 	}{
 		{
 			name:      "all sources",
 			wantCount: 9,
-			wantIssueIDs: []string{
-				assignedIssueID,
-				ownedAgentIssueID,
-				outsideIssueID,
-				directMemberSquadIssueID,
-				ownedLeaderSquadIssueID,
-				ownedMemberSquadIssueID,
+			wantTaskIDs: []string{
+				assignedTaskID,
+				ownedAgentTaskID,
+				outsideTaskID,
+				directMemberSquadTaskID,
+				ownedLeaderSquadTaskID,
+				ownedMemberSquadTaskID,
 			},
 		},
 		{
-			name:      "issue",
-			query:     "?type=issue",
+			name:      "task",
+			query:     "?type=task",
 			wantCount: 6,
-			wantIssueIDs: []string{
-				assignedIssueID,
-				ownedAgentIssueID,
-				outsideIssueID,
-				directMemberSquadIssueID,
-				ownedLeaderSquadIssueID,
-				ownedMemberSquadIssueID,
+			wantTaskIDs: []string{
+				assignedTaskID,
+				ownedAgentTaskID,
+				outsideTaskID,
+				directMemberSquadTaskID,
+				ownedLeaderSquadTaskID,
+				ownedMemberSquadTaskID,
 			},
 		},
 		{
-			name:         "autopilot",
-			query:        "?type=autopilot",
-			wantCount:    1,
-			wantIssueIDs: []string{assignedIssueID},
+			name:        "autopilot",
+			query:       "?type=autopilot",
+			wantCount:   1,
+			wantTaskIDs: []string{assignedTaskID},
 		},
-		{name: "chat", query: "?type=chat", wantCount: 1, wantIssueIDs: []string{}},
+		{name: "chat", query: "?type=chat", wantCount: 1, wantTaskIDs: []string{}},
 		{
 			name:      "mine defaults to any",
-			query:     "?type=issue&scope=mine",
+			query:     "?type=task&scope=mine",
 			wantCount: 5,
-			wantIssueIDs: []string{
-				assignedIssueID,
-				ownedAgentIssueID,
-				directMemberSquadIssueID,
-				ownedLeaderSquadIssueID,
-				ownedMemberSquadIssueID,
+			wantTaskIDs: []string{
+				assignedTaskID,
+				ownedAgentTaskID,
+				directMemberSquadTaskID,
+				ownedLeaderSquadTaskID,
+				ownedMemberSquadTaskID,
 			},
 		},
 		{
 			name:      "mine any",
-			query:     "?type=issue&scope=mine&relation=any",
+			query:     "?type=task&scope=mine&relation=any",
 			wantCount: 5,
-			wantIssueIDs: []string{
-				assignedIssueID,
-				ownedAgentIssueID,
-				directMemberSquadIssueID,
-				ownedLeaderSquadIssueID,
-				ownedMemberSquadIssueID,
+			wantTaskIDs: []string{
+				assignedTaskID,
+				ownedAgentTaskID,
+				directMemberSquadTaskID,
+				ownedLeaderSquadTaskID,
+				ownedMemberSquadTaskID,
 			},
 		},
 		{
-			name:         "mine assigned",
-			query:        "?type=issue&scope=mine&relation=assigned",
-			wantCount:    1,
-			wantIssueIDs: []string{assignedIssueID},
+			name:        "mine assigned",
+			query:       "?type=task&scope=mine&relation=assigned",
+			wantCount:   1,
+			wantTaskIDs: []string{assignedTaskID},
 		},
 		{
-			name:         "mine created",
-			query:        "?type=issue&scope=mine&relation=created",
-			wantCount:    1,
-			wantIssueIDs: []string{assignedIssueID},
+			name:        "mine created",
+			query:       "?type=task&scope=mine&relation=created",
+			wantCount:   1,
+			wantTaskIDs: []string{assignedTaskID},
 		},
 		{
 			name:      "mine involved",
-			query:     "?type=issue&scope=mine&relation=involved",
+			query:     "?type=task&scope=mine&relation=involved",
 			wantCount: 4,
-			wantIssueIDs: []string{
-				ownedAgentIssueID,
-				directMemberSquadIssueID,
-				ownedLeaderSquadIssueID,
-				ownedMemberSquadIssueID,
+			wantTaskIDs: []string{
+				ownedAgentTaskID,
+				directMemberSquadTaskID,
+				ownedLeaderSquadTaskID,
+				ownedMemberSquadTaskID,
 			},
 		},
 	} {
@@ -532,19 +532,19 @@ func TestListWorkspaceWorkingAgents(t *testing.T) {
 			if working.Name != "working-agents-running" {
 				t.Errorf("name = %q, want %q", working.Name, "working-agents-running")
 			}
-			if working.RunningTaskCount != tc.wantCount {
-				t.Errorf("running_task_count = %d, want %d", working.RunningTaskCount, tc.wantCount)
+			if working.RunningRunCount != tc.wantCount {
+				t.Errorf("running_run_count = %d, want %d", working.RunningRunCount, tc.wantCount)
 			}
-			if len(working.IssueIDs) != len(tc.wantIssueIDs) {
-				t.Fatalf("issue_ids = %v, want %v", working.IssueIDs, tc.wantIssueIDs)
+			if len(working.TaskIDs) != len(tc.wantTaskIDs) {
+				t.Fatalf("task_ids = %v, want %v", working.TaskIDs, tc.wantTaskIDs)
 			}
-			wantIssueIDs := make(map[string]struct{}, len(tc.wantIssueIDs))
-			for _, issueID := range tc.wantIssueIDs {
-				wantIssueIDs[issueID] = struct{}{}
+			wantTaskIDs := make(map[string]struct{}, len(tc.wantTaskIDs))
+			for _, taskID := range tc.wantTaskIDs {
+				wantTaskIDs[taskID] = struct{}{}
 			}
-			for _, issueID := range working.IssueIDs {
-				if _, ok := wantIssueIDs[issueID]; !ok {
-					t.Errorf("unexpected issue_id %s; want %v", issueID, tc.wantIssueIDs)
+			for _, taskID := range working.TaskIDs {
+				if _, ok := wantTaskIDs[taskID]; !ok {
+					t.Errorf("unexpected task_id %s; want %v", taskID, tc.wantTaskIDs)
 				}
 			}
 		})
@@ -560,12 +560,12 @@ func TestListWorkspaceWorkingAgentsRejectsInvalidFilters(t *testing.T) {
 		"/api/working-agents?type=quick_create",
 		"/api/working-agents?scope=mine",
 		"/api/working-agents?type=chat&scope=mine",
-		"/api/working-agents?type=issue&scope=workspace",
-		"/api/working-agents?type=issue&relation=assigned",
-		"/api/working-agents?type=issue&scope=mine&relation=watching",
-		"/api/working-agents?type=issue&parent=not-a-uuid",
+		"/api/working-agents?type=task&scope=workspace",
+		"/api/working-agents?type=task&relation=assigned",
+		"/api/working-agents?type=task&scope=mine&relation=watching",
+		"/api/working-agents?type=task&parent=not-a-uuid",
 		"/api/working-agents?type=chat&parent=00000000-0000-0000-0000-000000000000",
-		"/api/working-agents?type=issue&scope=mine&parent=00000000-0000-0000-0000-000000000000",
+		"/api/working-agents?type=task&scope=mine&parent=00000000-0000-0000-0000-000000000000",
 	} {
 		t.Run(path, func(t *testing.T) {
 			w := httptest.NewRecorder()
@@ -580,8 +580,8 @@ func TestListWorkspaceWorkingAgentsRejectsInvalidFilters(t *testing.T) {
 	}
 }
 
-// The sub-issue header on issue detail reads this endpoint with ?parent=, so
-// the projection must cover exactly one issue's direct children. The final
+// The sub-task header on task detail reads this endpoint with ?parent=, so
+// the projection must cover exactly one task's direct children. The final
 // sub-test is the compatibility guard: dropping the parameter has to return
 // the unnarrowed workspace projection, which is what an older installed
 // client keeps sending.
@@ -594,62 +594,62 @@ func TestListWorkspaceWorkingAgentsParentScope(t *testing.T) {
 	childAgentID := createHandlerTestAgent(t, "working-agents-parent-child", []byte(`{}`))
 	siblingAgentID := createHandlerTestAgent(t, "working-agents-parent-sibling", []byte(`{}`))
 
-	insertedIssueIDs := make([]string, 0, 4)
-	insertIssue := func(title string, parentIssueID any) string {
+	insertedTaskIDs := make([]string, 0, 4)
+	insertTask := func(title string, parentTaskID any) string {
 		t.Helper()
-		var issueID string
+		var taskID string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO issue (
+			INSERT INTO task (
 				workspace_id, number, title, status, priority,
-				creator_type, creator_id, parent_issue_id
+				creator_type, creator_id, parent_task_id
 			)
 			SELECT $1, COALESCE(MIN(number), 0) - 1, $2, 'todo', 'none',
 			       'member', $3, $4
-			FROM issue
+			FROM task
 			WHERE workspace_id = $1
 			RETURNING id
-		`, testWorkspaceID, title, testUserID, parentIssueID).Scan(&issueID); err != nil {
-			t.Fatalf("insert issue %q: %v", title, err)
+		`, testWorkspaceID, title, testUserID, parentTaskID).Scan(&taskID); err != nil {
+			t.Fatalf("insert task %q: %v", title, err)
 		}
-		insertedIssueIDs = append(insertedIssueIDs, issueID)
-		return issueID
+		insertedTaskIDs = append(insertedTaskIDs, taskID)
+		return taskID
 	}
-	parentIssueID := insertIssue("working-agents-parent", nil)
-	firstChildID := insertIssue("working-agents-parent-first-child", parentIssueID)
-	secondChildID := insertIssue("working-agents-parent-second-child", parentIssueID)
+	parentTaskID := insertTask("working-agents-parent", nil)
+	firstChildID := insertTask("working-agents-parent-first-child", parentTaskID)
+	secondChildID := insertTask("working-agents-parent-second-child", parentTaskID)
 	// Same workspace, no parent — must never leak into the narrowed read even
 	// though the same agent is running on it.
-	unrelatedIssueID := insertIssue("working-agents-parent-unrelated", nil)
+	unrelatedTaskID := insertTask("working-agents-parent-unrelated", nil)
 	t.Cleanup(func() {
-		for _, issueID := range insertedIssueIDs {
-			testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID)
+		for _, taskID := range insertedTaskIDs {
+			testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID)
 		}
 	})
 
-	insertedTaskIDs := make([]string, 0, 3)
+	insertedRunIDs := make([]string, 0, 3)
 	for _, fixture := range []struct {
 		agentID string
-		issueID string
+		taskID  string
 	}{
 		{childAgentID, firstChildID},
 		{siblingAgentID, secondChildID},
-		{childAgentID, unrelatedIssueID},
+		{childAgentID, unrelatedTaskID},
 	} {
-		var taskID string
+		var runID string
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO agent_task_queue (
-				agent_id, runtime_id, status, priority, issue_id, started_at
+			INSERT INTO agent_run (
+				agent_id, runtime_id, status, priority, task_id, started_at
 			)
 			VALUES ($1, $2, 'running', 0, $3, now())
 			RETURNING id
-		`, fixture.agentID, testRuntimeID, fixture.issueID).Scan(&taskID); err != nil {
-			t.Fatalf("insert running task: %v", err)
+		`, fixture.agentID, testRuntimeID, fixture.taskID).Scan(&runID); err != nil {
+			t.Fatalf("insert running run: %v", err)
 		}
-		insertedTaskIDs = append(insertedTaskIDs, taskID)
+		insertedRunIDs = append(insertedRunIDs, runID)
 	}
 	t.Cleanup(func() {
-		for _, taskID := range insertedTaskIDs {
-			testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+		for _, runID := range insertedRunIDs {
+			testPool.Exec(ctx, `DELETE FROM agent_run WHERE id = $1`, runID)
 		}
 	})
 
@@ -675,51 +675,51 @@ func TestListWorkspaceWorkingAgentsParentScope(t *testing.T) {
 	}
 
 	t.Run("narrows to the parent's direct children", func(t *testing.T) {
-		byID := read(t, "?type=issue&parent="+parentIssueID)
+		byID := read(t, "?type=task&parent="+parentTaskID)
 
 		child, ok := byID[childAgentID]
 		if !ok {
-			t.Fatalf("agent running on a child issue was not returned")
+			t.Fatalf("agent running on a child task was not returned")
 		}
-		if child.RunningTaskCount != 1 {
-			t.Errorf("running_task_count = %d, want 1", child.RunningTaskCount)
+		if child.RunningRunCount != 1 {
+			t.Errorf("running_run_count = %d, want 1", child.RunningRunCount)
 		}
-		if len(child.IssueIDs) != 1 || child.IssueIDs[0] != firstChildID {
-			t.Errorf("issue_ids = %v, want [%s]", child.IssueIDs, firstChildID)
+		if len(child.TaskIDs) != 1 || child.TaskIDs[0] != firstChildID {
+			t.Errorf("task_ids = %v, want [%s]", child.TaskIDs, firstChildID)
 		}
 		if _, ok := byID[siblingAgentID]; !ok {
 			t.Errorf("agent running on the second child was not returned")
 		}
 	})
 
-	t.Run("an unrelated issue's parent yields nothing", func(t *testing.T) {
-		byID := read(t, "?type=issue&parent="+unrelatedIssueID)
+	t.Run("an unrelated task's parent yields nothing", func(t *testing.T) {
+		byID := read(t, "?type=task&parent="+unrelatedTaskID)
 
 		if _, ok := byID[childAgentID]; ok {
-			t.Errorf("childless issue must not return the child agent")
+			t.Errorf("childless task must not return the child agent")
 		}
 		if _, ok := byID[siblingAgentID]; ok {
-			t.Errorf("childless issue must not return the sibling agent")
+			t.Errorf("childless task must not return the sibling agent")
 		}
 	})
 
 	t.Run("omitting parent keeps the workspace projection", func(t *testing.T) {
-		byID := read(t, "?type=issue")
+		byID := read(t, "?type=task")
 
 		child, ok := byID[childAgentID]
 		if !ok {
 			t.Fatalf("agent was not returned by the unnarrowed read")
 		}
-		if child.RunningTaskCount != 2 {
-			t.Errorf("running_task_count = %d, want 2", child.RunningTaskCount)
+		if child.RunningRunCount != 2 {
+			t.Errorf("running_run_count = %d, want 2", child.RunningRunCount)
 		}
-		seen := make(map[string]struct{}, len(child.IssueIDs))
-		for _, issueID := range child.IssueIDs {
-			seen[issueID] = struct{}{}
+		seen := make(map[string]struct{}, len(child.TaskIDs))
+		for _, taskID := range child.TaskIDs {
+			seen[taskID] = struct{}{}
 		}
-		for _, want := range []string{firstChildID, unrelatedIssueID} {
+		for _, want := range []string{firstChildID, unrelatedTaskID} {
 			if _, ok := seen[want]; !ok {
-				t.Errorf("issue_ids = %v, missing %s", child.IssueIDs, want)
+				t.Errorf("task_ids = %v, missing %s", child.TaskIDs, want)
 			}
 		}
 	})
@@ -739,11 +739,11 @@ func TestCreateAgent_RejectsDuplicateName(t *testing.T) {
 	})
 
 	body := map[string]any{
-		"name":                 "duplicate-name-test-agent",
-		"description":          "first description",
-		"runtime_id":           testRuntimeID,
-		"visibility":           "private",
-		"max_concurrent_tasks": 1,
+		"name":                "duplicate-name-test-agent",
+		"description":         "first description",
+		"runtime_id":          testRuntimeID,
+		"visibility":          "private",
+		"max_concurrent_runs": 1,
 	}
 
 	// First call — creates the agent.
@@ -1076,11 +1076,11 @@ func TestAgentEnv_AgentActorRejected(t *testing.T) {
 	}
 
 	// Spin up a separate agent + task that authorises the X-Agent-ID /
-	// X-Task-ID header pair resolveActor checks. The owning member of
+	// X-Run-ID header pair resolveActor checks. The owning member of
 	// the host agent is the same testUserID (workspace owner), which is
 	// the exact lateral-movement shape we want to block.
 	hostAgentID := createHandlerTestAgent(t, "env-host-agent", nil)
-	hostTaskID := createHandlerTestTaskForAgent(t, hostAgentID)
+	hostRunID := createHandlerTestRunForAgent(t, hostAgentID)
 
 	cases := []struct {
 		name string
@@ -1099,7 +1099,7 @@ func TestAgentEnv_AgentActorRejected(t *testing.T) {
 			req := newRequest(method, "/api/agents/"+targetID+"/env", tc.body)
 			req = withURLParam(req, "id", targetID)
 			req.Header.Set("X-Agent-ID", hostAgentID)
-			req.Header.Set("X-Task-ID", hostTaskID)
+			req.Header.Set("X-Run-ID", hostRunID)
 			w := httptest.NewRecorder()
 			tc.fn(w, req)
 			if w.Code != http.StatusForbidden {
@@ -1111,13 +1111,13 @@ func TestAgentEnv_AgentActorRejected(t *testing.T) {
 
 // TestAgentEnv_TaskTokenActorSource locks in the post-SILI-2600 attack
 // model: an agent process that strips its identifying headers
-// (X-Agent-ID / X-Task-ID) but is still authenticated by an `mat_`
+// (X-Agent-ID / X-Run-ID) but is still authenticated by an `mat_`
 // task token MUST be recognized as actor=agent and rejected on the
-// env endpoint. The auth middleware sets X-Actor-Source=task_token
+// env endpoint. The auth middleware sets X-Actor-Source=agent_run_token
 // from the token row; resolveActor honors that header before the
 // header-pair fallback. Without this guard the lateral-movement fix
 // would only block "honest" CLIs that voluntarily set both headers.
-func TestAgentEnv_TaskTokenActorSource(t *testing.T) {
+func TestAgentEnv_AgentRunTokenActorSource(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -1131,16 +1131,16 @@ func TestAgentEnv_TaskTokenActorSource(t *testing.T) {
 	req = withURLParam(req, "id", targetID)
 	// Simulate the auth middleware's post-mat_-resolution state: the
 	// only header touching actor identity is X-Actor-Source. The agent
-	// process stripped X-Agent-ID and X-Task-ID, hoping to fall back
+	// process stripped X-Agent-ID and X-Run-ID, hoping to fall back
 	// to the member auth path — the server-set X-Actor-Source must
 	// short-circuit that escape.
-	req.Header.Set("X-Actor-Source", "task_token")
+	req.Header.Set("X-Actor-Source", "agent_run_token")
 	req.Header.Del("X-Agent-ID")
-	req.Header.Del("X-Task-ID")
+	req.Header.Del("X-Run-ID")
 	w := httptest.NewRecorder()
 	testHandler.GetAgentEnv(w, req)
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 when X-Actor-Source=task_token, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("expected 403 when X-Actor-Source=agent_run_token, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1384,7 +1384,7 @@ func TestUpdateAgent_RedactsMcpConfigForAgentActor(t *testing.T) {
 	// token authenticated the request. It is registered in the same
 	// workspace so resolveActor recognises X-Agent-ID as valid.
 	caller := createHandlerTestAgent(t, "mut-mcp-caller", nil)
-	taskID := insertHandlerTestTask(t, caller)
+	runID := insertHandlerTestRun(t, caller)
 
 	desc := "trivial mutation that should NOT leak target mcp_config"
 	req := newRequest(http.MethodPut, "/api/agents/"+target, map[string]any{
@@ -1395,9 +1395,9 @@ func TestUpdateAgent_RedactsMcpConfigForAgentActor(t *testing.T) {
 	// middleware would normally set these; we mimic both the modern
 	// path (X-Actor-Source) and the legacy header pair so the test is
 	// resilient to either resolveActor branch.
-	req.Header.Set("X-Actor-Source", "task_token")
+	req.Header.Set("X-Actor-Source", "agent_run_token")
 	req.Header.Set("X-Agent-ID", caller)
-	req.Header.Set("X-Task-ID", taskID)
+	req.Header.Set("X-Run-ID", runID)
 	w := httptest.NewRecorder()
 	testHandler.UpdateAgent(w, req)
 	if w.Code != http.StatusOK {
@@ -1593,21 +1593,21 @@ func TestArchiveRestoreAgent_PreservesSkillsInResponse(t *testing.T) {
 // insertHandlerTestTask creates an in_progress task for the given
 // agent so resolveActor's GetAgentTask lookup succeeds without
 // dragging the full TaskService into the test.
-func insertHandlerTestTask(t *testing.T, agentID string) string {
+func insertHandlerTestRun(t *testing.T, agentID string) string {
 	t.Helper()
 	ctx := context.Background()
-	var taskID string
+	var runID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority)
+		INSERT INTO agent_run (agent_id, runtime_id, status, priority)
 		VALUES ($1, $2, 'running', 0)
 		RETURNING id
-	`, agentID, handlerTestRuntimeID(t)).Scan(&taskID); err != nil {
-		t.Fatalf("insert test task: %v", err)
+	`, agentID, handlerTestRuntimeID(t)).Scan(&runID); err != nil {
+		t.Fatalf("insert test run: %v", err)
 	}
 	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
+		testPool.Exec(ctx, `DELETE FROM agent_run WHERE id = $1`, runID)
 	})
-	return taskID
+	return runID
 }
 
 // Defence-in-depth: spot-check that the package compiles a small

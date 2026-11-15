@@ -13,7 +13,7 @@
  * Sizing follows the mobile typography scale documented in
  * `apps/mobile/docs/markdown-renderer-research.md` → "Mobile typography
  * scale" (calibrated against Apple HIG; one tier below shadcn web defaults
- * because markdown headings inside an issue card are structural, not
+ * because markdown headings inside a task card are structural, not
  * screen titles). HIG values are encoded in `MD_FONT` / `MD_LINE` /
  * `MD_GAP` constants — these are NOT RNR tokens to replace; they are
  * mobile-specific design constants validated by the 2026-05-09 inline-
@@ -59,10 +59,10 @@ const MD_LINE = {
   // the inline-code chip's top-heavy padding — was REVERTED on the same
   // day after evidence ruled out lineHeight as the actual root cause.
   // Real root cause: enriched-markdown has hardcoded inline-code padding
-  // (upstream issue #255, maintainer unresponsive as of 2026-05). The
+  // (upstream task #255, maintainer unresponsive as of 2026-05). The
   // chip artifact is library-specific, not RN-platform-wide. Discord /
   // Slack / Telegram / Mattermost mobile all use background + mono with
-  // no visible top-heavy issue, confirming this is enriched's bug, not
+  // no visible top-heavy task, confirming this is enriched's bug, not
   // an RN+iOS structural limitation. See:
   //   - docs/markdown-rendering-adr.md "Known limitations"
   //   - docs/markdown-renderer-research.md decision log 2026-05-19
@@ -192,12 +192,12 @@ export function useMarkdownStyle() {
       // color / backgroundColor / borderColor for inline code — no
       // padding, lineHeight, or baselineOffset knob. Confirmed 2026-05-21
       // (researcher brief): zero open PRs / forks / prereleases touching
-      // inline-code vertical geometry; upstream issue #255 has no
+      // inline-code vertical geometry; upstream task #255 has no
       // maintainer response since 2026-04-20. The only real fixes are at
       // the native layer (custom NSLayoutManager.drawBackground override
       // or TextKit 2 NSTextLayoutManager.enumerateTextSegments(.highlight))
       // which would require forking the library — not worth the perpetual
-      // patch-rebase cost for a polish issue.
+      // patch-rebase cost for a polish task.
       //
       // Visual identification stays strong without the chip: monospace
       // font + muted-foreground tint matches Apple Notes / iA Writer.

@@ -34,22 +34,22 @@ func displayID(id string, full bool) string {
 	return truncateID(id)
 }
 
-func issueDisplayKey(issue map[string]any) string {
-	if key := strVal(issue, "identifier"); key != "" {
+func taskDisplayKey(task map[string]any) string {
+	if key := strVal(task, "identifier"); key != "" {
 		return key
 	}
-	id := strVal(issue, "id")
+	id := strVal(task, "id")
 	if id != "" {
-		slog.Warn("issue response missing identifier", "issue_id", id)
+		slog.Warn("task response missing identifier", "task_id", id)
 	}
 	return id
 }
 
-func issueCandidate(issue map[string]any) idCandidate {
+func taskCandidate(task map[string]any) idCandidate {
 	return idCandidate{
-		ID:      strVal(issue, "id"),
-		Display: issueDisplayKey(issue),
-		Detail:  strVal(issue, "title"),
+		ID:      strVal(task, "id"),
+		Display: taskDisplayKey(task),
+		Detail:  strVal(task, "title"),
 	}
 }
 
@@ -128,31 +128,31 @@ func ambiguousIDPrefixError(kind, input string, matches []idCandidate) error {
 	return fmt.Errorf("ambiguous %s id prefix %q; matches:\n%s\nUse more characters or run the list command with --full-id", kind, input, strings.Join(parts, "\n"))
 }
 
-// resolveIssueRef accepts only the two canonical issue references:
+// resolveTaskRef accepts only the two canonical task references:
 //
-//   - the human-facing issue key, e.g. "SILI-1852" (validated by
-//     looksLikeIssueIdentifier and resolved server-side);
+//   - the human-facing task key, e.g. "SILI-1852" (validated by
+//     looksLikeTaskIdentifier and resolved server-side);
 //   - the full UUID in dashed canonical form (validated by uuidRegexp).
 //
 // Short UUID prefixes (e.g. "1881abcd") were briefly supported but are no
-// longer — on large workspaces the CLI had to page the entire issue list
+// longer — on large workspaces the CLI had to page the entire task list
 // client-side to disambiguate, causing 14–35s timeouts (GH #4701). Since
-// `SILI-123` already covers every human use case for an issue reference, the
+// `SILI-123` already covers every human use case for an task reference, the
 // short-prefix path is removed instead of being moved server-side. Other
 // resources without a human-readable key (autopilots, projects, labels,
 // task runs, workspaces, ...) continue to accept short UUID prefixes; see
 // resolveIDByPrefix.
-func resolveIssueRef(ctx context.Context, client *cli.APIClient, input string) (resolvedID, error) {
+func resolveTaskRef(ctx context.Context, client *cli.APIClient, input string) (resolvedID, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return resolvedID{}, fmt.Errorf("issue id is required")
+		return resolvedID{}, fmt.Errorf("task id is required")
 	}
 
-	if looksLikeIssueIdentifier(trimmed) {
-		return fetchIssueRef(ctx, client, trimmed)
+	if looksLikeTaskIdentifier(trimmed) {
+		return fetchTaskRef(ctx, client, trimmed)
 	}
 	if uuidRegexp.MatchString(trimmed) {
-		return fetchIssueRef(ctx, client, trimmed)
+		return fetchTaskRef(ctx, client, trimmed)
 	}
 
 	// Detect the common "I copied a truncated UUID" case and give a
@@ -161,30 +161,30 @@ func resolveIssueRef(ctx context.Context, client *cli.APIClient, input string) (
 	// resolver used to accept as a prefix.
 	if _, err := normalizeUUIDPrefix(trimmed); err == nil {
 		return resolvedID{}, fmt.Errorf(
-			"issue ref %q looks like a short UUID prefix; short prefixes are no longer supported for issues. "+
-				"Use the issue key (e.g. SILI-123) shown by `silieco issue list`, or pass the full UUID (run a list command with --full-id to copy it)",
+			"task ref %q looks like a short UUID prefix; short prefixes are no longer supported for tasks. "+
+				"Use the task key (e.g. SILI-123) shown by `silieco task list`, or pass the full UUID (run a list command with --full-id to copy it)",
 			input,
 		)
 	}
 	return resolvedID{}, fmt.Errorf(
-		"issue ref %q is not a recognized issue reference; use the issue key (e.g. SILI-123) shown by `silieco issue list`, or pass the full UUID",
+		"task ref %q is not a recognized task reference; use the task key (e.g. SILI-123) shown by `silieco task list`, or pass the full UUID",
 		input,
 	)
 }
 
-func fetchIssueRef(ctx context.Context, client *cli.APIClient, ref string) (resolvedID, error) {
-	var issue map[string]any
-	if err := client.GetJSON(ctx, "/api/issues/"+url.PathEscape(ref), &issue); err != nil {
+func fetchTaskRef(ctx context.Context, client *cli.APIClient, ref string) (resolvedID, error) {
+	var task map[string]any
+	if err := client.GetJSON(ctx, "/api/tasks/"+url.PathEscape(ref), &task); err != nil {
 		return resolvedID{}, err
 	}
-	c := issueCandidate(issue)
+	c := taskCandidate(task)
 	if c.Display == "" {
 		c.Display = c.ID
 	}
-	return resolvedID{ID: c.ID, Display: c.Display, Revision: strVal(issue, "revision")}, nil
+	return resolvedID{ID: c.ID, Display: c.Display, Revision: strVal(task, "revision")}, nil
 }
 
-func looksLikeIssueIdentifier(input string) bool {
+func looksLikeTaskIdentifier(input string) bool {
 	if input == "" {
 		return false
 	}
@@ -274,23 +274,23 @@ func fetchAutopilotCandidates(ctx context.Context, client *cli.APIClient) ([]idC
 	return candidates, nil
 }
 
-func resolveTaskRunID(ctx context.Context, client *cli.APIClient, issueID, input string) (resolvedID, error) {
+func resolveAgentRunID(ctx context.Context, client *cli.APIClient, taskID, input string) (resolvedID, error) {
 	trimmed := strings.TrimSpace(input)
 	if uuidRegexp.MatchString(trimmed) {
 		return resolvedID{ID: trimmed, Display: trimmed}, nil
 	}
-	if strings.TrimSpace(issueID) == "" {
+	if strings.TrimSpace(taskID) == "" {
 		return resolvedID{}, fmt.Errorf("short run prefixes require --task <task-id>; pass a full run UUID or run `silieco task runs <task-id> --full-id`")
 	}
 	fetch := func(ctx context.Context, client *cli.APIClient) ([]idCandidate, error) {
-		return fetchTaskRunCandidatesForIssue(ctx, client, issueID)
+		return fetchRunRunCandidatesForTask(ctx, client, taskID)
 	}
 	return resolveIDByPrefix(ctx, client, "task run", input, fetch)
 }
 
-func fetchTaskRunCandidatesForIssue(ctx context.Context, client *cli.APIClient, issueID string) ([]idCandidate, error) {
+func fetchRunRunCandidatesForTask(ctx context.Context, client *cli.APIClient, taskID string) ([]idCandidate, error) {
 	var runs []map[string]any
-	if err := client.GetJSON(ctx, "/api/tasks/"+url.PathEscape(issueID)+"/runs", &runs); err != nil {
+	if err := client.GetJSON(ctx, "/api/tasks/"+url.PathEscape(taskID)+"/runs", &runs); err != nil {
 		return nil, err
 	}
 	candidates := make([]idCandidate, 0, len(runs))

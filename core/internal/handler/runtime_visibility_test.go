@@ -12,7 +12,7 @@ import (
 )
 
 // TestCanUseRuntimeForAgent_Pure exercises the pure predicate behind the
-// CreateAgent / UpdateAgent runtime gate. The truth table mirrors the issue
+// CreateAgent / UpdateAgent runtime gate. The truth table mirrors the task
 // owner-consent contract: workspace owner / admin cannot use another member's
 // private runtime, runtime owners can use their own runtime regardless of
 // visibility, and any member can use a public runtime; everyone else gets
@@ -45,7 +45,7 @@ func TestCanUseRuntimeForAgent_Pure(t *testing.T) {
 		{"runtime owner on own public runtime", ownerUserID, "member", publicRT, true},
 		// public runtime allows anyone in workspace
 		{"plain member on someone else's public runtime", otherUserID, "member", publicRT, true},
-		// the hole the issue closes
+		// the hole the task closes
 		{"plain member on someone else's private runtime", otherUserID, "member", privateRT, false},
 		{"plain member with empty role on private runtime", otherUserID, "", privateRT, false},
 	}
@@ -132,8 +132,7 @@ func runtimeVisibilityFixture(t *testing.T) (runtimeID, runtimeOwnerID, plainMem
 
 // TestCreateAgent_RejectsPrivateRuntimeForNonOwner walks the gate end-to-end:
 // the runtime is private and owned by a non-admin member, so a workspace
-// owner and the runtime owner can both create agents on it, but a plain
-// workspace member cannot.
+// owner and other members cannot create agents on it; only the runtime owner can.
 func TestCreateAgent_RejectsPrivateRuntimeForNonOwner(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -149,20 +148,20 @@ func TestCreateAgent_RejectsPrivateRuntimeForNonOwner(t *testing.T) {
 
 	body := func(name string) map[string]any {
 		return map[string]any{
-			"name":                 name,
-			"description":          "",
-			"runtime_id":           runtimeID,
-			"visibility":           "private",
-			"max_concurrent_tasks": 1,
+			"name":                name,
+			"description":         "",
+			"runtime_id":          runtimeID,
+			"visibility":          "private",
+			"max_concurrent_runs": 1,
 		}
 	}
 
-	// Workspace owner (testUserID): allowed via admin override even though
-	// the runtime is private and owned by someone else.
+	// Workspace administration does not grant consent to execute on another
+	// member's private runtime.
 	w := httptest.NewRecorder()
 	testHandler.CreateAgent(w, newRequest(http.MethodPost, "/api/agents", body("runtime-visibility-test-admin")))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateAgent as workspace owner: expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("CreateAgent as workspace owner: expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// Runtime owner: allowed because they own the runtime.
@@ -203,11 +202,11 @@ func TestCreateAgent_AllowsPublicRuntimeForPlainMember(t *testing.T) {
 	})
 
 	body := map[string]any{
-		"name":                 "runtime-visibility-test-public-runtime",
-		"description":          "",
-		"runtime_id":           runtimeID,
-		"visibility":           "private",
-		"max_concurrent_tasks": 1,
+		"name":                "runtime-visibility-test-public-runtime",
+		"description":         "",
+		"runtime_id":          runtimeID,
+		"visibility":          "private",
+		"max_concurrent_runs": 1,
 	}
 	w := httptest.NewRecorder()
 	testHandler.CreateAgent(w, newRequestAs(plainMemberID, http.MethodPost, "/api/agents", body))
@@ -249,7 +248,7 @@ func TestUpdateAgent_RejectsRebindToPrivateRuntime(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id,
+			runtime_id, visibility, max_concurrent_runs, owner_id,
 			instructions, custom_env, custom_args
 		)
 		VALUES ($1, 'rebind-test-agent', '', 'cloud', '{}'::jsonb,

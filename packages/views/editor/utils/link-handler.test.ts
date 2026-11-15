@@ -26,8 +26,8 @@ afterEach(() => {
 describe("toInternalAppPath", () => {
   it("returns the path (with search and hash) for a URL on the app origin", () => {
     expect(
-      toInternalAppPath(`${APP_ORIGIN}/acme/issues/SILI-1?tab=a#c`, APP_ORIGIN),
-    ).toBe("/acme/issues/SILI-1?tab=a#c");
+      toInternalAppPath(`${APP_ORIGIN}/acme/tasks/SILI-1?tab=a#c`, APP_ORIGIN),
+    ).toBe("/acme/tasks/SILI-1?tab=a#c");
   });
 
   it("returns null for another origin", () => {
@@ -35,7 +35,7 @@ describe("toInternalAppPath", () => {
   });
 
   it("returns null when the platform exposes no app origin", () => {
-    expect(toInternalAppPath(`${APP_ORIGIN}/acme/issues/1`, null)).toBeNull();
+    expect(toInternalAppPath(`${APP_ORIGIN}/acme/tasks/1`, null)).toBeNull();
   });
 
   it("keeps backend-served paths external so downloads and assets still work", () => {
@@ -71,14 +71,14 @@ describe("toInternalAppPath", () => {
 
 describe("openLink", () => {
   it("navigates in-app for a URL pointing back at this deployment (SILI-5208)", () => {
-    openLink(`${APP_ORIGIN}/acme/issues/SILI-1`, "acme", APP_ORIGIN);
-    expect(navigatedPaths()).toEqual(["/acme/issues/SILI-1"]);
+    openLink(`${APP_ORIGIN}/acme/tasks/SILI-1`, "acme", APP_ORIGIN);
+    expect(navigatedPaths()).toEqual(["/acme/tasks/SILI-1"]);
     expect(openSpy).not.toHaveBeenCalled();
   });
 
   it("navigates in-app for a cross-workspace app URL without rewriting the slug", () => {
-    openLink(`${APP_ORIGIN}/other/issues/SILI-1`, "acme", APP_ORIGIN);
-    expect(navigatedPaths()).toEqual(["/other/issues/SILI-1"]);
+    openLink(`${APP_ORIGIN}/other/tasks/SILI-1`, "acme", APP_ORIGIN);
+    expect(navigatedPaths()).toEqual(["/other/tasks/SILI-1"]);
   });
 
   it("opens an external URL in a new window", () => {
@@ -92,18 +92,18 @@ describe("openLink", () => {
   });
 
   it("still opens an app URL externally when no app origin is known", () => {
-    openLink(`${APP_ORIGIN}/acme/issues/SILI-1`, "acme");
+    openLink(`${APP_ORIGIN}/acme/tasks/SILI-1`, "acme");
     expect(dispatched).toHaveLength(0);
     expect(openSpy).toHaveBeenCalled();
   });
 
   it("prefixes the current slug on a slugless workspace path", () => {
-    openLink("/issues/SILI-1", "acme", APP_ORIGIN);
-    expect(navigatedPaths()).toEqual(["/acme/issues/SILI-1"]);
+    openLink("/tasks/SILI-1", "acme", APP_ORIGIN);
+    expect(navigatedPaths()).toEqual(["/acme/tasks/SILI-1"]);
   });
 
   it("leaves a path that already carries a slug alone", () => {
-    openLink("/other/issues/SILI-1", "acme", APP_ORIGIN);
-    expect(navigatedPaths()).toEqual(["/other/issues/SILI-1"]);
+    openLink("/other/tasks/SILI-1", "acme", APP_ORIGIN);
+    expect(navigatedPaths()).toEqual(["/other/tasks/SILI-1"]);
   });
 });

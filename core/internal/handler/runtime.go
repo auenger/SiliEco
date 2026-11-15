@@ -16,6 +16,7 @@ import (
 	"github.com/silieco-ai/silieco/core/internal/util"
 	"github.com/silieco-ai/silieco/core/pkg/agent"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
+	"github.com/silieco-ai/silieco/core/pkg/db/relational"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 )
 
@@ -136,7 +137,7 @@ func (h *Handler) GetRuntimeUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// listRuntimeUsage reads the daily-bucketed trend from task_usage_hourly,
+// listRuntimeUsage reads the daily-bucketed trend from agent_run_usage_hourly,
 // applying the viewer's tz to project bucket_hour into local days.
 func (h *Handler) listRuntimeUsage(ctx context.Context, runtimeID pgtype.UUID, tz string, since pgtype.Timestamptz) ([]RuntimeUsageResponse, error) {
 	resolvedRuntimeID := uuidToString(runtimeID)
@@ -170,7 +171,7 @@ func (h *Handler) listRuntimeUsage(ctx context.Context, runtimeID pgtype.UUID, t
 }
 
 // GetRuntimeTaskActivity returns hourly task activity distribution for a runtime.
-func (h *Handler) GetRuntimeTaskActivity(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetRuntimeRunActivity(w http.ResponseWriter, r *http.Request) {
 	runtimeID := chi.URLParam(r, "runtimeId")
 	runtimeUUID, ok := parseUUIDOrBadRequest(w, runtimeID, "runtime_id")
 	if !ok {
@@ -188,7 +189,7 @@ func (h *Handler) GetRuntimeTaskActivity(w http.ResponseWriter, r *http.Request)
 	}
 
 	viewTZ := h.resolveViewingTZ(r)
-	rows, err := h.Queries.GetRuntimeTaskHourlyActivity(r.Context(), db.GetRuntimeTaskHourlyActivityParams{
+	rows, err := h.Queries.GetRuntimeRunHourlyActivity(r.Context(), db.GetRuntimeRunHourlyActivityParams{
 		RuntimeID: rt.ID,
 		Tz:        viewTZ,
 	})
@@ -233,7 +234,7 @@ type RuntimeUsageByAgentResponse struct {
 	UncostedOutputTokens     int64 `json:"uncosted_output_tokens"`
 	UncostedCacheReadTokens  int64 `json:"uncosted_cache_read_tokens"`
 	UncostedCacheWriteTokens int64 `json:"uncosted_cache_write_tokens"`
-	TaskCount                int32 `json:"task_count"`
+	RunCount                 int32 `json:"run_count"`
 }
 
 // GetRuntimeUsageByAgent returns per-agent token aggregates for a runtime
@@ -284,7 +285,7 @@ func (h *Handler) GetRuntimeUsageByAgent(w http.ResponseWriter, r *http.Request)
 			UncostedOutputTokens:     row.UncostedOutputTokens,
 			UncostedCacheReadTokens:  row.UncostedCacheReadTokens,
 			UncostedCacheWriteTokens: row.UncostedCacheWriteTokens,
-			TaskCount:                row.TaskCount,
+			RunCount:                 row.RunCount,
 		}
 	}
 
@@ -311,7 +312,7 @@ type RuntimeUsageByHourResponse struct {
 	UncostedOutputTokens     int64 `json:"uncosted_output_tokens"`
 	UncostedCacheReadTokens  int64 `json:"uncosted_cache_read_tokens"`
 	UncostedCacheWriteTokens int64 `json:"uncosted_cache_write_tokens"`
-	TaskCount                int32 `json:"task_count"`
+	RunCount                 int32 `json:"run_count"`
 }
 
 // GetRuntimeUsageByHour returns hourly (0..23) token aggregates for a
@@ -364,7 +365,7 @@ func (h *Handler) GetRuntimeUsageByHour(w http.ResponseWriter, r *http.Request) 
 			UncostedOutputTokens:     row.UncostedOutputTokens,
 			UncostedCacheReadTokens:  row.UncostedCacheReadTokens,
 			UncostedCacheWriteTokens: row.UncostedCacheWriteTokens,
-			TaskCount:                row.TaskCount,
+			RunCount:                 row.RunCount,
 		}
 	}
 
@@ -776,11 +777,32 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 			"deleted_by", userID)
 	}
 
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	if err := relational.LockForDelete(r.Context(), tx, relational.DeleteAgentRuntime, rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock deletion dependencies")
+		return
+	}
+
+	// Agent creation and rebinding acquire a shared runtime lock. Hold the
+	// exclusive lock before checking dependencies so no new binding can appear
+	// between the check and retirement.
+	if _, err := qtx.LockAgentRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusNotFound, "runtime not found")
+		return
+	}
+
 	// Check if any active (non-archived) agents are bound to this runtime.
 	// Surface them on the 409 so the dialog can render the cascade plan
 	// directly from this response — saves a second round-trip when the
 	// user clicked Delete from a stale list page.
-	activeAgents, err := h.Queries.ListActiveAgentsByRuntime(r.Context(), rt.ID)
+	activeAgents, err := qtx.ListActiveAgentsByRuntime(r.Context(), rt.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to check runtime dependencies")
 		return
@@ -792,7 +814,7 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 
 	// Refuse before any teardown-side effects if the runtime still has active
 	// squads whose leader is already archived on this runtime.
-	activeSquadCount, err := h.Queries.CountActiveSquadsWithArchivedLeadersByRuntime(r.Context(), rt.ID)
+	activeSquadCount, err := qtx.CountActiveSquadsWithArchivedLeadersByRuntime(r.Context(), rt.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to check runtime squad dependencies")
 		return
@@ -802,25 +824,17 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := h.TxStarter.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	qtx := h.Queries.WithTx(tx)
-
 	// Runtime retirement is a detach operation. Preserve archived agents,
 	// conversations, labels, integrations, and terminal task history.
-	if pending, err := qtx.CountUndrainedTasksByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to verify runtime tasks")
+	if pending, err := qtx.CountUndrainedRunsByRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify runtime runs")
 		return
 	} else if pending != 0 {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "runtime still has active tasks", "code": "runtime_delete_not_drained"})
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "runtime still has active runs", "code": "runtime_delete_not_drained"})
 		return
 	}
-	if _, err := qtx.UnbindTasksFromRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to preserve task history")
+	if _, err := qtx.UnbindRunsFromRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to preserve run history")
 		return
 	}
 	if _, err := qtx.UnbindAgentsFromRuntime(r.Context(), rt.ID); err != nil {
@@ -893,7 +907,7 @@ type archiveAgentsAndDeleteRuntimeRequest struct {
 // revokeAndRemoveMember (workspace_revoke.go) so the two cascade paths share
 // the same race-safety properties: the dispatcher can't claim a task whose
 // runtime is about to vanish, autopilots can't fire onto a dead assignee,
-// and post-commit publish events emit the same task:cancelled →
+// and post-commit publish events emit the same run:cancelled →
 // agent:archived → daemon:register fan-out.
 //
 // The expected_active_agent_ids check is the load-bearing piece for the UX:
@@ -965,12 +979,13 @@ func (h *Handler) ArchiveAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.R
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
-	// Lock the runtime row first. PostgreSQL's FK validation on
-	// agent.runtime_id requires FOR KEY SHARE on the parent runtime row,
-	// which conflicts with FOR UPDATE — so any concurrent INSERT or
-	// UPDATE that would point a new/moved agent at this runtime now
-	// blocks until our tx finishes. This is the "兜底" lock that keeps
-	// new actives from appearing between our snapshot and our archive.
+	if err := relational.LockForDelete(r.Context(), tx, relational.DeleteAgentRuntime, rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock deletion dependencies")
+		return
+	}
+
+	// Agent creation and rebinding acquire a shared runtime lock. Lock the
+	// parent before inspecting the active set to serialize retirement with both.
 	if _, err := qtx.LockAgentRuntime(r.Context(), rt.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to lock runtime")
 		return
@@ -1027,14 +1042,14 @@ func (h *Handler) ArchiveAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.R
 
 	// 2. Cancel queued/dispatched/running tasks. Match by runtime_id AND
 	//    by archived agent ids: agent.runtime_id can be reassigned without
-	//    rewriting historical agent_task_queue rows, so an agent we just
+	//    rewriting historical agent_run rows, so an agent we just
 	//    archived may still own tasks pinned to a different runtime — and
 	//    ClaimAgentTask does not gate on agent.archived_at.
 	archivedIDs := make([]pgtype.UUID, len(archivedAgents))
 	for i, a := range archivedAgents {
 		archivedIDs[i] = a.ID
 	}
-	cancelledTasks, err := qtx.CancelAgentTasksByRuntimeOrAgent(r.Context(), db.CancelAgentTasksByRuntimeOrAgentParams{
+	cancelledRuns, err := qtx.CancelAgentRunsByRuntimeOrAgent(r.Context(), db.CancelAgentRunsByRuntimeOrAgentParams{
 		RuntimeIds: []pgtype.UUID{rt.ID},
 		AgentIds:   archivedIDs,
 	})
@@ -1063,15 +1078,15 @@ func (h *Handler) ArchiveAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.R
 
 	// 4. Confirm every runtime-owned task reached a terminal state, then
 	// detach task history and agents. Nothing user-authored is hard-deleted.
-	if pending, err := qtx.CountUndrainedTasksByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to verify runtime tasks")
+	if pending, err := qtx.CountUndrainedRunsByRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify runtime runs")
 		return
 	} else if pending != 0 {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "runtime tasks did not drain", "code": "runtime_delete_not_drained"})
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "runtime runs did not drain", "code": "runtime_delete_not_drained"})
 		return
 	}
-	if _, err := qtx.UnbindTasksFromRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to preserve task history")
+	if _, err := qtx.UnbindRunsFromRuntime(r.Context(), rt.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to preserve run history")
 		return
 	}
 	if _, err := qtx.UnbindAgentsFromRuntime(r.Context(), rt.ID); err != nil {
@@ -1091,10 +1106,10 @@ func (h *Handler) ArchiveAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.R
 	}
 
 	// Post-commit fan-out — same ordering as publishRevocation so subscribers
-	// observe task:cancelled before agent:archived before the runtime list
+	// observe run:cancelled before agent:archived before the runtime list
 	// refresh, matching the order other revocation paths use.
-	if h.TaskService != nil && len(cancelledTasks) > 0 {
-		h.TaskService.BroadcastCancelledTasks(r.Context(), cancelledTasks)
+	if h.AgentRunService != nil && len(cancelledRuns) > 0 {
+		h.AgentRunService.BroadcastCancelledRuns(r.Context(), cancelledRuns)
 	}
 	for _, a := range archivedAgents {
 		h.publish(protocol.EventAgentArchived, wsID, "member", userID, map[string]any{
@@ -1109,13 +1124,13 @@ func (h *Handler) ArchiveAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.R
 		"runtime_id", uuidToString(rt.ID),
 		"deleted_by", userID,
 		"agents_archived", len(archivedAgents),
-		"tasks_cancelled", len(cancelledTasks),
+		"runs_cancelled", len(cancelledRuns),
 	)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":          "ok",
 		"agents_archived": len(archivedAgents),
-		"tasks_cancelled": len(cancelledTasks),
+		"runs_cancelled":  len(cancelledRuns),
 	})
 }
 

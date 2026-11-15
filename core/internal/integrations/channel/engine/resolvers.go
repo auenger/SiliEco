@@ -54,10 +54,10 @@ type Result struct {
 	// Sender is the platform-native sender id (e.g. Lark open_id), so the
 	// replier can target a binding prompt back to the sender.
 	Sender          string
-	IssueID         pgtype.UUID
-	IssueNumber     int32
-	IssueIdentifier string
-	IssueTitle      string
+	TaskID         pgtype.UUID
+	TaskNumber     int32
+	TaskIdentifier string
+	TaskTitle      string
 }
 
 // ResolvedInstallation is the channel-agnostic installation context the Router
@@ -108,8 +108,8 @@ type AppendResult struct {
 	// Detached media processing uses it to link attachments after the
 	// connector ACK path has completed.
 	MessageID pgtype.UUID
-	// IssueCommand is non-nil when the message was an /issue command.
-	IssueCommand *IssueCommand
+	// TaskCommand is non-nil when the message was an /task command.
+	TaskCommand *TaskCommand
 	// DedupMarked is true when AppendMessage finalized the dedup claim in its
 	// own tx; the Router then skips the post-pipeline finalize.
 	DedupMarked bool
@@ -126,8 +126,8 @@ type BindMediaParams struct {
 	MediaRefs   []channel.MediaRef
 }
 
-// IssueCommand is the parsed /issue command.
-type IssueCommand struct {
+// TaskCommand is the parsed /task command.
+type TaskCommand struct {
 	Title       string
 	Description string
 }
@@ -264,7 +264,7 @@ type Auditor interface {
 }
 
 // OutboundReplier delivers the verdict-driven reply (binding prompt, offline /
-// archived notice, /issue confirmation). Optional; nil disables outbound
+// archived notice, /task confirmation). Optional; nil disables outbound
 // replies. Driven off the ACK critical path by the Router.
 type OutboundReplier interface {
 	Reply(ctx context.Context, inst ResolvedInstallation, msg channel.InboundMessage, res Result)
@@ -287,7 +287,7 @@ type TypingNotifier interface {
 
 // ResolverSet is the per-platform bundle the Router runs the pipeline through.
 // Installation/Identity/Dedup/Session/Audit are required; Replier/Typing are
-// optional. OriginType is the issue.origin_type label written for /issue
+// optional. OriginType is the task.origin_type label written for /task
 // commands from this channel (Feishu: "lark_chat").
 type ResolverSet struct {
 	Installation InstallationResolver
@@ -301,20 +301,20 @@ type ResolverSet struct {
 	OriginType   string
 }
 
-// IssueCreator is the narrow subset of service.IssueService the Router needs
-// for the /issue command. Shared across platforms.
-type IssueCreator interface {
-	Create(ctx context.Context, p service.IssueCreateParams, opts service.IssueCreateOpts) (service.IssueCreateResult, error)
+// TaskCreator is the narrow subset of service.TaskService the Router needs
+// for the /task command. Shared across platforms.
+type TaskCreator interface {
+	Create(ctx context.Context, p service.TaskCreateParams, opts service.TaskCreateOpts) (service.TaskCreateResult, error)
 }
 
 // TaskEnqueuer is the narrow subset of service.TaskService the Router needs to
 // trigger a chat run. Shared across platforms.
-type TaskEnqueuer interface {
-	EnqueueChatTask(ctx context.Context, session db.ChatSession, initiatorUserID pgtype.UUID, forceFreshSession bool) (db.AgentTaskQueue, error)
-	PromoteChannelChatTasksIfMediaReady(ctx context.Context, sessionID pgtype.UUID) error
+type RunEnqueuer interface {
+	EnqueueChatRun(ctx context.Context, session db.ChatSession, initiatorUserID pgtype.UUID, forceFreshSession bool) (db.AgentRun, error)
+	PromoteChannelChatRunsIfMediaReady(ctx context.Context, sessionID pgtype.UUID) error
 }
 
-// SessionReader reads the rows the debounced flush + /issue identifier need.
+// SessionReader reads the rows the debounced flush + /task identifier need.
 // Shared across platforms; backed by *db.Queries (the channel-backed store).
 type SessionReader interface {
 	GetChatSession(ctx context.Context, id pgtype.UUID) (db.ChatSession, error)

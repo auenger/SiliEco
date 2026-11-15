@@ -17,7 +17,7 @@ import (
 // access and runtime identity are rechecked before the atomic queue binding.
 func (s *WorkflowExecutionService) DispatchAgentReview(ctx context.Context, workspaceID, requestID pgtype.UUID) (db.WorkflowReviewRequest, error) {
 	empty := db.WorkflowReviewRequest{}
-	if s.TaskService == nil {
+	if s.AgentRunService == nil {
 		return empty, fmt.Errorf("workflow TaskService is required")
 	}
 	observed, err := s.Queries.GetWorkflowReviewRequest(ctx, db.GetWorkflowReviewRequestParams{WorkspaceID: workspaceID, ID: requestID})
@@ -27,7 +27,7 @@ func (s *WorkflowExecutionService) DispatchAgentReview(ctx context.Context, work
 	if observed.Status != "pending" && observed.Status != "queued" {
 		return empty, ErrWorkflowExecutionConflict
 	}
-	var prepared db.CreateAgentTaskParams
+	var prepared db.CreateAgentRunParams
 	var maxAttempts pgtype.Int4
 	if observed.Status == "pending" {
 		e, err := s.Queries.GetWorkflowStageExecution(ctx, db.GetWorkflowStageExecutionParams{WorkspaceID: workspaceID, ID: observed.ExecutionID})
@@ -47,7 +47,7 @@ func (s *WorkflowExecutionService) DispatchAgentReview(ctx context.Context, work
 		if policy.MaxAttempts != nil {
 			maxAttempts = pgtype.Int4{Int32: *policy.MaxAttempts, Valid: true}
 		}
-		issue, err := s.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{WorkspaceID: workspaceID, ID: e.MainIssueID})
+		task, err := s.Queries.GetTaskInWorkspace(ctx, db.GetTaskInWorkspaceParams{WorkspaceID: workspaceID, ID: e.MainTaskID})
 		if err != nil {
 			return empty, err
 		}
@@ -56,12 +56,12 @@ func (s *WorkflowExecutionService) DispatchAgentReview(ctx context.Context, work
 			return empty, err
 		}
 		// This copy chooses the reviewer without changing the delivery's assignee.
-		issue.AssigneeID = observed.ReviewerID
-		issue.AssigneeType = pgtype.Text{String: "agent", Valid: true}
+		task.AssigneeID = observed.ReviewerID
+		task.AssigneeType = pgtype.Text{String: "agent", Valid: true}
 		note := fmt.Sprintf("SOP stage review. Review request: %s. Run: %s. Execution: %s. Result: %s revision %d. Evidence hash: %s. Review the exact version and its artifacts; do not rewrite delivery or submit a stage result. A review decision must bind this request and evidence.", util.UUIDToString(observed.ID), util.UUIDToString(run.ID), util.UUIDToString(e.ID), util.UUIDToString(observed.ResultID), observed.ResultRevision, observed.BasisHash)
 		note += fmt.Sprintf("\nRead the bound request: silieco workflow agent-review %[1]s %[2]s %[3]s\nRead its result: silieco workflow result %[1]s %[2]s --revision %[4]d\nAfter inspecting the exact result and artifacts, record your decision: silieco workflow agent-decision %[1]s %[2]s %[3]s --result-revision %[4]d --basis-hash %[5]s --outcome <approved|rejected> --note <explanation>\nUse your existing call identity. A conflict requires a fresh review; do not refresh and resubmit automatically. Recording approval does not complete the stage until this review call finishes successfully.", util.UUIDToString(run.ID), util.UUIDToString(e.ID), util.UUIDToString(observed.ID), observed.ResultRevision, observed.BasisHash)
 
-		prepared, err = s.TaskService.prepareIssueTaskWithCommentPlan(ctx, issue, pgtype.UUID{}, nil, true, note, run.CreatedBy, pgtype.UUID{})
+		prepared, err = s.AgentRunService.prepareTaskRunWithCommentPlan(ctx, task, pgtype.UUID{}, nil, true, note, run.CreatedBy, pgtype.UUID{})
 		if err != nil {
 			return empty, err
 		}
@@ -79,7 +79,7 @@ func (s *WorkflowExecutionService) DispatchAgentReview(ctx context.Context, work
 	if request.ID != observed.ID {
 		return empty, ErrWorkflowExecutionConflict
 	}
-	if request.Status == "queued" && request.TaskID.Valid {
+	if request.Status == "queued" && request.RunID.Valid {
 		if err := tx.Commit(ctx); err != nil {
 			return empty, err
 		}
@@ -102,11 +102,11 @@ func (s *WorkflowExecutionService) DispatchAgentReview(ctx context.Context, work
 	if runtime.WorkspaceID != workspaceID {
 		return empty, ErrWorkflowReviewAccess
 	}
-	task, err := q.CreateAgentTask(ctx, prepared)
+	agentRun, err := q.CreateAgentRun(ctx, prepared)
 	if err != nil {
 		return empty, err
 	}
-	bound, err := q.BindWorkflowReviewCall(ctx, db.BindWorkflowReviewCallParams{WorkspaceID: workspaceID, RequestID: request.ID, TaskID: task.ID, MaxAttempts: maxAttempts})
+	bound, err := q.BindWorkflowReviewCall(ctx, db.BindWorkflowReviewCallParams{WorkspaceID: workspaceID, RequestID: request.ID, RunID: agentRun.ID, MaxAttempts: maxAttempts})
 	if err != nil {
 		return empty, err
 	}
@@ -114,10 +114,10 @@ func (s *WorkflowExecutionService) DispatchAgentReview(ctx context.Context, work
 		return empty, err
 	}
 	if maxAttempts.Valid {
-		task.MaxAttempts = maxAttempts.Int32
+		agentRun.MaxAttempts = maxAttempts.Int32
 	}
-	task.WorkflowReviewRequestID = request.ID
-	s.TaskService.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
-	s.TaskService.NotifyTaskEnqueued(ctx, task)
+	agentRun.WorkflowReviewRequestID = request.ID
+	s.AgentRunService.broadcastRunEvent(ctx, protocol.EventRunQueued, agentRun)
+	s.AgentRunService.NotifyRunEnqueued(ctx, agentRun)
 	return bound, nil
 }

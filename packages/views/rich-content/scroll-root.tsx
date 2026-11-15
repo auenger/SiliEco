@@ -11,7 +11,7 @@
  * the whole point of preloading is lost.
  *
  * Surfaces that scroll inside their own element publish it here. Surfaces that
- * scroll with the page (Issue description, Comment) publish nothing and keep the
+ * scroll with the page (Task description, Comment) publish nothing and keep the
  * viewport root, which is correct for them.
  */
 

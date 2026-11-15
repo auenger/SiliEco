@@ -32,22 +32,22 @@ ORDER BY created_at ASC;
 -- name: ListWorkspaceAttachmentReferences :many
 SELECT
     ar.*,
-    COALESCE(target_issue.title, target_project.title, '') AS target_title,
-    target_issue.number AS target_issue_number,
-    COALESCE(target_issue.project_id, target_project.id) AS target_project_id,
-    COALESCE(issue_project.title, target_project.title, '') AS target_project_title
+    COALESCE(target_task.title, target_project.title, '') AS target_title,
+    target_task.number AS target_task_number,
+    COALESCE(target_task.project_id, target_project.id) AS target_project_id,
+    COALESCE(task_project.title, target_project.title, '') AS target_project_title
 FROM attachment_reference ar
-LEFT JOIN issue target_issue
-    ON ar.target_type = 'issue'
-   AND target_issue.id = ar.target_id
-   AND target_issue.workspace_id = ar.workspace_id
+LEFT JOIN task target_task
+    ON ar.target_type = 'task'
+   AND target_task.id = ar.target_id
+   AND target_task.workspace_id = ar.workspace_id
 LEFT JOIN project target_project
     ON ar.target_type = 'project'
    AND target_project.id = ar.target_id
    AND target_project.workspace_id = ar.workspace_id
-LEFT JOIN project issue_project
-    ON issue_project.id = target_issue.project_id
-   AND issue_project.workspace_id = ar.workspace_id
+LEFT JOIN project task_project
+    ON task_project.id = target_task.project_id
+   AND task_project.workspace_id = ar.workspace_id
 WHERE ar.workspace_id = sqlc.arg(workspace_id)
 ORDER BY ar.created_at ASC;
 
@@ -66,19 +66,19 @@ WHERE workspace_id = sqlc.arg(workspace_id)
 DELETE FROM attachment_reference
 WHERE workspace_id = sqlc.arg(workspace_id);
 
--- name: DetachReferencedAttachmentsFromIssue :many
+-- name: DetachReferencedAttachmentsFromTask :many
 UPDATE attachment AS a
-SET issue_id = NULL,
+SET task_id = NULL,
     comment_id = NULL
 WHERE a.workspace_id = sqlc.arg(workspace_id)
   AND (
-      a.issue_id = sqlc.arg(issue_id)
+      a.task_id = sqlc.arg(task_id)
       OR a.comment_id IN (
           SELECT c.id
           FROM comment c
-          JOIN issue ci ON ci.id = c.issue_id
+          JOIN task ci ON ci.id = c.task_id
           WHERE ci.workspace_id = a.workspace_id
-            AND c.issue_id = sqlc.arg(issue_id)
+            AND c.task_id = sqlc.arg(task_id)
       )
   )
   AND EXISTS (
@@ -91,7 +91,7 @@ RETURNING id;
 -- name: DetachReferencedAttachmentsFromComment :many
 UPDATE attachment AS a
 SET comment_id = NULL,
-    issue_id = NULL
+    task_id = NULL
 WHERE a.workspace_id = sqlc.arg(workspace_id)
   AND a.comment_id = sqlc.arg(comment_id)
   AND EXISTS (
@@ -106,7 +106,7 @@ WITH candidates AS (
     SELECT a.id
     FROM attachment a
     WHERE a.workspace_id = sqlc.arg(workspace_id)
-      AND a.issue_id IS NOT NULL
+      AND a.task_id IS NOT NULL
       AND a.chat_session_id IS NULL
       AND a.chat_message_id IS NULL
     UNION
@@ -116,15 +116,15 @@ WITH candidates AS (
 )
 SELECT
     a.*,
-    i.title AS source_issue_title,
-    i.number AS source_issue_number,
+    i.title AS source_task_title,
+    i.number AS source_task_number,
     i.project_id AS source_project_id,
     p.title AS source_project_title,
     (SELECT count(*) FROM attachment_reference ar
      WHERE ar.workspace_id = a.workspace_id AND ar.attachment_id = a.id) AS reference_count
 FROM candidates c
 JOIN attachment a ON a.id = c.id AND a.workspace_id = sqlc.arg(workspace_id)
-LEFT JOIN issue i ON i.id = a.issue_id AND i.workspace_id = a.workspace_id
+LEFT JOIN task i ON i.id = a.task_id AND i.workspace_id = a.workspace_id
 LEFT JOIN project p ON p.id = i.project_id AND p.workspace_id = a.workspace_id
 WHERE a.chat_session_id IS NULL
   AND a.chat_message_id IS NULL
@@ -138,7 +138,7 @@ WHERE a.workspace_id = sqlc.arg(workspace_id)
   AND a.chat_session_id IS NULL
   AND a.chat_message_id IS NULL
   AND (
-      a.issue_id IS NOT NULL
+      a.task_id IS NOT NULL
       OR EXISTS (
           SELECT 1 FROM attachment_reference ar
           WHERE ar.workspace_id = a.workspace_id AND ar.attachment_id = a.id
@@ -149,7 +149,7 @@ WHERE a.workspace_id = sqlc.arg(workspace_id)
 WITH candidates AS (
     SELECT a.id
     FROM attachment a
-    JOIN issue i ON i.id = a.issue_id AND i.workspace_id = a.workspace_id
+    JOIN task i ON i.id = a.task_id AND i.workspace_id = a.workspace_id
     WHERE a.workspace_id = sqlc.arg(workspace_id)
       AND i.project_id = sqlc.arg(project_id)
       AND a.chat_session_id IS NULL
@@ -160,25 +160,25 @@ WITH candidates AS (
     WHERE ar.workspace_id = sqlc.arg(workspace_id)
       AND (
           (ar.target_type = 'project' AND ar.target_id = sqlc.arg(project_id))
-          OR (ar.target_type = 'issue' AND EXISTS (
-              SELECT 1 FROM issue target_issue
-              WHERE target_issue.id = ar.target_id
-                AND target_issue.workspace_id = ar.workspace_id
-                AND target_issue.project_id = sqlc.arg(project_id)
+          OR (ar.target_type = 'task' AND EXISTS (
+              SELECT 1 FROM task target_task
+              WHERE target_task.id = ar.target_id
+                AND target_task.workspace_id = ar.workspace_id
+                AND target_task.project_id = sqlc.arg(project_id)
           ))
       )
 )
 SELECT
     a.*,
-    i.title AS source_issue_title,
-    i.number AS source_issue_number,
+    i.title AS source_task_title,
+    i.number AS source_task_number,
     i.project_id AS source_project_id,
     p.title AS source_project_title,
     (SELECT count(*) FROM attachment_reference ar
      WHERE ar.workspace_id = a.workspace_id AND ar.attachment_id = a.id) AS reference_count
 FROM candidates c
 JOIN attachment a ON a.id = c.id AND a.workspace_id = sqlc.arg(workspace_id)
-LEFT JOIN issue i ON i.id = a.issue_id AND i.workspace_id = a.workspace_id
+LEFT JOIN task i ON i.id = a.task_id AND i.workspace_id = a.workspace_id
 LEFT JOIN project p ON p.id = i.project_id AND p.workspace_id = a.workspace_id
 WHERE a.chat_session_id IS NULL
   AND a.chat_message_id IS NULL
@@ -193,10 +193,10 @@ WHERE a.workspace_id = sqlc.arg(workspace_id)
   AND a.chat_message_id IS NULL
   AND (
       EXISTS (
-          SELECT 1 FROM issue source_issue
-          WHERE source_issue.id = a.issue_id
-            AND source_issue.workspace_id = a.workspace_id
-            AND source_issue.project_id = sqlc.arg(project_id)
+          SELECT 1 FROM task source_task
+          WHERE source_task.id = a.task_id
+            AND source_task.workspace_id = a.workspace_id
+            AND source_task.project_id = sqlc.arg(project_id)
       )
       OR EXISTS (
           SELECT 1 FROM attachment_reference ar
@@ -204,11 +204,11 @@ WHERE a.workspace_id = sqlc.arg(workspace_id)
             AND ar.attachment_id = a.id
             AND (
                 (ar.target_type = 'project' AND ar.target_id = sqlc.arg(project_id))
-                OR (ar.target_type = 'issue' AND EXISTS (
-                    SELECT 1 FROM issue target_issue
-                    WHERE target_issue.id = ar.target_id
-                      AND target_issue.workspace_id = ar.workspace_id
-                      AND target_issue.project_id = sqlc.arg(project_id)
+                OR (ar.target_type = 'task' AND EXISTS (
+                    SELECT 1 FROM task target_task
+                    WHERE target_task.id = ar.target_id
+                      AND target_task.workspace_id = ar.workspace_id
+                      AND target_task.project_id = sqlc.arg(project_id)
                 ))
             )
       )

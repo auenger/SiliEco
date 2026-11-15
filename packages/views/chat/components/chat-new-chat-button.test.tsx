@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { I18nProvider } from "@silieco/core/i18n/react";
 import type { Agent } from "@silieco/core/types";
 import enChat from "../../locales/en/chat.json";
-import enIssues from "../../locales/en/issues.json";
+import enTasks from "../../locales/en/tasks.json";
 
 vi.mock("../../common/actor-avatar", () => ({
   ActorAvatar: ({ actorId }: { actorId: string }) => (
@@ -13,7 +13,7 @@ vi.mock("../../common/actor-avatar", () => ({
 
 import { NewChatButton } from "./new-chat-button";
 
-const TEST_RESOURCES = { en: { chat: enChat, issues: enIssues } };
+const TEST_RESOURCES = { en: { chat: enChat, tasks: enTasks } };
 
 function makeAgent(overrides: Partial<Agent> & Pick<Agent, "id" | "name" | "owner_id">): Agent {
   return {
@@ -29,7 +29,7 @@ function makeAgent(overrides: Partial<Agent> & Pick<Agent, "id" | "name" | "owne
     permission_mode: "public_to",
     invocation_targets: [{ target_type: "workspace", target_id: null }],
     status: "idle",
-    max_concurrent_tasks: 1,
+    max_concurrent_runs: 1,
     model: "sonnet",
     skills: [],
     created_at: new Date(0).toISOString(),

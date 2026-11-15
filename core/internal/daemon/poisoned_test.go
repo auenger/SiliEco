@@ -95,7 +95,7 @@ func TestClassifyPoisonedError(t *testing.T) {
 		wantReason string
 	}{
 		{
-			// SILI-1921 reproducer: a markdown image in the issue
+			// SILI-1921 reproducer: a markdown image in the task
 			// description was downloaded as a 146-byte CDN auth-error
 			// XML, then surfaced to the LLM as a base64 PNG. The API
 			// rejected it and every follow-up task replayed the same
@@ -163,7 +163,7 @@ func TestClassifyPoisonedError(t *testing.T) {
 			// and words the refusal with neither "invalid_request_error"
 			// nor a bare "400", so before taskfailure.UnresumableHistory
 			// this landed in agent_error.unknown — resume-safe by omission
-			// — and every later task on the issue resumed the dead session.
+			// — and every later task on the task resumed the dead session.
 			name:       "gh6066 empty assistant message in history",
 			errMsg:     "Invalid request: the message at position 37 with role 'assistant' must not be empty",
 			wantOK:     true,

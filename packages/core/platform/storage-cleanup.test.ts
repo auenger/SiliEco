@@ -19,15 +19,15 @@ describe("clearWorkspaceStorage", () => {
 
     clearWorkspaceStorage(adapter, "ws_123");
 
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_issue_surface_views:ws_123");
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_issues_view:ws_123");
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_issues_scope:ws_123");
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_my_issues_view:ws_123");
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco:chat:selectedAgentId:ws_123");
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco:chat:selectedProjectId:ws_123");
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco:chat:activeSessionId:ws_123");
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco:chat:expanded:ws_123");
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_navigation:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_tr1_task_surface_views:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_tr1_tasks_view:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_tr1_tasks_scope:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_tr1_my_tasks_view:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco:tr1:chat:selectedAgentId:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco:tr1:chat:selectedProjectId:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco:tr1:chat:activeSessionId:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco:tr1:chat:expanded:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_tr1_navigation:ws_123");
     // 8 non-draft keys, and no registered drafts in this test.
     expect(adapter.removeItem).toHaveBeenCalledTimes(9);
   });
@@ -39,21 +39,21 @@ describe("clearWorkspaceStorage", () => {
       removeItem: vi.fn(),
     };
     registerDraftCleanup({
-      storageKey: "silieco_test_draft",
+      storageKey: "silieco_tr1_test_draft",
       workspaceScoped: true,
       resetInMemory: vi.fn(),
     });
     registerDraftCleanup({
-      storageKey: "silieco_test_global_draft",
+      storageKey: "silieco_tr1_test_global_draft",
       workspaceScoped: false,
       resetInMemory: vi.fn(),
     });
 
     clearWorkspaceStorage(adapter, "ws_123");
 
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_test_draft:ws_123");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_tr1_test_draft:ws_123");
     // Globally-namespaced draft keys are removed without the slug suffix.
-    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_test_global_draft");
+    expect(adapter.removeItem).toHaveBeenCalledWith("silieco_tr1_test_global_draft");
     // 8 non-draft keys + 2 registered draft keys.
     expect(adapter.removeItem).toHaveBeenCalledTimes(11);
   });

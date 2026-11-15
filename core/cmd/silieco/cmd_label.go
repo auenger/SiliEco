@@ -12,12 +12,12 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Label commands — workspace-scoped CRUD for issue labels.
+// Label commands — workspace-scoped CRUD for task labels.
 // ---------------------------------------------------------------------------
 
 var labelCmd = &cobra.Command{
 	Use:   "label",
-	Short: "Work with issue labels",
+	Short: "Work with task labels",
 }
 
 var labelListCmd = &cobra.Command{

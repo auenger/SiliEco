@@ -41,7 +41,7 @@ describe("useActorName", () => {
   // memo deps (BoardView's `groups`, SwimLaneView's `laneGroups`) then churned
   // a new value each render and spun the column-resync effect without end —
   // an infinite re-render that react-virtuoso escalated into "Maximum update
-  // depth exceeded" on the Issues route. The fix shares one stable empty
+  // depth exceeded" on the Tasks route. The fix shares one stable empty
   // reference for the loading snapshot, so `getActorName` must be stable
   // across re-renders while the directories are unresolved.
   it("returns a referentially stable getActorName across renders during cold load", () => {

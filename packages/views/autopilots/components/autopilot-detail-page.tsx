@@ -60,9 +60,9 @@ import type {
   AutopilotSubscriber,
   AutopilotTrigger,
 } from "@silieco/core/types";
-import type { AgentTask } from "@silieco/core/types/agent";
+import type { AgentRun } from "@silieco/core/types/agent";
 import { ReadonlyContent } from "../../editor";
-import { TranscriptButton } from "../../common/task-transcript";
+import { TranscriptButton } from "../../common/agent-run-transcript";
 import { AutopilotDialog } from "./autopilot-dialog";
 import { runNowToastKind, runNowBlockedKey } from "./run-now-toast";
 import { WebhookPayloadPreview } from "./webhook-payload-preview";
@@ -74,10 +74,10 @@ import { useT } from "../../i18n";
 // the reader's zone (no timeZone passed). A run that is still to come belongs to
 // the schedule that will fire it — see the trigger row, which passes the
 // trigger's own timezone.
-type RunStatus = "issue_created" | "running" | "skipped" | "completed" | "failed";
+type RunStatus = "task_created" | "running" | "skipped" | "completed" | "failed";
 
 const RUN_VISUAL: Record<RunStatus, { color: string; icon: typeof CheckCircle2; spin?: boolean }> = {
-  issue_created: { color: "text-blue-500", icon: Clock },
+  task_created: { color: "text-blue-500", icon: Clock },
   running: { color: "text-blue-500", icon: Loader2, spin: true },
   // `skipped` (admission check found the assignee runtime offline,
   // SILI-1899) is muted so it doesn't read as a failure-ratio inflator.
@@ -108,18 +108,18 @@ function WebhookPayloadSlot({ autopilotId, runId }: { autopilotId: string; runId
 function RunRow({ run, agentId, agentName }: { run: AutopilotRun; agentId: string; agentName: string }) {
   const { t, i18n } = useT("autopilots");
   const wsPaths = useWorkspacePaths();
-  const status = (RUN_VISUAL[run.status as RunStatus] ? (run.status as RunStatus) : "issue_created");
+  const status = (RUN_VISUAL[run.status as RunStatus] ? (run.status as RunStatus) : "task_created");
   const visual = RUN_VISUAL[status];
   const StatusIcon = visual.icon;
 
-  // For runs with a task_id (run_only mode), build a minimal AgentTask so
+  // For runs with a run_id (run_only mode), build a minimal AgentRun so
   // TranscriptButton can lazy-load the execution transcript.
-  const syntheticTask: AgentTask | null = run.task_id
+  const syntheticRun: AgentRun | null = run.run_id
     ? {
-        id: run.task_id,
+        id: run.run_id,
         agent_id: agentId,
         runtime_id: "",
-        issue_id: "",
+        task_id: "",
         status:
           run.status === "running" ? "running" :
           run.status === "completed" ? "completed" :
@@ -145,8 +145,8 @@ function RunRow({ run, agentId, agentName }: { run: AutopilotRun; agentId: strin
         {t(($) => $.run_source[run.source as "schedule" | "manual" | "webhook" | "api"]) ?? run.source}
       </span>
       <span className="flex-1 min-w-0 text-caption text-muted-foreground truncate">
-        {run.issue_id ? (
-          t(($) => $.run.issue_linked)
+        {run.task_id ? (
+          t(($) => $.run.task_linked)
         ) : run.failure_reason ? (
           <span className="text-destructive">{run.failure_reason}</span>
         ) : null}
@@ -154,9 +154,9 @@ function RunRow({ run, agentId, agentName }: { run: AutopilotRun; agentId: strin
       <span className="w-32 shrink-0 text-right text-caption text-muted-foreground tabular-nums">
         {formatInTimeZone(run.triggered_at || run.created_at, undefined, i18n.language)}
       </span>
-      {syntheticTask && !run.issue_id && (
+      {syntheticRun && !run.task_id && (
         <TranscriptButton
-          task={syntheticTask}
+          run={syntheticRun}
           agentName={agentName}
           isLive={run.status === "running"}
           title={t(($) => $.run.view_log)}
@@ -172,9 +172,9 @@ function RunRow({ run, agentId, agentName }: { run: AutopilotRun; agentId: strin
 
   const rowClass = "flex items-center gap-3 px-4 py-2.5 text-body hover:bg-accent/30 transition-colors";
 
-  if (run.issue_id) {
+  if (run.task_id) {
     return (
-      <AppLink href={wsPaths.issueDetail(run.issue_id)} className={cn(rowClass, "cursor-pointer")}>
+      <AppLink href={wsPaths.taskDetail(run.task_id)} className={cn(rowClass, "cursor-pointer")}>
         {content}
       </AppLink>
     );
@@ -724,7 +724,7 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
       const run = await triggerAutopilot.mutateAsync(autopilotId);
       // Manual "run now" returns 200 even when admission blocks the run, so the
       // toast is driven by the run's domain status, not the HTTP 2xx (SILI-4525).
-      // Success is a whitelist (issue_created/running) — a skipped run warns, a
+      // Success is a whitelist (task_created/running) — a skipped run warns, a
       // failed or unknown/future status errors — never a false "triggered".
       const kind = runNowToastKind(run?.status);
       if (kind === "success") {
@@ -872,7 +872,7 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
                   {t(($) => $.execution_mode[autopilot.execution_mode as AutopilotExecutionMode])}
                 </div>
               </div>
-              {autopilot.execution_mode === "create_issue" && (
+              {autopilot.execution_mode === "create_task" && (
                 <div>
                   <label className="text-caption text-muted-foreground">{t(($) => $.detail.field_project)}</label>
                   <div className="mt-1 min-w-0">
@@ -894,7 +894,7 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
                   </div>
                 </div>
               )}
-              {autopilot.execution_mode === "create_issue" && (
+              {autopilot.execution_mode === "create_task" && (
                 <div className="col-span-2">
                   <label className="text-caption text-muted-foreground">
                     {t(($) => $.detail.field_subscribers)}

@@ -116,6 +116,10 @@ func (h *Handler) CreateAgentBuilderSession(w http.ResponseWriter, r *http.Reque
 		},
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusConflict, "runtime changed; reload and try again")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to prepare agent builder")
 		return
 	}
@@ -271,7 +275,7 @@ func (h *Handler) SwitchAgentBuilderRuntime(w http.ResponseWriter, r *http.Reque
 	// Checked under the lock, so a send cannot slip in behind it. A task that is
 	// still queued on an offline runtime also counts as pending — the client is
 	// expected to stop it first, which restores the message to the composer.
-	if _, err := qtx.GetPendingChatTask(r.Context(), session.ID); err == nil {
+	if _, err := qtx.GetPendingChatRun(r.Context(), session.ID); err == nil {
 		writeError(w, http.StatusConflict, "stop the current reply before switching runtime")
 		return
 	} else if !errors.Is(err, pgx.ErrNoRows) {

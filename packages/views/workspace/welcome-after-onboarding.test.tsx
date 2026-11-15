@@ -52,7 +52,7 @@ vi.mock("@silieco/core/auth", () => ({
 const mockListAgents = vi.fn();
 const mockCreateAgent = vi.fn();
 const mockUpdateAgent = vi.fn();
-const mockCreateIssue = vi.fn();
+const mockCreateTask = vi.fn();
 const mockCreateComment = vi.fn();
 const mockGetWorkspace = vi.fn();
 
@@ -79,7 +79,7 @@ vi.mock("@silieco/core/api", () => ({
     listAgents: (...args: unknown[]) => mockListAgents(...args),
     createAgent: (...args: unknown[]) => mockCreateAgent(...args),
     updateAgent: (...args: unknown[]) => mockUpdateAgent(...args),
-    createIssue: (...args: unknown[]) => mockCreateIssue(...args),
+    createTask: (...args: unknown[]) => mockCreateTask(...args),
     createComment: (...args: unknown[]) => mockCreateComment(...args),
     getWorkspace: (...args: unknown[]) => mockGetWorkspace(...args),
   },
@@ -129,7 +129,7 @@ beforeEach(() => {
   mockListAgents.mockReset();
   mockCreateAgent.mockReset();
   mockUpdateAgent.mockReset();
-  mockCreateIssue.mockReset();
+  mockCreateTask.mockReset();
   mockCreateComment.mockReset();
   mockGetWorkspace.mockReset();
   mockPush.mockReset();
@@ -146,7 +146,7 @@ describe("WelcomeAfterOnboarding", () => {
     // Cross-workspace guard: store may have a signal parked from
     // workspace ws-2 while the user is currently viewing ws-1 (the
     // mocked useCurrentWorkspace returns ws-1). Don't fire here —
-    // otherwise we'd create the Helper / seed issues in ws-2 while the
+    // otherwise we'd create the Helper / seed tasks in ws-2 while the
     // user looks at ws-1, then navigate them away unexpectedly.
     useWelcomeStore.getState().set({
       workspaceId: "ws-2",
@@ -154,7 +154,7 @@ describe("WelcomeAfterOnboarding", () => {
     });
     const { container } = renderWelcome();
     expect(container.firstChild).toBeNull();
-    expect(mockCreateIssue).not.toHaveBeenCalled();
+    expect(mockCreateTask).not.toHaveBeenCalled();
   });
 
   describe("runtime path", () => {
@@ -242,7 +242,7 @@ describe("WelcomeAfterOnboarding", () => {
       );
     });
 
-    it("selecting cards then clicking Assign creates one issue per pick and navigates to the first", async () => {
+    it("selecting cards then clicking Assign creates one task per pick and navigates to the first", async () => {
       mockListAgents.mockResolvedValueOnce([]);
       mockCreateAgent.mockResolvedValueOnce({
         id: "agent-1",
@@ -251,16 +251,16 @@ describe("WelcomeAfterOnboarding", () => {
         avatar_url: null,
         visibility: "workspace",
       });
-      // Pick 2 cards — `intro` then `welcome_page`. Issues come back in
+      // Pick 2 cards — `intro` then `welcome_page`. Tasks come back in
       // STARTER_CARD_IDS order (intro first), so navigate target is the
-      // intro issue.
-      mockCreateIssue
+      // intro task.
+      mockCreateTask
         .mockResolvedValueOnce({
-          id: "issue-intro",
+          id: "task-intro",
           workspace_id: "ws-1",
         })
         .mockResolvedValueOnce({
-          id: "issue-welcome",
+          id: "task-welcome",
           workspace_id: "ws-1",
         });
       useWelcomeStore.getState().set({
@@ -291,14 +291,14 @@ describe("WelcomeAfterOnboarding", () => {
       expect(cta).not.toBeDisabled();
       fireEvent.click(cta);
 
-      await waitFor(() => expect(mockCreateIssue).toHaveBeenCalledTimes(2));
-      const titles = mockCreateIssue.mock.calls.map(([args]) => args.title);
+      await waitFor(() => expect(mockCreateTask).toHaveBeenCalledTimes(2));
+      const titles = mockCreateTask.mock.calls.map(([args]) => args.title);
       expect(titles).toEqual([
         "Introduce Silieco to me",
         "Show me what Silieco can do for me — as slides",
       ]);
       // Both assigned to the same Helper agent.
-      mockCreateIssue.mock.calls.forEach(([args]) => {
+      mockCreateTask.mock.calls.forEach(([args]) => {
         expect(args.assignee_type).toBe("agent");
         expect(args.assignee_id).toBe("agent-1");
       });
@@ -311,14 +311,14 @@ describe("WelcomeAfterOnboarding", () => {
       expect(mockPush).not.toHaveBeenCalled();
       fireEvent.click(gotIt);
 
-      // Navigates to the first issue (intro, since it's earlier in
+      // Navigates to the first task (intro, since it's earlier in
       // STARTER_CARD_IDS).
       await waitFor(() =>
-        expect(mockPush).toHaveBeenCalledWith("/test-ws/issues/issue-intro"),
+        expect(mockPush).toHaveBeenCalledWith("/test-ws/tasks/task-intro"),
       );
     });
 
-    it("uses Korean persisted Helper and starter issue artifacts under ko locale", async () => {
+    it("uses Korean persisted Helper and starter task artifacts under ko locale", async () => {
       mockListAgents.mockResolvedValueOnce([]);
       mockCreateAgent.mockResolvedValueOnce({
         id: "agent-1",
@@ -327,8 +327,8 @@ describe("WelcomeAfterOnboarding", () => {
         avatar_url: null,
         visibility: "workspace",
       });
-      mockCreateIssue.mockResolvedValueOnce({
-        id: "issue-intro",
+      mockCreateTask.mockResolvedValueOnce({
+        id: "task-intro",
         workspace_id: "ws-1",
       });
       useWelcomeStore.getState().set({
@@ -357,15 +357,15 @@ describe("WelcomeAfterOnboarding", () => {
         await screen.findByRole("button", { name: /작업 1개를 나에게 할당/i }),
       );
 
-      await waitFor(() => expect(mockCreateIssue).toHaveBeenCalledTimes(1));
-      const [issueArgs] = mockCreateIssue.mock.calls[0]!;
-      expect(issueArgs.title).toBe("Silieco를 간단히 소개해 주세요");
-      expect(issueArgs.description).toContain(
+      await waitFor(() => expect(mockCreateTask).toHaveBeenCalledTimes(1));
+      const [taskArgs] = mockCreateTask.mock.calls[0]!;
+      expect(taskArgs.title).toBe("Silieco를 간단히 소개해 주세요");
+      expect(taskArgs.description).toContain(
         "Silieco를 1-2문단으로 간단히 소개해 주세요",
       );
     });
 
-    it("uses Japanese persisted Helper and starter issue artifacts under ja locale", async () => {
+    it("uses Japanese persisted Helper and starter task artifacts under ja locale", async () => {
       mockListAgents.mockResolvedValueOnce([]);
       mockCreateAgent.mockResolvedValueOnce({
         id: "agent-1",
@@ -374,8 +374,8 @@ describe("WelcomeAfterOnboarding", () => {
         avatar_url: null,
         visibility: "workspace",
       });
-      mockCreateIssue.mockResolvedValueOnce({
-        id: "issue-intro",
+      mockCreateTask.mockResolvedValueOnce({
+        id: "task-intro",
         workspace_id: "ws-1",
       });
       useWelcomeStore.getState().set({
@@ -406,10 +406,10 @@ describe("WelcomeAfterOnboarding", () => {
         }),
       );
 
-      await waitFor(() => expect(mockCreateIssue).toHaveBeenCalledTimes(1));
-      const [issueArgs] = mockCreateIssue.mock.calls[0]!;
-      expect(issueArgs.title).toBe("Silieco を簡単に紹介してください");
-      expect(issueArgs.description).toContain(
+      await waitFor(() => expect(mockCreateTask).toHaveBeenCalledTimes(1));
+      const [taskArgs] = mockCreateTask.mock.calls[0]!;
+      expect(taskArgs.title).toBe("Silieco を簡単に紹介してください");
+      expect(taskArgs.description).toContain(
         "Silieco を1〜2段落で簡単に紹介してください",
       );
     });
@@ -422,14 +422,14 @@ describe("WelcomeAfterOnboarding", () => {
       //      chip target inside agent-guide's body)
       //   2. agent-guide (Step 2, body embeds install-runtime mention)
       //   3. comment on install-runtime (mentions agent-guide back)
-      mockCreateIssue
+      mockCreateTask
         .mockResolvedValueOnce({
-          id: "issue-install",
+          id: "task-install",
           identifier: "SILI-1",
           workspace_id: "ws-1",
         })
         .mockResolvedValueOnce({
-          id: "issue-agent",
+          id: "task-agent",
           identifier: "SILI-2",
           workspace_id: "ws-1",
         });
@@ -450,11 +450,11 @@ describe("WelcomeAfterOnboarding", () => {
         expect(screen.getByText(/Welcome to Silieco/i)).toBeInTheDocument();
       });
 
-      expect(mockCreateIssue).toHaveBeenCalledTimes(2);
+      expect(mockCreateTask).toHaveBeenCalledTimes(2);
       expect(mockCreateComment).toHaveBeenCalledTimes(1);
 
-      // First createIssue call: install-runtime (Step 1).
-      const [firstCall] = mockCreateIssue.mock.calls;
+      // First createTask call: install-runtime (Step 1).
+      const [firstCall] = mockCreateTask.mock.calls;
       expect(firstCall![0].title).toBe(
         "Step 1 — Connect a runtime to start using agents",
       );
@@ -462,27 +462,27 @@ describe("WelcomeAfterOnboarding", () => {
       expect(firstCall![0].assignee_type).toBe("member");
       expect(firstCall![0].assignee_id).toBe("user-1");
 
-      // Second createIssue call: agent-guide (Step 2), body must embed
-      // install-runtime mention chip pointing at SILI-1 / issue-install.
-      const [secondCall] = mockCreateIssue.mock.calls.slice(1);
+      // Second createTask call: agent-guide (Step 2), body must embed
+      // install-runtime mention chip pointing at SILI-1 / task-install.
+      const [secondCall] = mockCreateTask.mock.calls.slice(1);
       expect(secondCall![0].title).toBe(
         "Step 2 — Create your first Silieco Agent",
       );
       expect(secondCall![0].status).toBe("todo");
       expect(secondCall![0].description).toContain(
-        "[SILI-1](mention://issue/issue-install)",
+        "[SILI-1](mention://task/task-install)",
       );
 
       // Follow-up comment posted on install-runtime as a mention chip
-      // pointing at the agent-guide issue.
-      const [commentIssueId, commentContent] =
+      // pointing at the agent-guide task.
+      const [commentTaskId, commentContent] =
         mockCreateComment.mock.calls[0]!;
-      expect(commentIssueId).toBe("issue-install");
-      expect(commentContent).toContain("[SILI-2](mention://issue/issue-agent)");
+      expect(commentTaskId).toBe("task-install");
+      expect(commentContent).toContain("[SILI-2](mention://task/task-agent)");
     });
 
     it("silently dismisses without showing the Modal when provisioning fails", async () => {
-      mockCreateIssue.mockRejectedValueOnce(new Error("network down"));
+      mockCreateTask.mockRejectedValueOnce(new Error("network down"));
       useWelcomeStore.getState().set({
         workspaceId: "ws-1",
         choice: "skip",
@@ -498,15 +498,15 @@ describe("WelcomeAfterOnboarding", () => {
       expect(screen.queryByText(/Welcome to Silieco/i)).not.toBeInTheDocument();
     });
 
-    it("uses Korean persisted skip-path issue and comment artifacts under ko locale", async () => {
-      mockCreateIssue
+    it("uses Korean persisted skip-path task and comment artifacts under ko locale", async () => {
+      mockCreateTask
         .mockResolvedValueOnce({
-          id: "issue-install",
+          id: "task-install",
           identifier: "SILI-1",
           workspace_id: "ws-1",
         })
         .mockResolvedValueOnce({
-          id: "issue-agent",
+          id: "task-agent",
           identifier: "SILI-2",
           workspace_id: "ws-1",
         });
@@ -523,8 +523,8 @@ describe("WelcomeAfterOnboarding", () => {
         expect(screen.getByText(/Silieco에 오신 것을 환영합니다/i)).toBeInTheDocument();
       });
 
-      expect(mockCreateIssue).toHaveBeenCalledTimes(2);
-      const [installCall, guideCall] = mockCreateIssue.mock.calls;
+      expect(mockCreateTask).toHaveBeenCalledTimes(2);
+      const [installCall, guideCall] = mockCreateTask.mock.calls;
       expect(installCall![0].title).toBe(
         "1단계 — agent를 사용하려면 runtime 연결하기",
       );
@@ -538,27 +538,27 @@ describe("WelcomeAfterOnboarding", () => {
         "runtime이 online 상태가 되면",
       );
       expect(guideCall![0].description).toContain(
-        "[SILI-1](mention://issue/issue-install)",
+        "[SILI-1](mention://task/task-install)",
       );
 
-      const [commentIssueId, commentContent] =
+      const [commentTaskId, commentContent] =
         mockCreateComment.mock.calls[0]!;
-      expect(commentIssueId).toBe("issue-install");
+      expect(commentTaskId).toBe("task-install");
       expect(commentContent).toContain("다음 단계:");
       expect(commentContent).toContain(
-        "[SILI-2](mention://issue/issue-agent)",
+        "[SILI-2](mention://task/task-agent)",
       );
     });
 
-    it("uses Japanese persisted skip-path issue and comment artifacts under ja locale", async () => {
-      mockCreateIssue
+    it("uses Japanese persisted skip-path task and comment artifacts under ja locale", async () => {
+      mockCreateTask
         .mockResolvedValueOnce({
-          id: "issue-install",
+          id: "task-install",
           identifier: "SILI-1",
           workspace_id: "ws-1",
         })
         .mockResolvedValueOnce({
-          id: "issue-agent",
+          id: "task-agent",
           identifier: "SILI-2",
           workspace_id: "ws-1",
         });
@@ -577,8 +577,8 @@ describe("WelcomeAfterOnboarding", () => {
         ).toBeInTheDocument();
       });
 
-      expect(mockCreateIssue).toHaveBeenCalledTimes(2);
-      const [installCall, guideCall] = mockCreateIssue.mock.calls;
+      expect(mockCreateTask).toHaveBeenCalledTimes(2);
+      const [installCall, guideCall] = mockCreateTask.mock.calls;
       expect(installCall![0].title).toBe(
         "ステップ1 — agent を使うために runtime を接続する",
       );
@@ -588,15 +588,15 @@ describe("WelcomeAfterOnboarding", () => {
       );
       expect(guideCall![0].description).toContain("runtime が online になったら");
       expect(guideCall![0].description).toContain(
-        "[SILI-1](mention://issue/issue-install)",
+        "[SILI-1](mention://task/task-install)",
       );
 
-      const [commentIssueId, commentContent] =
+      const [commentTaskId, commentContent] =
         mockCreateComment.mock.calls[0]!;
-      expect(commentIssueId).toBe("issue-install");
+      expect(commentTaskId).toBe("task-install");
       expect(commentContent).toContain("次のステップ:");
       expect(commentContent).toContain(
-        "[SILI-2](mention://issue/issue-agent)",
+        "[SILI-2](mention://task/task-agent)",
       );
     });
   });

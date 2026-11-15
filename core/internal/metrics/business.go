@@ -3,39 +3,39 @@ package metrics
 import (
 	"sync"
 
-	"github.com/silieco-ai/silieco/core/pkg/taskfailure"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/silieco-ai/silieco/core/pkg/runfailure"
 )
 
-var taskDurationBuckets = []float64{1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 3600, 7200}
+var runDurationBuckets = []float64{1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 3600, 7200}
 
-type activeTaskLabels struct {
+type activeRunLabels struct {
 	source      string
 	runtimeMode string
 }
 
 type BusinessMetrics struct {
-	taskEnqueued     *prometheus.CounterVec
-	taskDispatched   *prometheus.CounterVec
-	taskStarted      *prometheus.CounterVec
-	taskTerminal     *prometheus.CounterVec
-	taskFailed       *prometheus.CounterVec
-	taskQueueWait    *prometheus.HistogramVec
-	taskRunSeconds   *prometheus.HistogramVec
-	taskTotalSeconds *prometheus.HistogramVec
-	taskInProgress   *prometheus.GaugeVec
-	taskIterations   *prometheus.HistogramVec
+	runEnqueued     *prometheus.CounterVec
+	runDispatched   *prometheus.CounterVec
+	runStarted      *prometheus.CounterVec
+	runTerminal     *prometheus.CounterVec
+	runFailed       *prometheus.CounterVec
+	runQueueWait    *prometheus.HistogramVec
+	runRunSeconds   *prometheus.HistogramVec
+	runTotalSeconds *prometheus.HistogramVec
+	runInProgress   *prometheus.GaugeVec
+	runIterations   *prometheus.HistogramVec
 
 	llmTokens         *prometheus.CounterVec
 	llmCostUSD        *prometheus.CounterVec
 	llmUnpricedTokens *prometheus.CounterVec
 	llmRequests       *prometheus.CounterVec
 
-	taskQueuedExpired *prometheus.CounterVec
-	taskLeaseExpired  *prometheus.CounterVec
+	runQueuedExpired *prometheus.CounterVec
+	runLeaseExpired  *prometheus.CounterVec
 
-	activeMu    sync.Mutex
-	activeTasks map[string]activeTaskLabels
+	activeMu   sync.Mutex
+	activeRuns map[string]activeRunLabels
 
 	// PR3 funnel / community / commercial counters. See business_events.go
 	// for the field-level docs and labels.
@@ -45,70 +45,70 @@ type BusinessMetrics struct {
 func NewBusinessMetrics() *BusinessMetrics {
 	validateBusinessMetricLabels()
 	m := &BusinessMetrics{
-		taskEnqueued: prometheus.NewCounterVec(prometheus.CounterOpts{
+		runEnqueued: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "enqueued_total",
-			Help:      "Total agent tasks enqueued.",
-		}, metricLabels("silieco_agent_task_enqueued_total")),
-		taskDispatched: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Help:      "Total agent runs enqueued.",
+		}, metricLabels("silieco_agent_run_enqueued_total")),
+		runDispatched: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "dispatched_total",
-			Help:      "Total agent tasks dispatched to a runtime.",
-		}, metricLabels("silieco_agent_task_dispatched_total")),
-		taskStarted: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Help:      "Total agent runs dispatched to a runtime.",
+		}, metricLabels("silieco_agent_run_dispatched_total")),
+		runStarted: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "started_total",
-			Help:      "Total agent tasks that reached running state.",
-		}, metricLabels("silieco_agent_task_started_total")),
-		taskTerminal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Help:      "Total agent runs that reached running state.",
+		}, metricLabels("silieco_agent_run_started_total")),
+		runTerminal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "terminal_total",
-			Help:      "Total agent tasks that reached a terminal state.",
-		}, metricLabels("silieco_agent_task_terminal_total")),
-		taskFailed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Help:      "Total agent runs that reached a terminal state.",
+		}, metricLabels("silieco_agent_run_terminal_total")),
+		runFailed: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "failed_total",
-			Help:      "Total failed agent tasks by canonical failure reason.",
-		}, metricLabels("silieco_agent_task_failed_total")),
-		taskQueueWait: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Help:      "Total failed agent runs by canonical failure reason.",
+		}, metricLabels("silieco_agent_run_failed_total")),
+		runQueueWait: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "queue_wait_seconds",
-			Help:      "Time agent tasks spent queued before dispatch.",
-			Buckets:   taskDurationBuckets,
-		}, metricLabels("silieco_agent_task_queue_wait_seconds")),
-		taskRunSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Help:      "Time agent runs spent queued before dispatch.",
+			Buckets:   runDurationBuckets,
+		}, metricLabels("silieco_agent_run_queue_wait_seconds")),
+		runRunSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "run_seconds",
-			Help:      "Time agent tasks spent running before a terminal state.",
-			Buckets:   taskDurationBuckets,
-		}, metricLabels("silieco_agent_task_run_seconds")),
-		taskTotalSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Help:      "Time agent runs spent running before a terminal state.",
+			Buckets:   runDurationBuckets,
+		}, metricLabels("silieco_agent_run_run_seconds")),
+		runTotalSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "total_seconds",
-			Help:      "Total time from agent task creation to terminal state.",
-			Buckets:   taskDurationBuckets,
-		}, metricLabels("silieco_agent_task_total_seconds")),
-		taskInProgress: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Help:      "Total time from agent run creation to terminal state.",
+			Buckets:   runDurationBuckets,
+		}, metricLabels("silieco_agent_run_total_seconds")),
+		runInProgress: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "in_progress",
-			Help:      "Current agent tasks dispatched by this process and not yet terminal.",
-		}, metricLabels("silieco_agent_task_in_progress")),
-		taskIterations: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Help:      "Current agent runs dispatched by this process and not yet terminal.",
+		}, metricLabels("silieco_agent_run_in_progress")),
+		runIterations: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: "silieco",
-			Subsystem: "agent_task",
+			Subsystem: "agent_run",
 			Name:      "iteration_count",
-			Help:      "Retry attempt count observed when an agent task reaches a terminal state.",
+			Help:      "Retry attempt count observed when an agent run reaches a terminal state.",
 			Buckets:   []float64{1, 2, 3, 4, 5, 10},
-		}, metricLabels("silieco_agent_task_iteration_count")),
+		}, metricLabels("silieco_agent_run_iteration_count")),
 		llmTokens: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "silieco",
 			Subsystem: "llm",
@@ -131,22 +131,22 @@ func NewBusinessMetrics() *BusinessMetrics {
 			Namespace: "silieco",
 			Subsystem: "llm",
 			Name:      "request_total",
-			Help:      "Total task usage reports by normalized LLM provider and model.",
+			Help:      "Total run usage reports by normalized LLM provider and model.",
 		}, metricLabels("silieco_llm_request_total")),
-		taskQueuedExpired: prometheus.NewCounterVec(prometheus.CounterOpts{
+		runQueuedExpired: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "silieco",
-			Subsystem: "task",
+			Subsystem: "run",
 			Name:      "queued_expired_total",
-			Help:      "Total queued tasks expired by the scheduler.",
-		}, metricLabels("silieco_task_queued_expired_total")),
-		taskLeaseExpired: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Help:      "Total queued runs expired by the scheduler.",
+		}, metricLabels("silieco_run_queued_expired_total")),
+		runLeaseExpired: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "silieco",
-			Subsystem: "task",
+			Subsystem: "run",
 			Name:      "lease_expired_total",
-			Help:      "Total dispatched or running task leases expired by the scheduler.",
-		}, metricLabels("silieco_task_lease_expired_total")),
-		activeTasks: map[string]activeTaskLabels{},
-		events:      newBusinessEventMetrics(),
+			Help:      "Total dispatched or running run leases expired by the scheduler.",
+		}, metricLabels("silieco_run_lease_expired_total")),
+		activeRuns: map[string]activeRunLabels{},
+		events:     newBusinessEventMetrics(),
 	}
 	m.prewarmFailureReasons()
 	return m
@@ -154,100 +154,100 @@ func NewBusinessMetrics() *BusinessMetrics {
 
 func (m *BusinessMetrics) Collectors() []prometheus.Collector {
 	return append([]prometheus.Collector{
-		m.taskEnqueued,
-		m.taskDispatched,
-		m.taskStarted,
-		m.taskTerminal,
-		m.taskFailed,
-		m.taskQueueWait,
-		m.taskRunSeconds,
-		m.taskTotalSeconds,
-		m.taskInProgress,
-		m.taskIterations,
+		m.runEnqueued,
+		m.runDispatched,
+		m.runStarted,
+		m.runTerminal,
+		m.runFailed,
+		m.runQueueWait,
+		m.runRunSeconds,
+		m.runTotalSeconds,
+		m.runInProgress,
+		m.runIterations,
 		m.llmTokens,
 		m.llmCostUSD,
 		m.llmUnpricedTokens,
 		m.llmRequests,
-		m.taskQueuedExpired,
-		m.taskLeaseExpired,
+		m.runQueuedExpired,
+		m.runLeaseExpired,
 	}, m.events.collectors()...)
 }
 
-func (m *BusinessMetrics) RecordTaskEnqueued(source, runtimeMode string) {
+func (m *BusinessMetrics) RecordRunEnqueued(source, runtimeMode string) {
 	if m == nil {
 		return
 	}
-	m.taskEnqueued.WithLabelValues(NormalizeTaskSource(source), NormalizeRuntimeMode(runtimeMode)).Inc()
+	m.runEnqueued.WithLabelValues(NormalizeRunSource(source), NormalizeRuntimeMode(runtimeMode)).Inc()
 }
 
-func (m *BusinessMetrics) RecordTaskDispatched(taskID, source, runtimeMode string, queueWaitSeconds float64) {
+func (m *BusinessMetrics) RecordRunDispatched(runID, source, runtimeMode string, queueWaitSeconds float64) {
 	if m == nil {
 		return
 	}
-	source = NormalizeTaskSource(source)
+	source = NormalizeRunSource(source)
 	runtimeMode = NormalizeRuntimeMode(runtimeMode)
-	m.taskDispatched.WithLabelValues(source, runtimeMode).Inc()
+	m.runDispatched.WithLabelValues(source, runtimeMode).Inc()
 	if queueWaitSeconds >= 0 {
-		m.taskQueueWait.WithLabelValues(source, runtimeMode).Observe(queueWaitSeconds)
+		m.runQueueWait.WithLabelValues(source, runtimeMode).Observe(queueWaitSeconds)
 	}
-	m.markTaskInProgress(taskID, source, runtimeMode)
+	m.markRunInProgress(runID, source, runtimeMode)
 }
 
-func (m *BusinessMetrics) RecordTaskStarted(source, runtimeMode, provider string) {
+func (m *BusinessMetrics) RecordRunStarted(source, runtimeMode, provider string) {
 	if m == nil {
 		return
 	}
-	m.taskStarted.WithLabelValues(
-		NormalizeTaskSource(source),
+	m.runStarted.WithLabelValues(
+		NormalizeRunSource(source),
 		NormalizeRuntimeMode(runtimeMode),
 		NormalizeRuntimeProvider(provider),
 	).Inc()
 }
 
-func (m *BusinessMetrics) RecordTaskTerminal(taskID, source, runtimeMode, terminalStatus string, runSeconds, totalSeconds float64, attempt int32) {
+func (m *BusinessMetrics) RecordRunTerminal(runID, source, runtimeMode, terminalStatus string, runSeconds, totalSeconds float64, attempt int32) {
 	if m == nil {
 		return
 	}
-	source = NormalizeTaskSource(source)
+	source = NormalizeRunSource(source)
 	runtimeMode = NormalizeRuntimeMode(runtimeMode)
 	terminalStatus = NormalizeTerminalStatus(terminalStatus)
-	m.taskTerminal.WithLabelValues(source, runtimeMode, terminalStatus).Inc()
+	m.runTerminal.WithLabelValues(source, runtimeMode, terminalStatus).Inc()
 	if runSeconds >= 0 {
-		m.taskRunSeconds.WithLabelValues(source, runtimeMode, terminalStatus).Observe(runSeconds)
+		m.runRunSeconds.WithLabelValues(source, runtimeMode, terminalStatus).Observe(runSeconds)
 	}
 	if totalSeconds >= 0 {
-		m.taskTotalSeconds.WithLabelValues(source, runtimeMode, terminalStatus).Observe(totalSeconds)
+		m.runTotalSeconds.WithLabelValues(source, runtimeMode, terminalStatus).Observe(totalSeconds)
 	}
 	if attempt < 1 {
 		attempt = 1
 	}
-	m.taskIterations.WithLabelValues(source, terminalStatus).Observe(float64(attempt))
-	m.clearTaskInProgress(taskID)
+	m.runIterations.WithLabelValues(source, terminalStatus).Observe(float64(attempt))
+	m.clearRunInProgress(runID)
 }
 
-func (m *BusinessMetrics) RecordTaskFailed(source, runtimeMode, failureReason string) {
+func (m *BusinessMetrics) RecordRunFailed(source, runtimeMode, failureReason string) {
 	if m == nil {
 		return
 	}
-	m.taskFailed.WithLabelValues(
-		NormalizeTaskSource(source),
+	m.runFailed.WithLabelValues(
+		NormalizeRunSource(source),
 		NormalizeRuntimeMode(runtimeMode),
 		NormalizeFailureReason(failureReason),
 	).Inc()
 }
 
-func (m *BusinessMetrics) RecordTaskQueuedExpired(source, runtimeMode string) {
+func (m *BusinessMetrics) RecordRunQueuedExpired(source, runtimeMode string) {
 	if m == nil {
 		return
 	}
-	m.taskQueuedExpired.WithLabelValues(NormalizeTaskSource(source), NormalizeRuntimeMode(runtimeMode)).Inc()
+	m.runQueuedExpired.WithLabelValues(NormalizeRunSource(source), NormalizeRuntimeMode(runtimeMode)).Inc()
 }
 
-func (m *BusinessMetrics) RecordTaskLeaseExpired(source string) {
+func (m *BusinessMetrics) RecordRunLeaseExpired(source string) {
 	if m == nil {
 		return
 	}
-	m.taskLeaseExpired.WithLabelValues(NormalizeTaskSource(source)).Inc()
+	m.runLeaseExpired.WithLabelValues(NormalizeRunSource(source)).Inc()
 }
 
 // costUSDTicks is the provider's own price for this usage in 1e-10 USD, or 0
@@ -258,7 +258,7 @@ func (m *BusinessMetrics) RecordLLMUsage(source, runtimeMode, rawProvider, model
 	if m == nil {
 		return
 	}
-	source = NormalizeTaskSource(source)
+	source = NormalizeRunSource(source)
 	runtimeMode = NormalizeRuntimeMode(runtimeMode)
 	price, priced := PriceForModelAlias(modelAlias)
 	if !priced {
@@ -342,40 +342,40 @@ func (m *BusinessMetrics) recordUnpricedTokens(provider, modelAlias, tokenType s
 	m.llmUnpricedTokens.WithLabelValues(provider, modelAlias, NormalizeTokenType(tokenType)).Add(float64(tokens))
 }
 
-func (m *BusinessMetrics) markTaskInProgress(taskID, source, runtimeMode string) {
-	if taskID == "" {
-		m.taskInProgress.WithLabelValues(source, runtimeMode).Inc()
+func (m *BusinessMetrics) markRunInProgress(runID, source, runtimeMode string) {
+	if runID == "" {
+		m.runInProgress.WithLabelValues(source, runtimeMode).Inc()
 		return
 	}
 	m.activeMu.Lock()
 	defer m.activeMu.Unlock()
-	if _, ok := m.activeTasks[taskID]; ok {
+	if _, ok := m.activeRuns[runID]; ok {
 		return
 	}
-	m.activeTasks[taskID] = activeTaskLabels{source: source, runtimeMode: runtimeMode}
-	m.taskInProgress.WithLabelValues(source, runtimeMode).Inc()
+	m.activeRuns[runID] = activeRunLabels{source: source, runtimeMode: runtimeMode}
+	m.runInProgress.WithLabelValues(source, runtimeMode).Inc()
 }
 
-func (m *BusinessMetrics) clearTaskInProgress(taskID string) {
-	if taskID == "" {
+func (m *BusinessMetrics) clearRunInProgress(runID string) {
+	if runID == "" {
 		return
 	}
 	m.activeMu.Lock()
-	labels, ok := m.activeTasks[taskID]
+	labels, ok := m.activeRuns[runID]
 	if ok {
-		delete(m.activeTasks, taskID)
+		delete(m.activeRuns, runID)
 	}
 	m.activeMu.Unlock()
 	if ok {
-		m.taskInProgress.WithLabelValues(labels.source, labels.runtimeMode).Dec()
+		m.runInProgress.WithLabelValues(labels.source, labels.runtimeMode).Dec()
 	}
 }
 
 func (m *BusinessMetrics) prewarmFailureReasons() {
-	for _, source := range []string{"issue", "chat", "autopilot", "autopilot_issue", "quick_create", "other"} {
+	for _, source := range []string{"task", "chat", "autopilot", "autopilot_task", "quick_create", "other"} {
 		for _, runtimeMode := range []string{"local", "cloud", "unknown"} {
-			for _, reason := range taskfailure.AllReasons() {
-				m.taskFailed.WithLabelValues(source, runtimeMode, reason.String()).Add(0)
+			for _, reason := range runfailure.AllReasons() {
+				m.runFailed.WithLabelValues(source, runtimeMode, reason.String()).Add(0)
 			}
 		}
 	}

@@ -13,26 +13,26 @@ import (
 
 const bindWorkflowReviewCall = `-- name: BindWorkflowReviewCall :one
 WITH bound_call AS (
- UPDATE agent_task_queue task SET workflow_review_request_id=request.id, max_attempts=COALESCE($3::integer,task.max_attempts)
+ UPDATE agent_run run SET workflow_review_request_id=request.id, max_attempts=COALESCE($3::integer,run.max_attempts)
  FROM workflow_review_request request
  JOIN workflow_stage_execution execution ON execution.id=request.execution_id AND execution.workspace_id=request.workspace_id
  WHERE request.workspace_id=$1 AND request.id=$2
- AND request.status='pending' AND request.task_id IS NULL
- AND task.id=$4 AND task.status='queued' AND task.agent_id=request.reviewer_id
- AND task.issue_id=execution.main_issue_id
- AND task.workflow_stage_execution_id IS NULL AND task.workflow_review_request_id IS NULL
- RETURNING task.id
+ AND request.status='pending' AND request.run_id IS NULL
+ AND run.id=$4 AND run.status='queued' AND run.agent_id=request.reviewer_id
+ AND run.task_id=execution.main_task_id
+ AND run.workflow_stage_execution_id IS NULL AND run.workflow_review_request_id IS NULL
+ RETURNING run.id
 )
-UPDATE workflow_review_request request SET task_id=bound_call.id,status='queued',updated_at=now()
+UPDATE workflow_review_request request SET run_id=bound_call.id,status='queued',updated_at=now()
 FROM bound_call WHERE request.workspace_id=$1 AND request.id=$2
-RETURNING request.id, request.workspace_id, request.workflow_instance_id, request.execution_id, request.reviewer_id, request.result_id, request.result_revision, request.basis_hash, request.basis_snapshot, request.status, request.created_at, request.updated_at, request.task_id
+RETURNING request.id, request.workspace_id, request.workflow_instance_id, request.execution_id, request.reviewer_id, request.result_id, request.result_revision, request.basis_hash, request.basis_snapshot, request.status, request.created_at, request.updated_at, request.run_id
 `
 
 type BindWorkflowReviewCallParams struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	RequestID   pgtype.UUID `json:"request_id"`
 	MaxAttempts pgtype.Int4 `json:"max_attempts"`
-	TaskID      pgtype.UUID `json:"task_id"`
+	RunID       pgtype.UUID `json:"run_id"`
 }
 
 // Caller holds the parent Run lock and revalidates current request evidence.
@@ -41,7 +41,7 @@ func (q *Queries) BindWorkflowReviewCall(ctx context.Context, arg BindWorkflowRe
 		arg.WorkspaceID,
 		arg.RequestID,
 		arg.MaxAttempts,
-		arg.TaskID,
+		arg.RunID,
 	)
 	var i WorkflowReviewRequest
 	err := row.Scan(
@@ -57,34 +57,34 @@ func (q *Queries) BindWorkflowReviewCall(ctx context.Context, arg BindWorkflowRe
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TaskID,
+		&i.RunID,
 	)
 	return i, err
 }
 
 const claimWorkflowReviewCall = `-- name: ClaimWorkflowReviewCall :one
-UPDATE agent_task_queue task SET status='dispatched',dispatched_at=now(),
+UPDATE agent_run run SET status='dispatched',dispatched_at=now(),
  prepare_lease_expires_at=now()+make_interval(secs=>$1::double precision)
-WHERE task.id=$2 AND task.workflow_review_request_id=$3
- AND task.status='queued'
- AND NOT EXISTS(SELECT 1 FROM agent_task_queue active WHERE active.agent_id=task.agent_id
- AND active.issue_id=task.issue_id AND active.status IN ('dispatched','running','waiting_local_directory'))
-RETURNING task.id, task.agent_id, task.issue_id, task.status, task.priority, task.dispatched_at, task.started_at, task.completed_at, task.result, task.error, task.created_at, task.context, task.runtime_id, task.session_id, task.work_dir, task.trigger_comment_id, task.chat_session_id, task.autopilot_run_id, task.attempt, task.max_attempts, task.parent_task_id, task.failure_reason, task.trigger_summary, task.force_fresh_session, task.is_leader_task, task.wait_reason, task.initiator_user_id, task.handoff_note, task.prepare_lease_expires_at, task.squad_id, task.runtime_mcp_overlay, task.escalation_for_task_id, task.fire_at, task.originator_user_id, task.runtime_connected_apps, task.coalesced_comment_ids, task.delivered_comment_ids, task.chat_input_task_id, task.chat_finalize_deferred_at, task.originator_source, task.delegated_from_task_id, task.retry_of_task_id, task.rerun_of_task_id, task.rule_version_id, task.trigger_evidence_kind, task.trigger_evidence_ref_id, task.accountable_user_id, task.session_rollout_missing, task.retired_session_id, task.trigger_chat_message_id, task.execution_manifest, task.worktree_branch, task.worktree_base_sha, task.worktree_final_sha, task.worktree_delivery_status, task.workflow_stage_execution_id, task.workflow_review_request_id
+WHERE run.id=$2 AND run.workflow_review_request_id=$3
+ AND run.status='queued'
+ AND NOT EXISTS(SELECT 1 FROM agent_run active WHERE active.agent_id=run.agent_id
+ AND active.task_id=run.task_id AND active.status IN ('dispatched','running','waiting_local_directory'))
+RETURNING run.id, run.agent_id, run.task_id, run.status, run.priority, run.dispatched_at, run.started_at, run.completed_at, run.result, run.error, run.created_at, run.context, run.runtime_id, run.session_id, run.work_dir, run.trigger_comment_id, run.chat_session_id, run.autopilot_run_id, run.attempt, run.max_attempts, run.parent_run_id, run.failure_reason, run.trigger_summary, run.force_fresh_session, run.is_leader_run, run.wait_reason, run.initiator_user_id, run.handoff_note, run.prepare_lease_expires_at, run.squad_id, run.runtime_mcp_overlay, run.escalation_for_run_id, run.fire_at, run.originator_user_id, run.runtime_connected_apps, run.coalesced_comment_ids, run.delivered_comment_ids, run.chat_input_run_id, run.chat_finalize_deferred_at, run.originator_source, run.delegated_from_run_id, run.retry_of_run_id, run.rerun_of_run_id, run.rule_version_id, run.trigger_evidence_kind, run.trigger_evidence_ref_id, run.accountable_user_id, run.session_rollout_missing, run.retired_session_id, run.trigger_chat_message_id, run.execution_manifest, run.worktree_branch, run.worktree_base_sha, run.worktree_final_sha, run.worktree_delivery_status, run.workflow_stage_execution_id, run.workflow_review_request_id
 `
 
 type ClaimWorkflowReviewCallParams struct {
 	PrepareLeaseSecs float64     `json:"prepare_lease_secs"`
-	TaskID           pgtype.UUID `json:"task_id"`
+	RunID            pgtype.UUID `json:"run_id"`
 	RequestID        pgtype.UUID `json:"request_id"`
 }
 
-func (q *Queries) ClaimWorkflowReviewCall(ctx context.Context, arg ClaimWorkflowReviewCallParams) (AgentTaskQueue, error) {
-	row := q.db.QueryRow(ctx, claimWorkflowReviewCall, arg.PrepareLeaseSecs, arg.TaskID, arg.RequestID)
-	var i AgentTaskQueue
+func (q *Queries) ClaimWorkflowReviewCall(ctx context.Context, arg ClaimWorkflowReviewCallParams) (AgentRun, error) {
+	row := q.db.QueryRow(ctx, claimWorkflowReviewCall, arg.PrepareLeaseSecs, arg.RunID, arg.RequestID)
+	var i AgentRun
 	err := row.Scan(
 		&i.ID,
 		&i.AgentID,
-		&i.IssueID,
+		&i.TaskID,
 		&i.Status,
 		&i.Priority,
 		&i.DispatchedAt,
@@ -102,29 +102,29 @@ func (q *Queries) ClaimWorkflowReviewCall(ctx context.Context, arg ClaimWorkflow
 		&i.AutopilotRunID,
 		&i.Attempt,
 		&i.MaxAttempts,
-		&i.ParentTaskID,
+		&i.ParentRunID,
 		&i.FailureReason,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
-		&i.IsLeaderTask,
+		&i.IsLeaderRun,
 		&i.WaitReason,
 		&i.InitiatorUserID,
 		&i.HandoffNote,
 		&i.PrepareLeaseExpiresAt,
 		&i.SquadID,
 		&i.RuntimeMcpOverlay,
-		&i.EscalationForTaskID,
+		&i.EscalationForRunID,
 		&i.FireAt,
 		&i.OriginatorUserID,
 		&i.RuntimeConnectedApps,
 		&i.CoalescedCommentIds,
 		&i.DeliveredCommentIds,
-		&i.ChatInputTaskID,
+		&i.ChatInputRunID,
 		&i.ChatFinalizeDeferredAt,
 		&i.OriginatorSource,
-		&i.DelegatedFromTaskID,
-		&i.RetryOfTaskID,
-		&i.RerunOfTaskID,
+		&i.DelegatedFromRunID,
+		&i.RetryOfRunID,
+		&i.RerunOfRunID,
 		&i.RuleVersionID,
 		&i.TriggerEvidenceKind,
 		&i.TriggerEvidenceRefID,
@@ -144,8 +144,8 @@ func (q *Queries) ClaimWorkflowReviewCall(ctx context.Context, arg ClaimWorkflow
 }
 
 const createWorkflowAgentDecision = `-- name: CreateWorkflowAgentDecision :one
-INSERT INTO workflow_gate_decision(workspace_id,workflow_instance_id,from_stage_id,outcome,actor_type,actor_id,note,execution_id,result_revision,review_step,basis_hash,basis_snapshot,review_task_id)
-VALUES($1,$2,$3,$4,'agent',$5,$6,$7,$8,'agent',$9,$10,$11) RETURNING id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_task_id, invalidated_by_rework_id
+INSERT INTO workflow_gate_decision(workspace_id,workflow_instance_id,from_stage_id,outcome,actor_type,actor_id,note,execution_id,result_revision,review_step,basis_hash,basis_snapshot,review_run_id)
+VALUES($1,$2,$3,$4,'agent',$5,$6,$7,$8,'agent',$9,$10,$11) RETURNING id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_run_id, invalidated_by_rework_id
 `
 
 type CreateWorkflowAgentDecisionParams struct {
@@ -159,7 +159,7 @@ type CreateWorkflowAgentDecisionParams struct {
 	ResultRevision     pgtype.Int4 `json:"result_revision"`
 	BasisHash          pgtype.Text `json:"basis_hash"`
 	BasisSnapshot      []byte      `json:"basis_snapshot"`
-	ReviewTaskID       pgtype.UUID `json:"review_task_id"`
+	ReviewRunID        pgtype.UUID `json:"review_run_id"`
 }
 
 func (q *Queries) CreateWorkflowAgentDecision(ctx context.Context, arg CreateWorkflowAgentDecisionParams) (WorkflowGateDecision, error) {
@@ -174,7 +174,7 @@ func (q *Queries) CreateWorkflowAgentDecision(ctx context.Context, arg CreateWor
 		arg.ResultRevision,
 		arg.BasisHash,
 		arg.BasisSnapshot,
-		arg.ReviewTaskID,
+		arg.ReviewRunID,
 	)
 	var i WorkflowGateDecision
 	err := row.Scan(
@@ -193,7 +193,7 @@ func (q *Queries) CreateWorkflowAgentDecision(ctx context.Context, arg CreateWor
 		&i.ReviewStep,
 		&i.BasisHash,
 		&i.BasisSnapshot,
-		&i.ReviewTaskID,
+		&i.ReviewRunID,
 		&i.InvalidatedByReworkID,
 	)
 	return i, err
@@ -204,7 +204,7 @@ INSERT INTO workflow_gate_decision (
     workspace_id, workflow_instance_id, from_stage_id, outcome, actor_type, actor_id, note,
     execution_id, result_revision, review_step, basis_hash, basis_snapshot
 ) VALUES ($1,$2,$3,$4,'member',$5,$6,$7,$8,'human',$9,$10)
-RETURNING id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_task_id, invalidated_by_rework_id
+RETURNING id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_run_id, invalidated_by_rework_id
 `
 
 type CreateWorkflowExecutionDecisionParams struct {
@@ -250,15 +250,15 @@ func (q *Queries) CreateWorkflowExecutionDecision(ctx context.Context, arg Creat
 		&i.ReviewStep,
 		&i.BasisHash,
 		&i.BasisSnapshot,
-		&i.ReviewTaskID,
+		&i.ReviewRunID,
 		&i.InvalidatedByReworkID,
 	)
 	return i, err
 }
 
 const createWorkflowReviewRecovery = `-- name: CreateWorkflowReviewRecovery :one
-INSERT INTO workflow_review_recovery(workspace_id,workflow_instance_id,execution_id,request_id,failed_task_id,new_task_id,result_revision,basis_hash,actor_id,reason,allowed_attempts,max_attempts)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, workspace_id, workflow_instance_id, execution_id, request_id, failed_task_id, new_task_id, result_revision, basis_hash, actor_id, reason, allowed_attempts, max_attempts, created_at
+INSERT INTO workflow_review_recovery(workspace_id,workflow_instance_id,execution_id,request_id,failed_run_id,new_run_id,result_revision,basis_hash,actor_id,reason,allowed_attempts,max_attempts)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, workspace_id, workflow_instance_id, execution_id, request_id, failed_run_id, new_run_id, result_revision, basis_hash, actor_id, reason, allowed_attempts, max_attempts, created_at
 `
 
 type CreateWorkflowReviewRecoveryParams struct {
@@ -266,8 +266,8 @@ type CreateWorkflowReviewRecoveryParams struct {
 	WorkflowInstanceID pgtype.UUID `json:"workflow_instance_id"`
 	ExecutionID        pgtype.UUID `json:"execution_id"`
 	RequestID          pgtype.UUID `json:"request_id"`
-	FailedTaskID       pgtype.UUID `json:"failed_task_id"`
-	NewTaskID          pgtype.UUID `json:"new_task_id"`
+	FailedRunID        pgtype.UUID `json:"failed_run_id"`
+	NewRunID           pgtype.UUID `json:"new_run_id"`
 	ResultRevision     int32       `json:"result_revision"`
 	BasisHash          string      `json:"basis_hash"`
 	ActorID            pgtype.UUID `json:"actor_id"`
@@ -282,8 +282,8 @@ func (q *Queries) CreateWorkflowReviewRecovery(ctx context.Context, arg CreateWo
 		arg.WorkflowInstanceID,
 		arg.ExecutionID,
 		arg.RequestID,
-		arg.FailedTaskID,
-		arg.NewTaskID,
+		arg.FailedRunID,
+		arg.NewRunID,
 		arg.ResultRevision,
 		arg.BasisHash,
 		arg.ActorID,
@@ -298,8 +298,8 @@ func (q *Queries) CreateWorkflowReviewRecovery(ctx context.Context, arg CreateWo
 		&i.WorkflowInstanceID,
 		&i.ExecutionID,
 		&i.RequestID,
-		&i.FailedTaskID,
-		&i.NewTaskID,
+		&i.FailedRunID,
+		&i.NewRunID,
 		&i.ResultRevision,
 		&i.BasisHash,
 		&i.ActorID,
@@ -314,7 +314,7 @@ func (q *Queries) CreateWorkflowReviewRecovery(ctx context.Context, arg CreateWo
 const createWorkflowReviewRequest = `-- name: CreateWorkflowReviewRequest :one
 INSERT INTO workflow_review_request(workspace_id,workflow_instance_id,execution_id,reviewer_id,result_id,result_revision,basis_hash,basis_snapshot)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-RETURNING id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, task_id
+RETURNING id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, run_id
 `
 
 type CreateWorkflowReviewRequestParams struct {
@@ -353,13 +353,13 @@ func (q *Queries) CreateWorkflowReviewRequest(ctx context.Context, arg CreateWor
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TaskID,
+		&i.RunID,
 	)
 	return i, err
 }
 
 const getLatestWorkflowReviewRequest = `-- name: GetLatestWorkflowReviewRequest :one
-SELECT id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, task_id FROM workflow_review_request WHERE workspace_id=$1 AND execution_id=$2
+SELECT id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, run_id FROM workflow_review_request WHERE workflow_review_request.workspace_id=$1 AND execution_id=$2
 AND status<>'invalidated' ORDER BY created_at DESC,id DESC LIMIT 1
 `
 
@@ -384,20 +384,20 @@ func (q *Queries) GetLatestWorkflowReviewRequest(ctx context.Context, arg GetLat
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TaskID,
+		&i.RunID,
 	)
 	return i, err
 }
 
 const getWorkflowAgentDecisionByBasis = `-- name: GetWorkflowAgentDecisionByBasis :one
-SELECT id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_task_id, invalidated_by_rework_id FROM workflow_gate_decision WHERE workspace_id=$1 AND execution_id=$2 AND basis_hash=$3 AND review_step='agent' AND review_task_id=$4
+SELECT id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_run_id, invalidated_by_rework_id FROM workflow_gate_decision WHERE workflow_gate_decision.workspace_id=$1 AND execution_id=$2 AND basis_hash=$3 AND review_step='agent' AND review_run_id=$4
 `
 
 type GetWorkflowAgentDecisionByBasisParams struct {
-	WorkspaceID  pgtype.UUID `json:"workspace_id"`
-	ExecutionID  pgtype.UUID `json:"execution_id"`
-	BasisHash    pgtype.Text `json:"basis_hash"`
-	ReviewTaskID pgtype.UUID `json:"review_task_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	ExecutionID pgtype.UUID `json:"execution_id"`
+	BasisHash   pgtype.Text `json:"basis_hash"`
+	ReviewRunID pgtype.UUID `json:"review_run_id"`
 }
 
 func (q *Queries) GetWorkflowAgentDecisionByBasis(ctx context.Context, arg GetWorkflowAgentDecisionByBasisParams) (WorkflowGateDecision, error) {
@@ -405,7 +405,7 @@ func (q *Queries) GetWorkflowAgentDecisionByBasis(ctx context.Context, arg GetWo
 		arg.WorkspaceID,
 		arg.ExecutionID,
 		arg.BasisHash,
-		arg.ReviewTaskID,
+		arg.ReviewRunID,
 	)
 	var i WorkflowGateDecision
 	err := row.Scan(
@@ -424,14 +424,14 @@ func (q *Queries) GetWorkflowAgentDecisionByBasis(ctx context.Context, arg GetWo
 		&i.ReviewStep,
 		&i.BasisHash,
 		&i.BasisSnapshot,
-		&i.ReviewTaskID,
+		&i.ReviewRunID,
 		&i.InvalidatedByReworkID,
 	)
 	return i, err
 }
 
 const getWorkflowExecutionDecisionByBasis = `-- name: GetWorkflowExecutionDecisionByBasis :one
-SELECT id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_task_id, invalidated_by_rework_id FROM workflow_gate_decision
+SELECT id, workspace_id, workflow_instance_id, from_stage_id, to_stage_id, outcome, actor_type, actor_id, note, created_at, execution_id, result_revision, review_step, basis_hash, basis_snapshot, review_run_id, invalidated_by_rework_id FROM workflow_gate_decision
 WHERE workspace_id=$1 AND execution_id=$2 AND basis_hash=$3 AND review_step='human'
 `
 
@@ -460,23 +460,23 @@ func (q *Queries) GetWorkflowExecutionDecisionByBasis(ctx context.Context, arg G
 		&i.ReviewStep,
 		&i.BasisHash,
 		&i.BasisSnapshot,
-		&i.ReviewTaskID,
+		&i.ReviewRunID,
 		&i.InvalidatedByReworkID,
 	)
 	return i, err
 }
 
 const getWorkflowReviewRecoveryByFailedCall = `-- name: GetWorkflowReviewRecoveryByFailedCall :one
-SELECT id, workspace_id, workflow_instance_id, execution_id, request_id, failed_task_id, new_task_id, result_revision, basis_hash, actor_id, reason, allowed_attempts, max_attempts, created_at FROM workflow_review_recovery WHERE workspace_id=$1 AND failed_task_id=$2
+SELECT id, workspace_id, workflow_instance_id, execution_id, request_id, failed_run_id, new_run_id, result_revision, basis_hash, actor_id, reason, allowed_attempts, max_attempts, created_at FROM workflow_review_recovery WHERE workflow_review_recovery.workspace_id=$1 AND failed_run_id=$2
 `
 
 type GetWorkflowReviewRecoveryByFailedCallParams struct {
-	WorkspaceID  pgtype.UUID `json:"workspace_id"`
-	FailedTaskID pgtype.UUID `json:"failed_task_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	FailedRunID pgtype.UUID `json:"failed_run_id"`
 }
 
 func (q *Queries) GetWorkflowReviewRecoveryByFailedCall(ctx context.Context, arg GetWorkflowReviewRecoveryByFailedCallParams) (WorkflowReviewRecovery, error) {
-	row := q.db.QueryRow(ctx, getWorkflowReviewRecoveryByFailedCall, arg.WorkspaceID, arg.FailedTaskID)
+	row := q.db.QueryRow(ctx, getWorkflowReviewRecoveryByFailedCall, arg.WorkspaceID, arg.FailedRunID)
 	var i WorkflowReviewRecovery
 	err := row.Scan(
 		&i.ID,
@@ -484,8 +484,8 @@ func (q *Queries) GetWorkflowReviewRecoveryByFailedCall(ctx context.Context, arg
 		&i.WorkflowInstanceID,
 		&i.ExecutionID,
 		&i.RequestID,
-		&i.FailedTaskID,
-		&i.NewTaskID,
+		&i.FailedRunID,
+		&i.NewRunID,
 		&i.ResultRevision,
 		&i.BasisHash,
 		&i.ActorID,
@@ -498,7 +498,7 @@ func (q *Queries) GetWorkflowReviewRecoveryByFailedCall(ctx context.Context, arg
 }
 
 const getWorkflowReviewRequest = `-- name: GetWorkflowReviewRequest :one
-SELECT id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, task_id FROM workflow_review_request WHERE workspace_id=$1 AND id=$2
+SELECT id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, run_id FROM workflow_review_request WHERE workflow_review_request.workspace_id=$1 AND id=$2
 `
 
 type GetWorkflowReviewRequestParams struct {
@@ -522,13 +522,13 @@ func (q *Queries) GetWorkflowReviewRequest(ctx context.Context, arg GetWorkflowR
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TaskID,
+		&i.RunID,
 	)
 	return i, err
 }
 
 const getWorkflowReviewRequestByBasis = `-- name: GetWorkflowReviewRequestByBasis :one
-SELECT id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, task_id FROM workflow_review_request WHERE workspace_id=$1 AND execution_id=$2 AND basis_hash=$3
+SELECT id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, run_id FROM workflow_review_request WHERE workflow_review_request.workspace_id=$1 AND execution_id=$2 AND basis_hash=$3
 `
 
 type GetWorkflowReviewRequestByBasisParams struct {
@@ -553,7 +553,7 @@ func (q *Queries) GetWorkflowReviewRequestByBasis(ctx context.Context, arg GetWo
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TaskID,
+		&i.RunID,
 	)
 	return i, err
 }
@@ -575,10 +575,10 @@ func (q *Queries) InvalidateWorkflowReviewRequests(ctx context.Context, arg Inva
 }
 
 const listQueuedWorkflowReviewsForAgent = `-- name: ListQueuedWorkflowReviewsForAgent :many
-SELECT request.id, request.workspace_id, request.workflow_instance_id, request.execution_id, request.reviewer_id, request.result_id, request.result_revision, request.basis_hash, request.basis_snapshot, request.status, request.created_at, request.updated_at, request.task_id FROM workflow_review_request request
-JOIN agent_task_queue task ON task.id=request.task_id AND task.workflow_review_request_id=request.id
-WHERE request.reviewer_id=$1 AND request.status='queued' AND task.status='queued'
-ORDER BY task.priority DESC,task.created_at,request.id LIMIT 100
+SELECT request.id, request.workspace_id, request.workflow_instance_id, request.execution_id, request.reviewer_id, request.result_id, request.result_revision, request.basis_hash, request.basis_snapshot, request.status, request.created_at, request.updated_at, request.run_id FROM workflow_review_request request
+JOIN agent_run run ON run.id=request.run_id AND run.workflow_review_request_id=request.id
+WHERE request.reviewer_id=$1 AND request.status='queued' AND run.status='queued'
+ORDER BY run.priority DESC,run.created_at,request.id LIMIT 100
 `
 
 func (q *Queries) ListQueuedWorkflowReviewsForAgent(ctx context.Context, reviewerID pgtype.UUID) ([]WorkflowReviewRequest, error) {
@@ -603,7 +603,7 @@ func (q *Queries) ListQueuedWorkflowReviewsForAgent(ctx context.Context, reviewe
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.TaskID,
+			&i.RunID,
 		); err != nil {
 			return nil, err
 		}
@@ -660,18 +660,18 @@ func (q *Queries) ListWorkflowAgentReviewCandidates(ctx context.Context, afterID
 }
 
 const lockWorkflowReviewCalls = `-- name: LockWorkflowReviewCalls :many
-SELECT task.id, task.agent_id, task.issue_id, task.status, task.attempt,
-       task.workflow_stage_execution_id, task.started_at, task.completed_at, task.created_at
-FROM agent_task_queue task
-WHERE task.workflow_review_request_id IS NULL AND ((task.workflow_stage_execution_id=$1 AND EXISTS (
-    SELECT 1 FROM workflow_stage_execution execution WHERE execution.id=task.workflow_stage_execution_id
+SELECT run.id, run.agent_id, run.task_id, run.status, run.attempt,
+       run.workflow_stage_execution_id, run.started_at, run.completed_at, run.created_at
+FROM agent_run run
+WHERE run.workflow_review_request_id IS NULL AND ((run.workflow_stage_execution_id=$1 AND EXISTS (
+    SELECT 1 FROM workflow_stage_execution execution WHERE execution.id=run.workflow_stage_execution_id
     AND execution.workspace_id=$2 AND execution.workflow_instance_id=$3))
-OR (task.workflow_stage_execution_id IS NULL AND EXISTS (
-    SELECT 1 FROM issue WHERE issue.id=task.issue_id AND issue.workspace_id=$2
-    AND issue.workflow_instance_id=$3 AND issue.workflow_stage_id=$4
-    AND issue.workflow_invalidated_by_rework_id IS NULL
-    AND (issue.workflow_stage_execution_id IS NULL OR issue.workflow_stage_execution_id=$1))))
-ORDER BY task.id FOR UPDATE OF task
+OR (run.workflow_stage_execution_id IS NULL AND EXISTS (
+    SELECT 1 FROM task WHERE task.id=run.task_id AND task.workspace_id=$2
+    AND task.workflow_instance_id=$3 AND task.workflow_stage_id=$4
+    AND task.workflow_invalidated_by_rework_id IS NULL
+    AND (task.workflow_stage_execution_id IS NULL OR task.workflow_stage_execution_id=$1))))
+ORDER BY run.id FOR UPDATE OF run
 `
 
 type LockWorkflowReviewCallsParams struct {
@@ -684,7 +684,7 @@ type LockWorkflowReviewCallsParams struct {
 type LockWorkflowReviewCallsRow struct {
 	ID                       pgtype.UUID        `json:"id"`
 	AgentID                  pgtype.UUID        `json:"agent_id"`
-	IssueID                  pgtype.UUID        `json:"issue_id"`
+	TaskID                   pgtype.UUID        `json:"task_id"`
 	Status                   string             `json:"status"`
 	Attempt                  int32              `json:"attempt"`
 	WorkflowStageExecutionID pgtype.UUID        `json:"workflow_stage_execution_id"`
@@ -694,7 +694,7 @@ type LockWorkflowReviewCallsRow struct {
 }
 
 // Lock all calls that affect the completion barrier, including historical bound
-// calls whose issue was moved. Insertions serialize on the parent Run lock.
+// calls whose task was moved. Insertions serialize on the parent Run lock.
 func (q *Queries) LockWorkflowReviewCalls(ctx context.Context, arg LockWorkflowReviewCallsParams) ([]LockWorkflowReviewCallsRow, error) {
 	rows, err := q.db.Query(ctx, lockWorkflowReviewCalls,
 		arg.ExecutionID,
@@ -712,7 +712,7 @@ func (q *Queries) LockWorkflowReviewCalls(ctx context.Context, arg LockWorkflowR
 		if err := rows.Scan(
 			&i.ID,
 			&i.AgentID,
-			&i.IssueID,
+			&i.TaskID,
 			&i.Status,
 			&i.Attempt,
 			&i.WorkflowStageExecutionID,
@@ -730,22 +730,22 @@ func (q *Queries) LockWorkflowReviewCalls(ctx context.Context, arg LockWorkflowR
 	return items, nil
 }
 
-const lockWorkflowReviewIssues = `-- name: LockWorkflowReviewIssues :many
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id FROM issue WHERE workspace_id=$1 AND workflow_instance_id=$2 AND workflow_stage_id=$3
+const lockWorkflowReviewTasks = `-- name: LockWorkflowReviewTasks :many
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_task_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id FROM task WHERE task.workspace_id=$1 AND workflow_instance_id=$2 AND workflow_stage_id=$3
 AND workflow_invalidated_by_rework_id IS NULL
 AND (workflow_stage_execution_id IS NULL OR workflow_stage_execution_id=$4)
 ORDER BY id FOR UPDATE
 `
 
-type LockWorkflowReviewIssuesParams struct {
+type LockWorkflowReviewTasksParams struct {
 	WorkspaceID              pgtype.UUID `json:"workspace_id"`
 	WorkflowInstanceID       pgtype.UUID `json:"workflow_instance_id"`
 	WorkflowStageID          pgtype.UUID `json:"workflow_stage_id"`
 	WorkflowStageExecutionID pgtype.UUID `json:"workflow_stage_execution_id"`
 }
 
-func (q *Queries) LockWorkflowReviewIssues(ctx context.Context, arg LockWorkflowReviewIssuesParams) ([]Issue, error) {
-	rows, err := q.db.Query(ctx, lockWorkflowReviewIssues,
+func (q *Queries) LockWorkflowReviewTasks(ctx context.Context, arg LockWorkflowReviewTasksParams) ([]Task, error) {
+	rows, err := q.db.Query(ctx, lockWorkflowReviewTasks,
 		arg.WorkspaceID,
 		arg.WorkflowInstanceID,
 		arg.WorkflowStageID,
@@ -755,9 +755,9 @@ func (q *Queries) LockWorkflowReviewIssues(ctx context.Context, arg LockWorkflow
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Issue{}
+	items := []Task{}
 	for rows.Next() {
-		var i Issue
+		var i Task
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -769,7 +769,7 @@ func (q *Queries) LockWorkflowReviewIssues(ctx context.Context, arg LockWorkflow
 			&i.AssigneeID,
 			&i.CreatorType,
 			&i.CreatorID,
-			&i.ParentIssueID,
+			&i.ParentTaskID,
 			&i.AcceptanceCriteria,
 			&i.ContextRefs,
 			&i.Position,
@@ -802,17 +802,17 @@ func (q *Queries) LockWorkflowReviewIssues(ctx context.Context, arg LockWorkflow
 
 const markWorkflowReviewDecided = `-- name: MarkWorkflowReviewDecided :one
 UPDATE workflow_review_request SET status='decided',updated_at=now()
-WHERE workspace_id=$1 AND id=$2 AND status='queued' AND task_id=$3 RETURNING id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, task_id
+WHERE workspace_id=$1 AND id=$2 AND status='queued' AND run_id=$3 RETURNING id, workspace_id, workflow_instance_id, execution_id, reviewer_id, result_id, result_revision, basis_hash, basis_snapshot, status, created_at, updated_at, run_id
 `
 
 type MarkWorkflowReviewDecidedParams struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	ID          pgtype.UUID `json:"id"`
-	TaskID      pgtype.UUID `json:"task_id"`
+	RunID       pgtype.UUID `json:"run_id"`
 }
 
 func (q *Queries) MarkWorkflowReviewDecided(ctx context.Context, arg MarkWorkflowReviewDecidedParams) (WorkflowReviewRequest, error) {
-	row := q.db.QueryRow(ctx, markWorkflowReviewDecided, arg.WorkspaceID, arg.ID, arg.TaskID)
+	row := q.db.QueryRow(ctx, markWorkflowReviewDecided, arg.WorkspaceID, arg.ID, arg.RunID)
 	var i WorkflowReviewRequest
 	err := row.Scan(
 		&i.ID,
@@ -827,36 +827,41 @@ func (q *Queries) MarkWorkflowReviewDecided(ctx context.Context, arg MarkWorkflo
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.TaskID,
+		&i.RunID,
 	)
 	return i, err
 }
 
 const retryWorkflowReviewCall = `-- name: RetryWorkflowReviewCall :one
 WITH child AS (
- INSERT INTO agent_task_queue (
-  agent_id,runtime_id,issue_id,status,priority,trigger_comment_id,coalesced_comment_ids,
-  trigger_summary,context,work_dir,attempt,max_attempts,parent_task_id,retry_of_task_id,
-  force_fresh_session,handoff_note,is_leader_task,squad_id,originator_user_id,accountable_user_id,
-  runtime_mcp_overlay,runtime_connected_apps,originator_source,delegated_from_task_id,rule_version_id,
+ INSERT INTO agent_run (
+  agent_id,runtime_id,task_id,status,priority,trigger_comment_id,coalesced_comment_ids,
+  trigger_summary,context,work_dir,attempt,max_attempts,parent_run_id,retry_of_run_id,
+  force_fresh_session,handoff_note,is_leader_run,squad_id,originator_user_id,accountable_user_id,
+  runtime_mcp_overlay,runtime_connected_apps,originator_source,delegated_from_run_id,rule_version_id,
   trigger_evidence_kind,trigger_evidence_ref_id,workflow_review_request_id
  )
- SELECT p.agent_id,$1::uuid,p.issue_id,'queued',p.priority,p.trigger_comment_id,p.coalesced_comment_ids,
+ SELECT p.agent_id,$1::uuid,p.task_id,'queued',p.priority,p.trigger_comment_id,p.coalesced_comment_ids,
   p.trigger_summary,p.context,CASE WHEN p.runtime_id=$1::uuid THEN p.work_dir ELSE NULL END,p.attempt+1,$2,p.id,p.id,
-  true,p.handoff_note,p.is_leader_task,p.squad_id,p.originator_user_id,p.accountable_user_id,
-  $3,$4,p.originator_source,p.delegated_from_task_id,p.rule_version_id,
+  true,p.handoff_note,p.is_leader_run,p.squad_id,p.originator_user_id,p.accountable_user_id,
+  $3,$4,p.originator_source,p.delegated_from_run_id,p.rule_version_id,
   p.trigger_evidence_kind,p.trigger_evidence_ref_id,request.id
- FROM workflow_review_request request JOIN agent_task_queue p ON p.id=request.task_id AND p.workflow_review_request_id=request.id
+ FROM workflow_review_request request JOIN agent_run p ON p.id=request.run_id AND p.workflow_review_request_id=request.id
  WHERE request.workspace_id=$5 AND request.id=$6
- AND request.task_id=$7 AND request.status IN ('queued','decided')
- AND (p.status='failed' OR (p.status='completed' AND NOT EXISTS (SELECT 1 FROM workflow_gate_decision d WHERE d.workspace_id=request.workspace_id AND d.execution_id=request.execution_id AND d.basis_hash=request.basis_hash AND d.review_task_id=p.id AND d.review_step='agent'))) AND p.attempt<$2 AND p.workflow_stage_execution_id IS NULL
- AND p.agent_id=request.reviewer_id AND EXISTS (SELECT 1 FROM workflow_stage_execution e WHERE e.id=request.execution_id AND e.workspace_id=request.workspace_id AND e.main_issue_id=p.issue_id)
- RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, trigger_chat_message_id, execution_manifest, worktree_branch, worktree_base_sha, worktree_final_sha, worktree_delivery_status, workflow_stage_execution_id, workflow_review_request_id
+ AND request.run_id=$7 AND request.status IN ('queued','decided')
+ AND (p.status='failed' OR (p.status='completed' AND NOT EXISTS (SELECT 1 FROM workflow_gate_decision d WHERE d.workspace_id=request.workspace_id AND d.execution_id=request.execution_id AND d.basis_hash=request.basis_hash AND d.review_run_id=p.id AND d.review_step='agent'))) AND p.attempt<$2 AND p.workflow_stage_execution_id IS NULL
+ AND p.agent_id=request.reviewer_id AND EXISTS (SELECT 1 FROM workflow_stage_execution e WHERE e.id=request.execution_id AND e.workspace_id=request.workspace_id AND e.main_task_id=p.task_id)
+ AND (p.agent_id IS NULL OR EXISTS (SELECT 1 FROM agent ref_agent_id WHERE ref_agent_id.id = p.agent_id FOR KEY SHARE))
+ AND (p.task_id IS NULL OR EXISTS (SELECT 1 FROM task ref_task_id WHERE ref_task_id.id = p.task_id FOR KEY SHARE))
+ AND (p.trigger_comment_id IS NULL OR EXISTS (SELECT 1 FROM comment ref_trigger_comment_id WHERE ref_trigger_comment_id.id = p.trigger_comment_id FOR KEY SHARE))
+ AND EXISTS (SELECT 1 FROM agent_runtime ref_runtime WHERE ref_runtime.id = $1 AND ref_runtime.workspace_id = request.workspace_id FOR KEY SHARE)
+ FOR KEY SHARE OF p
+ RETURNING id, agent_id, task_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_run_id, failure_reason, trigger_summary, force_fresh_session, is_leader_run, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_run_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_run_id, chat_finalize_deferred_at, originator_source, delegated_from_run_id, retry_of_run_id, rerun_of_run_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, trigger_chat_message_id, execution_manifest, worktree_branch, worktree_base_sha, worktree_final_sha, worktree_delivery_status, workflow_stage_execution_id, workflow_review_request_id
 ), rebound AS (
- UPDATE workflow_review_request request SET task_id=child.id,status='queued',updated_at=now()
+ UPDATE workflow_review_request request SET run_id=child.id,status='queued',updated_at=now()
  FROM child WHERE request.id=child.workflow_review_request_id RETURNING request.id
 )
-SELECT child.id, child.agent_id, child.issue_id, child.status, child.priority, child.dispatched_at, child.started_at, child.completed_at, child.result, child.error, child.created_at, child.context, child.runtime_id, child.session_id, child.work_dir, child.trigger_comment_id, child.chat_session_id, child.autopilot_run_id, child.attempt, child.max_attempts, child.parent_task_id, child.failure_reason, child.trigger_summary, child.force_fresh_session, child.is_leader_task, child.wait_reason, child.initiator_user_id, child.handoff_note, child.prepare_lease_expires_at, child.squad_id, child.runtime_mcp_overlay, child.escalation_for_task_id, child.fire_at, child.originator_user_id, child.runtime_connected_apps, child.coalesced_comment_ids, child.delivered_comment_ids, child.chat_input_task_id, child.chat_finalize_deferred_at, child.originator_source, child.delegated_from_task_id, child.retry_of_task_id, child.rerun_of_task_id, child.rule_version_id, child.trigger_evidence_kind, child.trigger_evidence_ref_id, child.accountable_user_id, child.session_rollout_missing, child.retired_session_id, child.trigger_chat_message_id, child.execution_manifest, child.worktree_branch, child.worktree_base_sha, child.worktree_final_sha, child.worktree_delivery_status, child.workflow_stage_execution_id, child.workflow_review_request_id FROM child JOIN rebound ON rebound.id=child.workflow_review_request_id
+SELECT child.id, child.agent_id, child.task_id, child.status, child.priority, child.dispatched_at, child.started_at, child.completed_at, child.result, child.error, child.created_at, child.context, child.runtime_id, child.session_id, child.work_dir, child.trigger_comment_id, child.chat_session_id, child.autopilot_run_id, child.attempt, child.max_attempts, child.parent_run_id, child.failure_reason, child.trigger_summary, child.force_fresh_session, child.is_leader_run, child.wait_reason, child.initiator_user_id, child.handoff_note, child.prepare_lease_expires_at, child.squad_id, child.runtime_mcp_overlay, child.escalation_for_run_id, child.fire_at, child.originator_user_id, child.runtime_connected_apps, child.coalesced_comment_ids, child.delivered_comment_ids, child.chat_input_run_id, child.chat_finalize_deferred_at, child.originator_source, child.delegated_from_run_id, child.retry_of_run_id, child.rerun_of_run_id, child.rule_version_id, child.trigger_evidence_kind, child.trigger_evidence_ref_id, child.accountable_user_id, child.session_rollout_missing, child.retired_session_id, child.trigger_chat_message_id, child.execution_manifest, child.worktree_branch, child.worktree_base_sha, child.worktree_final_sha, child.worktree_delivery_status, child.workflow_stage_execution_id, child.workflow_review_request_id FROM child JOIN rebound ON rebound.id=child.workflow_review_request_id
 `
 
 type RetryWorkflowReviewCallParams struct {
@@ -866,13 +871,13 @@ type RetryWorkflowReviewCallParams struct {
 	RuntimeConnectedApps []byte      `json:"runtime_connected_apps"`
 	WorkspaceID          pgtype.UUID `json:"workspace_id"`
 	RequestID            pgtype.UUID `json:"request_id"`
-	ParentTaskID         pgtype.UUID `json:"parent_task_id"`
+	ParentRunID          pgtype.UUID `json:"parent_run_id"`
 }
 
 type RetryWorkflowReviewCallRow struct {
 	ID                       pgtype.UUID        `json:"id"`
 	AgentID                  pgtype.UUID        `json:"agent_id"`
-	IssueID                  pgtype.UUID        `json:"issue_id"`
+	TaskID                   pgtype.UUID        `json:"task_id"`
 	Status                   string             `json:"status"`
 	Priority                 int32              `json:"priority"`
 	DispatchedAt             pgtype.Timestamptz `json:"dispatched_at"`
@@ -890,29 +895,29 @@ type RetryWorkflowReviewCallRow struct {
 	AutopilotRunID           pgtype.UUID        `json:"autopilot_run_id"`
 	Attempt                  int32              `json:"attempt"`
 	MaxAttempts              int32              `json:"max_attempts"`
-	ParentTaskID             pgtype.UUID        `json:"parent_task_id"`
+	ParentRunID              pgtype.UUID        `json:"parent_run_id"`
 	FailureReason            pgtype.Text        `json:"failure_reason"`
 	TriggerSummary           pgtype.Text        `json:"trigger_summary"`
 	ForceFreshSession        bool               `json:"force_fresh_session"`
-	IsLeaderTask             bool               `json:"is_leader_task"`
+	IsLeaderRun              bool               `json:"is_leader_run"`
 	WaitReason               pgtype.Text        `json:"wait_reason"`
 	InitiatorUserID          pgtype.UUID        `json:"initiator_user_id"`
 	HandoffNote              pgtype.Text        `json:"handoff_note"`
 	PrepareLeaseExpiresAt    pgtype.Timestamptz `json:"prepare_lease_expires_at"`
 	SquadID                  pgtype.UUID        `json:"squad_id"`
 	RuntimeMcpOverlay        []byte             `json:"runtime_mcp_overlay"`
-	EscalationForTaskID      pgtype.UUID        `json:"escalation_for_task_id"`
+	EscalationForRunID       pgtype.UUID        `json:"escalation_for_run_id"`
 	FireAt                   pgtype.Timestamptz `json:"fire_at"`
 	OriginatorUserID         pgtype.UUID        `json:"originator_user_id"`
 	RuntimeConnectedApps     []byte             `json:"runtime_connected_apps"`
 	CoalescedCommentIds      []pgtype.UUID      `json:"coalesced_comment_ids"`
 	DeliveredCommentIds      []pgtype.UUID      `json:"delivered_comment_ids"`
-	ChatInputTaskID          pgtype.UUID        `json:"chat_input_task_id"`
+	ChatInputRunID           pgtype.UUID        `json:"chat_input_run_id"`
 	ChatFinalizeDeferredAt   pgtype.Timestamptz `json:"chat_finalize_deferred_at"`
 	OriginatorSource         pgtype.Text        `json:"originator_source"`
-	DelegatedFromTaskID      pgtype.UUID        `json:"delegated_from_task_id"`
-	RetryOfTaskID            pgtype.UUID        `json:"retry_of_task_id"`
-	RerunOfTaskID            pgtype.UUID        `json:"rerun_of_task_id"`
+	DelegatedFromRunID       pgtype.UUID        `json:"delegated_from_run_id"`
+	RetryOfRunID             pgtype.UUID        `json:"retry_of_run_id"`
+	RerunOfRunID             pgtype.UUID        `json:"rerun_of_run_id"`
 	RuleVersionID            pgtype.UUID        `json:"rule_version_id"`
 	TriggerEvidenceKind      pgtype.Text        `json:"trigger_evidence_kind"`
 	TriggerEvidenceRefID     pgtype.UUID        `json:"trigger_evidence_ref_id"`
@@ -938,13 +943,13 @@ func (q *Queries) RetryWorkflowReviewCall(ctx context.Context, arg RetryWorkflow
 		arg.RuntimeConnectedApps,
 		arg.WorkspaceID,
 		arg.RequestID,
-		arg.ParentTaskID,
+		arg.ParentRunID,
 	)
 	var i RetryWorkflowReviewCallRow
 	err := row.Scan(
 		&i.ID,
 		&i.AgentID,
-		&i.IssueID,
+		&i.TaskID,
 		&i.Status,
 		&i.Priority,
 		&i.DispatchedAt,
@@ -962,29 +967,29 @@ func (q *Queries) RetryWorkflowReviewCall(ctx context.Context, arg RetryWorkflow
 		&i.AutopilotRunID,
 		&i.Attempt,
 		&i.MaxAttempts,
-		&i.ParentTaskID,
+		&i.ParentRunID,
 		&i.FailureReason,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
-		&i.IsLeaderTask,
+		&i.IsLeaderRun,
 		&i.WaitReason,
 		&i.InitiatorUserID,
 		&i.HandoffNote,
 		&i.PrepareLeaseExpiresAt,
 		&i.SquadID,
 		&i.RuntimeMcpOverlay,
-		&i.EscalationForTaskID,
+		&i.EscalationForRunID,
 		&i.FireAt,
 		&i.OriginatorUserID,
 		&i.RuntimeConnectedApps,
 		&i.CoalescedCommentIds,
 		&i.DeliveredCommentIds,
-		&i.ChatInputTaskID,
+		&i.ChatInputRunID,
 		&i.ChatFinalizeDeferredAt,
 		&i.OriginatorSource,
-		&i.DelegatedFromTaskID,
-		&i.RetryOfTaskID,
-		&i.RerunOfTaskID,
+		&i.DelegatedFromRunID,
+		&i.RetryOfRunID,
+		&i.RerunOfRunID,
 		&i.RuleVersionID,
 		&i.TriggerEvidenceKind,
 		&i.TriggerEvidenceRefID,

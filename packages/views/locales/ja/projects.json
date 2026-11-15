@@ -25,7 +25,7 @@
     "progress": "進捗",
     "lead": "リード",
     "created": "作成日",
-    "issues": "Task 数"
+    "tasks": "Task 数"
   },
   "status": {
     "planned": "計画中",
@@ -74,13 +74,13 @@
     "clear_date": "日付をクリア",
     "description_placeholder": "説明を追加...",
     "description_hint": "このプロジェクトのすべてのタスクで、コンテキストとしてエージェントに共有されます。",
-    "empty_issues_title": "リンクされたTaskはありません",
-    "empty_issues_hint": "新しいTaskを作成するか、既存のTaskをこのプロジェクトに割り当ててください。",
-    "empty_issues_new_button": "新規Task",
-    "no_issues_yet": "Taskはまだありません",
+    "empty_tasks_title": "リンクされたTaskはありません",
+    "empty_tasks_hint": "新しいTaskを作成するか、既存のTaskをこのプロジェクトに割り当ててください。",
+    "empty_tasks_new_button": "新規Task",
+    "no_tasks_yet": "Taskはまだありません",
     "toast_link_copied": "リンクをコピーしました",
     "toast_project_deleted": "プロジェクトを削除しました",
-    "toast_move_issue_failed": "Taskを移動できませんでした"
+    "toast_move_task_failed": "Taskを移動できませんでした"
   },
   "resources": {
     "section_header": "リソース",

@@ -46,7 +46,7 @@ function renderUnmatchedRoute(path: string) {
     [
       {
         path: "/:workspaceSlug/tasks",
-        element: <div>issues</div>,
+        element: <div>tasks</div>,
         errorElement: <DesktopRouteErrorPage />,
       },
     ],
@@ -167,7 +167,7 @@ describe("DesktopRouteErrorPage", () => {
       // "recovery" button pointing at /Users/tasks — a second 404.
       renderUnmatchedRoute("/Users/whoever/Desktop/shot.png");
 
-      fireEvent.click(await screen.findByRole("button", { name: /go to issues/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /go to tasks/i }));
       expect(navigateActiveSession).toHaveBeenCalledWith("/acme/tasks", {
         replace: true,
       });
@@ -184,7 +184,7 @@ describe("DesktopRouteErrorPage", () => {
 
       await screen.findByRole("alert");
       expect(
-        screen.queryByRole("button", { name: /go to issues/i }),
+        screen.queryByRole("button", { name: /go to tasks/i }),
       ).not.toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: /close tab/i }),

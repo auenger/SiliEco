@@ -2,11 +2,11 @@ package lark
 
 import "testing"
 
-// TestFlattenPostContent_IssueExample pins the exact rich-text `post`
+// TestFlattenPostContent_TaskExample pins the exact rich-text `post`
 // example from SILI-2951: a title line, a prose paragraph, and a
 // paragraph mixing a text span with a hyperlink span. The link must
 // render as "text (href)" so the URL survives into the agent's context.
-func TestFlattenPostContent_IssueExample(t *testing.T) {
+func TestFlattenPostContent_TaskExample(t *testing.T) {
 	t.Parallel()
 	// Received-side post body.content (NOT locale-wrapped).
 	raw := `{

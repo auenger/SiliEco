@@ -11,9 +11,9 @@ import (
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 )
 
-// setupSweeperTestFixture creates an issue and a task in the given status with
-// timestamps old enough to trigger the sweeper. Returns (issueID, agentID, taskID).
-func setupSweeperTestFixture(t *testing.T, taskStatus string) (string, string, string) {
+// setupSweeperTestFixture creates an task and a task in the given status with
+// timestamps old enough to trigger the sweeper. Returns (taskID, agentID, runID).
+func setupSweeperTestFixture(t *testing.T, runStatus string) (string, string, string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -30,36 +30,36 @@ func setupSweeperTestFixture(t *testing.T, taskStatus string) (string, string, s
 		t.Fatalf("failed to find test agent: %v", err)
 	}
 
-	// Create an issue assigned to the agent
-	var issueID string
+	// Create an task assigned to the agent
+	var taskID string
 	err = testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id)
-		SELECT $1, 'Sweeper test issue', 'todo', 'none', 'member', m.user_id, 'agent', $2
+		INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id)
+		SELECT $1, 'Sweeper test task', 'todo', 'none', 'member', m.user_id, 'agent', $2
 		FROM member m WHERE m.workspace_id = $1 LIMIT 1
 		RETURNING id
-	`, testWorkspaceID, agentID).Scan(&issueID)
+	`, testWorkspaceID, agentID).Scan(&taskID)
 	if err != nil {
-		t.Fatalf("failed to create test issue: %v", err)
+		t.Fatalf("failed to create test task: %v", err)
 	}
 
 	// Create a task in the desired status with old timestamps
-	var taskID string
-	switch taskStatus {
+	var runID string
+	switch runStatus {
 	case "running":
 		err = testPool.QueryRow(ctx, `
-			INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, dispatched_at, started_at)
+			INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, dispatched_at, started_at)
 			VALUES ($1, $2, $3, 'running', 0, now() - interval '3 hours', now() - interval '3 hours')
 			RETURNING id
-		`, agentID, runtimeID, issueID).Scan(&taskID)
+		`, agentID, runtimeID, taskID).Scan(&runID)
 	case "dispatched":
 		err = testPool.QueryRow(ctx, `
-			INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, dispatched_at)
+			INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, dispatched_at)
 			VALUES ($1, $2, $3, 'dispatched', 0, now() - interval '10 minutes')
 			RETURNING id
-		`, agentID, runtimeID, issueID).Scan(&taskID)
+		`, agentID, runtimeID, taskID).Scan(&runID)
 	}
 	if err != nil {
-		t.Fatalf("failed to create test task: %v", err)
+		t.Fatalf("failed to create test run: %v", err)
 	}
 
 	// Set agent status to "working"
@@ -68,14 +68,14 @@ func setupSweeperTestFixture(t *testing.T, taskStatus string) (string, string, s
 		t.Fatalf("failed to set agent status: %v", err)
 	}
 
-	return issueID, agentID, taskID
+	return taskID, agentID, runID
 }
 
-func cleanupSweeperFixture(t *testing.T, issueID, agentID string) {
+func cleanupSweeperFixture(t *testing.T, taskID, agentID string) {
 	t.Helper()
 	ctx := context.Background()
-	testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
-	testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID)
+	testPool.Exec(ctx, `DELETE FROM agent_run WHERE task_id = $1`, taskID)
+	testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID)
 	testPool.Exec(ctx, `UPDATE agent SET status = 'idle' WHERE id = $1`, agentID)
 }
 
@@ -103,14 +103,14 @@ func ageOutAgentRuntime(t *testing.T, agentID string, staleAgo time.Duration) {
 	})
 }
 
-func TestRefreshAgentStatusFromTasks(t *testing.T) {
+func TestRefreshAgentStatusFromRuns(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
 
 	ctx := context.Background()
-	issueID, agentID, taskID := setupSweeperTestFixture(t, "dispatched")
-	t.Cleanup(func() { cleanupSweeperFixture(t, issueID, agentID) })
+	taskID, agentID, runID := setupSweeperTestFixture(t, "dispatched")
+	t.Cleanup(func() { cleanupSweeperFixture(t, taskID, agentID) })
 
 	queries := db.New(testPool)
 
@@ -118,7 +118,7 @@ func TestRefreshAgentStatusFromTasks(t *testing.T) {
 		t.Fatalf("failed to seed idle agent status: %v", err)
 	}
 
-	agent, err := queries.RefreshAgentStatusFromTasks(ctx, parseUUID(agentID))
+	agent, err := queries.RefreshAgentStatusFromRuns(ctx, parseUUID(agentID))
 	if err != nil {
 		t.Fatalf("RefreshAgentStatusFromTasks with dispatched task failed: %v", err)
 	}
@@ -127,17 +127,17 @@ func TestRefreshAgentStatusFromTasks(t *testing.T) {
 	}
 
 	if _, err := testPool.Exec(ctx, `
-		UPDATE agent_task_queue
+		UPDATE agent_run
 		SET status = 'cancelled', completed_at = now()
 		WHERE id = $1
-	`, taskID); err != nil {
-		t.Fatalf("failed to cancel seeded task: %v", err)
+	`, runID); err != nil {
+		t.Fatalf("failed to cancel seeded run: %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `UPDATE agent SET status = 'working' WHERE id = $1`, agentID); err != nil {
 		t.Fatalf("failed to reseed working agent status: %v", err)
 	}
 
-	agent, err = queries.RefreshAgentStatusFromTasks(ctx, parseUUID(agentID))
+	agent, err = queries.RefreshAgentStatusFromRuns(ctx, parseUUID(agentID))
 	if err != nil {
 		t.Fatalf("RefreshAgentStatusFromTasks with no active tasks failed: %v", err)
 	}
@@ -147,16 +147,16 @@ func TestRefreshAgentStatusFromTasks(t *testing.T) {
 }
 
 // TestSweepStaleTasksBroadcastsWithWorkspaceID verifies that when the task sweeper
-// fails a stale running task, the task:failed event is broadcast with the correct
+// fails a stale running task, the run:failed event is broadcast with the correct
 // WorkspaceID so it reaches frontend WebSocket clients (events without WorkspaceID
 // are silently dropped by the WS listener — that was the original bug).
-func TestSweepStaleTasksBroadcastsWithWorkspaceID(t *testing.T) {
+func TestSweepStaleRunsBroadcastsWithWorkspaceID(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
 
-	issueID, agentID, taskID := setupSweeperTestFixture(t, "running")
-	t.Cleanup(func() { cleanupSweeperFixture(t, issueID, agentID) })
+	taskID, agentID, runID := setupSweeperTestFixture(t, "running")
+	t.Cleanup(func() { cleanupSweeperFixture(t, taskID, agentID) })
 	// The running-task sweep now requires the task's runtime to be NOT
 	// heartbeating (SILI-4107). Age the runtime out so this test still
 	// exercises the sweeper wall clock rather than being silently skipped.
@@ -165,17 +165,17 @@ func TestSweepStaleTasksBroadcastsWithWorkspaceID(t *testing.T) {
 	queries := db.New(testPool)
 	bus := events.New()
 
-	// Capture task:failed events to verify WorkspaceID is set
-	var taskEvents []events.Event
+	// Capture run:failed events to verify WorkspaceID is set
+	var runEvents []events.Event
 	var mu sync.Mutex
-	bus.Subscribe("task:failed", func(e events.Event) {
+	bus.Subscribe("run:failed", func(e events.Event) {
 		mu.Lock()
-		taskEvents = append(taskEvents, e)
+		runEvents = append(runEvents, e)
 		mu.Unlock()
 	})
 
 	// Use very short timeouts to trigger the sweep on our test task
-	failedTasks, err := queries.FailStaleTasks(context.Background(), db.FailStaleTasksParams{
+	failedRuns, err := queries.FailStaleRuns(context.Background(), db.FailStaleRunsParams{
 		DispatchTimeoutSecs: 300.0,
 		RunningTimeoutSecs:  1.0, // 1 second — our task is 3 hours old
 		RuntimeStaleSecs:    staleThresholdSeconds,
@@ -183,34 +183,34 @@ func TestSweepStaleTasksBroadcastsWithWorkspaceID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FailStaleTasks query failed: %v", err)
 	}
-	if len(failedTasks) == 0 {
+	if len(failedRuns) == 0 {
 		t.Fatal("expected at least 1 stale task to be failed")
 	}
 
 	// Verify our task was included
 	found := false
-	for _, ft := range failedTasks {
-		if ft.ID.Bytes == parseUUIDBytes(taskID) {
+	for _, ft := range failedRuns {
+		if ft.ID.Bytes == parseUUIDBytes(runID) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected task %s to be in failed tasks list", taskID)
+		t.Fatalf("expected task %s to be in failed tasks list", runID)
 	}
 
 	// Call broadcastFailedTasks — this is what we're testing
-	broadcastFailedTasks(context.Background(), queries, nil, bus, failedTasks)
+	broadcastFailedRuns(context.Background(), queries, nil, bus, failedRuns)
 
 	// Verify the event was published with WorkspaceID (the core of the bug fix)
 	mu.Lock()
 	defer mu.Unlock()
 	var foundEvent bool
-	for _, e := range taskEvents {
+	for _, e := range runEvents {
 		payload, _ := e.Payload.(map[string]any)
-		if payload["task_id"] == taskID {
+		if payload["run_id"] == runID {
 			if e.WorkspaceID == "" {
-				t.Fatal("task:failed event is missing WorkspaceID — this was the original bug")
+				t.Fatal("run:failed event is missing WorkspaceID — this was the original bug")
 			}
 			if e.WorkspaceID != testWorkspaceID {
 				t.Fatalf("expected WorkspaceID %s, got %s", testWorkspaceID, e.WorkspaceID)
@@ -220,12 +220,12 @@ func TestSweepStaleTasksBroadcastsWithWorkspaceID(t *testing.T) {
 		}
 	}
 	if !foundEvent {
-		t.Fatalf("expected task:failed event for task %s", taskID)
+		t.Fatalf("expected run:failed event for task %s", runID)
 	}
 
 	// Verify DB: task should be failed
 	var status string
-	err = testPool.QueryRow(context.Background(), `SELECT status FROM agent_task_queue WHERE id = $1`, taskID).Scan(&status)
+	err = testPool.QueryRow(context.Background(), `SELECT status FROM agent_run WHERE id = $1`, runID).Scan(&status)
 	if err != nil {
 		t.Fatalf("failed to query task status: %v", err)
 	}
@@ -236,13 +236,13 @@ func TestSweepStaleTasksBroadcastsWithWorkspaceID(t *testing.T) {
 
 // TestSweepStaleTasksReconcileAgentStatus verifies that after the sweeper fails
 // stale tasks, the agent status is reconciled from "working" back to "idle".
-func TestSweepStaleTasksReconcileAgentStatus(t *testing.T) {
+func TestSweepStaleRunsReconcileAgentStatus(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
 
-	issueID, agentID, _ := setupSweeperTestFixture(t, "running")
-	t.Cleanup(func() { cleanupSweeperFixture(t, issueID, agentID) })
+	taskID, agentID, _ := setupSweeperTestFixture(t, "running")
+	t.Cleanup(func() { cleanupSweeperFixture(t, taskID, agentID) })
 	// Runtime must be stale for the running-task wall clock to fire (SILI-4107).
 	ageOutAgentRuntime(t, agentID, 10*time.Minute)
 
@@ -259,7 +259,7 @@ func TestSweepStaleTasksReconcileAgentStatus(t *testing.T) {
 	})
 
 	// Fail stale tasks with short timeout
-	failedTasks, err := queries.FailStaleTasks(context.Background(), db.FailStaleTasksParams{
+	failedRuns, err := queries.FailStaleRuns(context.Background(), db.FailStaleRunsParams{
 		DispatchTimeoutSecs: 300.0,
 		RunningTimeoutSecs:  1.0,
 		RuntimeStaleSecs:    staleThresholdSeconds,
@@ -267,11 +267,11 @@ func TestSweepStaleTasksReconcileAgentStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FailStaleTasks failed: %v", err)
 	}
-	if len(failedTasks) == 0 {
+	if len(failedRuns) == 0 {
 		t.Fatal("expected at least 1 stale task")
 	}
 
-	broadcastFailedTasks(context.Background(), queries, nil, bus, failedTasks)
+	broadcastFailedRuns(context.Background(), queries, nil, bus, failedRuns)
 
 	// Verify agent status is now "idle" in DB
 	var agentStatus string
@@ -300,28 +300,28 @@ func TestSweepStaleTasksReconcileAgentStatus(t *testing.T) {
 
 // TestSweepDispatchedStaleTask verifies the sweeper handles dispatched tasks
 // stuck beyond the dispatch timeout.
-func TestSweepDispatchedStaleTask(t *testing.T) {
+func TestSweepDispatchedStaleRun(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
 
-	issueID, agentID, taskID := setupSweeperTestFixture(t, "dispatched")
-	t.Cleanup(func() { cleanupSweeperFixture(t, issueID, agentID) })
+	taskID, agentID, runID := setupSweeperTestFixture(t, "dispatched")
+	t.Cleanup(func() { cleanupSweeperFixture(t, taskID, agentID) })
 
 	queries := db.New(testPool)
 	bus := events.New()
 
-	// Capture task:failed events
-	var taskEvents []events.Event
+	// Capture run:failed events
+	var runEvents []events.Event
 	var mu sync.Mutex
-	bus.Subscribe("task:failed", func(e events.Event) {
+	bus.Subscribe("run:failed", func(e events.Event) {
 		mu.Lock()
-		taskEvents = append(taskEvents, e)
+		runEvents = append(runEvents, e)
 		mu.Unlock()
 	})
 
 	// Fail stale tasks — dispatch timeout of 1 second (our task is 10 minutes old)
-	failedTasks, err := queries.FailStaleTasks(context.Background(), db.FailStaleTasksParams{
+	failedRuns, err := queries.FailStaleRuns(context.Background(), db.FailStaleRunsParams{
 		DispatchTimeoutSecs: 1.0,
 		RunningTimeoutSecs:  9000.0,
 		// RuntimeStaleSecs only affects the running branch — irrelevant for
@@ -331,31 +331,31 @@ func TestSweepDispatchedStaleTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FailStaleTasks failed: %v", err)
 	}
-	if len(failedTasks) == 0 {
+	if len(failedRuns) == 0 {
 		t.Fatal("expected at least 1 stale dispatched task")
 	}
 
-	broadcastFailedTasks(context.Background(), queries, nil, bus, failedTasks)
+	broadcastFailedRuns(context.Background(), queries, nil, bus, failedRuns)
 
 	// Verify DB: task should be failed
 	var status string
-	err = testPool.QueryRow(context.Background(), `SELECT status FROM agent_task_queue WHERE id = $1`, taskID).Scan(&status)
+	err = testPool.QueryRow(context.Background(), `SELECT status FROM agent_run WHERE id = $1`, runID).Scan(&status)
 	if err != nil {
-		t.Fatalf("failed to query task: %v", err)
+		t.Fatalf("failed to query run: %v", err)
 	}
 	if status != "failed" {
 		t.Fatalf("expected task status 'failed', got '%s'", status)
 	}
 
-	// Verify task:failed event was published WITH WorkspaceID
+	// Verify run:failed event was published WITH WorkspaceID
 	mu.Lock()
 	defer mu.Unlock()
 	found := false
-	for _, e := range taskEvents {
+	for _, e := range runEvents {
 		payload, _ := e.Payload.(map[string]any)
-		if payload["task_id"] == taskID {
+		if payload["run_id"] == runID {
 			if e.WorkspaceID == "" {
-				t.Fatal("task:failed event is missing WorkspaceID — this was the bug")
+				t.Fatal("run:failed event is missing WorkspaceID — this was the bug")
 			}
 			if e.WorkspaceID != testWorkspaceID {
 				t.Fatalf("expected WorkspaceID %s, got %s", testWorkspaceID, e.WorkspaceID)
@@ -365,7 +365,7 @@ func TestSweepDispatchedStaleTask(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("expected task:failed event for task %s", taskID)
+		t.Fatalf("expected run:failed event for task %s", runID)
 	}
 
 	// Verify agent status reconciled to idle
@@ -385,19 +385,19 @@ func TestSweepDispatchedStaleTask(t *testing.T) {
 // last_seen_at is within the runtime stale window. This preserves healthy
 // multi-hour research / training runs — the primary motivation for the
 // liveness-keyed sweep predicate.
-func TestSweepRunningTaskSkippedWhenRuntimeFresh(t *testing.T) {
+func TestSweepRunningRunSkippedWhenRuntimeFresh(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
 
-	issueID, agentID, taskID := setupSweeperTestFixture(t, "running")
-	t.Cleanup(func() { cleanupSweeperFixture(t, issueID, agentID) })
+	taskID, agentID, runID := setupSweeperTestFixture(t, "running")
+	t.Cleanup(func() { cleanupSweeperFixture(t, taskID, agentID) })
 
 	// Runtime heartbeat is fresh (integration fixture inserts last_seen_at=now()).
 	// Task started_at is 3h ago; RunningTimeoutSecs=1s would kill on wall clock
 	// alone — but the runtime is proving liveness, so the sweeper must skip it.
 	queries := db.New(testPool)
-	failedTasks, err := queries.FailStaleTasks(context.Background(), db.FailStaleTasksParams{
+	failedRuns, err := queries.FailStaleRuns(context.Background(), db.FailStaleRunsParams{
 		DispatchTimeoutSecs: 300.0,
 		RunningTimeoutSecs:  1.0,
 		RuntimeStaleSecs:    staleThresholdSeconds,
@@ -406,15 +406,15 @@ func TestSweepRunningTaskSkippedWhenRuntimeFresh(t *testing.T) {
 		t.Fatalf("FailStaleTasks failed: %v", err)
 	}
 
-	for _, ft := range failedTasks {
-		if ft.ID.Bytes == parseUUIDBytes(taskID) {
+	for _, ft := range failedRuns {
+		if ft.ID.Bytes == parseUUIDBytes(runID) {
 			t.Fatalf("healthy long-running task on live daemon must NOT be swept — that was the SILI-4107 bug")
 		}
 	}
 
 	var status string
 	if err := testPool.QueryRow(context.Background(),
-		`SELECT status FROM agent_task_queue WHERE id = $1`, taskID,
+		`SELECT status FROM agent_run WHERE id = $1`, runID,
 	).Scan(&status); err != nil {
 		t.Fatalf("failed to query task status: %v", err)
 	}
@@ -430,17 +430,17 @@ func TestSweepRunningTaskSkippedWhenRuntimeFresh(t *testing.T) {
 // wall-clock branch is the defensive backstop for). Note that in production
 // the daemon-dead case is normally reclaimed sooner by sweepStaleRuntimes;
 // this test asserts the residual backstop still fires when it needs to.
-func TestSweepRunningTaskKilledWhenRuntimeStale(t *testing.T) {
+func TestSweepRunningRunKilledWhenRuntimeStale(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
 
-	issueID, agentID, taskID := setupSweeperTestFixture(t, "running")
-	t.Cleanup(func() { cleanupSweeperFixture(t, issueID, agentID) })
+	taskID, agentID, runID := setupSweeperTestFixture(t, "running")
+	t.Cleanup(func() { cleanupSweeperFixture(t, taskID, agentID) })
 	ageOutAgentRuntime(t, agentID, 10*time.Minute)
 
 	queries := db.New(testPool)
-	failedTasks, err := queries.FailStaleTasks(context.Background(), db.FailStaleTasksParams{
+	failedRuns, err := queries.FailStaleRuns(context.Background(), db.FailStaleRunsParams{
 		DispatchTimeoutSecs: 300.0,
 		RunningTimeoutSecs:  1.0,
 		RuntimeStaleSecs:    staleThresholdSeconds,
@@ -450,19 +450,19 @@ func TestSweepRunningTaskKilledWhenRuntimeStale(t *testing.T) {
 	}
 
 	found := false
-	for _, ft := range failedTasks {
-		if ft.ID.Bytes == parseUUIDBytes(taskID) {
+	for _, ft := range failedRuns {
+		if ft.ID.Bytes == parseUUIDBytes(runID) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected wall clock to fire when runtime heartbeat is stale, but task %s was not swept", taskID)
+		t.Fatalf("expected wall clock to fire when runtime heartbeat is stale, but task %s was not swept", runID)
 	}
 
 	var status string
 	if err := testPool.QueryRow(context.Background(),
-		`SELECT status FROM agent_task_queue WHERE id = $1`, taskID,
+		`SELECT status FROM agent_run WHERE id = $1`, runID,
 	).Scan(&status); err != nil {
 		t.Fatalf("failed to query task status: %v", err)
 	}
@@ -471,13 +471,13 @@ func TestSweepRunningTaskKilledWhenRuntimeStale(t *testing.T) {
 	}
 }
 
-// TestSweepResetsInProgressIssueToTodo verifies the core fix: when the sweeper
-// force-fails a stale task whose issue is still in_progress (because the daemon
-// crashed mid-run), the issue is reset back to todo so the daemon can re-queue it.
+// TestSweepResetsInProgressTaskToTodo verifies the core fix: when the sweeper
+// force-fails a stale task whose task is still in_progress (because the daemon
+// crashed mid-run), the task is reset back to todo so the daemon can re-queue it.
 //
-// Without this fix the issue stays in_progress permanently — the agent never runs
+// Without this fix the task stays in_progress permanently — the agent never runs
 // to update the status because it was never dispatched.
-func TestSweepResetsInProgressIssueToTodo(t *testing.T) {
+func TestSweepResetsInProgressTaskToTodo(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
@@ -497,31 +497,31 @@ func TestSweepResetsInProgressIssueToTodo(t *testing.T) {
 		t.Fatalf("failed to find test agent: %v", err)
 	}
 
-	// Create an issue already in in_progress (simulates a daemon crash mid-run).
-	var issueID string
-	err = testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id)
-		SELECT $1, 'Stuck in_progress issue', 'in_progress', 'none', 'member', m.user_id, 'agent', $2
-		FROM member m WHERE m.workspace_id = $1 LIMIT 1
-		RETURNING id
-	`, testWorkspaceID, agentID).Scan(&issueID)
-	if err != nil {
-		t.Fatalf("failed to create test issue: %v", err)
-	}
-	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
-		testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID)
-	})
-
-	// Create a stale running task for the issue (3 hours old — beyond any timeout).
+	// Create an task already in in_progress (simulates a daemon crash mid-run).
 	var taskID string
 	err = testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, dispatched_at, started_at)
+		INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id)
+		SELECT $1, 'Stuck in_progress task', 'in_progress', 'none', 'member', m.user_id, 'agent', $2
+		FROM member m WHERE m.workspace_id = $1 LIMIT 1
+		RETURNING id
+	`, testWorkspaceID, agentID).Scan(&taskID)
+	if err != nil {
+		t.Fatalf("failed to create test task: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM agent_run WHERE task_id = $1`, taskID)
+		testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID)
+	})
+
+	// Create a stale running task for the task (3 hours old — beyond any timeout).
+	var runID string
+	err = testPool.QueryRow(ctx, `
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, dispatched_at, started_at)
 		VALUES ($1, $2, $3, 'running', 0, now() - interval '3 hours', now() - interval '3 hours')
 		RETURNING id
-	`, agentID, runtimeID, issueID).Scan(&taskID)
+	`, agentID, runtimeID, taskID).Scan(&runID)
 	if err != nil {
-		t.Fatalf("failed to create stale task: %v", err)
+		t.Fatalf("failed to create stale run: %v", err)
 	}
 
 	queries := db.New(testPool)
@@ -531,7 +531,7 @@ func TestSweepResetsInProgressIssueToTodo(t *testing.T) {
 	ageOutAgentRuntime(t, agentID, 10*time.Minute)
 
 	// Fail the stale task (running timeout of 1 second — our task is 3 hours old).
-	failedTasks, err := queries.FailStaleTasks(ctx, db.FailStaleTasksParams{
+	failedRuns, err := queries.FailStaleRuns(ctx, db.FailStaleRunsParams{
 		DispatchTimeoutSecs: 300.0,
 		RunningTimeoutSecs:  1.0,
 		RuntimeStaleSecs:    staleThresholdSeconds,
@@ -542,33 +542,33 @@ func TestSweepResetsInProgressIssueToTodo(t *testing.T) {
 
 	// Confirm our task was swept.
 	found := false
-	for _, ft := range failedTasks {
-		if ft.ID.Bytes == parseUUIDBytes(taskID) {
+	for _, ft := range failedRuns {
+		if ft.ID.Bytes == parseUUIDBytes(runID) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected task %s to be in failed tasks, got %v", taskID, failedTasks)
+		t.Fatalf("expected task %s to be in failed tasks, got %v", runID, failedRuns)
 	}
 
-	// This is what we're testing: issue must be reset from in_progress → todo.
-	broadcastFailedTasks(ctx, queries, nil, bus, failedTasks)
+	// This is what we're testing: task must be reset from in_progress → todo.
+	broadcastFailedRuns(ctx, queries, nil, bus, failedRuns)
 
-	var issueStatus string
-	err = testPool.QueryRow(ctx, `SELECT status FROM issue WHERE id = $1`, issueID).Scan(&issueStatus)
+	var taskStatus string
+	err = testPool.QueryRow(ctx, `SELECT status FROM task WHERE id = $1`, taskID).Scan(&taskStatus)
 	if err != nil {
-		t.Fatalf("failed to query issue status: %v", err)
+		t.Fatalf("failed to query task status: %v", err)
 	}
-	if issueStatus != "todo" {
-		t.Fatalf("expected issue status 'todo' after sweep, got '%s' — issue is stuck", issueStatus)
+	if taskStatus != "todo" {
+		t.Fatalf("expected task status 'todo' after sweep, got '%s' — task is stuck", taskStatus)
 	}
 }
 
-// TestSweepDoesNotResetIssueAlreadyInReview verifies that the sweeper only resets
-// issues that are truly stuck in in_progress — it must not clobber issues whose
+// TestSweepDoesNotResetTaskAlreadyInReview verifies that the sweeper only resets
+// tasks that are truly stuck in in_progress — it must not clobber tasks whose
 // agents already moved them forward (e.g. to in_review) before the task timed out.
-func TestSweepDoesNotResetIssueAlreadyInReview(t *testing.T) {
+func TestSweepDoesNotResetTaskAlreadyInReview(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
@@ -587,30 +587,30 @@ func TestSweepDoesNotResetIssueAlreadyInReview(t *testing.T) {
 		t.Fatalf("failed to find test agent: %v", err)
 	}
 
-	// Issue already advanced to in_review by the agent before the task timed out.
-	var issueID string
-	err = testPool.QueryRow(ctx, `
-		INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id)
-		SELECT $1, 'Already in_review issue', 'in_review', 'none', 'member', m.user_id, 'agent', $2
-		FROM member m WHERE m.workspace_id = $1 LIMIT 1
-		RETURNING id
-	`, testWorkspaceID, agentID).Scan(&issueID)
-	if err != nil {
-		t.Fatalf("failed to create test issue: %v", err)
-	}
-	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
-		testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID)
-	})
-
+	// Task already advanced to in_review by the agent before the task timed out.
 	var taskID string
 	err = testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, dispatched_at, started_at)
+		INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id)
+		SELECT $1, 'Already in_review task', 'in_review', 'none', 'member', m.user_id, 'agent', $2
+		FROM member m WHERE m.workspace_id = $1 LIMIT 1
+		RETURNING id
+	`, testWorkspaceID, agentID).Scan(&taskID)
+	if err != nil {
+		t.Fatalf("failed to create test task: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM agent_run WHERE task_id = $1`, taskID)
+		testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, taskID)
+	})
+
+	var runID string
+	err = testPool.QueryRow(ctx, `
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, dispatched_at, started_at)
 		VALUES ($1, $2, $3, 'running', 0, now() - interval '3 hours', now() - interval '3 hours')
 		RETURNING id
-	`, agentID, runtimeID, issueID).Scan(&taskID)
+	`, agentID, runtimeID, taskID).Scan(&runID)
 	if err != nil {
-		t.Fatalf("failed to create stale task: %v", err)
+		t.Fatalf("failed to create stale run: %v", err)
 	}
 
 	queries := db.New(testPool)
@@ -619,7 +619,7 @@ func TestSweepDoesNotResetIssueAlreadyInReview(t *testing.T) {
 	// Runtime must be stale for the running-task wall clock to fire (SILI-4107).
 	ageOutAgentRuntime(t, agentID, 10*time.Minute)
 
-	failedTasks, err := queries.FailStaleTasks(ctx, db.FailStaleTasksParams{
+	failedRuns, err := queries.FailStaleRuns(ctx, db.FailStaleRunsParams{
 		DispatchTimeoutSecs: 300.0,
 		RunningTimeoutSecs:  1.0,
 		RuntimeStaleSecs:    staleThresholdSeconds,
@@ -628,16 +628,16 @@ func TestSweepDoesNotResetIssueAlreadyInReview(t *testing.T) {
 		t.Fatalf("FailStaleTasks failed: %v", err)
 	}
 
-	broadcastFailedTasks(ctx, queries, nil, bus, failedTasks)
+	broadcastFailedRuns(ctx, queries, nil, bus, failedRuns)
 
-	// Issue should remain in_review — the sweeper must not clobber agent progress.
-	var issueStatus string
-	err = testPool.QueryRow(ctx, `SELECT status FROM issue WHERE id = $1`, issueID).Scan(&issueStatus)
+	// Task should remain in_review — the sweeper must not clobber agent progress.
+	var taskStatus string
+	err = testPool.QueryRow(ctx, `SELECT status FROM task WHERE id = $1`, taskID).Scan(&taskStatus)
 	if err != nil {
-		t.Fatalf("failed to query issue status: %v", err)
+		t.Fatalf("failed to query task status: %v", err)
 	}
-	if issueStatus != "in_review" {
-		t.Fatalf("expected issue status 'in_review' to be preserved, got '%s'", issueStatus)
+	if taskStatus != "in_review" {
+		t.Fatalf("expected task status 'in_review' to be preserved, got '%s'", taskStatus)
 	}
 }
 
@@ -645,7 +645,7 @@ func TestSweepDoesNotResetIssueAlreadyInReview(t *testing.T) {
 // tasks that have been sitting in 'queued' beyond the TTL are transitioned
 // to 'failed' with failure_reason='queued_expired', while fresh queued tasks
 // are left alone and the per-tick batch limit is respected.
-func TestExpireStaleQueuedTasks(t *testing.T) {
+func TestExpireStaleQueuedRuns(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
@@ -665,48 +665,48 @@ func TestExpireStaleQueuedTasks(t *testing.T) {
 	}
 
 	// One ancient queued task (should expire) and one fresh queued task (should not).
-	// Constraint: idx_one_pending_task_per_issue_agent → use distinct issues.
-	mkIssue := func(label string) string {
-		var issueID string
+	// Constraint: idx_one_pending_run_per_task_agent → use distinct tasks.
+	mkTask := func(label string) string {
+		var taskID string
 		if err := testPool.QueryRow(ctx, `
 			WITH bumped AS (
-				UPDATE workspace SET issue_counter = issue_counter + 1
-				WHERE id = $1 RETURNING issue_counter
+				UPDATE workspace SET task_counter = task_counter + 1
+				WHERE id = $1 RETURNING task_counter
 			)
-			INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id, number)
-			SELECT $1, $3, 'todo', 'none', 'member', m.user_id, 'agent', $2, (SELECT issue_counter FROM bumped)
+			INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id, number)
+			SELECT $1, $3, 'todo', 'none', 'member', m.user_id, 'agent', $2, (SELECT task_counter FROM bumped)
 			FROM member m WHERE m.workspace_id = $1 LIMIT 1
 			RETURNING id
-		`, testWorkspaceID, agentID, label).Scan(&issueID); err != nil {
-			t.Fatalf("failed to create %s issue: %v", label, err)
+		`, testWorkspaceID, agentID, label).Scan(&taskID); err != nil {
+			t.Fatalf("failed to create %s task: %v", label, err)
 		}
-		return issueID
+		return taskID
 	}
-	oldIssueID := mkIssue("Queued TTL test (old)")
-	freshIssueID := mkIssue("Queued TTL test (fresh)")
+	oldTaskID := mkTask("Queued TTL test (old)")
+	freshTaskID := mkTask("Queued TTL test (fresh)")
 	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE issue_id IN ($1, $2)`, oldIssueID, freshIssueID)
-		testPool.Exec(ctx, `DELETE FROM issue WHERE id IN ($1, $2)`, oldIssueID, freshIssueID)
+		testPool.Exec(ctx, `DELETE FROM agent_run WHERE task_id IN ($1, $2)`, oldTaskID, freshTaskID)
+		testPool.Exec(ctx, `DELETE FROM task WHERE id IN ($1, $2)`, oldTaskID, freshTaskID)
 	})
 
-	var oldTaskID, freshTaskID string
+	var oldRunID, freshRunID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, created_at)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, created_at)
 		VALUES ($1, $2, $3, 'queued', 0, now() - interval '5 hours')
 		RETURNING id
-	`, agentID, runtimeID, oldIssueID).Scan(&oldTaskID); err != nil {
-		t.Fatalf("failed to insert old queued task: %v", err)
+	`, agentID, runtimeID, oldTaskID).Scan(&oldRunID); err != nil {
+		t.Fatalf("failed to insert old queued run: %v", err)
 	}
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, created_at)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, created_at)
 		VALUES ($1, $2, $3, 'queued', 0, now())
 		RETURNING id
-	`, agentID, runtimeID, freshIssueID).Scan(&freshTaskID); err != nil {
-		t.Fatalf("failed to insert fresh queued task: %v", err)
+	`, agentID, runtimeID, freshTaskID).Scan(&freshRunID); err != nil {
+		t.Fatalf("failed to insert fresh queued run: %v", err)
 	}
 
 	queries := db.New(testPool)
-	failed, err := queries.ExpireStaleQueuedTasks(ctx, db.ExpireStaleQueuedTasksParams{
+	failed, err := queries.ExpireStaleQueuedRuns(ctx, db.ExpireStaleQueuedRunsParams{
 		TtlSecs:    3600.0, // 1h TTL — old task is 5h, fresh task is 0s
 		MaxPerTick: 100,
 	})
@@ -716,42 +716,42 @@ func TestExpireStaleQueuedTasks(t *testing.T) {
 	if len(failed) != 1 {
 		t.Fatalf("expected exactly 1 expired task, got %d", len(failed))
 	}
-	if failed[0].ID.Bytes != parseUUIDBytes(oldTaskID) {
-		t.Fatalf("expired the wrong task: got %x", failed[0].ID.Bytes)
+	if failed[0].ID.Bytes != parseUUIDBytes(oldRunID) {
+		t.Fatalf("expired the wrong run: got %x", failed[0].ID.Bytes)
 	}
 
 	// DB assertions: old → failed/queued_expired, fresh → still queued.
 	var oldStatus, oldReason, oldErr string
 	if err := testPool.QueryRow(ctx, `
 		SELECT status, COALESCE(failure_reason, ''), COALESCE(error, '')
-		FROM agent_task_queue WHERE id = $1
-	`, oldTaskID).Scan(&oldStatus, &oldReason, &oldErr); err != nil {
-		t.Fatalf("failed to read old task: %v", err)
+		FROM agent_run WHERE id = $1
+	`, oldRunID).Scan(&oldStatus, &oldReason, &oldErr); err != nil {
+		t.Fatalf("failed to read old run: %v", err)
 	}
 	if oldStatus != "failed" {
-		t.Fatalf("old task: expected status=failed, got %q", oldStatus)
+		t.Fatalf("old run: expected status=failed, got %q", oldStatus)
 	}
 	if oldReason != "queued_expired" {
-		t.Fatalf("old task: expected failure_reason=queued_expired, got %q", oldReason)
+		t.Fatalf("old run: expected failure_reason=queued_expired, got %q", oldReason)
 	}
 	if !strings.Contains(oldErr, "expired in queue") {
-		t.Fatalf("old task: expected error to mention expiry, got %q", oldErr)
+		t.Fatalf("old run: expected error to mention expiry, got %q", oldErr)
 	}
 
 	var freshStatus string
 	if err := testPool.QueryRow(ctx, `
-		SELECT status FROM agent_task_queue WHERE id = $1
-	`, freshTaskID).Scan(&freshStatus); err != nil {
-		t.Fatalf("failed to read fresh task: %v", err)
+		SELECT status FROM agent_run WHERE id = $1
+	`, freshRunID).Scan(&freshStatus); err != nil {
+		t.Fatalf("failed to read fresh run: %v", err)
 	}
 	if freshStatus != "queued" {
-		t.Fatalf("fresh task: expected status=queued, got %q", freshStatus)
+		t.Fatalf("fresh run: expected status=queued, got %q", freshStatus)
 	}
 }
 
 // TestExpireStaleQueuedTasksRespectsBatchLimit verifies the per-tick cap so
 // that a large historical backlog cannot monopolise a single sweep.
-func TestExpireStaleQueuedTasksRespectsBatchLimit(t *testing.T) {
+func TestExpireStaleQueuedRunsRespectsBatchLimit(t *testing.T) {
 	if testPool == nil {
 		t.Skip("no database connection")
 	}
@@ -769,40 +769,40 @@ func TestExpireStaleQueuedTasksRespectsBatchLimit(t *testing.T) {
 		t.Fatalf("failed to find test agent: %v", err)
 	}
 
-	// Create 5 issues, each with one stale queued task — necessary because of the
-	// idx_one_pending_task_per_issue_agent unique constraint.
-	var issueIDs []string
+	// Create 5 tasks, each with one stale queued task — necessary because of the
+	// idx_one_pending_run_per_task_agent unique constraint.
+	var taskIDs []string
 	t.Cleanup(func() {
-		for _, id := range issueIDs {
-			testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE issue_id = $1`, id)
-			testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, id)
+		for _, id := range taskIDs {
+			testPool.Exec(ctx, `DELETE FROM agent_run WHERE task_id = $1`, id)
+			testPool.Exec(ctx, `DELETE FROM task WHERE id = $1`, id)
 		}
 	})
 	for i := 0; i < 5; i++ {
-		var issueID string
+		var taskID string
 		if err := testPool.QueryRow(ctx, `
 			WITH bumped AS (
-				UPDATE workspace SET issue_counter = issue_counter + 1
-				WHERE id = $1 RETURNING issue_counter
+				UPDATE workspace SET task_counter = task_counter + 1
+				WHERE id = $1 RETURNING task_counter
 			)
-			INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id, number)
-			SELECT $1, 'Queued TTL batch test', 'todo', 'none', 'member', m.user_id, 'agent', $2, (SELECT issue_counter FROM bumped)
+			INSERT INTO task (workspace_id, title, status, priority, creator_type, creator_id, assignee_type, assignee_id, number)
+			SELECT $1, 'Queued TTL batch test', 'todo', 'none', 'member', m.user_id, 'agent', $2, (SELECT task_counter FROM bumped)
 			FROM member m WHERE m.workspace_id = $1 LIMIT 1
 			RETURNING id
-		`, testWorkspaceID, agentID).Scan(&issueID); err != nil {
-			t.Fatalf("failed to create issue %d: %v", i, err)
+		`, testWorkspaceID, agentID).Scan(&taskID); err != nil {
+			t.Fatalf("failed to create task %d: %v", i, err)
 		}
-		issueIDs = append(issueIDs, issueID)
+		taskIDs = append(taskIDs, taskID)
 		if _, err := testPool.Exec(ctx, `
-			INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, created_at)
+			INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, created_at)
 			VALUES ($1, $2, $3, 'queued', 0, now() - interval '5 hours')
-		`, agentID, runtimeID, issueID); err != nil {
+		`, agentID, runtimeID, taskID); err != nil {
 			t.Fatalf("failed to insert backlog task %d: %v", i, err)
 		}
 	}
 
 	queries := db.New(testPool)
-	failed, err := queries.ExpireStaleQueuedTasks(ctx, db.ExpireStaleQueuedTasksParams{
+	failed, err := queries.ExpireStaleQueuedRuns(ctx, db.ExpireStaleQueuedRunsParams{
 		TtlSecs:    3600.0,
 		MaxPerTick: 2, // cap below the backlog
 	})
@@ -815,9 +815,9 @@ func TestExpireStaleQueuedTasksRespectsBatchLimit(t *testing.T) {
 
 	var remaining int
 	if err := testPool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM agent_task_queue
-		WHERE issue_id = ANY($1::uuid[]) AND status = 'queued'
-	`, issueIDs).Scan(&remaining); err != nil {
+		SELECT COUNT(*) FROM agent_run
+		WHERE task_id = ANY($1::uuid[]) AND status = 'queued'
+	`, taskIDs).Scan(&remaining); err != nil {
 		t.Fatalf("failed to count remaining queued: %v", err)
 	}
 	if remaining != 3 {

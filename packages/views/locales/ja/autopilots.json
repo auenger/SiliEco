@@ -30,7 +30,7 @@
     "archived": "アーカイブ済み"
   },
   "execution_mode": {
-    "create_issue": "Taskを作成",
+    "create_task": "Taskを作成",
     "run_only": "実行のみ"
   },
   "relative_date": {
@@ -122,7 +122,7 @@
     "owner_note": "作成者とワークスペース管理者は常にアクセスできます。"
   },
   "run_status": {
-    "issue_created": "Task作成済み",
+    "task_created": "Task作成済み",
     "running": "実行中",
     "completed": "完了",
     "failed": "失敗",
@@ -135,7 +135,7 @@
     "api": "API"
   },
   "run": {
-    "issue_linked": "Taskをリンク済み",
+    "task_linked": "Taskをリンク済み",
     "view_log": "実行ログを表示",
     "skipped_group": {
       "label": "スキップ済み",
@@ -307,7 +307,7 @@
     "event_filter_hint": "これらのイベントに一致する Webhook のみを処理します。空にするとすべて許可します。",
     "schedule_disabled_reason": "このオートパイロットには複数のスケジュールがあります。詳細ページで編集してください。",
     "output_modes": {
-      "create_issue": {
+      "create_task": {
         "label": "Taskを作成",
         "description": "実行のたびに追跡可能なTaskを作成します"
       },

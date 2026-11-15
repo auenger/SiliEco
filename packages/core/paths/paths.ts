@@ -21,13 +21,10 @@ function workspaceScoped(slug: string) {
     usage: () => `${ws}/usage`,
     tasks: () => `${ws}/tasks`,
     taskDetail: (id: string) => `${ws}/tasks/${encode(id)}`,
-    /** @deprecated Use tasks(). Kept for source compatibility. */
-    issues: () => `${ws}/tasks`,
-    /** @deprecated Use taskDetail(). Kept for source compatibility. */
-    issueDetail: (id: string) => `${ws}/tasks/${encode(id)}`,
     projects: () => `${ws}/projects`,
     resources: () => `${ws}/resources`,
     projectDetail: (id: string) => `${ws}/projects/${encode(id)}`,
+    projectFiles: (id: string) => `${ws}/projects/${encode(id)}/files`,
     projectResources: (id: string) =>
       `${ws}/projects/${encode(id)}?section=resources`,
     projectSop: (id: string) => `${ws}/projects/${encode(id)}?section=sop`,
@@ -46,8 +43,6 @@ function workspaceScoped(slug: string) {
     inbox: () => `${ws}/inbox`,
     chat: () => `${ws}/chat`,
     myTasks: () => `${ws}/my-tasks`,
-    /** @deprecated Use myTasks(). */
-    myIssues: () => `${ws}/my-tasks`,
     runtimes: () => `${ws}/runtimes`,
     runtimeDetail: (id: string) => `${ws}/runtimes/${encode(id)}`,
     runtimeSettings: (machineId: string, runtimeId: string) =>
@@ -64,6 +59,7 @@ export const paths = {
 
   // Global (pre-workspace) routes
   login: () => "/login",
+  workspaces: () => "/workspaces",
   newWorkspace: () => "/workspaces/new",
   invite: (id: string) => `/invite/${encode(id)}`,
   invitations: () => "/invitations",
@@ -81,5 +77,5 @@ export type WorkspacePaths = ReturnType<typeof workspaceScoped>;
 const GLOBAL_PREFIXES = ["/login", "/workspaces/", "/invite/", "/invitations", "/onboarding", "/auth/", "/logout", "/signup"];
 
 export function isGlobalPath(path: string): boolean {
-  return GLOBAL_PREFIXES.some((p) => path === p || path.startsWith(p));
+  return path === "/workspaces" || path.startsWith("/workspaces?") || GLOBAL_PREFIXES.some((p) => path === p || path.startsWith(p));
 }

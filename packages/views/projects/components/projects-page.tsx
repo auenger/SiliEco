@@ -126,7 +126,7 @@ const STATUS_ORDER: Record<ProjectStatus, number> = {
 };
 
 const progressOf = (p: Project) =>
-  p.issue_count > 0 ? p.done_count / p.issue_count : -1;
+  p.task_count > 0 ? p.done_count / p.task_count : -1;
 
 // Composite "type:id" lead value so the string[] filter holds member/agent
 // refs alike.
@@ -136,7 +136,7 @@ function leadFilterValue(p: Project): string | null {
 
 // ---------------------------------------------------------------------------
 // Table (compact) view — ListGrid. Name + status are the core columns;
-// priority/progress/lead/issues/created collapse below @2xl, with min-width
+// priority/progress/lead/tasks/created collapse below @2xl, with min-width
 // + the wrapper's overflow as the escape valve. Rows use whole-row mouse
 // navigation; inline controls stop propagation so edit/menu clicks stay local.
 // ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ const COLUMN_WIDTHS: Record<ProjectColumnKey, number> = {
   priority: 116,
   progress: 88,
   lead: 132,
-  issues: 80,
+  tasks: 80,
   created: 104,
 };
 
@@ -155,13 +155,13 @@ const COLUMN_WIDTHS: Record<ProjectColumnKey, number> = {
 const FIXED_TRACKS_WIDTH = 384 + 10 * 12;
 
 // Render/track order: checkbox, name, status (core, fixed 116px), priority,
-// progress, lead, issues, created, kebab. MUST be a literal string —
+// progress, lead, tasks, created, kebab. MUST be a literal string —
 // Tailwind can't see interpolated `grid-cols-[...]` arbitrary values, so an
 // interpolated width silently drops the whole template and the grid
 // collapses to one column.
 const GRID_COLS =
   "grid-cols-[0.75rem_1rem_minmax(120px,1fr)_116px_1.75rem_0.75rem] " +
-  "@2xl:grid-cols-[0.75rem_1rem_minmax(200px,1fr)_116px_var(--pjc-priority)_var(--pjc-progress)_var(--pjc-lead)_var(--pjc-issues)_var(--pjc-created)_1.75rem_0.75rem]";
+  "@2xl:grid-cols-[0.75rem_1rem_minmax(200px,1fr)_116px_var(--pjc-priority)_var(--pjc-progress)_var(--pjc-lead)_var(--pjc-tasks)_var(--pjc-created)_1.75rem_0.75rem]";
 
 const stopRowNavigation = (e: MouseEvent) => e.stopPropagation();
 
@@ -180,17 +180,17 @@ function columnTrackVars(
     "--pjc-priority": width("priority"),
     "--pjc-progress": width("progress"),
     "--pjc-lead": width("lead"),
-    "--pjc-issues": width("issues"),
+    "--pjc-tasks": width("tasks"),
     "--pjc-created": width("created"),
     "--pjc-minw": `${minWidth}px`,
   } as React.CSSProperties;
 }
 
 function ProgressRing({ project }: { project: Project }) {
-  if (project.issue_count === 0) {
+  if (project.task_count === 0) {
     return <span className="text-caption text-muted-foreground/40">—</span>;
   }
-  const pct = Math.round((project.done_count / project.issue_count) * 100);
+  const pct = Math.round((project.done_count / project.task_count) * 100);
   return (
     <span className="flex items-center gap-1.5">
       <span className="relative h-3.5 w-3.5">
@@ -210,7 +210,7 @@ function ProgressRing({ project }: { project: Project }) {
         </svg>
       </span>
       <span className="text-caption tabular-nums text-muted-foreground">
-        {project.done_count}/{project.issue_count}
+        {project.done_count}/{project.task_count}
       </span>
     </span>
   );
@@ -430,9 +430,9 @@ function ProjectTableRow({
         <ListGridCell className="hidden px-0 @2xl:flex" />
       )}
 
-      {isColVisible("issues") ? (
+      {isColVisible("tasks") ? (
         <ListGridCell className="hidden justify-end font-mono text-caption tabular-nums text-muted-foreground @2xl:flex">
-          {project.issue_count}
+          {project.task_count}
         </ListGridCell>
       ) : (
         <ListGridCell className="hidden px-0 @2xl:flex" />
@@ -530,9 +530,9 @@ function ProjectTableHeader({
       ) : (
         <ListGridHeaderCell className="hidden px-0 @2xl:flex" />
       )}
-      {isColVisible("issues") ? (
+      {isColVisible("tasks") ? (
         <ListGridHeaderCell className="hidden justify-end @2xl:flex" align="right">
-          {t(($) => $.table.issues)}
+          {t(($) => $.table.tasks)}
         </ListGridHeaderCell>
       ) : (
         <ListGridHeaderCell className="hidden px-0 @2xl:flex" />
@@ -575,8 +575,8 @@ function ProjectCard({
     [project.id, updateProject],
   );
   const progressPercent =
-    project.issue_count > 0
-      ? Math.round((project.done_count / project.issue_count) * 100)
+    project.task_count > 0
+      ? Math.round((project.done_count / project.task_count) * 100)
       : 0;
 
   return (
@@ -594,7 +594,7 @@ function ProjectCard({
           <ProjectStatusBadge project={project} handleUpdate={handleUpdate} triggerClassName="shrink-0" />
         </div>
 
-        {project.issue_count > 0 ? (
+        {project.task_count > 0 ? (
           <div className="flex items-center justify-end gap-1.5 pt-2">
             <div className="relative h-4 w-4">
               <svg className="h-4 w-4 -rotate-90" viewBox="0 0 16 16">
@@ -613,12 +613,12 @@ function ProjectCard({
               </svg>
             </div>
             <span className="text-micro tabular-nums text-muted-foreground">
-              {project.done_count}/{project.issue_count}
+              {project.done_count}/{project.task_count}
             </span>
           </div>
         ) : (
           <span className="flex justify-end pt-2 text-micro text-muted-foreground">
-            {t(($) => $.detail.no_issues_yet)}
+            {t(($) => $.detail.no_tasks_yet)}
           </span>
         )}
       </div>
@@ -664,7 +664,7 @@ const STATUS_VALUES: ProjectStatus[] = [
   "cancelled",
 ];
 const PRIORITY_VALUES: ProjectPriority[] = ["urgent", "high", "medium", "low", "none"];
-const COLUMN_KEYS: ProjectColumnKey[] = ["priority", "progress", "lead", "issues", "created"];
+const COLUMN_KEYS: ProjectColumnKey[] = ["priority", "progress", "lead", "tasks", "created"];
 const SORT_FIELDS: ProjectSortField[] = ["name", "priority", "status", "progress", "created"];
 
 function countActiveFilters(f: ProjectListFilters): number {
@@ -908,8 +908,8 @@ export function ProjectsPage() {
         ? t(($) => $.table.progress)
         : k === "lead"
           ? t(($) => $.table.lead)
-          : k === "issues"
-            ? t(($) => $.table.issues)
+          : k === "tasks"
+            ? t(($) => $.table.tasks)
             : t(($) => $.table.created);
 
   const showEmpty = !isLoading && projects.length === 0;
@@ -1154,7 +1154,7 @@ export function ProjectsPage() {
                 </Popover>
 
               {/* View selector — a dropdown menu to pick the list view,
-                  aligned with the issue list's view menu. The trigger shows
+                  aligned with the task list's view menu. The trigger shows
                   the active view; the menu carries every mode so new views
                   can be added as menu items. Pure presentation. */}
               <DropdownMenu>

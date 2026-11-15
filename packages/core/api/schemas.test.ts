@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AppConfigSchema,
-  AgentTaskListSchema,
+  AgentRunListSchema,
   AutopilotRunSchema,
   FALLBACK_AUTOPILOT_RUN,
   CommentTriggerPreviewSchema,
@@ -12,7 +12,7 @@ import {
   DashboardUsageDailyListSchema,
   ChatDraftRestoresResponseSchema,
   CreateFeedbackResponseSchema,
-  DuplicateIssueErrorBodySchema,
+  DuplicateTaskErrorBodySchema,
   EMPTY_CHAT_DRAFT_RESTORES,
   EMPTY_CREATE_FEEDBACK_RESPONSE,
   EMPTY_INBOX_ITEMS,
@@ -24,8 +24,8 @@ import {
   EMPTY_USER,
   InboxItemListSchema,
   InboxUnreadSummarySchema,
-  IssueTriggerPreviewSchema,
-  ListIssuesResponseSchema,
+  TaskTriggerPreviewSchema,
+  ListTasksResponseSchema,
   ListFileResourcesResponseSchema,
   ListProjectResourcesResponseSchema,
   ListPropertiesResponseSchema,
@@ -121,7 +121,7 @@ describe("SOP execution capability schemas", () => {
   });
 });
 
-const baseIssue = {
+const baseTask = {
   id: "11111111-1111-1111-1111-111111111111",
   workspace_id: "ws-1",
   number: 1,
@@ -134,7 +134,7 @@ const baseIssue = {
   assignee_id: null,
   creator_type: "member",
   creator_id: "user-1",
-  parent_issue_id: null,
+  parent_task_id: null,
   project_id: null,
   position: 0,
   stage: null,
@@ -145,34 +145,34 @@ const baseIssue = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-describe("IssueSchema (via ListIssuesResponseSchema)", () => {
+describe("TaskSchema (via ListTasksResponseSchema)", () => {
   it("defaults optional workflow coordinates to null for older servers", () => {
-    const parsed = ListIssuesResponseSchema.parse({
-      issues: [baseIssue],
+    const parsed = ListTasksResponseSchema.parse({
+      tasks: [baseTask],
       total: 1,
     });
-    expect(parsed.issues[0]?.workflow_instance_id).toBeNull();
-    expect(parsed.issues[0]?.workflow_stage_id).toBeNull();
-    expect(parsed.issues[0]?.workflow_invalidated_by_rework_id).toBeNull();
+    expect(parsed.tasks[0]?.workflow_instance_id).toBeNull();
+    expect(parsed.tasks[0]?.workflow_stage_id).toBeNull();
+    expect(parsed.tasks[0]?.workflow_invalidated_by_rework_id).toBeNull();
   });
 
   it.each(["old-execution", 0, {}, ""])("keeps invalidation evidence from becoming active work: %j", (marker) => {
-    const parsed = ListIssuesResponseSchema.parse({issues: [{...baseIssue, workflow_invalidated_by_rework_id:marker}], total:1});
-    expect(parsed.issues[0]?.workflow_invalidated_by_rework_id).not.toBeNull();
+    const parsed = ListTasksResponseSchema.parse({tasks: [{...baseTask, workflow_invalidated_by_rework_id:marker}], total:1});
+    expect(parsed.tasks[0]?.workflow_invalidated_by_rework_id).not.toBeNull();
   });
 
   it("accepts a primitive metadata KV map", () => {
     const payload = {
-      issues: [
+      tasks: [
         {
-          ...baseIssue,
+          ...baseTask,
           metadata: { pipeline_status: "waiting", pr_number: 3, is_blocked: true },
         },
       ],
       total: 1,
     };
-    const parsed = ListIssuesResponseSchema.parse(payload);
-    expect(parsed.issues[0]?.metadata).toEqual({
+    const parsed = ListTasksResponseSchema.parse(payload);
+    expect(parsed.tasks[0]?.metadata).toEqual({
       pipeline_status: "waiting",
       pr_number: 3,
       is_blocked: true,
@@ -180,45 +180,45 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
   });
 
   it("defaults metadata to {} when the server omits it (older backend)", () => {
-    const { metadata: _omit, ...issueWithoutMetadata } = baseIssue;
-    const payload = { issues: [issueWithoutMetadata], total: 1 };
-    const parsed = ListIssuesResponseSchema.parse(payload);
-    expect(parsed.issues[0]?.metadata).toEqual({});
+    const { metadata: _omit, ...taskWithoutMetadata } = baseTask;
+    const payload = { tasks: [taskWithoutMetadata], total: 1 };
+    const parsed = ListTasksResponseSchema.parse(payload);
+    expect(parsed.tasks[0]?.metadata).toEqual({});
   });
 
   it("rejects metadata with non-primitive values (nested object)", () => {
     const payload = {
-      issues: [{ ...baseIssue, metadata: { nested: { x: 1 } } }],
+      tasks: [{ ...baseTask, metadata: { nested: { x: 1 } } }],
       total: 1,
     };
-    expect(ListIssuesResponseSchema.safeParse(payload).success).toBe(false);
+    expect(ListTasksResponseSchema.safeParse(payload).success).toBe(false);
   });
 
   it("accepts a numeric stage", () => {
-    const payload = { issues: [{ ...baseIssue, stage: 2 }], total: 1 };
-    const parsed = ListIssuesResponseSchema.parse(payload);
-    expect(parsed.issues[0]?.stage).toBe(2);
+    const payload = { tasks: [{ ...baseTask, stage: 2 }], total: 1 };
+    const parsed = ListTasksResponseSchema.parse(payload);
+    expect(parsed.tasks[0]?.stage).toBe(2);
   });
 
   it("defaults stage to null when the server omits it (older backend)", () => {
-    const { stage: _omit, ...issueWithoutStage } = baseIssue;
-    const payload = { issues: [issueWithoutStage], total: 1 };
-    const parsed = ListIssuesResponseSchema.parse(payload);
-    expect(parsed.issues[0]?.stage).toBeNull();
+    const { stage: _omit, ...taskWithoutStage } = baseTask;
+    const payload = { tasks: [taskWithoutStage], total: 1 };
+    const parsed = ListTasksResponseSchema.parse(payload);
+    expect(parsed.tasks[0]?.stage).toBeNull();
   });
 
   it("accepts custom property values including multi_select arrays", () => {
     const payload = {
-      issues: [
+      tasks: [
         {
-          ...baseIssue,
+          ...baseTask,
           properties: { "def-1": "opt-a", "def-2": ["opt-x", "opt-y"], "def-3": 3.5, "def-4": true },
         },
       ],
       total: 1,
     };
-    const parsed = ListIssuesResponseSchema.parse(payload);
-    expect(parsed.issues[0]?.properties).toEqual({
+    const parsed = ListTasksResponseSchema.parse(payload);
+    expect(parsed.tasks[0]?.properties).toEqual({
       "def-1": "opt-a",
       "def-2": ["opt-x", "opt-y"],
       "def-3": 3.5,
@@ -227,26 +227,26 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
   });
 
   it("defaults properties to {} when the server omits it (older backend)", () => {
-    const parsed = ListIssuesResponseSchema.parse({ issues: [baseIssue], total: 1 });
-    expect(parsed.issues[0]?.properties).toEqual({});
+    const parsed = ListTasksResponseSchema.parse({ tasks: [baseTask], total: 1 });
+    expect(parsed.tasks[0]?.properties).toEqual({});
   });
 
-  it("drops unknown-shaped property values instead of failing the issue parse", () => {
+  it("drops unknown-shaped property values instead of failing the task parse", () => {
     // Forward compat: a future server type (actor/relation) may ship object
-    // values. That one entry must disappear; the issue and its other
+    // values. That one entry must disappear; the task and its other
     // properties must survive — a full parse failure would blank the whole
     // list through parseWithFallback on installed desktop builds.
     const payload = {
-      issues: [
+      tasks: [
         {
-          ...baseIssue,
+          ...baseTask,
           properties: { "def-1": { nested: 1 }, "def-2": "opt-a" },
         },
       ],
       total: 1,
     };
-    const parsed = ListIssuesResponseSchema.parse(payload);
-    expect(parsed.issues[0]?.properties).toEqual({ "def-2": "opt-a" });
+    const parsed = ListTasksResponseSchema.parse(payload);
+    expect(parsed.tasks[0]?.properties).toEqual({ "def-2": "opt-a" });
   });
 });
 
@@ -254,7 +254,7 @@ describe("ListFileResourcesResponseSchema", () => {
   const file = {
     id: "attachment-1",
     workspace_id: "workspace-1",
-    issue_id: "issue-1",
+    task_id: "task-1",
     comment_id: null,
     chat_session_id: null,
     chat_message_id: null,
@@ -267,8 +267,8 @@ describe("ListFileResourcesResponseSchema", () => {
     content_type: "application/pdf",
     size_bytes: 1024,
     created_at: "2026-08-04T00:00:00Z",
-    source_issue_title: "Design resources",
-    source_issue_number: 42,
+    source_task_title: "Design resources",
+    source_task_number: 42,
     source_project_id: "project-1",
     source_project_title: "Core",
     reference_count: 2,
@@ -367,7 +367,7 @@ describe("Workflow schemas", () => {
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
       stages: [stage],
-      tasks: [{ ...baseIssue, workflow_instance_id: "instance-1", workflow_stage_id: "stage-1" }],
+      tasks: [{ ...baseTask, workflow_instance_id: "instance-1", workflow_stage_id: "stage-1" }],
       decisions: [],
     });
     expect(parsed.tasks?.[0]?.status).toBe("todo");
@@ -399,7 +399,7 @@ describe("Workflow schemas", () => {
   });
 });
 
-describe("IssuePropertySchema (via ListPropertiesResponseSchema)", () => {
+describe("TaskPropertySchema (via ListPropertiesResponseSchema)", () => {
   const baseProperty = {
     id: "22222222-2222-2222-2222-222222222222",
     workspace_id: "ws-1",
@@ -449,38 +449,38 @@ describe("IssuePropertySchema (via ListPropertiesResponseSchema)", () => {
   });
 });
 
-// POST /api/issues/preview-trigger feeds this schema through parseWithFallback
-// in client.previewIssueTrigger with fallback { triggers: [], total_count: 0 }
+// POST /api/tasks/preview-trigger feeds this schema through parseWithFallback
+// in client.previewTaskTrigger with fallback { triggers: [], total_count: 0 }
 // (SILI-3375). The four entry points read it to decide "will this start a run",
 // so malformed / missing / null drift must degrade to "nothing will start"
 // rather than throw into the picker/modal.
 const PREVIEW_FALLBACK = { triggers: [], total_count: 0 };
-const PREVIEW_ENDPOINT = { endpoint: "POST /api/issues/preview-trigger" };
+const PREVIEW_ENDPOINT = { endpoint: "POST /api/tasks/preview-trigger" };
 
-describe("IssueTriggerPreviewSchema", () => {
+describe("TaskTriggerPreviewSchema", () => {
   it("parses a well-formed response", () => {
-    const parsed = IssueTriggerPreviewSchema.parse({
+    const parsed = TaskTriggerPreviewSchema.parse({
       triggers: [
-        { issue_id: "i1", agent_id: "a1", source: "assign", handoff_supported: true },
-        { issue_id: "i2", agent_id: "a2", source: "status", handoff_supported: false },
+        { task_id: "i1", agent_id: "a1", source: "assign", handoff_supported: true },
+        { task_id: "i2", agent_id: "a2", source: "status", handoff_supported: false },
       ],
       total_count: 2,
     });
     expect(parsed.total_count).toBe(2);
     expect(parsed.triggers).toHaveLength(2);
-    expect(parsed.triggers[0]).toMatchObject({ issue_id: "i1", agent_id: "a1", source: "assign", handoff_supported: true });
+    expect(parsed.triggers[0]).toMatchObject({ task_id: "i1", agent_id: "a1", source: "assign", handoff_supported: true });
   });
 
   it("defaults missing top-level fields (empty / older backend)", () => {
-    const parsed = IssueTriggerPreviewSchema.parse({});
+    const parsed = TaskTriggerPreviewSchema.parse({});
     expect(parsed.triggers).toEqual([]);
     expect(parsed.total_count).toBe(0);
   });
 
-  it("defaults missing optional item fields, keeping required issue_id", () => {
-    const parsed = IssueTriggerPreviewSchema.parse({ triggers: [{ issue_id: "i1" }], total_count: 1 });
+  it("defaults missing optional item fields, keeping required task_id", () => {
+    const parsed = TaskTriggerPreviewSchema.parse({ triggers: [{ task_id: "i1" }], total_count: 1 });
     expect(parsed.triggers[0]).toEqual({
-      issue_id: "i1",
+      task_id: "i1",
       agent_id: "",
       source: "",
       handoff_supported: false,
@@ -490,17 +490,17 @@ describe("IssueTriggerPreviewSchema", () => {
   it("parseWithFallback returns the fallback for a malformed shape (triggers not an array)", () => {
     const parsed = parseWithFallback(
       { triggers: "nope", total_count: 1 },
-      IssueTriggerPreviewSchema,
+      TaskTriggerPreviewSchema,
       PREVIEW_FALLBACK,
       PREVIEW_ENDPOINT,
     );
     expect(parsed).toEqual(PREVIEW_FALLBACK);
   });
 
-  it("parseWithFallback returns the fallback when an item drops the required issue_id", () => {
+  it("parseWithFallback returns the fallback when an item drops the required task_id", () => {
     const parsed = parseWithFallback(
       { triggers: [{ agent_id: "a1", source: "assign" }], total_count: 1 },
-      IssueTriggerPreviewSchema,
+      TaskTriggerPreviewSchema,
       PREVIEW_FALLBACK,
       PREVIEW_ENDPOINT,
     );
@@ -510,7 +510,7 @@ describe("IssueTriggerPreviewSchema", () => {
   it("parseWithFallback returns the fallback for a wrong-typed total_count", () => {
     const parsed = parseWithFallback(
       { triggers: [], total_count: "5" },
-      IssueTriggerPreviewSchema,
+      TaskTriggerPreviewSchema,
       PREVIEW_FALLBACK,
       PREVIEW_ENDPOINT,
     );
@@ -518,13 +518,13 @@ describe("IssueTriggerPreviewSchema", () => {
   });
 
   it("parseWithFallback returns the fallback for null / non-object bodies", () => {
-    expect(parseWithFallback(null, IssueTriggerPreviewSchema, PREVIEW_FALLBACK, PREVIEW_ENDPOINT)).toEqual(PREVIEW_FALLBACK);
-    expect(parseWithFallback("oops", IssueTriggerPreviewSchema, PREVIEW_FALLBACK, PREVIEW_ENDPOINT)).toEqual(PREVIEW_FALLBACK);
+    expect(parseWithFallback(null, TaskTriggerPreviewSchema, PREVIEW_FALLBACK, PREVIEW_ENDPOINT)).toEqual(PREVIEW_FALLBACK);
+    expect(parseWithFallback("oops", TaskTriggerPreviewSchema, PREVIEW_FALLBACK, PREVIEW_ENDPOINT)).toEqual(PREVIEW_FALLBACK);
   });
 });
 
 describe("TimelineEntriesSchema", () => {
-  it("preserves source_task_id for agent failure comments", () => {
+  it("preserves source_run_id for agent failure comments", () => {
     const parsed = TimelineEntriesSchema.parse([
       {
         type: "comment",
@@ -534,20 +534,20 @@ describe("TimelineEntriesSchema", () => {
         created_at: "2026-01-01T00:00:00Z",
         content: "API Error: 500 Internal server error",
         comment_type: "system",
-        source_task_id: "task-1",
+        source_run_id: "task-1",
       },
     ]);
 
-    expect(parsed[0]?.source_task_id).toBe("task-1");
+    expect(parsed[0]?.source_run_id).toBe("task-1");
   });
 });
 
-describe("AgentTaskListSchema", () => {
+describe("AgentRunListSchema", () => {
   const task = {
     id: "task-1",
     agent_id: "agent-1",
     runtime_id: "runtime-1",
-    issue_id: "issue-1",
+    task_id: "task-1",
     status: "queued",
     priority: 0,
     dispatched_at: null,
@@ -560,7 +560,7 @@ describe("AgentTaskListSchema", () => {
   };
 
   it("preserves planned and delivered comment IDs for a task run", () => {
-    const parsed = AgentTaskListSchema.parse([
+    const parsed = AgentRunListSchema.parse([
       {
         ...task,
         coalesced_comment_ids: ["comment-1", "comment-2"],
@@ -581,13 +581,13 @@ describe("AgentTaskListSchema", () => {
   });
 
   it("accepts task payloads from older backends without comment coverage", () => {
-    const parsed = AgentTaskListSchema.parse([task]);
+    const parsed = AgentRunListSchema.parse([task]);
     expect(parsed[0]?.coalesced_comment_ids).toBeUndefined();
     expect(parsed[0]?.delivered_comment_ids).toBeUndefined();
   });
 
   it("degrades malformed optional coverage without dropping task rows", () => {
-    const parsed = AgentTaskListSchema.parse([
+    const parsed = AgentRunListSchema.parse([
       {
         ...task,
         coalesced_comment_ids: ["comment-1", 2],
@@ -618,7 +618,7 @@ describe("ChatDraftRestoresResponseSchema", () => {
           {
             id: "msg-1",
             chat_session_id: "s-1",
-            task_id: "t-1",
+            run_id: "t-1",
             content: "run the thing",
             attachments: [{ id: "att-1", filename: "notes.txt" }],
             created_at: "2026-07-01T00:00:00Z",
@@ -689,15 +689,15 @@ describe("CreateFeedbackResponseSchema", () => {
   });
 });
 
-// The duplicate-issue branch in create-issue.tsx feeds ApiError.body
+// The duplicate-task branch in create-task.tsx feeds ApiError.body
 // (typed as `unknown`) through this schema. Any future server drift that
 // loses the contract MUST fail the parse so the UI falls back to a normal
 // error toast instead of rendering an empty / partial duplicate card.
-describe("DuplicateIssueErrorBodySchema", () => {
+describe("DuplicateTaskErrorBodySchema", () => {
   const valid = {
-    code: "active_duplicate_issue",
-    error: "An active issue with this title already exists: SILI-12 – Login bug",
-    issue: {
+    code: "active_duplicate_task",
+    error: "An active task with this title already exists: SILI-12 – Login bug",
+    task: {
       id: "11111111-1111-1111-1111-111111111111",
       identifier: "SILI-12",
       title: "Login bug",
@@ -705,36 +705,36 @@ describe("DuplicateIssueErrorBodySchema", () => {
   };
 
   it("accepts a well-formed body", () => {
-    expect(DuplicateIssueErrorBodySchema.safeParse(valid).success).toBe(true);
+    expect(DuplicateTaskErrorBodySchema.safeParse(valid).success).toBe(true);
   });
 
   it("accepts unknown extra fields via .loose()", () => {
     const forwardCompat = {
       ...valid,
       hint: "Try a different title",
-      issue: { ...valid.issue, workspace_id: "ws-1", status: "todo" },
+      task: { ...valid.task, workspace_id: "ws-1", status: "todo" },
     };
-    expect(DuplicateIssueErrorBodySchema.safeParse(forwardCompat).success).toBe(true);
+    expect(DuplicateTaskErrorBodySchema.safeParse(forwardCompat).success).toBe(true);
   });
 
   it("rejects a renamed code (so renames degrade to the generic toast)", () => {
-    const renamed = { ...valid, code: "duplicate_issue" };
-    expect(DuplicateIssueErrorBodySchema.safeParse(renamed).success).toBe(false);
+    const renamed = { ...valid, code: "duplicate_task" };
+    expect(DuplicateTaskErrorBodySchema.safeParse(renamed).success).toBe(false);
   });
 
-  it("rejects a missing issue object", () => {
-    const { issue: _omit, ...without } = valid;
-    expect(DuplicateIssueErrorBodySchema.safeParse(without).success).toBe(false);
+  it("rejects a missing task object", () => {
+    const { task: _omit, ...without } = valid;
+    expect(DuplicateTaskErrorBodySchema.safeParse(without).success).toBe(false);
   });
 
-  it("rejects a non-string issue.id", () => {
-    const broken = { ...valid, issue: { ...valid.issue, id: 42 } };
-    expect(DuplicateIssueErrorBodySchema.safeParse(broken).success).toBe(false);
+  it("rejects a non-string task.id", () => {
+    const broken = { ...valid, task: { ...valid.task, id: 42 } };
+    expect(DuplicateTaskErrorBodySchema.safeParse(broken).success).toBe(false);
   });
 
   it("accepts a missing error field (it is optional)", () => {
     const { error: _omit, ...without } = valid;
-    expect(DuplicateIssueErrorBodySchema.safeParse(without).success).toBe(true);
+    expect(DuplicateTaskErrorBodySchema.safeParse(without).success).toBe(true);
   });
 });
 
@@ -853,7 +853,7 @@ describe("dashboard + runtime usage schema drift", () => {
 
   it("coerces a missing agent_id key to \"\" for the agent-runtime panel", () => {
     const parsed = DashboardAgentRunTimeListSchema.parse([
-      { total_seconds: 42, task_count: 3, failed_count: 0 },
+      { total_seconds: 42, run_count: 3, failed_count: 0 },
     ]);
     expect(parsed).toHaveLength(1);
     expect(parsed[0]?.agent_id).toBe("");
@@ -902,11 +902,11 @@ describe("dashboard + runtime usage schema drift", () => {
     // build predates rather than dropping the row (and with it the day's
     // error total).
     const parsed = DashboardFailureDailyListSchema.parse([
-      { date: "2026-05-19", failure_reason: "agent_error.brand_new", task_count: 3 },
+      { date: "2026-05-19", failure_reason: "agent_error.brand_new", run_count: 3 },
     ]);
     expect(parsed).toHaveLength(1);
     expect(parsed[0]?.failure_reason).toBe("agent_error.brand_new");
-    expect(parsed[0]?.task_count).toBe(3);
+    expect(parsed[0]?.run_count).toBe(3);
   });
 
   it("coerces a missing failure row field without dropping the array", () => {
@@ -923,10 +923,10 @@ describe("dashboard + runtime usage schema drift", () => {
     // (core/internal/handler/dashboard_test.go) guards the other side by
     // pinning that the server always emits the field.
     expect(daily[0]?.failure_reason).toBe("");
-    expect(daily[0]?.task_count).toBe(0);
+    expect(daily[0]?.run_count).toBe(0);
 
     const byAgent = DashboardFailureByAgentListSchema.parse([
-      { failure_reason: "timeout", task_count: 2 },
+      { failure_reason: "timeout", run_count: 2 },
     ]);
     expect(byAgent[0]?.agent_id).toBe("");
   });
@@ -1033,8 +1033,8 @@ describe("InboxItemListSchema", () => {
     recipient_id: "member-1",
     type: "new_comment",
     severity: "info",
-    issue_id: "issue-1",
-    title: "Issue title",
+    task_id: "task-1",
+    title: "Task title",
     body: null,
     read: false,
     archived: true,
@@ -1044,7 +1044,7 @@ describe("InboxItemListSchema", () => {
 
   it("parses a well-formed archived list and tolerates extra fields", () => {
     const parsed = parseWithFallback(
-      [row({ issue_status: "in_progress", details: { comment_id: "c-1" }, future_field: 1 })],
+      [row({ task_status: "in_progress", details: { comment_id: "c-1" }, future_field: 1 })],
       InboxItemListSchema,
       EMPTY_INBOX_ITEMS,
       ENDPOINT,
@@ -1066,9 +1066,9 @@ describe("InboxItemListSchema", () => {
   });
 
   it("accepts rows that omit the nullable optional fields", () => {
-    const { body, issue_id, ...withoutOptionals } = row();
+    const { body, task_id, ...withoutOptionals } = row();
     void body;
-    void issue_id;
+    void task_id;
     expect(
       parseWithFallback([withoutOptionals], InboxItemListSchema, EMPTY_INBOX_ITEMS, ENDPOINT),
     ).toHaveLength(1);
@@ -1118,7 +1118,7 @@ describe("SearchProjectsResponseSchema date drift", () => {
     lead_id: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
-    issue_count: 0,
+    task_count: 0,
     done_count: 0,
     resource_count: 0,
     match_source: "title",
@@ -1161,9 +1161,9 @@ describe("AutopilotRunSchema", () => {
     autopilot_id: "ap-1",
     trigger_id: null,
     source: "manual",
-    status: "issue_created",
-    issue_id: "issue-1",
-    task_id: null,
+    status: "task_created",
+    task_id: "task-1",
+    run_id: null,
     triggered_at: "2026-07-14T00:00:00Z",
     completed_at: null,
     failure_reason: null,
@@ -1185,7 +1185,7 @@ describe("AutopilotRunSchema", () => {
 
   it("tolerates an older server omitting reason_code", () => {
     const parsed = parseWithFallback(baseRun, AutopilotRunSchema, FALLBACK_AUTOPILOT_RUN, ENDPOINT);
-    expect(parsed.status).toBe("issue_created");
+    expect(parsed.status).toBe("task_created");
     expect(parsed.reason_code).toBeUndefined();
   });
 
@@ -1358,9 +1358,9 @@ describe("RuntimeModelListRequestSchema", () => {
 
 describe("workflow human review compatibility", () => {
   it("does not turn malformed review evidence into a usable approval token", () => {
-    const parsed = WorkflowHumanReviewSchema.parse({ execution_id: "e", result_revision: -1, basis_hash: "bad", issues: [], calls: [] });
-    expect(parsed).toMatchObject({result_revision: 0, basis_hash: "", issues: [], calls: []});
-    expect(WorkflowHumanReviewSchema.safeParse({ execution_id: "e", result_revision: 1, basis_hash: "a".repeat(64), issues: {}, calls: [] }).success).toBe(false);
+    const parsed = WorkflowHumanReviewSchema.parse({ execution_id: "e", result_revision: -1, basis_hash: "bad", tasks: [], calls: [] });
+    expect(parsed).toMatchObject({result_revision: 0, basis_hash: "", tasks: [], calls: []});
+    expect(WorkflowHumanReviewSchema.safeParse({ execution_id: "e", result_revision: 1, basis_hash: "a".repeat(64), tasks: {}, calls: [] }).success).toBe(false);
   });
   it("preserves future review steps and defaults older decision identities", () => {
     const legacy = { id: "d", workflow_instance_id: "r", from_stage_id: "s", outcome: "approved", actor_type: "member", actor_id: "u", created_at: "now" };

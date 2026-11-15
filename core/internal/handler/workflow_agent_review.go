@@ -20,7 +20,7 @@ func (h *Handler) requireWorkflowAgentReview(w http.ResponseWriter, r *http.Requ
 		return empty, empty, empty, empty, false
 	}
 	actorType, actor := h.resolveActor(r, user, workspace)
-	if actorType != "agent" || r.Header.Get("X-Agent-ID") == "" || r.Header.Get("X-Task-ID") == "" {
+	if actorType != "agent" || r.Header.Get("X-Agent-ID") == "" || r.Header.Get("X-Run-ID") == "" {
 		writeError(w, http.StatusForbidden, "a bound reviewer call is required")
 		return empty, empty, empty, empty, false
 	}
@@ -28,7 +28,7 @@ func (h *Handler) requireWorkflowAgentReview(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return empty, empty, empty, empty, false
 	}
-	taskID, ok := parseUUIDOrBadRequest(w, r.Header.Get("X-Task-ID"), "review call id")
+	runID, ok := parseUUIDOrBadRequest(w, r.Header.Get("X-Run-ID"), "review call id")
 	if !ok {
 		return empty, empty, empty, empty, false
 	}
@@ -36,7 +36,7 @@ func (h *Handler) requireWorkflowAgentReview(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return empty, empty, empty, empty, false
 	}
-	runID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "Run id")
+	workflowRunID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "Workflow Run id")
 	if !ok {
 		return empty, empty, empty, empty, false
 	}
@@ -49,20 +49,20 @@ func (h *Handler) requireWorkflowAgentReview(w http.ResponseWriter, r *http.Requ
 		writeWorkflowReviewError(w, err)
 		return empty, empty, empty, empty, false
 	}
-	if request.WorkflowInstanceID != runID || request.ExecutionID != executionID {
+	if request.WorkflowInstanceID != workflowRunID || request.ExecutionID != executionID {
 		writeError(w, http.StatusNotFound, "review request not found")
 		return empty, empty, empty, empty, false
 	}
-	return ws, requestID, actorID, taskID, true
+	return ws, requestID, actorID, runID, true
 }
 
 func (h *Handler) GetWorkflowAgentReview(w http.ResponseWriter, r *http.Request) {
-	ws, requestID, actorID, taskID, ok := h.requireWorkflowAgentReview(w, r)
+	ws, requestID, actorID, runID, ok := h.requireWorkflowAgentReview(w, r)
 	if !ok {
 		return
 	}
 	svc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
-	request, err := svc.GetAgentReview(r.Context(), ws, requestID, actorID, taskID)
+	request, err := svc.GetAgentReview(r.Context(), ws, requestID, actorID, runID)
 	if err != nil {
 		writeWorkflowReviewError(w, err)
 		return
@@ -72,7 +72,7 @@ func (h *Handler) GetWorkflowAgentReview(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) RecordWorkflowAgentDecision(w http.ResponseWriter, r *http.Request) {
-	ws, requestID, actorID, taskID, ok := h.requireWorkflowAgentReview(w, r)
+	ws, requestID, actorID, runID, ok := h.requireWorkflowAgentReview(w, r)
 	if !ok {
 		return
 	}
@@ -98,7 +98,7 @@ func (h *Handler) RecordWorkflowAgentDecision(w http.ResponseWriter, r *http.Req
 		return
 	}
 	svc := service.WorkflowExecutionService{Queries: h.Queries, TxStarter: h.TxStarter}
-	decision, err := svc.RecordAgentDecision(r.Context(), service.RecordWorkflowAgentDecisionParams{WorkspaceID: ws, RequestID: requestID, ActorID: actorID, TaskID: taskID, ExpectedResultRevision: request.ExpectedResultRevision, ExpectedBasisHash: request.ExpectedBasisHash, Outcome: request.Outcome, Note: request.Note})
+	decision, err := svc.RecordAgentDecision(r.Context(), service.RecordWorkflowAgentDecisionParams{WorkspaceID: ws, RequestID: requestID, ActorID: actorID, RunID: runID, ExpectedResultRevision: request.ExpectedResultRevision, ExpectedBasisHash: request.ExpectedBasisHash, Outcome: request.Outcome, Note: request.Note})
 	if err != nil {
 		writeWorkflowReviewError(w, err)
 		return

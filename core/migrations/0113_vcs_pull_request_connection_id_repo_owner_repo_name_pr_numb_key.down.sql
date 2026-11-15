@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS public.vcs_pull_request_connection_id_repo_owner_repo_name_pr_numb_key;

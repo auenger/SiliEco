@@ -24,7 +24,7 @@ import { useNavigation } from "../navigation";
  * - `"profile"` (default) — static identity (description, runtime, skills,
  *   owner). Used by 20+ "who is this agent?" surfaces (comment authors,
  *   pickers, list rows).
- * - `"live"` — live activity peek (workload, current issue, last activity).
+ * - `"live"` — live activity peek (workload, current task, last activity).
  *   Used where the user already knows the identity and wants the live state,
  *   e.g. the squad members tab.
  *

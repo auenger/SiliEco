@@ -16,8 +16,8 @@ const maxFileResourcePageSize = 100
 
 type FileResourceResponse struct {
 	AttachmentResponse
-	SourceIssueTitle   *string `json:"source_issue_title"`
-	SourceIssueNumber  *int32  `json:"source_issue_number"`
+	SourceTaskTitle    *string `json:"source_task_title"`
+	SourceTaskNumber   *int32  `json:"source_task_number"`
 	SourceProjectID    *string `json:"source_project_id"`
 	SourceProjectTitle *string `json:"source_project_title"`
 	ReferenceCount     int64   `json:"reference_count"`
@@ -32,7 +32,7 @@ type AttachmentReferenceResponse struct {
 	CreatedBy          string  `json:"created_by"`
 	CreatedAt          string  `json:"created_at"`
 	TargetTitle        *string `json:"target_title,omitempty"`
-	TargetIssueNumber  *int32  `json:"target_issue_number,omitempty"`
+	TargetTaskNumber   *int32  `json:"target_task_number,omitempty"`
 	TargetProjectID    *string `json:"target_project_id,omitempty"`
 	TargetProjectTitle *string `json:"target_project_title,omitempty"`
 }
@@ -86,7 +86,7 @@ func workspaceAttachmentReferenceToResponse(ref db.ListWorkspaceAttachmentRefere
 		CreatedBy:          uuidToString(ref.CreatedBy),
 		CreatedAt:          timestampToString(ref.CreatedAt),
 		TargetTitle:        nonEmptyStringToPtr(ref.TargetTitle),
-		TargetIssueNumber:  int32ToPtr(ref.TargetIssueNumber),
+		TargetTaskNumber:   int32ToPtr(ref.TargetTaskNumber),
 		TargetProjectID:    uuidToPtr(ref.TargetProjectID),
 		TargetProjectTitle: nonEmptyStringToPtr(ref.TargetProjectTitle),
 	}
@@ -102,13 +102,13 @@ func int32ToPtr(v pgtype.Int4) *int32 {
 func (h *Handler) workspaceFileResourceToResponse(row db.ListWorkspaceFileResourcesRow, mode attachmentURLMode) FileResourceResponse {
 	return FileResourceResponse{
 		AttachmentResponse: h.attachmentToResponse(db.Attachment{
-			ID: row.ID, WorkspaceID: row.WorkspaceID, IssueID: row.IssueID,
+			ID: row.ID, WorkspaceID: row.WorkspaceID, TaskID: row.TaskID,
 			CommentID: row.CommentID, UploaderType: row.UploaderType,
 			UploaderID: row.UploaderID, Filename: row.Filename, Url: row.Url,
 			ContentType: row.ContentType, SizeBytes: row.SizeBytes, CreatedAt: row.CreatedAt,
-			ChatSessionID: row.ChatSessionID, ChatMessageID: row.ChatMessageID, TaskID: row.TaskID,
+			ChatSessionID: row.ChatSessionID, ChatMessageID: row.ChatMessageID, RunID: row.RunID,
 		}, mode),
-		SourceIssueTitle: textToPtr(row.SourceIssueTitle), SourceIssueNumber: int32ToPtr(row.SourceIssueNumber),
+		SourceTaskTitle: textToPtr(row.SourceTaskTitle), SourceTaskNumber: int32ToPtr(row.SourceTaskNumber),
 		SourceProjectID: uuidToPtr(row.SourceProjectID), SourceProjectTitle: textToPtr(row.SourceProjectTitle),
 		ReferenceCount: row.ReferenceCount,
 	}
@@ -117,19 +117,19 @@ func (h *Handler) workspaceFileResourceToResponse(row db.ListWorkspaceFileResour
 func (h *Handler) projectFileResourceToResponse(row db.ListProjectFileResourcesRow, mode attachmentURLMode) FileResourceResponse {
 	return FileResourceResponse{
 		AttachmentResponse: h.attachmentToResponse(db.Attachment{
-			ID: row.ID, WorkspaceID: row.WorkspaceID, IssueID: row.IssueID,
+			ID: row.ID, WorkspaceID: row.WorkspaceID, TaskID: row.TaskID,
 			CommentID: row.CommentID, UploaderType: row.UploaderType,
 			UploaderID: row.UploaderID, Filename: row.Filename, Url: row.Url,
 			ContentType: row.ContentType, SizeBytes: row.SizeBytes, CreatedAt: row.CreatedAt,
-			ChatSessionID: row.ChatSessionID, ChatMessageID: row.ChatMessageID, TaskID: row.TaskID,
+			ChatSessionID: row.ChatSessionID, ChatMessageID: row.ChatMessageID, RunID: row.RunID,
 		}, mode),
-		SourceIssueTitle: textToPtr(row.SourceIssueTitle), SourceIssueNumber: int32ToPtr(row.SourceIssueNumber),
+		SourceTaskTitle: textToPtr(row.SourceTaskTitle), SourceTaskNumber: int32ToPtr(row.SourceTaskNumber),
 		SourceProjectID: uuidToPtr(row.SourceProjectID), SourceProjectTitle: textToPtr(row.SourceProjectTitle),
 		ReferenceCount: row.ReferenceCount,
 	}
 }
 
-// ListWorkspaceFileResources returns durable issue/comment files. Chat uploads
+// ListWorkspaceFileResources returns durable task/comment files. Chat uploads
 // are intentionally excluded because they remain temporary conversation data.
 func (h *Handler) ListWorkspaceFileResources(w http.ResponseWriter, r *http.Request) {
 	workspaceID, ok := parseUUIDOrBadRequest(w, h.resolveWorkspaceID(r), "workspace id")
@@ -239,12 +239,12 @@ func (h *Handler) listTargetAttachmentReferences(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, map[string]any{"references": refs, "total": len(refs)})
 }
 
-func (h *Handler) ListIssueAttachmentReferences(w http.ResponseWriter, r *http.Request) {
-	issue, ok := h.loadIssueForUser(w, r, chi.URLParam(r, "id"))
+func (h *Handler) ListTaskAttachmentReferences(w http.ResponseWriter, r *http.Request) {
+	task, ok := h.loadTaskForUser(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
-	h.listTargetAttachmentReferences(w, r, "issue", issue.ID, issue.WorkspaceID)
+	h.listTargetAttachmentReferences(w, r, "task", task.ID, task.WorkspaceID)
 }
 
 func (h *Handler) ListProjectAttachmentReferences(w http.ResponseWriter, r *http.Request) {
@@ -289,12 +289,12 @@ func (h *Handler) createAttachmentReference(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusCreated, attachmentReferenceToResponse(ref))
 }
 
-func (h *Handler) CreateIssueAttachmentReference(w http.ResponseWriter, r *http.Request) {
-	issue, ok := h.loadIssueForUser(w, r, chi.URLParam(r, "id"))
+func (h *Handler) CreateTaskAttachmentReference(w http.ResponseWriter, r *http.Request) {
+	task, ok := h.loadTaskForUser(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
-	h.createAttachmentReference(w, r, "issue", issue.ID, issue.WorkspaceID)
+	h.createAttachmentReference(w, r, "task", task.ID, task.WorkspaceID)
 }
 
 func (h *Handler) CreateProjectAttachmentReference(w http.ResponseWriter, r *http.Request) {
@@ -324,12 +324,12 @@ func (h *Handler) deleteAttachmentReference(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) DeleteIssueAttachmentReference(w http.ResponseWriter, r *http.Request) {
-	issue, ok := h.loadIssueForUser(w, r, chi.URLParam(r, "id"))
+func (h *Handler) DeleteTaskAttachmentReference(w http.ResponseWriter, r *http.Request) {
+	task, ok := h.loadTaskForUser(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
-	h.deleteAttachmentReference(w, r, "issue", issue.ID, issue.WorkspaceID)
+	h.deleteAttachmentReference(w, r, "task", task.ID, task.WorkspaceID)
 }
 
 func (h *Handler) DeleteProjectAttachmentReference(w http.ResponseWriter, r *http.Request) {

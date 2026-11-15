@@ -17,10 +17,10 @@ function item(overrides: Partial<InboxItem>): InboxItem {
     actor_id: "agent-1",
     type: "new_comment",
     severity: "info",
-    issue_id: "issue-1",
-    title: "Issue title",
+    task_id: "task-1",
+    title: "Task title",
     body: null,
-    issue_status: null,
+    task_status: null,
     read: false,
     archived: false,
     created_at: "2026-04-29T12:00:00Z",
@@ -55,8 +55,8 @@ describe("inbox display helpers", () => {
     const failedItem = item({
       type: "quick_create_failed",
       title: "Quick create failed",
-      body: "agent finished without creating an issue",
-      issue_id: null,
+      body: "agent finished without creating an task",
+      task_id: null,
       details: {
         original_prompt: "Optimize QuickCapture UI\nand attached screenshot",
       },
@@ -92,8 +92,8 @@ describe("inbox display helpers", () => {
     const unconfirmedItem = item({
       type: "quick_create_unconfirmed",
       title: "Quick create needs a check",
-      body: "Couldn't confirm whether the issue was created.",
-      issue_id: null,
+      body: "Couldn't confirm whether the task was created.",
+      task_id: null,
       details: { original_prompt: "File a bug about\nthe flaky test" },
     });
 

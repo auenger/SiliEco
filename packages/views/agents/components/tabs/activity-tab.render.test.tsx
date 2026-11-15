@@ -26,23 +26,26 @@ vi.mock("@silieco/core/api", () => ({ api: {} }));
 // The tab reads three data sources. Snapshot ("Now") and the activity map
 // ("Last 30 days") stay empty; the per-agent task list is the one under test,
 // its queryFn swapped per test to stay pending or resolve.
-const agentTasksRef = vi.hoisted(() => ({
+const agentRunsRef = vi.hoisted(() => ({
   current: () => new Promise<unknown>(() => {}),
 }));
 vi.mock("@silieco/core/agents", () => ({
-  agentTaskSnapshotOptions: () => ({
+  agentRunSnapshotOptions: () => ({
     queryKey: ["snapshot"],
     queryFn: () => Promise.resolve([]),
-  }),
-  agentTasksOptions: () => ({
-    queryKey: ["agent-tasks"],
-    queryFn: () => agentTasksRef.current(),
   }),
   useWorkspaceActivityMap: () => ({ byAgent: new Map() }),
   summarizeActivityWindow: () => ({
     totalRuns: 0,
     totalFailed: 0,
     buckets: [],
+  }),
+}));
+
+vi.mock("@silieco/core/agent-runs/queries", () => ({
+  agentRunsOptions: () => ({
+    queryKey: ["agent-runs"],
+    queryFn: () => agentRunsRef.current(),
   }),
 }));
 
@@ -79,7 +82,7 @@ function renderTab() {
 }
 
 beforeEach(() => {
-  agentTasksRef.current = () => new Promise<unknown>(() => {});
+  agentRunsRef.current = () => new Promise<unknown>(() => {});
 });
 
 describe("ActivityTab Recent work loading state", () => {
@@ -94,7 +97,7 @@ describe("ActivityTab Recent work loading state", () => {
   });
 
   it("shows the empty state once the task list resolves to no runs", async () => {
-    agentTasksRef.current = () => Promise.resolve([]);
+    agentRunsRef.current = () => Promise.resolve([]);
     renderTab();
     expect(await screen.findByText(EMPTY_RECENT)).toBeInTheDocument();
     expect(

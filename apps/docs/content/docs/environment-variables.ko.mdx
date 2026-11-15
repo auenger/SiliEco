@@ -197,7 +197,7 @@ API key와 base URL이 모두 비어 있으면 서버 측 LLM 생성이 꺼지�
 | `SILIECO_AGENT_RUNTIME_NAME` | `Local Agent` | 런타임 표시 이름 |
 | `SILIECO_DAEMON_POLL_INTERVAL` | `30s` | wakeup 이벤트가 없을 때 실행 Run polling 간격 |
 | `SILIECO_DAEMON_HEARTBEAT_INTERVAL` | `15s` | heartbeat 간격 |
-| `SILIECO_DAEMON_MAX_CONCURRENT_TASKS` | `20` | 데몬 하나의 동시 실행 Run 상한 |
+| `SILIECO_DAEMON_MAX_CONCURRENT_RUNS` | `20` | 데몬 하나의 동시 실행 Run 상한 |
 | `SILIECO_AGENT_TIMEOUT` | `0` | 단일 실행의 절대 시간 제한. `0`은 제한 없음 |
 | `SILIECO_AGENT_IDLE_WATCHDOG` | `30m` | 출력과 도구 실행이 모두 없을 때의 무응답 상한 |
 | `SILIECO_AGENT_TOOL_WATCHDOG` | `2h` | 단일 도구 호출이 계속 무응답인 시간 상한 |
@@ -236,7 +236,7 @@ silieco config show
 | `workspace_id` | 비어 있음 | 기본 워크스페이스 |
 | `device_name` | host 이름 | 런타임 목록의 기기 이름 |
 | `runtime_name` | `Local Agent` | 런타임 표시 이름 |
-| `max_concurrent_tasks` | `20` | 동시 실행 Run 상한. `0` 또는 빈 값은 설정되지 않음을 의미 |
+| `max_concurrent_runs` | `20` | 동시 실행 Run 상한. `0` 또는 빈 값은 설정되지 않음을 의미 |
 | `poll_interval` | `30s` | 실행 Run polling 간격 |
 | `heartbeat_interval` | `15s` | heartbeat 간격 |
 | `agent_timeout` | 제한 없음 | 단일 실행의 절대 시간 제한 |
@@ -249,7 +249,7 @@ silieco config show
 
 - duration key는 양의 Go duration(예: `10s`, `2h`)을 허용하며 `0s`와 음수는 거부합니다. 유일한 예외는 `agent_timeout`입니다. `0s`가 유효하며 실행 시간 제한을 명시적으로 끕니다.
 - 빈 문자열을 전달하면 저장된 값을 지우고 환경 변수 또는 내장 기본값으로 돌아갑니다. 예: `silieco config set poll_interval ""`
-- `max_concurrent_tasks`는 0 이상의 정수여야 합니다.
+- `max_concurrent_runs`는 0 이상의 정수여야 합니다.
 
 ## 관측과 통계
 

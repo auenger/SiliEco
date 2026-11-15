@@ -1,1 +1,0 @@
-ALTER TABLE attachment_reference ADD CONSTRAINT attachment_reference_pkey PRIMARY KEY USING INDEX attachment_reference_id_uidx;

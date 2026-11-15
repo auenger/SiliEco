@@ -161,7 +161,7 @@ export function RuntimeConfigTab({
                   // re-arm the "replay the mask sentinel back to the
                   // server" branch in formToConfig, silently restoring
                   // a token they had no intent of keeping (see CR for
-                  // issue #3260).
+                  // task #3260).
                   return { ...s, mode, tokenWasMasked: false };
                 })
               }

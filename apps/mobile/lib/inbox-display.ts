@@ -52,7 +52,7 @@ export function getInboxDisplayTitle(item: InboxItem): string {
 }
 
 /**
- * Deduplicate inbox items by issue_id (Linear-style: one entry per issue).
+ * Deduplicate inbox items by task_id (Linear-style: one entry per task).
  *
  * Mirrors packages/core/inbox/queries.ts deduplicateInboxItems. **MUST stay
  * aligned with that function** — see the inbox dedup incident in this file's
@@ -62,18 +62,18 @@ export function getInboxDisplayTitle(item: InboxItem): string {
  *
  * Steps:
  *   1. Drop archived rows (these never appear in web's inbox view).
- *   2. Group by `issue_id` (fall back to `id` for items with no issue
+ *   2. Group by `task_id` (fall back to `id` for items with no task
  *      attached — e.g. quick_create_failed).
  *   3. In each group, keep the newest by `created_at`.
  *   4. Preserve the newest grouped `comment_id` anchor when the newest row
- *      is a later status/metadata event for the same issue.
+ *      is a later status/metadata event for the same task.
  *   5. Sort the result newest-first.
  */
 export function deduplicateInboxItems(items: InboxItem[]): InboxItem[] {
   const active = items.filter((i) => !i.archived);
   const groups = new Map<string, InboxItem[]>();
   for (const item of active) {
-    const key = item.issue_id ?? item.id;
+    const key = item.task_id ?? item.id;
     const group = groups.get(key) ?? [];
     group.push(item);
     groups.set(key, group);

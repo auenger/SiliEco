@@ -22,7 +22,7 @@ const (
 	// defaults. They replace pgx's built-in default of max(4, NumCPU),
 	// which is far too small for our daemon-poll traffic pattern (~3800
 	// acquires/s observed in prod) and was the root cause of the 3s+
-	// /tasks/claim tail latency.
+	// /runs/claim tail latency.
 	//
 	// The numbers follow the conventional "small pool, lots of waiters"
 	// guidance for Postgres (HikariCP / PG community formula
@@ -134,7 +134,7 @@ func logPoolConfig(pool *pgxpool.Pool) {
 // line so operators can see baseline pressure, and emits a WARN whenever the
 // EmptyAcquireCount delta is positive — that's the direct symptom of pool
 // exhaustion (a request had to wait because no idle conn was available) and
-// the smoking gun we're looking for to confirm the slow /tasks/claim
+// the smoking gun we're looking for to confirm the slow /runs/claim
 // hypothesis.
 func runDBStatsLogger(ctx context.Context, pool *pgxpool.Pool) {
 	ticker := time.NewTicker(dbStatsInterval)
@@ -193,7 +193,7 @@ func runDBStatsLogger(ctx context.Context, pool *pgxpool.Pool) {
 }
 
 // samplerMaxConns is the cap for the dedicated /metrics sampler pool. The
-// sampler issues at most one acquire per scrape and Prometheus typically
+// sampler performs at most one acquire per scrape and Prometheus typically
 // scrapes once per 15s — two connections is plenty for two replicas
 // scraping in parallel without ever competing with the main pool.
 const samplerMaxConns int32 = 2

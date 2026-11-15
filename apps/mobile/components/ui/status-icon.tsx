@@ -1,8 +1,8 @@
 /**
  * Mobile StatusIcon — react-native-svg implementation.
  *
- * Geometry mirrors packages/views/issues/components/status-icon.tsx (14×14
- * viewBox, center 7,7) so the visual identity of each issue status is
+ * Geometry mirrors packages/views/tasks/components/status-icon.tsx (14×14
+ * viewBox, center 7,7) so the visual identity of each task status is
  * recognizable across web/desktop and mobile. This is a behavioral parity
  * concern (apps/mobile/CLAUDE.md): users should not get a different mental
  * model of "what status this is" depending on the client.
@@ -13,16 +13,16 @@
  */
 import * as React from "react";
 import Svg, { Circle, G, Line, Path } from "react-native-svg";
-import type { IssueStatus } from "@silieco/core/types";
+import type { TaskStatus } from "@silieco/core/types";
 
 const CX = 7;
 const CY = 7;
 const OUTER_R = 6;
 const FILL_R = 3.5;
 
-// Mirrors STATUS_CONFIG.iconColor in packages/core/issues/config/status.ts —
+// Mirrors STATUS_CONFIG.iconColor in packages/core/tasks/config/status.ts —
 // translated to hex (see apps/mobile/tailwind.config.js).
-const STATUS_COLOR: Record<IssueStatus, string> = {
+const STATUS_COLOR: Record<TaskStatus, string> = {
   backlog: "#71717a", // muted-foreground
   todo: "#71717a",
   in_progress: "#eab308", // warning
@@ -131,7 +131,7 @@ export function StatusIcon({
   status,
   size = 16,
 }: {
-  status: IssueStatus;
+  status: TaskStatus;
   size?: number;
 }) {
   const color = STATUS_COLOR[status];

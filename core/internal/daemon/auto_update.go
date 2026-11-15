@@ -105,7 +105,7 @@ func (d *Daemon) tryAutoUpdate(ctx context.Context) {
 	// rate-limit budget) when we already know we are going to defer. A task
 	// that starts between this load and the barrier check below is caught
 	// by the strict re-check under claimMu inside trySetClaimBarrier.
-	if running := d.activeTasks.Load(); running > 0 {
+	if running := d.activeRuns.Load(); running > 0 {
 		d.logger.Debug("auto-update: skip — tasks running", "active", running)
 		return
 	}

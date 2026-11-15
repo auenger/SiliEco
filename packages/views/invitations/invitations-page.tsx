@@ -42,6 +42,8 @@ import { LogOut, Mail, Users } from "lucide-react";
 export function InvitationsPage() {
   const { t } = useT("invite");
   const { push } = useNavigation();
+  const onboarded = useAuthStore((s) => s.user?.onboarded_at != null);
+  const continuePath = onboarded ? paths.workspaces() : paths.onboarding();
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
@@ -69,7 +71,7 @@ export function InvitationsPage() {
     // Zero selected: hand off to onboarding. Pending invites stay pending and
     // can be picked up later from the sidebar.
     if (selected.size === 0) {
-      push(paths.onboarding());
+      push(continuePath);
       return;
     }
 
@@ -112,7 +114,7 @@ export function InvitationsPage() {
       // wsList[0]: that could teleport the user into an unrelated old
       // workspace they happen to also belong to.
       push(
-        targetWs ? paths.workspace(targetWs.slug).issues() : paths.newWorkspace(),
+        targetWs ? paths.workspace(targetWs.slug).tasks() : paths.workspaces(),
       );
     } catch (e) {
       setError(
@@ -165,10 +167,10 @@ export function InvitationsPage() {
             </div>
             <h2 className="text-title font-semibold">{t(($) => $.batch.empty_title)}</h2>
             <p className="text-body text-muted-foreground text-center">
-              {t(($) => $.batch.empty_hint)}
+              {onboarded ? t(($) => $.batch.wait_hint) : t(($) => $.batch.empty_hint)}
             </p>
-            <Button onClick={() => push(paths.onboarding())}>
-              {t(($) => $.batch.empty_continue)}
+            <Button onClick={() => push(continuePath)}>
+              {onboarded ? t(($) => $.batch.back_workspaces) : t(($) => $.batch.empty_continue)}
             </Button>
           </CardContent>
         </Card>
@@ -178,7 +180,7 @@ export function InvitationsPage() {
 
   const submitLabel =
     selected.size === 0
-      ? t(($) => $.batch.submit_skip)
+      ? (onboarded ? t(($) => $.batch.back_workspaces) : t(($) => $.batch.submit_skip))
       : t(($) => $.batch.submit_join, { count: selected.size });
 
   return (

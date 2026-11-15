@@ -5,9 +5,9 @@ import type {
   WorkspaceWorkingAgentType,
 } from "../types";
 
-export const agentTaskSnapshotKeys = {
-  all: (wsId: string) => ["workspaces", wsId, "agent-task-snapshot"] as const,
-  list: (wsId: string) => [...agentTaskSnapshotKeys.all(wsId), "list"] as const,
+export const agentRunSnapshotKeys = {
+  all: (wsId: string) => ["workspaces", wsId, "agent-run-snapshot"] as const,
+  list: (wsId: string) => [...agentRunSnapshotKeys.all(wsId), "list"] as const,
 };
 
 export const workspaceWorkingAgentsKeys = {
@@ -16,7 +16,7 @@ export const workspaceWorkingAgentsKeys = {
     wsId: string,
     type?: WorkspaceWorkingAgentType,
     mineRelation?: WorkspaceWorkingAgentMineRelation,
-    parentIssueId?: string,
+    parentTaskId?: string,
   ) =>
     [
       ...workspaceWorkingAgentsKeys.all(wsId),
@@ -24,8 +24,8 @@ export const workspaceWorkingAgentsKeys = {
       type ?? "all",
       mineRelation
         ? `mine:${mineRelation}`
-        : parentIssueId
-          ? `parent:${parentIssueId}`
+        : parentTaskId
+          ? `parent:${parentTaskId}`
           : "workspace",
     ] as const,
 };
@@ -40,59 +40,59 @@ export const agentRunCountsKeys = {
   last30d: (wsId: string) => [...agentRunCountsKeys.all(wsId), "30d"] as const,
 };
 
-// Workspace-scoped agent task snapshot — every active task plus each agent's
-// most recent terminal task. This is the single shared source of truth that
+// Workspace-scoped agent run snapshot — every active run plus each agent's
+// most recent terminal run. This is the single shared source of truth that
 // powers per-agent presence derivation across the app. One fetch per
 // workspace; all agent dots / hover cards / list rows derive presence from
 // this cache with zero additional network traffic.
 //
-// Presence itself is derived from the active tasks only (see derive-presence.ts
+// Presence itself is derived from the active runs only (see derive-presence.ts
 // and #1823). The one terminal row per agent is used solely for the Squad hover
 // card's "last activity" line; SILI-5436 tracks moving it to a dedicated lazy
 // endpoint so this hot query stops carrying history at all.
 //
 // The 30s staleTime is a safety net only; the primary freshness signal is
-// WS task events, which invalidate this query immediately. Without WS,
+// WS run events, which invalidate this query immediately. Without WS,
 // presence still updates within 30s on focus / mount.
-export function agentTaskSnapshotOptions(wsId: string) {
+export function agentRunSnapshotOptions(wsId: string) {
   return queryOptions({
-    queryKey: agentTaskSnapshotKeys.list(wsId),
-    queryFn: () => api.getAgentTaskSnapshot(),
+    queryKey: agentRunSnapshotKeys.list(wsId),
+    queryFn: () => api.getAgentRunSnapshot(),
     staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
   });
 }
 
-// Working-agent summaries, optionally narrowed to a My Issues relation or to
-// one issue's direct children. Task lifecycle WebSocket events invalidate
+// Working-agent summaries, optionally narrowed to a My Tasks relation or to
+// one task's direct children. Task lifecycle WebSocket events invalidate
 // every narrowing immediately; the short stale time is the reconnect /
 // missed-event safety net.
 export function workspaceWorkingAgentsOptions(
   wsId: string,
   type?: WorkspaceWorkingAgentType,
   mineRelation?: WorkspaceWorkingAgentMineRelation,
-  parentIssueId?: string,
+  parentTaskId?: string,
 ) {
   return queryOptions({
     queryKey: workspaceWorkingAgentsKeys.list(
       wsId,
       type,
       mineRelation,
-      parentIssueId,
+      parentTaskId,
     ),
     queryFn: () =>
-      api.getWorkspaceWorkingAgents(type, mineRelation, parentIssueId),
+      api.getWorkspaceWorkingAgents(type, mineRelation, parentTaskId),
     staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
   });
 }
 
-// Workspace-wide daily task activity for the last 30 days, anchored on
+// Workspace-wide daily run activity for the last 30 days, anchored on
 // completed_at. One fetch backs both the Agents-list sparkline (which
 // only uses the trailing 7 buckets via `summarizeActivityWindow`) and
-// the agent detail "Last 30 days" panel. WS task lifecycle events
+// the agent detail "Last 30 days" panel. WS run lifecycle events
 // invalidate this query in useRealtimeSync; the staleTime is a
 // tab-focus safety net.
 export function agentActivity30dOptions(wsId: string) {
@@ -112,26 +112,6 @@ export function agentRunCounts30dOptions(wsId: string) {
     queryKey: agentRunCountsKeys.last30d(wsId),
     queryFn: () => api.getWorkspaceAgentRunCounts(),
     staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: true,
-  });
-}
-
-export const agentTasksKeys = {
-  all: (wsId: string) => ["workspaces", wsId, "agent-tasks"] as const,
-  detail: (wsId: string, agentId: string) =>
-    [...agentTasksKeys.all(wsId), agentId] as const,
-};
-
-// All tasks for a single agent (the agent detail page consumer). Powers both
-// the inspector's 7-day throughput stats and the Tasks tab list — shared so
-// they don't fetch twice. WS task events invalidate this via the existing
-// task-prefix invalidation in useRealtimeSync.
-export function agentTasksOptions(wsId: string, agentId: string) {
-  return queryOptions({
-    queryKey: agentTasksKeys.detail(wsId, agentId),
-    queryFn: () => api.listAgentTasks(agentId),
-    staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
   });

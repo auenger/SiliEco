@@ -33,7 +33,7 @@ func fullSourceAgent() map[string]any {
 		"instructions":         "some instructions",
 		"avatar_url":           "https://img.example/a.png",
 		"custom_args":          []any{"--foo", "--bar"},
-		"max_concurrent_tasks": 9,
+		"max_concurrent_runs": 9,
 		"model":                "claude-sonnet-4-6",
 		"thinking_level":       "high",
 		"service_tier":         "priority",
@@ -80,7 +80,7 @@ func setCopyTestEnv(t *testing.T, serverURL string) {
 	t.Setenv("SILIECO_WORKSPACE_ID", "ws-1")
 	t.Setenv("SILIECO_TOKEN", "test-token")
 	t.Setenv("SILIECO_AGENT_ID", "")
-	t.Setenv("SILIECO_TASK_ID", "")
+	t.Setenv("SILIECO_RUN_ID", "")
 }
 
 func TestAgentCopySameRuntimeCopiesPortableFields(t *testing.T) {
@@ -116,8 +116,8 @@ func TestAgentCopySameRuntimeCopiesPortableFields(t *testing.T) {
 	if !reflect.DeepEqual(gotBody["custom_args"], []any{"--foo", "--bar"}) {
 		t.Errorf("custom_args = %v", gotBody["custom_args"])
 	}
-	if gotBody["max_concurrent_tasks"] != float64(9) {
-		t.Errorf("max_concurrent_tasks = %v, want 9", gotBody["max_concurrent_tasks"])
+	if gotBody["max_concurrent_runs"] != float64(9) {
+		t.Errorf("max_concurrent_runs = %v, want 9", gotBody["max_concurrent_runs"])
 	}
 	// Same runtime: runtime-specific fields are carried over.
 	if gotBody["model"] != "claude-sonnet-4-6" {
@@ -152,7 +152,7 @@ func TestAgentCopyOmitsInvalidHistoricalConcurrency(t *testing.T) {
 	for _, value := range []any{0, -1, 51} {
 		t.Run(fmt.Sprint(value), func(t *testing.T) {
 			source := fullSourceAgent()
-			source["max_concurrent_tasks"] = value
+			source["max_concurrent_runs"] = value
 
 			var gotBody map[string]any
 			srv := copyMockServer(t, source, &gotBody)
@@ -163,8 +163,8 @@ func TestAgentCopyOmitsInvalidHistoricalConcurrency(t *testing.T) {
 			if err := runAgentCopy(cmd, []string{"agent-src"}); err != nil {
 				t.Fatalf("runAgentCopy: %v", err)
 			}
-			if _, ok := gotBody["max_concurrent_tasks"]; ok {
-				t.Errorf("invalid historical max_concurrent_tasks must be omitted, got %v", gotBody["max_concurrent_tasks"])
+			if _, ok := gotBody["max_concurrent_runs"]; ok {
+				t.Errorf("invalid historical max_concurrent_runs must be omitted, got %v", gotBody["max_concurrent_runs"])
 			}
 		})
 	}
@@ -172,7 +172,7 @@ func TestAgentCopyOmitsInvalidHistoricalConcurrency(t *testing.T) {
 
 func TestAgentCopyValidConcurrencyOverrideRepairsInvalidSource(t *testing.T) {
 	source := fullSourceAgent()
-	source["max_concurrent_tasks"] = 0
+	source["max_concurrent_runs"] = 0
 
 	var gotBody map[string]any
 	srv := copyMockServer(t, source, &gotBody)
@@ -180,23 +180,23 @@ func TestAgentCopyValidConcurrencyOverrideRepairsInvalidSource(t *testing.T) {
 	setCopyTestEnv(t, srv.URL)
 
 	cmd := newAgentCopyTestCmd()
-	_ = cmd.Flags().Set("max-concurrent-tasks", "12")
+	_ = cmd.Flags().Set("max-concurrent-runs", "12")
 
 	if err := runAgentCopy(cmd, []string{"agent-src"}); err != nil {
 		t.Fatalf("runAgentCopy: %v", err)
 	}
-	if gotBody["max_concurrent_tasks"] != float64(12) {
-		t.Errorf("max_concurrent_tasks = %v, want 12", gotBody["max_concurrent_tasks"])
+	if gotBody["max_concurrent_runs"] != float64(12) {
+		t.Errorf("max_concurrent_runs = %v, want 12", gotBody["max_concurrent_runs"])
 	}
 }
 
 func TestAgentCopyRejectsInvalidConcurrencyOverrideBeforeRequest(t *testing.T) {
 	cmd := newAgentCopyTestCmd()
-	_ = cmd.Flags().Set("max-concurrent-tasks", "51")
+	_ = cmd.Flags().Set("max-concurrent-runs", "51")
 
 	err := runAgentCopy(cmd, []string{"agent-src"})
 	if err == nil {
-		t.Fatal("expected invalid --max-concurrent-tasks error")
+		t.Fatal("expected invalid --max-concurrent-runs error")
 	}
 	if !strings.Contains(err.Error(), "between 1 and 50") {
 		t.Fatalf("error = %q, want 1-50 range", err.Error())

@@ -9,14 +9,14 @@ import (
 // Unified execution-admission contract (SILI-4525).
 //
 // Every synchronous enqueue entry point (comment mention, autopilot manual
-// "run now", issue assign / promotion / batch, manual rerun, direct chat) needs
+// "run now", task assign / promotion / batch, manual rerun, direct chat) needs
 // to answer the SAME question in the SAME shape: given a user who explicitly
 // named an execution target, did the run get `queued`, `coalesced` onto an
 // existing task, `deferred`, or `blocked`? A silent no-op is never acceptable.
 //
 // Two invariants this contract exists to protect:
 //
-//  1. Whether the business object was written (comment saved, issue updated)
+//  1. Whether the business object was written (comment saved, task updated)
 //     and whether the agent was actually triggered are DIFFERENT facts. A
 //     comment can persist while one of its mentions is blocked — callers must
 //     be able to express partial success.
@@ -35,7 +35,7 @@ const (
 	// the same target instead of creating a duplicate run.
 	DispatchCoalesced DispatchStatus = "coalesced"
 	// DispatchDeferred: admitted but intentionally not started yet (e.g. a
-	// backlog issue parked until promotion, or suppress_run).
+	// backlog task parked until promotion, or suppress_run).
 	DispatchDeferred DispatchStatus = "deferred"
 	// DispatchBlocked: the run was refused. ReasonCode carries why.
 	DispatchBlocked DispatchStatus = "blocked"
@@ -76,11 +76,11 @@ type DispatchTarget struct {
 // enqueue entry point. It is additive on the wire: old clients that ignore it
 // keep working. TaskID / RunID are set when a run/task was produced.
 type DispatchOutcome struct {
-	Status     DispatchStatus     `json:"status"`
-	ReasonCode DispatchReasonCode `json:"reason_code"`
-	Target     *DispatchTarget    `json:"target,omitempty"`
-	TaskID     *string            `json:"task_id,omitempty"`
-	RunID      *string            `json:"run_id,omitempty"`
+	Status         DispatchStatus     `json:"status"`
+	ReasonCode     DispatchReasonCode `json:"reason_code"`
+	Target         *DispatchTarget    `json:"target,omitempty"`
+	RunID          *string            `json:"run_id,omitempty"`
+	AutopilotRunID *string            `json:"autopilot_run_id,omitempty"`
 }
 
 // dispatchBlockedResponse is the structured body of a blocked synchronous

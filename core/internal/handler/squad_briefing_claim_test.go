@@ -13,38 +13,38 @@ import (
 // returns the claimed task id plus the agent Instructions carried on the claim
 // response (the field the squad-leader briefing is injected into). Empty task
 // id means no task was claimed.
-func claimAgentInstructionsForTest(t *testing.T, runtimeID string) (taskID string, instructions string, raw string) {
+func claimAgentInstructionsForTest(t *testing.T, runtimeID string) (runID string, instructions string, raw string) {
 	t.Helper()
 
 	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/tasks/claim", nil,
+	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/runs/claim", nil,
 		testWorkspaceID, "squad-briefing-claim")
 	req = withURLParam(req, "runtimeId", runtimeID)
 
-	testHandler.ClaimTaskByRuntime(w, req)
+	testHandler.ClaimRunByRuntime(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("ClaimTaskByRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var resp struct {
-		Task *struct {
+		AgentRun *struct {
 			ID    string `json:"id"`
 			Agent *struct {
 				Instructions string `json:"instructions"`
 			} `json:"agent"`
-		} `json:"task"`
+		} `json:"run"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode claim response: %v", err)
 	}
-	if resp.Task == nil {
+	if resp.AgentRun == nil {
 		return "", "", w.Body.String()
 	}
 	var instr string
-	if resp.Task.Agent != nil {
-		instr = resp.Task.Agent.Instructions
+	if resp.AgentRun.Agent != nil {
+		instr = resp.AgentRun.Agent.Instructions
 	}
-	return resp.Task.ID, instr, w.Body.String()
+	return resp.AgentRun.ID, instr, w.Body.String()
 }
 
 // squadBriefingClaimFixture wires a runtime + leader agent + squad and returns
@@ -53,26 +53,26 @@ type squadBriefingClaimFixture struct {
 	RuntimeID string
 	AgentID   string // squad leader, has the runtime and empty instructions
 	SquadID   string
-	IssueID   string // assignee_type='agent' (NOT squad) — reproduces SILI-3724
+	TaskID    string // assignee_type='agent' (NOT squad) — reproduces SILI-3724
 }
 
 func newSquadBriefingClaimFixture(t *testing.T, ctx context.Context, name string) squadBriefingClaimFixture {
 	t.Helper()
 
 	runtimeID := createClaimReclaimRuntime(t, ctx, name+" runtime")
-	// Leader agent + an issue assigned to that agent (assignee_type='agent').
-	agentID, issueID := createClaimReclaimAgentAndIssue(t, ctx, runtimeID, name+" leader")
+	// Leader agent + an task assigned to that agent (assignee_type='agent').
+	agentID, taskID := createClaimReclaimAgentAndTask(t, ctx, runtimeID, name+" leader")
 	// Force empty instructions so the test asserts the briefing alone — this
 	// mirrors SILI-3724 where the leader's own instructions were blank.
 	if _, err := testPool.Exec(ctx, `UPDATE agent SET instructions = '' WHERE id = $1`, agentID); err != nil {
 		t.Fatalf("clear leader instructions: %v", err)
 	}
-	// Make the issue assignee an agent (NOT the squad). The pre-fix code only
-	// injected the briefing when issue.assignee_type='squad', so this is the
+	// Make the task assignee an agent (NOT the squad). The pre-fix code only
+	// injected the briefing when task.assignee_type='squad', so this is the
 	// exact gap the fix closes: a comment @squad-mention leader task running on
-	// an agent-assigned issue.
-	if _, err := testPool.Exec(ctx, `UPDATE issue SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, issueID, agentID); err != nil {
-		t.Fatalf("set issue agent assignee: %v", err)
+	// an agent-assigned task.
+	if _, err := testPool.Exec(ctx, `UPDATE task SET assignee_type = 'agent', assignee_id = $2 WHERE id = $1`, taskID, agentID); err != nil {
+		t.Fatalf("set task agent assignee: %v", err)
 	}
 
 	var squadID string
@@ -89,13 +89,13 @@ func newSquadBriefingClaimFixture(t *testing.T, ctx context.Context, name string
 		RuntimeID: runtimeID,
 		AgentID:   agentID,
 		SquadID:   squadID,
-		IssueID:   issueID,
+		TaskID:    taskID,
 	}
 }
 
-func enqueueClaimTask(t *testing.T, ctx context.Context, fx squadBriefingClaimFixture, isLeader bool, withSquadID bool) string {
+func enqueueClaimRun(t *testing.T, ctx context.Context, fx squadBriefingClaimFixture, isLeader bool, withSquadID bool) string {
 	t.Helper()
-	var taskID string
+	var runID string
 	var squadArg any
 	if withSquadID {
 		squadArg = fx.SquadID
@@ -103,30 +103,30 @@ func enqueueClaimTask(t *testing.T, ctx context.Context, fx squadBriefingClaimFi
 		squadArg = nil
 	}
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, is_leader_task, squad_id)
+		INSERT INTO agent_run (agent_id, runtime_id, task_id, status, priority, is_leader_run, squad_id)
 		VALUES ($1, $2, $3, 'queued', 0, $4, $5)
 		RETURNING id
-	`, fx.AgentID, fx.RuntimeID, fx.IssueID, isLeader, squadArg).Scan(&taskID); err != nil {
-		t.Fatalf("enqueue claim task: %v", err)
+	`, fx.AgentID, fx.RuntimeID, fx.TaskID, isLeader, squadArg).Scan(&runID); err != nil {
+		t.Fatalf("enqueue claim run: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
-	return taskID
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_run WHERE id = $1`, runID) })
+	return runID
 }
 
 // TestClaim_LeaderTaskFromCommentMention_InjectsBriefing is the SILI-3724
-// reproduction: a leader task (is_leader_task=true) carrying a squad_id, on an
-// issue assigned to a plain AGENT (not the squad). The pre-fix gate
-// (issue.assignee_type='squad') would NOT inject the briefing here, so the
+// reproduction: a leader task (is_leader_run=true) carrying a squad_id, on an
+// task assigned to a plain AGENT (not the squad). The pre-fix gate
+// (task.assignee_type='squad') would NOT inject the briefing here, so the
 // leader booted with no squad context and degraded into doing the work itself.
 // After the fix the briefing is keyed off the task flag + squad_id, so it is
-// injected regardless of issue assignee.
-func TestClaim_LeaderTaskFromCommentMention_InjectsBriefing(t *testing.T) {
+// injected regardless of task assignee.
+func TestClaim_LeaderRunFromCommentMention_InjectsBriefing(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fx := newSquadBriefingClaimFixture(t, ctx, "Briefing inject")
-	want := enqueueClaimTask(t, ctx, fx, true /*isLeader*/, true /*withSquadID*/)
+	want := enqueueClaimRun(t, ctx, fx, true /*isLeader*/, true /*withSquadID*/)
 
 	got, instr, raw := claimAgentInstructionsForTest(t, fx.RuntimeID)
 	if got != want {
@@ -138,15 +138,15 @@ func TestClaim_LeaderTaskFromCommentMention_InjectsBriefing(t *testing.T) {
 }
 
 // TestClaim_NonLeaderTask_NoBriefing guards the negative: a task that is NOT a
-// leader task (is_leader_task=false), even with a squad_id present, must not
+// leader task (is_leader_run=false), even with a squad_id present, must not
 // receive the briefing. This keeps worker/mention runs free of leader framing.
-func TestClaim_NonLeaderTask_NoBriefing(t *testing.T) {
+func TestClaim_NonLeaderRun_NoBriefing(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fx := newSquadBriefingClaimFixture(t, ctx, "Briefing nonleader")
-	enqueueClaimTask(t, ctx, fx, false /*isLeader*/, true /*withSquadID*/)
+	enqueueClaimRun(t, ctx, fx, false /*isLeader*/, true /*withSquadID*/)
 
 	_, instr, _ := claimAgentInstructionsForTest(t, fx.RuntimeID)
 	if strings.Contains(instr, "## Squad Operating Protocol") || strings.Contains(instr, "## Squad Roster") {
@@ -155,7 +155,7 @@ func TestClaim_NonLeaderTask_NoBriefing(t *testing.T) {
 }
 
 // TestClaim_LeaderTaskWithDanglingSquadID_NoBriefing is the load-bearing
-// contract for dropping the FK on agent_task_queue.squad_id (migration 127):
+// contract for dropping the FK on agent_run.squad_id (migration 127):
 // when a squad is hard-deleted AFTER a leader task was enqueued, the task row
 // keeps a now-dangling squad_id. The claim must still succeed (HTTP 200, task
 // delivered) and simply skip briefing injection — GetSquadInWorkspace returns
@@ -163,13 +163,13 @@ func TestClaim_NonLeaderTask_NoBriefing(t *testing.T) {
 // matched". Never a 500, never a stale/empty briefing. Without the FK nothing
 // in the DB prevents the dangling row, so this guard lives entirely in the
 // claim handler and must stay tested.
-func TestClaim_LeaderTaskWithDanglingSquadID_NoBriefing(t *testing.T) {
+func TestClaim_LeaderRunWithDanglingSquadID_NoBriefing(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fx := newSquadBriefingClaimFixture(t, ctx, "Briefing dangling")
-	want := enqueueClaimTask(t, ctx, fx, true /*isLeader*/, true /*withSquadID*/)
+	want := enqueueClaimRun(t, ctx, fx, true /*isLeader*/, true /*withSquadID*/)
 
 	// Hard-delete the squad AFTER enqueue, leaving task.squad_id dangling.
 	// There is no FK (migration 127), so the task row is untouched.
@@ -180,7 +180,7 @@ func TestClaim_LeaderTaskWithDanglingSquadID_NoBriefing(t *testing.T) {
 	// delete did not cascade/null it, which is the whole point of no-FK.
 	var stillSet bool
 	if err := testPool.QueryRow(ctx,
-		`SELECT squad_id = $2 FROM agent_task_queue WHERE id = $1`, want, fx.SquadID,
+		`SELECT squad_id = $2 FROM agent_run WHERE id = $1`, want, fx.SquadID,
 	).Scan(&stillSet); err != nil {
 		t.Fatalf("reload task squad_id: %v", err)
 	}
@@ -201,13 +201,13 @@ func TestClaim_LeaderTaskWithDanglingSquadID_NoBriefing(t *testing.T) {
 // squad_id. The claim handler must skip injection rather than panic or guess —
 // equivalent to the pre-fix "condition not matched" behavior, never a stale
 // briefing.
-func TestClaim_LeaderTaskWithoutSquadID_NoBriefing(t *testing.T) {
+func TestClaim_LeaderRunWithoutSquadID_NoBriefing(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 	fx := newSquadBriefingClaimFixture(t, ctx, "Briefing nullsquad")
-	enqueueClaimTask(t, ctx, fx, true /*isLeader*/, false /*withSquadID*/)
+	enqueueClaimRun(t, ctx, fx, true /*isLeader*/, false /*withSquadID*/)
 
 	_, instr, _ := claimAgentInstructionsForTest(t, fx.RuntimeID)
 	if strings.Contains(instr, "## Squad Operating Protocol") || strings.Contains(instr, "## Squad Roster") {

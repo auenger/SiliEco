@@ -45,9 +45,9 @@ import { cn } from "@silieco/ui/lib/utils";
 import type { UploadResult } from "@silieco/core/hooks/use-file-upload";
 import { useWorkspaceSlug } from "@silieco/core/paths";
 import { useQueryClient } from "@tanstack/react-query";
-import { issueIdentifierOptions } from "@silieco/core/issues/queries";
+import { taskIdentifierOptions } from "@silieco/core/tasks/queries";
 import { workspaceListOptions } from "@silieco/core/workspace/queries";
-import { isIssueIdentifier } from "@silieco/ui/markdown";
+import { isTaskIdentifier } from "@silieco/ui/markdown";
 import type { Attachment } from "@silieco/core/types";
 import {
   parseMarkdownChunked,
@@ -56,7 +56,7 @@ import {
 } from "./utils/parse-markdown-chunked";
 import type { MentionItem } from "./extensions/mention-suggestion";
 import type { FileResource } from "@silieco/core/types";
-import type { IssueIdentifierResolver } from "./extensions/issue-identifier-autolink";
+import type { TaskIdentifierResolver } from "./extensions/task-identifier-autolink";
 import { createEditorExtensions } from "./extensions";
 import {
   uploadAndInsertFile,
@@ -142,8 +142,8 @@ interface ContentEditorBaseProps {
    * Opt-in ON PURPOSE, and today only chat passes it: a wall of pasted text
    * there is context handed to an agent for one turn, and reads better as an
    * attachment than as a body nobody scrolls. Every other editor keeps the
-   * paste inline — in issue and project descriptions a long paste IS the
-   * content, and in issue comments it is prose a human reader is expected to
+   * paste inline — in task and project descriptions a long paste IS the
+   * content, and in task comments it is prose a human reader is expected to
    * see in the thread.
    */
   pasteAsFileThreshold?: number;
@@ -166,11 +166,11 @@ interface ContentEditorBaseProps {
   /** Show the floating formatting toolbar on text selection. Defaults true. */
   showBubbleMenu?: boolean;
   /**
-   * ID of the issue this editor belongs to. When set, the bubble menu exposes
-   * a "Create sub-issue from selection" action that parents the new issue
+   * ID of the task this editor belongs to. When set, the bubble menu exposes
+   * a "Create sub-task from selection" action that parents the new task
    * under this ID and replaces the selection with a mention link.
    */
-  currentIssueId?: string;
+  currentTaskId?: string;
   /**
    * When true, the `@` suggestion picker is disabled but the mention node
    * type remains in the schema, so existing mentions pasted in from other
@@ -179,7 +179,7 @@ interface ContentEditorBaseProps {
    * prompts) but *preserving* an existing one still matters.
    */
   disableMentions?: boolean;
-  /** Chat can surface current/recent issue/project suggestions. Other editors use default mention behavior. */
+  /** Chat can surface current/recent task/project suggestions. Other editors use default mention behavior. */
   mentionMode?: "default" | "context";
   mentionContextItems?: MentionItem[];
   /** Include durable Space files in the `@` picker and persist their Task reference on selection. */
@@ -190,14 +190,14 @@ interface ContentEditorBaseProps {
   /**
    * Which `/` menu to show when enableSlashCommands is true: "skill" (default)
    * lists the active agent's skills (chat); "command" shows the fixed built-in
-   * command menu (issue comments), e.g. /note.
+   * command menu (task comments), e.g. /note.
    */
   slashCommandMode?: "skill" | "command";
   /**
    * Attachments referenced by this content. The download buttons on file
    * cards and images inside the editor look up an attachment by `url` and
    * fetch a fresh CloudFront signature at click time, so a stale URL
-   * persisted in markdown never opens. Pass `issue.attachments` /
+   * persisted in markdown never opens. Pass `task.attachments` /
    * `comment.attachments` etc.; omit when no attachment context is
    * available (NodeView buttons fall back to opening the raw URL).
    */
@@ -205,10 +205,10 @@ interface ContentEditorBaseProps {
   /**
    * Flush a pending debounced `onUpdate` when the editor unmounts instead of
    * dropping it. Default false ON PURPOSE: most composers clear their draft
-   * and then unmount (comment edit cancel, create-issue / feedback submit),
+   * and then unmount (comment edit cancel, create-task / feedback submit),
    * and a flush there would hand the discarded content right back to
    * `onUpdate`, resurrecting the cleared draft. Opt in only where closing
-   * means "keep what the user last saw" — e.g. the issue-detail description
+   * means "keep what the user last saw" — e.g. the task-detail description
    * editor, whose 1500ms debounce would otherwise drop a paste made just
    * before the modal closes.
    */
@@ -360,7 +360,7 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
       pasteAsFileThreshold,
       onUploadingChange,
       showBubbleMenu = true,
-      currentIssueId,
+      currentTaskId,
       disableMentions = false,
       mentionMode = "default",
       mentionContextItems,
@@ -439,13 +439,13 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
     }, [onUploadFile]);
 
     // Merged list fed to AttachmentDownloadProvider. Caller-supplied attachments
-    // (issue / comment editors that pre-load the full attachments[] from the
+    // (task / comment editors that pre-load the full attachments[] from the
     // server) take precedence — we only append session uploads the caller
     // doesn't already have, so a parent re-render that includes the same record
     // doesn't end up with two copies.
     //
     // One exception on id collision: when the caller's copy has an EMPTY
-    // `download_url` (the create-issue draft strips the short-lived signed URL
+    // `download_url` (the create-task draft strips the short-lived signed URL
     // before persisting), backfill it from the session upload. The session copy
     // holds the this-response signed URL, so the just-pasted image first-paints
     // from it instead of taking an extra redirect hop through `markdown_url`.
@@ -468,7 +468,7 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
 
     // Current workspace slug kept in a ref so the click handler always sees the
     // latest value without recreating the editor. Used by openLink to prefix
-    // legacy /issues/... style paths that lack a workspace slug.
+    // legacy /tasks/... style paths that lack a workspace slug.
     const workspaceSlug = useWorkspaceSlug();
     const workspaceSlugRef = useRef(workspaceSlug);
     workspaceSlugRef.current = workspaceSlug;
@@ -500,27 +500,27 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
     // the slug ref) and returns null outside a workspace, for non-identifier
     // tokens, or when the prefix can't match this workspace, so no network call
     // happens for those; the exact-match filter enforces correctness.
-    const resolveIssueIdentifierRef = useRef<IssueIdentifierResolver | undefined>(
+    const resolveTaskIdentifierRef = useRef<TaskIdentifierResolver | undefined>(
       undefined,
     );
-    resolveIssueIdentifierRef.current = async (identifier) => {
-      if (!isIssueIdentifier(identifier)) return null;
+    resolveTaskIdentifierRef.current = async (identifier) => {
+      if (!isTaskIdentifier(identifier)) return null;
       const slug = workspaceSlugRef.current;
       if (!slug) return null;
       const workspaces = await queryClient.fetchQuery(workspaceListOptions());
       const ws = workspaces.find((w) => w.slug === slug);
       if (!ws) return null;
-      const prefix = ws.issue_prefix;
+      const prefix = ws.task_prefix;
       if (
         prefix &&
         !identifier.toUpperCase().startsWith(`${prefix.toUpperCase()}-`)
       ) {
         return null;
       }
-      const issue = await queryClient.fetchQuery(
-        issueIdentifierOptions(ws.id, identifier),
+      const task = await queryClient.fetchQuery(
+        taskIdentifierOptions(ws.id, identifier),
       );
-      return issue ? { id: issue.id, identifier: issue.identifier } : null;
+      return task ? { id: task.id, identifier: task.identifier } : null;
     };
 
     const initialMarkdown = value ?? defaultValue ?? "";
@@ -594,7 +594,7 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
         onReferenceFileRef,
         enableSlashCommands,
         slashCommandMode,
-        resolveIssueIdentifierRef,
+        resolveTaskIdentifierRef,
       }),
       onUpdate: ({ editor: ed }) => {
         if (!onUpdateRef.current) return;
@@ -772,7 +772,7 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
     // into the live editor.
     // Tiptap v3 `useEditor` reads `content` only at mount (ueberdosis/tiptap#5831);
     // without this effect, a WS-driven description update keeps the editor
-    // showing stale content until the issue is closed and reopened.
+    // showing stale content until the task is closed and reopened.
     useEffect(() => {
       if (!editor || editor.isDestroyed || value === undefined) return;
 
@@ -947,7 +947,7 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
         >
           <EditorContent className="flex flex-1 flex-col" editor={editor} />
           {showBubbleMenu && (
-            <EditorBubbleMenu editor={editor} currentIssueId={currentIssueId} />
+            <EditorBubbleMenu editor={editor} currentTaskId={currentTaskId} />
           )}
           <LinkHoverCard {...hover} />
         </div>

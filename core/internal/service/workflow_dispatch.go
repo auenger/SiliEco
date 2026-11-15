@@ -11,18 +11,18 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/silieco-ai/silieco/core/internal/events"
-	"github.com/silieco-ai/silieco/core/internal/issueposition"
+	"github.com/silieco-ai/silieco/core/internal/taskposition"
 	"github.com/silieco-ai/silieco/core/internal/util"
 	db "github.com/silieco-ai/silieco/core/pkg/db/generated"
 	"github.com/silieco-ai/silieco/core/pkg/protocol"
 	"github.com/silieco-ai/silieco/core/pkg/workflowcontract"
 )
 
-// DispatchStageAction consumes a leased intent. The main issue, queue task,
+// DispatchStageAction consumes a leased intent. The main task, queue task,
 // immutable execution binding and acknowledgement commit together. Delivery is
 // safe to retry after an ambiguous commit: the old token cannot create work.
 func (s *WorkflowExecutionService) DispatchStageAction(ctx context.Context, workspaceID, actionID, claimToken pgtype.UUID) error {
-	if s.TaskService == nil {
+	if s.AgentRunService == nil {
 		return errors.New("workflow TaskService is required")
 	}
 	tx, err := s.TxStarter.Begin(ctx)
@@ -124,11 +124,11 @@ func (s *WorkflowExecutionService) DispatchStageAction(ctx context.Context, work
 	if snapshot.Name == "" {
 		return block("invalid_configuration", "stage snapshot has no name")
 	}
-	number, err := q.IncrementIssueCounter(ctx, workspaceID)
+	number, err := q.IncrementTaskCounter(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
-	position, err := issueposition.NextTopPosition(ctx, tx, workspaceID, "todo")
+	position, err := taskposition.NextTopPosition(ctx, tx, workspaceID, "todo")
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func (s *WorkflowExecutionService) DispatchStageAction(ctx context.Context, work
 		description = *snapshot.Description + "\n\n"
 	}
 	description += "## Stage input snapshot\n\n```json\n" + string(execution.InputSnapshot) + "\n```"
-	issue, err := q.CreateIssue(ctx, db.CreateIssueParams{
+	task, err := q.CreateTask(ctx, db.CreateTaskParams{
 		WorkspaceID: workspaceID, Title: snapshot.Name, Description: pgtype.Text{String: description, Valid: true}, Status: "todo", Priority: "none",
 		AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: agent.ID, CreatorType: "member", CreatorID: instance.CreatedBy,
 		Position: position, Number: number, ProjectID: instance.ProjectID, WorkflowInstanceID: instance.ID, WorkflowStageID: execution.WorkflowStageID,
@@ -146,20 +146,20 @@ func (s *WorkflowExecutionService) DispatchStageAction(ctx context.Context, work
 		return err
 	}
 	if _, err := q.CreateActivity(ctx, db.CreateActivityParams{
-		WorkspaceID: workspaceID, IssueID: issue.ID, ActorType: pgtype.Text{String: "member", Valid: true}, ActorID: instance.CreatedBy,
+		WorkspaceID: workspaceID, TaskID: task.ID, ActorType: pgtype.Text{String: "member", Valid: true}, ActorID: instance.CreatedBy,
 		Action: "created", Details: []byte(`{}`),
 	}); err != nil {
 		return err
 	}
-	task, err := s.TaskService.createIssueTaskWithCommentPlan(ctx, q, issue, pgtype.UUID{}, nil, false, "", instance.CreatedBy, pgtype.UUID{})
+	agentRun, err := s.AgentRunService.createTaskRunWithCommentPlan(ctx, q, task, pgtype.UUID{}, nil, false, "", instance.CreatedBy, pgtype.UUID{})
 	if err != nil {
 		return err
 	}
-	task, err = q.BindWorkflowExecutionTask(ctx, db.BindWorkflowExecutionTaskParams{WorkspaceID: workspaceID, ExecutionID: execution.ID, TaskID: task.ID, MaxAttempts: maxAttempts})
+	agentRun, err = q.BindWorkflowExecutionRun(ctx, db.BindWorkflowExecutionRunParams{WorkspaceID: workspaceID, ExecutionID: execution.ID, RunID: agentRun.ID, MaxAttempts: maxAttempts})
 	if err != nil {
 		return err
 	}
-	if _, err := q.MarkWorkflowExecutionQueued(ctx, db.MarkWorkflowExecutionQueuedParams{WorkspaceID: workspaceID, ID: execution.ID, MainIssueID: issue.ID, MainTaskID: task.ID}); err != nil {
+	if _, err := q.MarkWorkflowExecutionQueued(ctx, db.MarkWorkflowExecutionQueuedParams{WorkspaceID: workspaceID, ID: execution.ID, MainTaskID: task.ID, MainRunID: agentRun.ID}); err != nil {
 		return err
 	}
 	count, err := q.CompleteWorkflowExecutionAction(ctx, db.CompleteWorkflowExecutionActionParams{WorkspaceID: workspaceID, ID: action.ID, ClaimToken: claimToken})
@@ -176,15 +176,15 @@ func (s *WorkflowExecutionService) DispatchStageAction(ctx context.Context, work
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	if s.TaskService.Bus != nil {
-		payload := issueToMap(issue, workspace.IssuePrefix)
-		payload["project_id"] = util.UUIDToPtr(issue.ProjectID)
-		payload["workflow_instance_id"] = util.UUIDToPtr(issue.WorkflowInstanceID)
-		payload["workflow_stage_id"] = util.UUIDToPtr(issue.WorkflowStageID)
-		s.TaskService.Bus.Publish(events.Event{Type: protocol.EventIssueCreated, WorkspaceID: util.UUIDToString(workspaceID), ActorType: "member", ActorID: util.UUIDToString(instance.CreatedBy), Payload: map[string]any{"issue": payload}})
+	if s.AgentRunService.Bus != nil {
+		payload := taskToMap(task, workspace.TaskPrefix)
+		payload["project_id"] = util.UUIDToPtr(task.ProjectID)
+		payload["workflow_instance_id"] = util.UUIDToPtr(task.WorkflowInstanceID)
+		payload["workflow_stage_id"] = util.UUIDToPtr(task.WorkflowStageID)
+		s.AgentRunService.Bus.Publish(events.Event{Type: protocol.EventTaskCreated, WorkspaceID: util.UUIDToString(workspaceID), ActorType: "member", ActorID: util.UUIDToString(instance.CreatedBy), Payload: map[string]any{"task": payload}})
 	}
-	s.TaskService.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
-	s.TaskService.NotifyTaskEnqueued(ctx, task)
+	s.AgentRunService.broadcastRunEvent(ctx, protocol.EventRunQueued, agentRun)
+	s.AgentRunService.NotifyRunEnqueued(ctx, agentRun)
 	return nil
 }
 

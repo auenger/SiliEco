@@ -62,7 +62,7 @@ func TestRunConfigShowIncludesProfileAndDefaults(t *testing.T) {
 		"workspace_id:",
 		"device_name:",
 		"runtime_name:",
-		"max_concurrent_tasks:",
+		"max_concurrent_runs:",
 		"poll_interval:",
 		"heartbeat_interval:",
 		"agent_timeout:",
@@ -97,7 +97,7 @@ func TestRunConfigSetRejectsUnknownKey(t *testing.T) {
 }
 
 // TestApplyConfigSetSupportsDaemonKeys locks in the daemon keys added
-// for issue #3824 (device_name, runtime_name, max_concurrent_tasks,
+// for task #3824 (device_name, runtime_name, max_concurrent_runs,
 // poll_interval) plus the follow-up knobs that use the same shape
 // (heartbeat_interval, codex_*, disable_auto_update,
 // auto_update_check_interval). applyConfigSet is the split-out validator
@@ -109,7 +109,7 @@ func TestApplyConfigSetSupportsDaemonKeys(t *testing.T) {
 	pairs := []struct{ key, val string }{
 		{"device_name", "vm-1-custom-name"},
 		{"runtime_name", "worker-a"},
-		{"max_concurrent_tasks", "4"},
+		{"max_concurrent_runs", "4"},
 		{"poll_interval", "10s"},
 		{"heartbeat_interval", "5s"},
 		{"codex_semantic_inactivity_timeout", "15m"},
@@ -124,7 +124,7 @@ func TestApplyConfigSetSupportsDaemonKeys(t *testing.T) {
 	}
 	if cfg.DeviceName != "vm-1-custom-name" ||
 		cfg.RuntimeName != "worker-a" ||
-		cfg.MaxConcurrentTasks != 4 ||
+		cfg.MaxConcurrentRuns != 4 ||
 		cfg.PollInterval != "10s" ||
 		cfg.HeartbeatInterval != "5s" ||
 		cfg.CodexSemanticInactivityTimeout != "15m" ||
@@ -221,8 +221,8 @@ func TestApplyConfigSetRejectsBadValues(t *testing.T) {
 		value string
 		want  string
 	}{
-		{"max non-int", "max_concurrent_tasks", "many", "integer"},
-		{"max negative", "max_concurrent_tasks", "-1", ">= 0"},
+		{"max non-int", "max_concurrent_runs", "many", "integer"},
+		{"max negative", "max_concurrent_runs", "-1", ">= 0"},
 		{"poll bad duration", "poll_interval", "10", "duration"},
 		{"poll zero", "poll_interval", "0s", "positive"},
 		{"poll negative", "poll_interval", "-5s", "positive"},
@@ -268,20 +268,20 @@ func TestApplyConfigSetPollIntervalZeroDoesNotOverwrite(t *testing.T) {
 }
 
 // TestApplyConfigSetEmptyStringClearsTypedKeys — parity with the existing
-// "set server_url ''" clearing behavior. For int and duration keys, ""
+// "set server_url ”" clearing behavior. For int and duration keys, ""
 // resets to the zero value rather than surfacing an Atoi/ParseDuration
 // error the user didn't ask for.
 func TestApplyConfigSetEmptyStringClearsTypedKeys(t *testing.T) {
 	t.Parallel()
 
-	cfg := cli.CLIConfig{MaxConcurrentTasks: 8, PollInterval: "10s"}
-	if err := applyConfigSet(&cfg, "max_concurrent_tasks", ""); err != nil {
-		t.Fatalf("clear max_concurrent_tasks: %v", err)
+	cfg := cli.CLIConfig{MaxConcurrentRuns: 8, PollInterval: "10s"}
+	if err := applyConfigSet(&cfg, "max_concurrent_runs", ""); err != nil {
+		t.Fatalf("clear max_concurrent_runs: %v", err)
 	}
 	if err := applyConfigSet(&cfg, "poll_interval", ""); err != nil {
 		t.Fatalf("clear poll_interval: %v", err)
 	}
-	if cfg.MaxConcurrentTasks != 0 || cfg.PollInterval != "" {
+	if cfg.MaxConcurrentRuns != 0 || cfg.PollInterval != "" {
 		t.Fatalf("cfg after clear = %+v", cfg)
 	}
 }

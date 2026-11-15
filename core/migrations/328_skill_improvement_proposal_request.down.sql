@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY skill_improvement_proposal_request;

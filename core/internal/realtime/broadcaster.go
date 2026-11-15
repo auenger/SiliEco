@@ -6,7 +6,7 @@ package realtime
 const (
 	ScopeWorkspace = "workspace"
 	ScopeUser      = "user"
-	ScopeTask      = "task"
+	ScopeRun       = "run"
 	ScopeChat      = "chat"
 	// ScopeDaemonRuntime routes daemon wakeup frames through the Redis relay.
 	// It is consumed by the daemon WebSocket hub, not by browser clients.
@@ -17,7 +17,7 @@ const (
 // on instead of *Hub directly.
 //
 // Phase 1 (SILI-1138) extends the surface with BroadcastToScope so events can
-// be fanned out to high-frequency per-resource scopes (`task:{id}`,
+// be fanned out to high-frequency per-resource scopes (`run:{id}`,
 // `chat:{id}`) instead of the whole workspace. The legacy methods continue to
 // work and now route through BroadcastToScope under the hood.
 type Broadcaster interface {

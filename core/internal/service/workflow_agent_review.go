@@ -117,7 +117,7 @@ func (s *WorkflowExecutionService) prepareAgentReviewInTx(ctx context.Context, q
 
 // GetAgentReview exposes only a currently valid request to its bound reviewer
 // call. Callers must project a safe response instead of exposing BasisSnapshot.
-func (s *WorkflowExecutionService) GetAgentReview(ctx context.Context, workspaceID, requestID, actorID, taskID pgtype.UUID) (db.WorkflowReviewRequest, error) {
+func (s *WorkflowExecutionService) GetAgentReview(ctx context.Context, workspaceID, requestID, actorID, runID pgtype.UUID) (db.WorkflowReviewRequest, error) {
 	empty := db.WorkflowReviewRequest{}
 	tx, err := s.TxStarter.Begin(ctx)
 	if err != nil {
@@ -129,7 +129,7 @@ func (s *WorkflowExecutionService) GetAgentReview(ctx context.Context, workspace
 	if err != nil {
 		return empty, err
 	}
-	if observed.ReviewerID != actorID || observed.TaskID != taskID || !taskID.Valid {
+	if observed.ReviewerID != actorID || observed.RunID != runID || !runID.Valid {
 		return empty, ErrWorkflowReviewAccess
 	}
 	request, err := s.prepareAgentReviewInTx(ctx, q, workspaceID, observed.WorkflowInstanceID, observed.ExecutionID)
@@ -139,11 +139,11 @@ func (s *WorkflowExecutionService) GetAgentReview(ctx context.Context, workspace
 	if request.ID != observed.ID {
 		return empty, ErrWorkflowExecutionConflict
 	}
-	task, err := q.GetWorkflowResultTask(ctx, db.GetWorkflowResultTaskParams{WorkspaceID: workspaceID, ID: taskID})
+	agentRun, err := q.GetWorkflowResultRun(ctx, db.GetWorkflowResultRunParams{WorkspaceID: workspaceID, ID: runID})
 	if err != nil {
 		return empty, err
 	}
-	if task.AgentID != actorID || task.WorkflowReviewRequestID != requestID || (task.Status != "running" && task.Status != "completed") {
+	if agentRun.AgentID != actorID || agentRun.WorkflowReviewRequestID != requestID || (agentRun.Status != "running" && agentRun.Status != "completed") {
 		return empty, ErrWorkflowReviewAccess
 	}
 	if err := tx.Commit(ctx); err != nil {

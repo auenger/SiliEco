@@ -83,6 +83,27 @@ func TestBuildDaemonStartArgsForwardsCodexHandshakeTimeout(t *testing.T) {
 	}
 }
 
+func TestBuildDaemonStartArgsForwardsMaxConcurrentRuns(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().Int("max-concurrent-runs", 0, "")
+	if err := cmd.Flags().Set("max-concurrent-runs", "12"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(buildDaemonStartArgs(cmd), " ")
+	want := "daemon start --foreground --max-concurrent-runs 12"
+	if got != want {
+		t.Fatalf("buildDaemonStartArgs() = %q, want %q", got, want)
+	}
+}
+
+func TestExecutionConcurrencyFlagsUseRuns(t *testing.T) {
+	for _, cmd := range []*cobra.Command{agentCreateCmd, agentUpdateCmd, agentCopyCmd, daemonStartCmd, daemonRestartCmd} {
+		if cmd.Flags().Lookup("max-concurrent-runs") == nil {
+			t.Errorf("%s must expose --max-concurrent-runs", cmd.CommandPath())
+		}
+	}
+}
+
 // TestPrintDaemonStatusOmitsVersionWhenMissing pins the back-compat contract:
 // when the daemon doesn't report cli_version (older daemon paired with a newer
 // CLI) or reports an empty string, the CLI must skip the line entirely instead
@@ -528,7 +549,7 @@ func TestPrintDaemonStatusAlignsValuesWithProfileLabel(t *testing.T) {
 	}
 }
 
-func TestPrintDiskUsageOtherRootsHintSuggestsProfilesWithTasks(t *testing.T) {
+func TestPrintDiskUsageOtherRootsHintSuggestsProfilesWithRuns(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SILIECO_WORKSPACES_ROOT", "")
@@ -538,10 +559,10 @@ func TestPrintDiskUsageOtherRootsHintSuggestsProfilesWithTasks(t *testing.T) {
 	mkdirProfile(t, home, "space profile")
 	mkdirProfile(t, home, "two-tasks")
 
-	writeDiskUsageTaskFile(t, home, "one-task", "ws1", "task1", "workdir/main.go")
-	writeDiskUsageTaskFile(t, home, "space profile", "ws3", "task1", "workdir/main.go")
-	writeDiskUsageTaskFile(t, home, "two-tasks", "ws2", "task1", "workdir/main.go")
-	writeDiskUsageTaskFile(t, home, "two-tasks", "ws2", "task2", "workdir/main.go")
+	writeDiskUsageRunFile(t, home, "one-task", "ws1", "task1", "workdir/main.go")
+	writeDiskUsageRunFile(t, home, "space profile", "ws3", "task1", "workdir/main.go")
+	writeDiskUsageRunFile(t, home, "two-tasks", "ws2", "task1", "workdir/main.go")
+	writeDiskUsageRunFile(t, home, "two-tasks", "ws2", "task2", "workdir/main.go")
 
 	var out bytes.Buffer
 	printDiskUsageOtherRootsHint(&out, daemon.DiskUsageReport{
@@ -582,12 +603,12 @@ func TestPrintDiskUsageOtherRootsHintFiresWhenCurrentRootNonEmpty(t *testing.T) 
 	t.Setenv("SILIECO_WORKSPACES_ROOT", "")
 
 	mkdirProfile(t, home, "desktop-host")
-	writeDiskUsageTaskFile(t, home, "desktop-host", "ws1", "task1", "workdir/main.go")
+	writeDiskUsageRunFile(t, home, "desktop-host", "ws1", "task1", "workdir/main.go")
 
 	var out bytes.Buffer
 	printDiskUsageOtherRootsHint(&out, daemon.DiskUsageReport{
 		WorkspacesRoot: filepath.Join(home, "silieco_workspaces"),
-		TotalTaskCount: 7, // current root is NOT empty
+		TotalRunCount:  7, // current root is NOT empty
 	}, "", "")
 
 	got := out.String()
@@ -601,7 +622,7 @@ func TestPrintDiskUsageOtherRootsHintSuggestsDefaultFromNamedProfile(t *testing.
 	t.Setenv("HOME", home)
 	t.Setenv("SILIECO_WORKSPACES_ROOT", "")
 
-	writeDefaultDiskUsageTaskFile(t, home, "ws0", "task0", "workdir/main.go")
+	writeDefaultDiskUsageRunFile(t, home, "ws0", "task0", "workdir/main.go")
 
 	var out bytes.Buffer
 	printDiskUsageOtherRootsHint(&out, daemon.DiskUsageReport{
@@ -620,7 +641,7 @@ func TestPrintDiskUsageOtherRootsHintSkipsExplicitRootOverride(t *testing.T) {
 	t.Setenv("SILIECO_WORKSPACES_ROOT", "")
 
 	mkdirProfile(t, home, "has-task")
-	writeDiskUsageTaskFile(t, home, "has-task", "ws1", "task1", "workdir/main.go")
+	writeDiskUsageRunFile(t, home, "has-task", "ws1", "task1", "workdir/main.go")
 
 	var out bytes.Buffer
 	printDiskUsageOtherRootsHint(&out, daemon.DiskUsageReport{
@@ -641,8 +662,8 @@ func TestEnumerateDiskUsageRoots(t *testing.T) {
 	// workspaces root created on disk; the other (never-run) profile is skipped.
 	mkdirProfile(t, home, "desktop-host")
 	mkdirProfile(t, home, "never-ran")
-	writeDiskUsageTaskFile(t, home, "desktop-host", "ws1", "task1", "workdir/main.go")
-	writeDefaultDiskUsageTaskFile(t, home, "ws0", "task0", "workdir/main.go")
+	writeDiskUsageRunFile(t, home, "desktop-host", "ws1", "task1", "workdir/main.go")
+	writeDefaultDiskUsageRunFile(t, home, "ws0", "task0", "workdir/main.go")
 
 	roots, err := enumerateDiskUsageRoots()
 	if err != nil {
@@ -665,18 +686,18 @@ func TestPrintAggregateDiskUsageShowsRootsAndGrandTotal(t *testing.T) {
 		Roots: []daemon.RootDiskUsage{
 			{Profile: "", Report: daemon.DiskUsageReport{
 				WorkspacesRoot: "/home/u/silieco_workspaces",
-				Tasks:          []daemon.TaskDiskUsage{{WorkspaceShort: "ws0", TaskShort: "t0", SizeBytes: 100}},
-				TotalTaskCount: 1,
+				Runs:           []daemon.RunDiskUsage{{WorkspaceShort: "ws0", RunShort: "t0", SizeBytes: 100}},
+				TotalRunCount:  1,
 				TotalSizeBytes: 100,
 			}},
 			{Profile: "desktop-host", Report: daemon.DiskUsageReport{
 				WorkspacesRoot: "/home/u/silieco_workspaces_desktop-host",
-				Tasks:          []daemon.TaskDiskUsage{{WorkspaceShort: "ws1", TaskShort: "t1", SizeBytes: 900}},
-				TotalTaskCount: 1,
+				Runs:           []daemon.RunDiskUsage{{WorkspaceShort: "ws1", RunShort: "t1", SizeBytes: 900}},
+				TotalRunCount:  1,
 				TotalSizeBytes: 900,
 			}},
 		},
-		TotalTaskCount: 2,
+		TotalRunCount:  2,
 		TotalSizeBytes: 1000,
 	}
 
@@ -720,15 +741,15 @@ func mkdirProfile(t *testing.T, home, profile string) {
 	}
 }
 
-func writeDiskUsageTaskFile(t *testing.T, home, profile, workspaceID, taskID, rel string) {
+func writeDiskUsageRunFile(t *testing.T, home, profile, workspaceID, runID, rel string) {
 	t.Helper()
-	path := filepath.Join(home, "silieco_workspaces_"+profile, workspaceID, taskID, rel)
+	path := filepath.Join(home, "silieco_workspaces_"+profile, workspaceID, runID, rel)
 	writeDiskUsageFile(t, path)
 }
 
-func writeDefaultDiskUsageTaskFile(t *testing.T, home, workspaceID, taskID, rel string) {
+func writeDefaultDiskUsageRunFile(t *testing.T, home, workspaceID, runID, rel string) {
 	t.Helper()
-	path := filepath.Join(home, "silieco_workspaces", workspaceID, taskID, rel)
+	path := filepath.Join(home, "silieco_workspaces", workspaceID, runID, rel)
 	writeDiskUsageFile(t, path)
 }
 

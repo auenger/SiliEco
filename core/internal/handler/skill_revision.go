@@ -44,7 +44,7 @@ func (h *Handler) CreateSkillRevision(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if r.Header.Get("X-Agent-ID") != "" || r.Header.Get("X-Task-ID") != "" {
+	if r.Header.Get("X-Agent-ID") != "" || r.Header.Get("X-Run-ID") != "" {
 		writeError(w, http.StatusForbidden, "candidate revision creation requires a member identity")
 		return
 	}

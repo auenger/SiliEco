@@ -39,19 +39,19 @@ import {
 import { toast } from "sonner";
 import { api } from "@silieco/core/api";
 import { useWorkspaceId } from "@silieco/core/hooks";
-import { formatDateOnly, isPastDateOnly } from "@silieco/core/issues/date";
-import { issueKeys } from "@silieco/core/issues/queries";
+import { formatDateOnly, isPastDateOnly } from "@silieco/core/tasks/date";
+import { taskKeys } from "@silieco/core/tasks/queries";
 import { useWorkspacePaths } from "@silieco/core/paths";
 import { useActorName } from "@silieco/core/workspace/hooks";
 import type {
-  Issue,
-  IssueStatus,
+  Task,
+  TaskStatus,
   Workflow,
   WorkflowGateType,
   WorkflowInstance,
   WorkflowStage,
 } from "@silieco/core/types";
-import type { AgentTask } from "@silieco/core/types/agent";
+import type { AgentRun } from "@silieco/core/types/agent";
 import {
   useAttachWorkflowTask,
   useCreateWorkflow,
@@ -76,9 +76,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { cn } from "@silieco/ui/lib/utils";
 import { AppLink, useNavigation } from "../../navigation";
 import { ActorAvatar } from "../../common/actor-avatar";
-import { TranscriptButton } from "../../common/task-transcript";
-import { PriorityIcon } from "../../issues/components/priority-icon";
-import { StatusIcon } from "../../issues/components/status-icon";
+import { TranscriptButton } from "../../common/agent-run-transcript";
+import { PriorityIcon } from "../../tasks/components/priority-icon";
+import { StatusIcon } from "../../tasks/components/status-icon";
 import { useT } from "../../i18n";
 import {
   sortWorkflowTasksByLifecycle,
@@ -90,7 +90,7 @@ import { StageReviewControl } from "./stage-review-control";
 const ALL_TASK_STATUSES = "all";
 
 type BoardMode = "status" | "stage";
-type TaskStatusFilter = typeof ALL_TASK_STATUSES | IssueStatus;
+type TaskStatusFilter = typeof ALL_TASK_STATUSES | TaskStatus;
 
 function formatTaskDate(date: string): string {
   return formatDateOnly(
@@ -110,9 +110,9 @@ function gateType(stage: Pick<WorkflowStage, "gate">): WorkflowGateType {
     : "none";
 }
 
-function WorkflowTaskCard({ task }: { task: Issue }) {
+function WorkflowTaskCard({ task }: { task: Task }) {
   const paths = useWorkspacePaths();
-  const { t } = useT("issues");
+  const { t } = useT("tasks");
   const { t: tWorkflows } = useT("workflows");
   const { getActorName } = useActorName();
   const { attributes, listeners, setNodeRef, transform, isDragging } =
@@ -237,7 +237,7 @@ function WorkflowBoardColumn({
   id: string;
   title: string;
   caption?: string;
-  tasks: Issue[];
+  tasks: Task[];
   active?: boolean;
   onTranscript?: () => void;
 }) {
@@ -303,7 +303,7 @@ export function WorkflowBoard({
   refreshing?: boolean;
 }) {
   const { t } = useT("workflows");
-  const { t: tIssues } = useT("issues");
+  const { t: tTasks } = useT("tasks");
   const workspaceId = useWorkspaceId();
   const { getActorName } = useActorName();
   const queryClient = useQueryClient();
@@ -328,12 +328,12 @@ export function WorkflowBoard({
       await Promise.all(
         (latest?.tasks ?? tasks).map((task) =>
           queryClient.refetchQueries({
-            queryKey: issueKeys.detail(workspaceId, task.id),
+            queryKey: taskKeys.detail(workspaceId, task.id),
             type: "active",
           }),
         ),
       );
-      await queryClient.invalidateQueries({ queryKey: issueKeys.all(workspaceId) });
+      await queryClient.invalidateQueries({ queryKey: taskKeys.all(workspaceId) });
     } finally {
       setInternalRefreshing(false);
     }
@@ -371,10 +371,10 @@ export function WorkflowBoard({
       },
       ...WORKFLOW_TASK_STATUSES.map((status) => ({
         value: status,
-        label: tIssues(($) => $.status[status]),
+        label: tTasks(($) => $.status[status]),
       })),
     ],
-    [t, tIssues],
+    [t, tTasks],
   );
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -385,13 +385,13 @@ export function WorkflowBoard({
       status,
     }: {
       taskId: string;
-      status: IssueStatus;
-    }) => api.updateIssue(taskId, { status }),
+      status: TaskStatus;
+    }) => api.updateTask(taskId, { status }),
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: workflowKeys.instance(workspaceId, instance.id),
       });
-      queryClient.invalidateQueries({ queryKey: issueKeys.all(workspaceId) });
+      queryClient.invalidateQueries({ queryKey: taskKeys.all(workspaceId) });
     },
   });
 
@@ -412,7 +412,7 @@ export function WorkflowBoard({
         );
         return;
       }
-      const status = destination as IssueStatus;
+      const status = destination as TaskStatus;
       if (
         !WORKFLOW_TASK_STATUSES.includes(status) ||
         task.status === status
@@ -474,7 +474,7 @@ export function WorkflowBoard({
                 {WORKFLOW_TASK_STATUSES.map((status) => (
                   <SelectItem key={status} value={status}>
                     <StatusIcon status={status} className="size-3.5" />
-                    {tIssues(($) => $.status[status])}
+                    {tTasks(($) => $.status[status])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -514,7 +514,7 @@ export function WorkflowBoard({
                 <WorkflowBoardColumn
                   key={status}
                   id={status}
-                  title={tIssues(($) => $.status[status])}
+                  title={tTasks(($) => $.status[status])}
                   tasks={visibleTasks.filter((task) => task.status === status)}
                 />
               ))}
@@ -556,7 +556,7 @@ export function WorkflowBoard({
               {transcriptQuery.isError && <p className="text-body text-destructive">{t(($) => $.transcript.failed)}</p>}
               {transcriptQuery.data?.runs.map((run) => (
                 <div key={run.id} className="rounded-lg border p-3 text-body">
-                  <div className="flex items-center justify-between gap-3"><span className="font-medium">{run.task_title}</span><div className="flex items-center gap-2"><Badge variant="outline">{run.status}</Badge><TranscriptButton task={{ id: run.id, agent_id: run.agent_id, runtime_id: "", issue_id: run.task_id, status: run.status as AgentTask["status"], priority: 0, dispatched_at: null, started_at: run.started_at, completed_at: run.completed_at, result: run.result, error: run.error, failure_reason: run.failure_reason as AgentTask["failure_reason"], created_at: run.created_at, trigger_summary: run.trigger_summary ?? undefined, worktree_branch: run.worktree_branch ?? undefined, worktree_base_sha: run.worktree_base_sha ?? undefined, worktree_final_sha: run.worktree_final_sha ?? undefined, worktree_delivery_status: run.worktree_delivery_status ?? undefined }} agentName={run.agent_name ?? run.agent_id} isLive={run.status === "running" || run.status === "dispatched"} title={t(($) => $.transcript.open_run)} /></div></div>
+                  <div className="flex items-center justify-between gap-3"><span className="font-medium">{run.task_title}</span><div className="flex items-center gap-2"><Badge variant="outline">{run.status}</Badge><TranscriptButton run={{ id: run.id, agent_id: run.agent_id, runtime_id: "", task_id: run.task_id, status: run.status as AgentRun["status"], priority: 0, dispatched_at: null, started_at: run.started_at, completed_at: run.completed_at, result: run.result, error: run.error, failure_reason: run.failure_reason as AgentRun["failure_reason"], created_at: run.created_at, trigger_summary: run.trigger_summary ?? undefined, worktree_branch: run.worktree_branch ?? undefined, worktree_base_sha: run.worktree_base_sha ?? undefined, worktree_final_sha: run.worktree_final_sha ?? undefined, worktree_delivery_status: run.worktree_delivery_status ?? undefined }} agentName={run.agent_name ?? run.agent_id} isLive={run.status === "running" || run.status === "dispatched"} title={t(($) => $.transcript.open_run)} /></div></div>
                   <p className="mt-1 text-caption text-muted-foreground">{run.agent_name ?? run.agent_id} · {run.started_at ?? run.created_at}</p>
                   {run.worktree_branch && (
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-caption">
@@ -844,15 +844,15 @@ export function LegacyWorkflowsPage({
   const { data: taskPool } = useQuery({
     queryKey: ["workflow-task-pool", workspaceId, projectId ?? "all-projects"],
     queryFn: () =>
-      api.listIssues({
+      api.listTasks({
         limit: 100,
         ...(projectId ? { project_id: projectId } : {}),
       }),
   });
   const availableTasks = useMemo(() => {
     const attached = new Set(instance?.tasks?.map((task) => task.id) ?? []);
-    return (taskPool?.issues ?? []).filter((task) => !attached.has(task.id));
-  }, [instance?.tasks, taskPool?.issues]);
+    return (taskPool?.tasks ?? []).filter((task) => !attached.has(task.id));
+  }, [instance?.tasks, taskPool?.tasks]);
 
   const refreshBoard = useCallback(async () => {
     if (!selectedInstanceId) return;
@@ -868,12 +868,12 @@ export function LegacyWorkflowsPage({
       await Promise.all(
         (latest?.tasks ?? []).map((task) =>
           queryClient.refetchQueries({
-            queryKey: issueKeys.detail(workspaceId, task.id),
+            queryKey: taskKeys.detail(workspaceId, task.id),
             type: "active",
           }),
         ),
       );
-      await queryClient.invalidateQueries({ queryKey: issueKeys.all(workspaceId) });
+      await queryClient.invalidateQueries({ queryKey: taskKeys.all(workspaceId) });
     } finally {
       setRefreshing(false);
     }

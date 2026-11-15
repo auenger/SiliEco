@@ -1,14 +1,14 @@
 /**
- * Custom issue properties — workspace-defined, typed fields on issues
+ * Custom task properties — workspace-defined, typed fields on tasks
  * (SILI-4463). Definitions live in a workspace catalog (managed by owner/admin
- * only); values live on each issue in a bag keyed by definition id, so
- * renames never touch issue rows.
+ * only); values live on each task in a bag keyed by definition id, so
+ * renames never touch task rows.
  *
  * Values are typed per definition: select stores an option id, multi_select
  * an array of option ids (config order), date a "YYYY-MM-DD" string, checkbox
  * a boolean, number a number, text/url strings.
  */
-export type IssuePropertyType =
+export type TaskPropertyType =
   | "text"
   | "number"
   | "select"
@@ -17,7 +17,7 @@ export type IssuePropertyType =
   | "checkbox"
   | "url";
 
-export const ISSUE_PROPERTY_TYPES: IssuePropertyType[] = [
+export const TASK_PROPERTY_TYPES: TaskPropertyType[] = [
   "text",
   "number",
   "select",
@@ -27,22 +27,22 @@ export const ISSUE_PROPERTY_TYPES: IssuePropertyType[] = [
   "url",
 ];
 
-export function isKnownPropertyType(type: string): type is IssuePropertyType {
-  return (ISSUE_PROPERTY_TYPES as string[]).includes(type);
+export function isKnownPropertyType(type: string): type is TaskPropertyType {
+  return (TASK_PROPERTY_TYPES as string[]).includes(type);
 }
 
-export interface IssuePropertyOption {
+export interface TaskPropertyOption {
   id: string;
   name: string;
   /** Normalized lowercase hex color, e.g. `#3b82f6`. */
   color: string;
 }
 
-export interface IssuePropertyConfig {
-  options?: IssuePropertyOption[];
+export interface TaskPropertyConfig {
+  options?: TaskPropertyOption[];
 }
 
-export interface IssueProperty {
+export interface TaskProperty {
   id: string;
   workspace_id: string;
   name: string;
@@ -51,7 +51,7 @@ export interface IssueProperty {
   description?: string;
   /** Optional catalog icon key; absent on backends predating icon support. */
   icon?: string;
-  config: IssuePropertyConfig;
+  config: TaskPropertyConfig;
   position: number;
   archived: boolean;
   archived_at?: string | null;
@@ -60,15 +60,15 @@ export interface IssueProperty {
   updated_at: string;
 }
 
-export type IssuePropertyValue = string | number | boolean | string[];
-export type IssuePropertyValues = Record<string, IssuePropertyValue>;
+export type TaskPropertyValue = string | number | boolean | string[];
+export type TaskPropertyValues = Record<string, TaskPropertyValue>;
 
 export interface CreatePropertyRequest {
   name: string;
-  type: IssuePropertyType;
+  type: TaskPropertyType;
   description?: string;
   icon?: string;
-  config?: IssuePropertyConfig;
+  config?: TaskPropertyConfig;
 }
 
 export interface UpdatePropertyRequest {
@@ -76,16 +76,16 @@ export interface UpdatePropertyRequest {
   description?: string;
   /** Empty string clears the icon. */
   icon?: string;
-  config?: IssuePropertyConfig;
+  config?: TaskPropertyConfig;
   archived?: boolean;
 }
 
 export interface ListPropertiesResponse {
-  properties: IssueProperty[];
+  properties: TaskProperty[];
   total: number;
 }
 
-/** Response of PUT/DELETE /api/issues/{id}/properties/{propertyId}: the full post-mutation bag. */
-export interface IssuePropertiesResponse {
-  properties: IssuePropertyValues;
+/** Response of PUT/DELETE /api/tasks/{id}/properties/{propertyId}: the full post-mutation bag. */
+export interface TaskPropertiesResponse {
+  properties: TaskPropertyValues;
 }

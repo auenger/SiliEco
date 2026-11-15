@@ -5,7 +5,7 @@ import { Check } from "lucide-react";
 // shadcn official pattern (PR #6862): a checkbox indicator that appears on
 // item hover/focus inside DropdownMenuCheckboxItem rows. Pair it with
 // FILTER_ITEM_CLASS on the item (hides the built-in indicator and names the
-// hover group). Extracted from issues-header so every filter dropdown shares
+// hover group). Extracted from tasks-header so every filter dropdown shares
 // one implementation.
 
 export const FILTER_ITEM_CLASS =

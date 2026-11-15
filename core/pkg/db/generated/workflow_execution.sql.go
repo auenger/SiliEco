@@ -15,7 +15,7 @@ const acceptWorkflowStageExecution = `-- name: AcceptWorkflowStageExecution :one
 UPDATE workflow_stage_execution
 SET status='succeeded', acceptance=$3, finished_at=now(), updated_at=now()
 WHERE workspace_id=$1 AND id=$2 AND status='awaiting_review' AND result_revision=$4 AND acceptance IS NULL
-RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_issue_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_task_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
+RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_task_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_run_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
 `
 
 type AcceptWorkflowStageExecutionParams struct {
@@ -41,7 +41,7 @@ func (q *Queries) AcceptWorkflowStageExecution(ctx context.Context, arg AcceptWo
 		&i.Attempt,
 		&i.PlanRevision,
 		&i.ExecutorID,
-		&i.MainIssueID,
+		&i.MainTaskID,
 		&i.ConfigSnapshot,
 		&i.InputSnapshot,
 		&i.Status,
@@ -51,7 +51,7 @@ func (q *Queries) AcceptWorkflowStageExecution(ctx context.Context, arg AcceptWo
 		&i.UpdatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.MainTaskID,
+		&i.MainRunID,
 		&i.ResultRevision,
 		&i.Acceptance,
 		&i.ReworkSourceExecutionID,
@@ -60,37 +60,37 @@ func (q *Queries) AcceptWorkflowStageExecution(ctx context.Context, arg AcceptWo
 	return i, err
 }
 
-const bindWorkflowExecutionTask = `-- name: BindWorkflowExecutionTask :one
-UPDATE agent_task_queue AS task
+const bindWorkflowExecutionRun = `-- name: BindWorkflowExecutionRun :one
+UPDATE agent_run AS run
 SET workflow_stage_execution_id = $1,
-    max_attempts = COALESCE($2::integer, task.max_attempts)
+    max_attempts = COALESCE($2::integer, run.max_attempts)
 FROM workflow_stage_execution AS execution
-WHERE task.id = $3 AND execution.id = $1
+WHERE run.id = $3 AND execution.id = $1
   AND execution.workspace_id = $4
-  AND task.agent_id = execution.executor_id
-  AND task.workflow_stage_execution_id IS NULL AND task.status = 'queued'
-RETURNING task.id, task.agent_id, task.issue_id, task.status, task.priority, task.dispatched_at, task.started_at, task.completed_at, task.result, task.error, task.created_at, task.context, task.runtime_id, task.session_id, task.work_dir, task.trigger_comment_id, task.chat_session_id, task.autopilot_run_id, task.attempt, task.max_attempts, task.parent_task_id, task.failure_reason, task.trigger_summary, task.force_fresh_session, task.is_leader_task, task.wait_reason, task.initiator_user_id, task.handoff_note, task.prepare_lease_expires_at, task.squad_id, task.runtime_mcp_overlay, task.escalation_for_task_id, task.fire_at, task.originator_user_id, task.runtime_connected_apps, task.coalesced_comment_ids, task.delivered_comment_ids, task.chat_input_task_id, task.chat_finalize_deferred_at, task.originator_source, task.delegated_from_task_id, task.retry_of_task_id, task.rerun_of_task_id, task.rule_version_id, task.trigger_evidence_kind, task.trigger_evidence_ref_id, task.accountable_user_id, task.session_rollout_missing, task.retired_session_id, task.trigger_chat_message_id, task.execution_manifest, task.worktree_branch, task.worktree_base_sha, task.worktree_final_sha, task.worktree_delivery_status, task.workflow_stage_execution_id, task.workflow_review_request_id
+  AND run.agent_id = execution.executor_id
+  AND run.workflow_stage_execution_id IS NULL AND run.status = 'queued'
+RETURNING run.id, run.agent_id, run.task_id, run.status, run.priority, run.dispatched_at, run.started_at, run.completed_at, run.result, run.error, run.created_at, run.context, run.runtime_id, run.session_id, run.work_dir, run.trigger_comment_id, run.chat_session_id, run.autopilot_run_id, run.attempt, run.max_attempts, run.parent_run_id, run.failure_reason, run.trigger_summary, run.force_fresh_session, run.is_leader_run, run.wait_reason, run.initiator_user_id, run.handoff_note, run.prepare_lease_expires_at, run.squad_id, run.runtime_mcp_overlay, run.escalation_for_run_id, run.fire_at, run.originator_user_id, run.runtime_connected_apps, run.coalesced_comment_ids, run.delivered_comment_ids, run.chat_input_run_id, run.chat_finalize_deferred_at, run.originator_source, run.delegated_from_run_id, run.retry_of_run_id, run.rerun_of_run_id, run.rule_version_id, run.trigger_evidence_kind, run.trigger_evidence_ref_id, run.accountable_user_id, run.session_rollout_missing, run.retired_session_id, run.trigger_chat_message_id, run.execution_manifest, run.worktree_branch, run.worktree_base_sha, run.worktree_final_sha, run.worktree_delivery_status, run.workflow_stage_execution_id, run.workflow_review_request_id
 `
 
-type BindWorkflowExecutionTaskParams struct {
+type BindWorkflowExecutionRunParams struct {
 	ExecutionID pgtype.UUID `json:"execution_id"`
 	MaxAttempts pgtype.Int4 `json:"max_attempts"`
-	TaskID      pgtype.UUID `json:"task_id"`
+	RunID       pgtype.UUID `json:"run_id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 }
 
-func (q *Queries) BindWorkflowExecutionTask(ctx context.Context, arg BindWorkflowExecutionTaskParams) (AgentTaskQueue, error) {
-	row := q.db.QueryRow(ctx, bindWorkflowExecutionTask,
+func (q *Queries) BindWorkflowExecutionRun(ctx context.Context, arg BindWorkflowExecutionRunParams) (AgentRun, error) {
+	row := q.db.QueryRow(ctx, bindWorkflowExecutionRun,
 		arg.ExecutionID,
 		arg.MaxAttempts,
-		arg.TaskID,
+		arg.RunID,
 		arg.WorkspaceID,
 	)
-	var i AgentTaskQueue
+	var i AgentRun
 	err := row.Scan(
 		&i.ID,
 		&i.AgentID,
-		&i.IssueID,
+		&i.TaskID,
 		&i.Status,
 		&i.Priority,
 		&i.DispatchedAt,
@@ -108,29 +108,29 @@ func (q *Queries) BindWorkflowExecutionTask(ctx context.Context, arg BindWorkflo
 		&i.AutopilotRunID,
 		&i.Attempt,
 		&i.MaxAttempts,
-		&i.ParentTaskID,
+		&i.ParentRunID,
 		&i.FailureReason,
 		&i.TriggerSummary,
 		&i.ForceFreshSession,
-		&i.IsLeaderTask,
+		&i.IsLeaderRun,
 		&i.WaitReason,
 		&i.InitiatorUserID,
 		&i.HandoffNote,
 		&i.PrepareLeaseExpiresAt,
 		&i.SquadID,
 		&i.RuntimeMcpOverlay,
-		&i.EscalationForTaskID,
+		&i.EscalationForRunID,
 		&i.FireAt,
 		&i.OriginatorUserID,
 		&i.RuntimeConnectedApps,
 		&i.CoalescedCommentIds,
 		&i.DeliveredCommentIds,
-		&i.ChatInputTaskID,
+		&i.ChatInputRunID,
 		&i.ChatFinalizeDeferredAt,
 		&i.OriginatorSource,
-		&i.DelegatedFromTaskID,
-		&i.RetryOfTaskID,
-		&i.RerunOfTaskID,
+		&i.DelegatedFromRunID,
+		&i.RetryOfRunID,
+		&i.RerunOfRunID,
 		&i.RuleVersionID,
 		&i.TriggerEvidenceKind,
 		&i.TriggerEvidenceRefID,
@@ -153,7 +153,7 @@ const blockWorkflowStageExecution = `-- name: BlockWorkflowStageExecution :one
 UPDATE workflow_stage_execution
 SET status = 'blocked', failure_code = $3, failure_detail = $4, updated_at = now()
 WHERE workspace_id = $1 AND id = $2 AND status = 'pending'
-RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_issue_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_task_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
+RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_task_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_run_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
 `
 
 type BlockWorkflowStageExecutionParams struct {
@@ -179,7 +179,7 @@ func (q *Queries) BlockWorkflowStageExecution(ctx context.Context, arg BlockWork
 		&i.Attempt,
 		&i.PlanRevision,
 		&i.ExecutorID,
-		&i.MainIssueID,
+		&i.MainTaskID,
 		&i.ConfigSnapshot,
 		&i.InputSnapshot,
 		&i.Status,
@@ -189,7 +189,7 @@ func (q *Queries) BlockWorkflowStageExecution(ctx context.Context, arg BlockWork
 		&i.UpdatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.MainTaskID,
+		&i.MainRunID,
 		&i.ResultRevision,
 		&i.Acceptance,
 		&i.ReworkSourceExecutionID,
@@ -392,7 +392,7 @@ INSERT INTO workflow_stage_execution (
     workspace_id, workflow_instance_id, workflow_stage_id, attempt,
     plan_revision, executor_id, config_snapshot, input_snapshot
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_issue_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_task_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
+RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_task_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_run_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
 `
 
 type CreateWorkflowStageExecutionParams struct {
@@ -426,7 +426,7 @@ func (q *Queries) CreateWorkflowStageExecution(ctx context.Context, arg CreateWo
 		&i.Attempt,
 		&i.PlanRevision,
 		&i.ExecutorID,
-		&i.MainIssueID,
+		&i.MainTaskID,
 		&i.ConfigSnapshot,
 		&i.InputSnapshot,
 		&i.Status,
@@ -436,7 +436,7 @@ func (q *Queries) CreateWorkflowStageExecution(ctx context.Context, arg CreateWo
 		&i.UpdatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.MainTaskID,
+		&i.MainRunID,
 		&i.ResultRevision,
 		&i.Acceptance,
 		&i.ReworkSourceExecutionID,
@@ -484,7 +484,7 @@ func (q *Queries) DeleteProjectWorkflowStageExecutions(ctx context.Context, arg 
 }
 
 const getLatestWorkflowStageExecution = `-- name: GetLatestWorkflowStageExecution :one
-SELECT id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_issue_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_task_id, result_revision, acceptance, rework_source_execution_id, rework_metadata FROM workflow_stage_execution
+SELECT id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_task_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_run_id, result_revision, acceptance, rework_source_execution_id, rework_metadata FROM workflow_stage_execution
 WHERE workspace_id = $1 AND workflow_instance_id = $2 AND workflow_stage_id = $3
 ORDER BY attempt DESC LIMIT 1
 `
@@ -506,7 +506,7 @@ func (q *Queries) GetLatestWorkflowStageExecution(ctx context.Context, arg GetLa
 		&i.Attempt,
 		&i.PlanRevision,
 		&i.ExecutorID,
-		&i.MainIssueID,
+		&i.MainTaskID,
 		&i.ConfigSnapshot,
 		&i.InputSnapshot,
 		&i.Status,
@@ -516,7 +516,7 @@ func (q *Queries) GetLatestWorkflowStageExecution(ctx context.Context, arg GetLa
 		&i.UpdatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.MainTaskID,
+		&i.MainRunID,
 		&i.ResultRevision,
 		&i.Acceptance,
 		&i.ReworkSourceExecutionID,
@@ -526,7 +526,7 @@ func (q *Queries) GetLatestWorkflowStageExecution(ctx context.Context, arg GetLa
 }
 
 const getWorkflowExecutionAction = `-- name: GetWorkflowExecutionAction :one
-SELECT id, workspace_id, workflow_instance_id, execution_id, kind, status, attempts, available_at, lease_until, claim_token, last_error, created_at, updated_at FROM workflow_execution_action WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, workflow_instance_id, execution_id, kind, status, attempts, available_at, lease_until, claim_token, last_error, created_at, updated_at FROM workflow_execution_action WHERE workflow_execution_action.workspace_id = $1 AND id = $2
 `
 
 type GetWorkflowExecutionActionParams struct {
@@ -556,7 +556,7 @@ func (q *Queries) GetWorkflowExecutionAction(ctx context.Context, arg GetWorkflo
 }
 
 const getWorkflowStageExecution = `-- name: GetWorkflowStageExecution :one
-SELECT id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_issue_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_task_id, result_revision, acceptance, rework_source_execution_id, rework_metadata FROM workflow_stage_execution
+SELECT id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_task_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_run_id, result_revision, acceptance, rework_source_execution_id, rework_metadata FROM workflow_stage_execution
 WHERE workspace_id = $1 AND id = $2
 `
 
@@ -576,7 +576,7 @@ func (q *Queries) GetWorkflowStageExecution(ctx context.Context, arg GetWorkflow
 		&i.Attempt,
 		&i.PlanRevision,
 		&i.ExecutorID,
-		&i.MainIssueID,
+		&i.MainTaskID,
 		&i.ConfigSnapshot,
 		&i.InputSnapshot,
 		&i.Status,
@@ -586,7 +586,7 @@ func (q *Queries) GetWorkflowStageExecution(ctx context.Context, arg GetWorkflow
 		&i.UpdatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.MainTaskID,
+		&i.MainRunID,
 		&i.ResultRevision,
 		&i.Acceptance,
 		&i.ReworkSourceExecutionID,
@@ -666,15 +666,15 @@ func (q *Queries) ListWorkflowDispatchWorkspaces(ctx context.Context) ([]pgtype.
 }
 
 const listWorkflowRunningDeadlineCalls = `-- name: ListWorkflowRunningDeadlineCalls :many
-SELECT task.id, task.started_at, execution.config_snapshot
-FROM agent_task_queue task
-JOIN agent ON agent.id=task.agent_id
-LEFT JOIN workflow_review_request request ON request.id=task.workflow_review_request_id AND request.workspace_id=agent.workspace_id
-JOIN workflow_stage_execution execution ON execution.id=COALESCE(task.workflow_stage_execution_id,request.execution_id) AND execution.workspace_id=agent.workspace_id
-WHERE task.status='running' AND task.started_at IS NOT NULL
-  AND task.id > $1
+SELECT run.id, run.started_at, execution.config_snapshot
+FROM agent_run run
+JOIN agent ON agent.id=run.agent_id
+LEFT JOIN workflow_review_request request ON request.id=run.workflow_review_request_id AND request.workspace_id=agent.workspace_id
+JOIN workflow_stage_execution execution ON execution.id=COALESCE(run.workflow_stage_execution_id,request.execution_id) AND execution.workspace_id=agent.workspace_id
+WHERE run.status='running' AND run.started_at IS NOT NULL
+  AND run.id > $1
   AND execution.config_snapshot->'retry_policy'->'timeout_seconds' IS NOT NULL
-ORDER BY task.id LIMIT 100
+ORDER BY run.id LIMIT 100
 `
 
 type ListWorkflowRunningDeadlineCallsRow struct {
@@ -704,7 +704,7 @@ func (q *Queries) ListWorkflowRunningDeadlineCalls(ctx context.Context, afterID 
 }
 
 const listWorkflowStageExecutions = `-- name: ListWorkflowStageExecutions :many
-SELECT id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_issue_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_task_id, result_revision, acceptance, rework_source_execution_id, rework_metadata FROM workflow_stage_execution
+SELECT id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_task_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_run_id, result_revision, acceptance, rework_source_execution_id, rework_metadata FROM workflow_stage_execution
 WHERE workspace_id = $1 AND workflow_instance_id = $2
 ORDER BY created_at, id
 `
@@ -731,7 +731,7 @@ func (q *Queries) ListWorkflowStageExecutions(ctx context.Context, arg ListWorkf
 			&i.Attempt,
 			&i.PlanRevision,
 			&i.ExecutorID,
-			&i.MainIssueID,
+			&i.MainTaskID,
 			&i.ConfigSnapshot,
 			&i.InputSnapshot,
 			&i.Status,
@@ -741,7 +741,7 @@ func (q *Queries) ListWorkflowStageExecutions(ctx context.Context, arg ListWorkf
 			&i.UpdatedAt,
 			&i.StartedAt,
 			&i.FinishedAt,
-			&i.MainTaskID,
+			&i.MainRunID,
 			&i.ResultRevision,
 			&i.Acceptance,
 			&i.ReworkSourceExecutionID,
@@ -757,18 +757,35 @@ func (q *Queries) ListWorkflowStageExecutions(ctx context.Context, arg ListWorkf
 	return items, nil
 }
 
-const lockIssueForWorkflowMutation = `-- name: LockIssueForWorkflowMutation :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id FROM issue WHERE id=$1 AND workspace_id=$2 FOR UPDATE
+const lockProjectForWorkflowExecution = `-- name: LockProjectForWorkflowExecution :one
+SELECT id FROM project WHERE project.id = $1 AND workspace_id = $2 FOR KEY SHARE
 `
 
-type LockIssueForWorkflowMutationParams struct {
+type LockProjectForWorkflowExecutionParams struct {
 	ID          pgtype.UUID `json:"id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 }
 
-func (q *Queries) LockIssueForWorkflowMutation(ctx context.Context, arg LockIssueForWorkflowMutationParams) (Issue, error) {
-	row := q.db.QueryRow(ctx, lockIssueForWorkflowMutation, arg.ID, arg.WorkspaceID)
-	var i Issue
+// Project deletion takes FOR UPDATE before sweeping its workflow children.
+func (q *Queries) LockProjectForWorkflowExecution(ctx context.Context, arg LockProjectForWorkflowExecutionParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, lockProjectForWorkflowExecution, arg.ID, arg.WorkspaceID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockTaskForWorkflowMutation = `-- name: LockTaskForWorkflowMutation :one
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_task_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, workflow_instance_id, workflow_stage_id, workflow_stage_execution_id, workflow_invalidated_by_rework_id FROM task WHERE task.id=$1 AND workspace_id=$2 FOR UPDATE
+`
+
+type LockTaskForWorkflowMutationParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) LockTaskForWorkflowMutation(ctx context.Context, arg LockTaskForWorkflowMutationParams) (Task, error) {
+	row := q.db.QueryRow(ctx, lockTaskForWorkflowMutation, arg.ID, arg.WorkspaceID)
+	var i Task
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -780,7 +797,7 @@ func (q *Queries) LockIssueForWorkflowMutation(ctx context.Context, arg LockIssu
 		&i.AssigneeID,
 		&i.CreatorType,
 		&i.CreatorID,
-		&i.ParentIssueID,
+		&i.ParentTaskID,
 		&i.AcceptanceCriteria,
 		&i.ContextRefs,
 		&i.Position,
@@ -802,23 +819,6 @@ func (q *Queries) LockIssueForWorkflowMutation(ctx context.Context, arg LockIssu
 		&i.WorkflowInvalidatedByReworkID,
 	)
 	return i, err
-}
-
-const lockProjectForWorkflowExecution = `-- name: LockProjectForWorkflowExecution :one
-SELECT id FROM project WHERE id = $1 AND workspace_id = $2 FOR KEY SHARE
-`
-
-type LockProjectForWorkflowExecutionParams struct {
-	ID          pgtype.UUID `json:"id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-}
-
-// Project deletion takes FOR UPDATE before sweeping its workflow children.
-func (q *Queries) LockProjectForWorkflowExecution(ctx context.Context, arg LockProjectForWorkflowExecutionParams) (pgtype.UUID, error) {
-	row := q.db.QueryRow(ctx, lockProjectForWorkflowExecution, arg.ID, arg.WorkspaceID)
-	var id pgtype.UUID
-	err := row.Scan(&id)
-	return id, err
 }
 
 const lockWorkflowExecutionAction = `-- name: LockWorkflowExecutionAction :one
@@ -856,7 +856,7 @@ func (q *Queries) LockWorkflowExecutionAction(ctx context.Context, arg LockWorkf
 }
 
 const lockWorkspaceForWorkflowExecution = `-- name: LockWorkspaceForWorkflowExecution :one
-SELECT id FROM workspace WHERE id = $1 FOR KEY SHARE
+SELECT id FROM workspace WHERE workspace.id = $1 FOR KEY SHARE
 `
 
 // Match workspace deletion's FOR UPDATE barrier before taking any Run lock.
@@ -868,25 +868,25 @@ func (q *Queries) LockWorkspaceForWorkflowExecution(ctx context.Context, id pgty
 
 const markWorkflowExecutionQueued = `-- name: MarkWorkflowExecutionQueued :one
 UPDATE workflow_stage_execution
-SET main_issue_id = $3, main_task_id = $4, status = 'queued', updated_at = now()
+SET main_task_id = $3, main_run_id = $4, status = 'queued', updated_at = now()
 WHERE workspace_id = $1 AND id = $2 AND status = 'pending'
-  AND main_issue_id IS NULL AND main_task_id IS NULL
-RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_issue_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_task_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
+  AND main_task_id IS NULL AND main_run_id IS NULL
+RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_task_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_run_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
 `
 
 type MarkWorkflowExecutionQueuedParams struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	ID          pgtype.UUID `json:"id"`
-	MainIssueID pgtype.UUID `json:"main_issue_id"`
 	MainTaskID  pgtype.UUID `json:"main_task_id"`
+	MainRunID   pgtype.UUID `json:"main_run_id"`
 }
 
 func (q *Queries) MarkWorkflowExecutionQueued(ctx context.Context, arg MarkWorkflowExecutionQueuedParams) (WorkflowStageExecution, error) {
 	row := q.db.QueryRow(ctx, markWorkflowExecutionQueued,
 		arg.WorkspaceID,
 		arg.ID,
-		arg.MainIssueID,
 		arg.MainTaskID,
+		arg.MainRunID,
 	)
 	var i WorkflowStageExecution
 	err := row.Scan(
@@ -897,7 +897,7 @@ func (q *Queries) MarkWorkflowExecutionQueued(ctx context.Context, arg MarkWorkf
 		&i.Attempt,
 		&i.PlanRevision,
 		&i.ExecutorID,
-		&i.MainIssueID,
+		&i.MainTaskID,
 		&i.ConfigSnapshot,
 		&i.InputSnapshot,
 		&i.Status,
@@ -907,7 +907,7 @@ func (q *Queries) MarkWorkflowExecutionQueued(ctx context.Context, arg MarkWorkf
 		&i.UpdatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.MainTaskID,
+		&i.MainRunID,
 		&i.ResultRevision,
 		&i.Acceptance,
 		&i.ReworkSourceExecutionID,
@@ -920,8 +920,8 @@ const resumeWorkflowInputBlockedExecution = `-- name: ResumeWorkflowInputBlocked
 UPDATE workflow_stage_execution
 SET status='pending', input_snapshot=$3, failure_code=NULL, failure_detail=NULL, updated_at=now()
 WHERE workspace_id=$1 AND id=$2 AND status='blocked' AND failure_code='input_unavailable'
-  AND main_issue_id IS NULL AND main_task_id IS NULL AND result_revision=0
-RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_issue_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_task_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
+  AND main_task_id IS NULL AND main_run_id IS NULL AND result_revision=0
+RETURNING id, workspace_id, workflow_instance_id, workflow_stage_id, attempt, plan_revision, executor_id, main_task_id, config_snapshot, input_snapshot, status, failure_code, failure_detail, created_at, updated_at, started_at, finished_at, main_run_id, result_revision, acceptance, rework_source_execution_id, rework_metadata
 `
 
 type ResumeWorkflowInputBlockedExecutionParams struct {
@@ -941,7 +941,7 @@ func (q *Queries) ResumeWorkflowInputBlockedExecution(ctx context.Context, arg R
 		&i.Attempt,
 		&i.PlanRevision,
 		&i.ExecutorID,
-		&i.MainIssueID,
+		&i.MainTaskID,
 		&i.ConfigSnapshot,
 		&i.InputSnapshot,
 		&i.Status,
@@ -951,7 +951,7 @@ func (q *Queries) ResumeWorkflowInputBlockedExecution(ctx context.Context, arg R
 		&i.UpdatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.MainTaskID,
+		&i.MainRunID,
 		&i.ResultRevision,
 		&i.Acceptance,
 		&i.ReworkSourceExecutionID,

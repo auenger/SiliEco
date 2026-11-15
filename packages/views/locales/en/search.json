@@ -7,13 +7,13 @@
     "commands": "Commands",
     "members": "Members",
     "projects": "Projects",
-    "issues": "Tasks",
+    "tasks": "Tasks",
     "recent": "Recent"
   },
   "pages": {
     "inbox": "Inbox",
-    "my_issues": "My Tasks",
-    "issues": "Tasks",
+    "my_tasks": "My Tasks",
+    "tasks": "Tasks",
     "projects": "Projects",
     "agents": "Agents",
     "runtimes": "Runtimes",
@@ -22,9 +22,9 @@
   },
   "commands": {
     "current_theme_aria": "Current theme",
-    "new_issue": "New Task",
+    "new_task": "New Task",
     "new_project": "New Project",
-    "copy_issue_link": "Copy Task Link",
+    "copy_task_link": "Copy Task Link",
     "copy_identifier": "Copy Identifier ({{identifier}})",
     "fold_all_comments": "Fold All Comments",
     "unfold_all_comments": "Unfold All Comments",

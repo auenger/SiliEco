@@ -32,8 +32,8 @@
     "unarchive": "보관 해제"
   },
   "types": {
-    "issue_assigned": "할당됨",
-    "issue_subscribed": "구독됨",
+    "task_assigned": "할당됨",
+    "task_subscribed": "구독됨",
     "unassigned": "할당 해제됨",
     "assignee_changed": "담당자 변경됨",
     "status_changed": "상태 변경됨",
@@ -43,8 +43,8 @@
     "new_comment": "새 댓글",
     "mentioned": "멘션됨",
     "review_requested": "리뷰 요청됨",
-    "task_completed": "작업 완료됨",
-    "task_failed": "작업 실패함",
+    "run_completed": "작업 완료됨",
+    "run_failed": "작업 실패함",
     "agent_blocked": "에이전트 막힘",
     "agent_completed": "에이전트 완료됨",
     "reaction_added": "반응 추가됨",

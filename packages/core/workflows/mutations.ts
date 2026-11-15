@@ -13,7 +13,7 @@ import type {
   UpdateWorkflowInstancePlanRequest,
   UpdateWorkflowRequest,
 } from "../types";
-import { issueKeys } from "../issues/queries";
+import { taskKeys } from "../tasks/queries";
 import { workflowKeys } from "./queries";
 
 export function useCreateWorkflow() {
@@ -138,7 +138,7 @@ export function useTransitionWorkflowInstance() {
     }) => api.transitionWorkflowInstance(instanceId, data),
     onSettled: () => Promise.all([
       queryClient.invalidateQueries({queryKey:workflowKeys.all(workspaceId)}),
-      queryClient.invalidateQueries({queryKey:issueKeys.all(workspaceId)}),
+      queryClient.invalidateQueries({queryKey:taskKeys.all(workspaceId)}),
     ]),
   });
 }
@@ -283,7 +283,7 @@ export function useReworkWorkflowExecution(workspaceId: string) {
       return result;
     },
     retry: false,
-    onSettled: () => Promise.all([queryClient.invalidateQueries({queryKey: workflowKeys.all(workspaceId)}), queryClient.invalidateQueries({queryKey: issueKeys.all(workspaceId)})]),
+    onSettled: () => Promise.all([queryClient.invalidateQueries({queryKey: workflowKeys.all(workspaceId)}), queryClient.invalidateQueries({queryKey: taskKeys.all(workspaceId)})]),
   });
 }
 
@@ -297,7 +297,7 @@ export function useRecoverWorkflowAgentReview(workspaceId: string) {
       if (!workspaceId) throw new Error("Workspace is required for review recovery");
       const result = await api.recoverWorkflowAgentReview(instanceId, executionId, requestId, data);
       if (!result || result.instance_id !== instanceId || result.execution_id !== executionId || result.request_id !== requestId
-        || result.failed_task_id !== data.failed_task_id || result.task_id === data.failed_task_id) {
+        || result.failed_run_id !== data.failed_run_id || result.run_id === data.failed_run_id) {
         throw new Error("Invalid workflow review recovery response");
       }
       return result;

@@ -440,9 +440,9 @@ func runSquadMemberRemove(cmd *cobra.Command, args []string) error {
 // ── Activity ────────────────────────────────────────────────────────────────
 
 var squadActivityCmd = &cobra.Command{
-	Use:   "activity <issue-id> <outcome>",
-	Short: "Record a squad leader evaluation on an issue",
-	Long: `Record the squad leader's evaluation decision for an issue.
+	Use:   "activity <task-id> <outcome>",
+	Short: "Record a squad leader evaluation on an task",
+	Long: `Record the squad leader's evaluation decision for an task.
 
 Outcome must be one of:
   action     — leader delegated or took action
@@ -450,13 +450,13 @@ Outcome must be one of:
   failed     — leader encountered an error
 
 This command is intended to be called by squad leader agents after each
-trigger to record their decision in the issue timeline.`,
+trigger to record their decision in the task timeline.`,
 	Args: exactArgs(2),
 	RunE: runSquadActivity,
 }
 
 func runSquadActivity(cmd *cobra.Command, args []string) error {
-	issueID := args[0]
+	taskID := args[0]
 	outcome := args[1]
 
 	if outcome != "action" && outcome != "no_action" && outcome != "failed" {
@@ -473,9 +473,9 @@ func runSquadActivity(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	issueRef, err := resolveIssueRef(ctx, client, issueID)
+	taskRef, err := resolveTaskRef(ctx, client, taskID)
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf("resolve task: %w", err)
 	}
 
 	body := map[string]any{
@@ -483,11 +483,11 @@ func runSquadActivity(cmd *cobra.Command, args []string) error {
 		"reason":  reason,
 	}
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/issues/"+issueRef.ID+"/squad-evaluated", body, &result); err != nil {
+	if err := client.PostJSON(ctx, "/api/tasks/"+taskRef.ID+"/squad-evaluated", body, &result); err != nil {
 		return fmt.Errorf("record evaluation: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Squad evaluation recorded: %s (issue %s)\n", outcome, issueRef.Display)
+	fmt.Fprintf(os.Stderr, "Squad evaluation recorded: %s (task %s)\n", outcome, taskRef.Display)
 
 	output, _ := cmd.Flags().GetString("output")
 	if output == "json" {

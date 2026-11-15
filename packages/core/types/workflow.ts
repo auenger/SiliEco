@@ -1,4 +1,4 @@
-import type { Task } from "./issue";
+import type { Task } from "./task";
 
 export type WorkflowStatus = "draft" | "published" | "archived";
 export type WorkflowVersionStatus = "draft" | "published" | "superseded";
@@ -98,8 +98,8 @@ export interface WorkflowHumanReview {
   execution_id: string;
   result_revision: number;
   basis_hash: string;
-  issues: { id: string; title: string; status: string; updated_at: string }[];
-  calls: { id: string; issue_id: string | null; agent_id: string; status: string }[];
+  tasks: { id: string; title: string; status: string; updated_at: string }[];
+  calls: { id: string; task_id: string | null; agent_id: string; status: string }[];
 }
 
 export interface WorkflowGateDecision {
@@ -298,8 +298,8 @@ export interface WorkflowExecution {
   attempt: number;
   plan_revision: number;
   executor_id: string;
-  main_issue_id: string | null;
   main_task_id: string | null;
+  main_run_id: string | null;
   status: string;
   result_revision: number;
 }
@@ -363,7 +363,7 @@ export interface WorkflowAgentReviewStatus {
 }
 
 export interface RecoverWorkflowAgentReviewRequest {
-  failed_task_id: string;
+  failed_run_id: string;
   expected_result_revision: number;
   expected_basis_hash: string;
   reason: string;
@@ -374,8 +374,8 @@ export interface WorkflowAgentReviewRecovery {
   instance_id: string;
   execution_id: string;
   request_id: string;
-  failed_task_id: string;
-  task_id: string;
+  failed_run_id: string;
+  run_id: string;
   allowed_attempts: number;
   max_attempts: number;
 }

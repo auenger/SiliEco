@@ -7,7 +7,7 @@ import { useChatStore } from "@silieco/core/chat";
 import {
   chatSessionsOptions,
   countUnreadChatSessions,
-  hasPendingChatTasksOptions,
+  hasPendingChatRunsOptions,
 } from "@silieco/core/chat/queries";
 import { useWorkspaceId } from "@silieco/core/hooks";
 import { createLogger } from "@silieco/core/logger";
@@ -31,7 +31,7 @@ export function ChatFab() {
   // on `enabled: !isOpen` keeps the minimised button off the per-message
   // aggregate hot path entirely (SILI-4159).
   const { data: hasPending } = useQuery({
-    ...hasPendingChatTasksOptions(wsId),
+    ...hasPendingChatRunsOptions(wsId),
     enabled: !isOpen,
   });
 
@@ -63,7 +63,7 @@ export function ChatFab() {
           // Geometry comes from the shared tokens so the clearance pages
           // reserve for this corner is derived from the same numbers.
           "absolute bottom-[var(--chat-launcher-inset)] right-[var(--chat-launcher-inset)] z-50 flex size-[var(--chat-launcher-size)] touch-manipulation items-center justify-center rounded-full bg-surface-raised text-muted-foreground shadow-[var(--floating-shadow)] ring-1 ring-surface-border transition-[background-color,color,box-shadow] hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-page-canvas active:bg-surface-hover",
-          // Impulse the button itself while a chat task is running — no
+          // Impulse the button itself while a chat run is running — no
           // outer ring to keep things calm.
           isRunning && "animate-chat-impulse",
         )}

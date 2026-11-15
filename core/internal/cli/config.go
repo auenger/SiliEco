@@ -38,17 +38,17 @@ type CLIConfig struct {
 	// DefaultRuntimeName.
 	RuntimeName string `json:"runtime_name,omitempty"`
 
-	// MaxConcurrentTasks caps the number of task executions the daemon
+	// MaxConcurrentRuns caps the number of agent runs the daemon
 	// processes in parallel. Persist here to avoid re-passing
-	// --max-concurrent-tasks on every daemon start / auto-restart. 0 means
+	// --max-concurrent-runs on every daemon start / auto-restart. 0 means
 	// "not set — use env / built-in default". Resolution precedence
-	// (highest wins): --max-concurrent-tasks flag,
-	// SILIECO_DAEMON_MAX_CONCURRENT_TASKS env, this field, default.
-	MaxConcurrentTasks int `json:"max_concurrent_tasks,omitempty"`
+	// (highest wins): --max-concurrent-runs flag,
+	// SILIECO_DAEMON_MAX_CONCURRENT_RUNS env, this field, default.
+	MaxConcurrentRuns int `json:"max_concurrent_runs,omitempty"`
 
-	// PollInterval is how often the daemon polls the server for new tasks
+	// PollInterval is how often the daemon polls the server for new runs
 	// (Go duration string, e.g. "10s", "500ms"). Same persist-once
-	// motivation as MaxConcurrentTasks. Empty ("") means "not set — use
+	// motivation as MaxConcurrentRuns. Empty ("") means "not set — use
 	// env / built-in default". Only strictly positive durations are
 	// meaningful here: `config set poll_interval` rejects non-positive
 	// values (including "0s") and un-parseable durations at write time,
@@ -115,7 +115,7 @@ type CLIConfig struct {
 	// the daemon at non-default tool installations (e.g. an OpenClaw bundled
 	// inside another desktop app, or multiple isolated profiles on the same
 	// machine). Empty / absent means "discover from PATH and use vendor
-	// defaults" — the historical behavior. See issue #3875.
+	// defaults" — the historical behavior. See task #3875.
 	Backends *BackendOverrides `json:"backends,omitempty"`
 
 	// ProfileCommandOverrides is a per-machine map of custom runtime

@@ -254,7 +254,7 @@ func TestGrokBlockedArgsFiltering(t *testing.T) {
 	}
 }
 
-func TestGrokSetModelFailureFailsTask(t *testing.T) {
+func TestGrokSetModelFailureFailsRun(t *testing.T) {
 	t.Parallel()
 	fakePath := filepath.Join(t.TempDir(), "grok")
 	writeTestExecutable(t, fakePath, []byte(fakeGrokACPScript()))
@@ -424,7 +424,7 @@ func TestGrokAuthenticatesBeforeSession(t *testing.T) {
 
 // TestGrokAuthFailureFailsTask asserts a rejected authenticate handshake fails
 // the task with a clear error instead of falling through to session/new.
-func TestGrokAuthFailureFailsTask(t *testing.T) {
+func TestGrokAuthFailureFailsRun(t *testing.T) {
 	t.Parallel()
 	fakePath := filepath.Join(t.TempDir(), "grok")
 	writeTestExecutable(t, fakePath, []byte(fakeGrokACPScript()))

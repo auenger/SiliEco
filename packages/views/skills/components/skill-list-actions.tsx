@@ -577,7 +577,7 @@ export function SkillRowActions({
 }
 
 // ---------------------------------------------------------------------------
-// Batch toolbar (floating bottom bar, same shape as the issues batch bar)
+// Batch toolbar (floating bottom bar, same shape as the tasks batch bar)
 // ---------------------------------------------------------------------------
 
 export function SkillBatchToolbar({

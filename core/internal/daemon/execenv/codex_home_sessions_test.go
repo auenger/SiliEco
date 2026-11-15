@@ -161,13 +161,13 @@ func TestPrepareCodexSessionsDir_MigrateWithResumeRoutesThroughStore(t *testing.
 	seedLegacySessionsSymlink(t, codexHome, sharedSessions)
 	writeFile(t, filepath.Join(codexHome, "state_5.sqlite"), "stale")
 
-	key := filepath.Join("agent-1", "issue-1")
+	key := filepath.Join("agent-1", "task-1")
 	err := prepareCodexSessionsDir(codexHome, sharedHome, CodexHomeOptions{ResumeSessionID: resumeID, SessionStoreKey: key}, testLogger())
 	if err != nil {
 		t.Fatalf("prepareCodexSessionsDir: %v", err)
 	}
 
-	// sessions/ is now a directory link to the per-issue store on the shared
+	// sessions/ is now a directory link to the per-task store on the shared
 	// volume — the cross-volume-safe exposure (a same-volume hard link into the
 	// store + a directory link into the task home), never a task-local file copy.
 	sessions := filepath.Join(codexHome, "sessions")
@@ -328,7 +328,7 @@ func TestCodexResumeRolloutPresent(t *testing.T) {
 	}
 }
 
-func TestPrepareCodexSessionsDir_LocalDirectoryUsesPerIssueStore(t *testing.T) {
+func TestPrepareCodexSessionsDir_LocalDirectoryUsesPerTaskStore(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	codexHome := filepath.Join(root, "codex-home")
@@ -340,26 +340,26 @@ func TestPrepareCodexSessionsDir_LocalDirectoryUsesPerIssueStore(t *testing.T) {
 	seedFakeRollout(t, filepath.Join(sharedHome, "sessions"), "2026", "07", "13", "other-a", 16)
 	seedFakeRollout(t, filepath.Join(sharedHome, "sessions"), "2026", "07", "12", "other-b", 16)
 
-	key := filepath.Join("agent-1", "issue-1")
+	key := filepath.Join("agent-1", "task-1")
 	if err := prepareCodexSessionsDir(codexHome, sharedHome, CodexHomeOptions{IsLocalDirectory: true, SessionStoreKey: key}, testLogger()); err != nil {
 		t.Fatalf("prepareCodexSessionsDir: %v", err)
 	}
 
-	// sessions/ links the per-issue store, not the shared ~/.codex/sessions.
+	// sessions/ links the per-task store, not the shared ~/.codex/sessions.
 	sessions := filepath.Join(codexHome, "sessions")
 	assertSessionsLinkedToStore(t, sessions, codexSessionStoreDir(sharedHome, key))
-	// The store holds only this issue's history — the machine's global rollouts
+	// The store holds only this task's history — the machine's global rollouts
 	// are invisible, so `initialize` never enumerates them (the SILI-4424 stall).
 	entries, _ := os.ReadDir(sessions)
 	if len(entries) != 0 {
-		t.Errorf("per-issue store must start empty, has %d entries (whole-history leak?)", len(entries))
+		t.Errorf("per-task store must start empty, has %d entries (whole-history leak?)", len(entries))
 	}
 	if CodexResumeRolloutPresent(codexHome, "other-a") {
 		t.Error("machine-global history must not be visible to a local_directory task")
 	}
 }
 
-// With no stable per-issue key (e.g. a non-issue task), a local_directory task
+// With no stable per-task key (e.g. a non-task task), a local_directory task
 // must NOT collapse back to exposing the whole shared history — it falls back to
 // an empty local dir.
 func TestPrepareCodexSessionsDir_LocalDirectoryNoKeyFallsBackToEmptyDir(t *testing.T) {
@@ -390,16 +390,16 @@ func TestPrepareCodexSessionsDir_LocalDirectoryNoKeyFallsBackToEmptyDir(t *testi
 
 // Two consecutive local_directory tasks share one project dir but get a fresh
 // codex-home each (the daemon never reuses their workdir). The second run must
-// still see the first run's rollout via the per-issue store — this is the
+// still see the first run's rollout via the per-task store — this is the
 // regression Elon's review flagged.
-func TestPrepareCodexSessionsDir_LocalDirectoryResumeAcrossTaskIDs(t *testing.T) {
+func TestPrepareCodexSessionsDir_LocalDirectoryResumeAcrossRunIDs(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	sharedHome := filepath.Join(root, "shared")
 	sessionID := "019f59d9-a6aa-7a53-b173-1eccc4b4c873"
-	key := filepath.Join("agent-1", "issue-1")
+	key := filepath.Join("agent-1", "task-1")
 
-	// Round 1: a fresh per-task codex-home links the per-issue store.
+	// Round 1: a fresh per-task codex-home links the per-task store.
 	home1 := filepath.Join(root, "task-1", "codex-home")
 	if err := os.MkdirAll(home1, 0o755); err != nil {
 		t.Fatalf("mkdir home1: %v", err)
@@ -410,7 +410,7 @@ func TestPrepareCodexSessionsDir_LocalDirectoryResumeAcrossTaskIDs(t *testing.T)
 	// Codex writes the round-1 rollout through the link into the store.
 	seedRolloutAt(t, filepath.Join(home1, "sessions", "2026", "07", "13", "rollout-2026-07-13T00-00-00-"+sessionID+".jsonl"), 32)
 
-	// Round 2: a brand-new task ID → brand-new codex-home, same issue key.
+	// Round 2: a brand-new task ID → brand-new codex-home, same task key.
 	home2 := filepath.Join(root, "task-2", "codex-home")
 	if err := os.MkdirAll(home2, 0o755); err != nil {
 		t.Fatalf("mkdir home2: %v", err)
@@ -426,7 +426,7 @@ func TestPrepareCodexSessionsDir_LocalDirectoryResumeAcrossTaskIDs(t *testing.T)
 	}
 }
 
-// A managed home migrated on a prior reuse already links the per-issue store; a
+// A managed home migrated on a prior reuse already links the per-task store; a
 // subsequent reuse must treat that link as authoritative and not re-migrate it.
 func TestPrepareCodexSessionsDir_ReusedStoreLinkIsAuthoritative(t *testing.T) {
 	t.Parallel()
@@ -436,7 +436,7 @@ func TestPrepareCodexSessionsDir_ReusedStoreLinkIsAuthoritative(t *testing.T) {
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
 		t.Fatalf("mkdir codex-home: %v", err)
 	}
-	key := filepath.Join("agent-1", "issue-1")
+	key := filepath.Join("agent-1", "task-1")
 	storeDir := codexSessionStoreDir(sharedHome, key)
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatalf("mkdir store: %v", err)
@@ -460,8 +460,8 @@ func TestPrepareCodexSessionsDir_ReusedStoreLinkIsAuthoritative(t *testing.T) {
 	}
 }
 
-// PruneCodexSessionStores must reclaim per-issue stores idle past retention,
-// keep recently-touched ones (active/resumable tasks), isolate issues from one
+// PruneCodexSessionStores must reclaim per-task stores idle past retention,
+// keep recently-touched ones (active/resumable tasks), isolate tasks from one
 // another, and be disable-able — the data lifecycle Elon's review required so
 // the persistent store can't grow forever (SILI-4424).
 func TestPruneCodexSessionStores(t *testing.T) {
@@ -470,9 +470,9 @@ func TestPruneCodexSessionStores(t *testing.T) {
 	// Stores live under the profile namespace; the default profile is "".
 	storeRoot := filepath.Join(home, codexSessionStoreRoot, codexSessionStoreNamespace(""))
 
-	freshStore := filepath.Join(storeRoot, "agent-1", "issue-fresh")
-	staleStore := filepath.Join(storeRoot, "agent-1", "issue-stale")
-	otherStore := filepath.Join(storeRoot, "agent-2", "issue-x")
+	freshStore := filepath.Join(storeRoot, "agent-1", "task-fresh")
+	staleStore := filepath.Join(storeRoot, "agent-1", "task-stale")
+	otherStore := filepath.Join(storeRoot, "agent-2", "task-x")
 	seedRolloutAt(t, filepath.Join(freshStore, "2026", "07", "14", "rollout-2026-07-14T00-00-00-a.jsonl"), 16)
 	seedRolloutAt(t, filepath.Join(staleStore, "2026", "06", "01", "rollout-2026-06-01T00-00-00-b.jsonl"), 16)
 	seedRolloutAt(t, filepath.Join(otherStore, "2026", "07", "14", "rollout-2026-07-14T00-00-00-c.jsonl"), 16)
@@ -490,7 +490,7 @@ func TestPruneCodexSessionStores(t *testing.T) {
 		t.Errorf("bytesFreed = %d, want > 0", bytes)
 	}
 	// The stale store is gone; the fresh one and the other agent's store survive
-	// (per-issue isolation), and agent-1 stays because issue-fresh remains.
+	// (per-task isolation), and agent-1 stays because task-fresh remains.
 	assertAbsent(t, staleStore)
 	assertPresent(t, freshStore)
 	assertPresent(t, otherStore)
@@ -511,13 +511,13 @@ func TestPruneCodexSessionStores(t *testing.T) {
 func TestPruneCodexSessionStores_ReopenedStoreNotReclaimed(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
-	storeDir := codexSessionStoreDir(home, codexSessionStoreKey("", "agent-1", "issue-old"))
+	storeDir := codexSessionStoreDir(home, codexSessionStoreKey("", "agent-1", "task-old"))
 	sessionID := "019f59d9-a6aa-7a53-b173-1eccc4b4c873"
 	// A long-idle (30-day) store that still holds a resumable rollout.
 	seedRolloutAt(t, filepath.Join(storeDir, "2026", "06", "01", "rollout-2026-06-01T00-00-00-"+sessionID+".jsonl"), 16)
 	chtimesTree(t, storeDir, time.Now().Add(-30*24*time.Hour))
 
-	// The user reopens the issue: a fresh task home remounts the store to resume.
+	// The user reopens the task: a fresh task home remounts the store to resume.
 	codexHome := filepath.Join(home, "task", "codex-home")
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
 		t.Fatalf("mkdir codex-home: %v", err)
@@ -546,7 +546,7 @@ func TestPruneCodexSessionStores_ReopenedStoreNotReclaimed(t *testing.T) {
 func TestPruneCodexSessionStores_ActiveStoreNotReclaimed(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
-	storeDir := codexSessionStoreDir(home, codexSessionStoreKey("", "agent-1", "issue-active"))
+	storeDir := codexSessionStoreDir(home, codexSessionStoreKey("", "agent-1", "task-active"))
 	seedRolloutAt(t, filepath.Join(storeDir, "2026", "06", "01", "rollout-2026-06-01T00-00-00-x.jsonl"), 16)
 	// Idle past retention on disk (no remount refresh), but currently in use.
 	chtimesTree(t, storeDir, time.Now().Add(-30*24*time.Hour))
@@ -579,7 +579,7 @@ func TestPruneCodexSessionStores_IsolatesProfiles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	// A store owned by the "staging" profile daemon, idle past retention.
-	stagingStore := codexSessionStoreDir(home, codexSessionStoreKey("staging", "agent-1", "issue-1"))
+	stagingStore := codexSessionStoreDir(home, codexSessionStoreKey("staging", "agent-1", "task-1"))
 	seedRolloutAt(t, filepath.Join(stagingStore, "2026", "06", "01", "rollout-2026-06-01T00-00-00-s.jsonl"), 16)
 	chtimesTree(t, stagingStore, time.Now().Add(-30*24*time.Hour))
 
@@ -649,8 +649,8 @@ func TestPruneCodexSessionStores_NoCrossProfileCollision(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("CODEX_HOME", home)
 		a, b := pair[0], pair[1]
-		storeA := codexSessionStoreDir(home, codexSessionStoreKey(a, "agent", "issue"))
-		storeB := codexSessionStoreDir(home, codexSessionStoreKey(b, "agent", "issue"))
+		storeA := codexSessionStoreDir(home, codexSessionStoreKey(a, "agent", "task"))
+		storeB := codexSessionStoreDir(home, codexSessionStoreKey(b, "agent", "task"))
 		seedRolloutAt(t, filepath.Join(storeA, "2026", "06", "01", "rollout-2026-06-01T00-00-00-a.jsonl"), 16)
 		seedRolloutAt(t, filepath.Join(storeB, "2026", "06", "01", "rollout-2026-06-01T00-00-00-b.jsonl"), 16)
 		chtimesTree(t, storeA, time.Now().Add(-30*24*time.Hour))
@@ -672,13 +672,13 @@ func TestPruneCodexSessionStores_NoCrossProfileCollision(t *testing.T) {
 }
 
 // TestPruneCodexSessionStores_RemovesEmptyAgentDir confirms an agent directory
-// is cleaned up once its last issue store ages out, so the tree doesn't leave
+// is cleaned up once its last task store ages out, so the tree doesn't leave
 // empty <agent>/ shells behind.
 func TestPruneCodexSessionStores_RemovesEmptyAgentDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	storeRoot := filepath.Join(home, codexSessionStoreRoot, codexSessionStoreNamespace(""))
-	onlyStore := filepath.Join(storeRoot, "agent-lonely", "issue-1")
+	onlyStore := filepath.Join(storeRoot, "agent-lonely", "task-1")
 	seedRolloutAt(t, filepath.Join(onlyStore, "2026", "06", "01", "rollout-2026-06-01T00-00-00-x.jsonl"), 16)
 
 	now := time.Now()
@@ -719,8 +719,8 @@ func seedRolloutAt(t *testing.T, path string, size int) string {
 }
 
 // assertSessionsLinkedToStore verifies codex-home/sessions is a directory link
-// that resolves to the per-issue store (storeDir), i.e. the task home reaches
-// only that issue's history and not the machine-global ~/.codex/sessions.
+// that resolves to the per-task store (storeDir), i.e. the task home reaches
+// only that task's history and not the machine-global ~/.codex/sessions.
 func assertSessionsLinkedToStore(t *testing.T, sessions, storeDir string) {
 	t.Helper()
 	fi, err := os.Lstat(sessions)
@@ -729,7 +729,7 @@ func assertSessionsLinkedToStore(t *testing.T, sessions, storeDir string) {
 	}
 	if runtime.GOOS != "windows" {
 		if fi.Mode()&os.ModeSymlink == 0 {
-			t.Fatalf("sessions must link the per-issue store, got mode %v", fi.Mode())
+			t.Fatalf("sessions must link the per-task store, got mode %v", fi.Mode())
 		}
 		if target, _ := os.Readlink(sessions); filepath.Clean(target) != filepath.Clean(storeDir) {
 			t.Errorf("sessions link target = %q, want store %q", target, storeDir)

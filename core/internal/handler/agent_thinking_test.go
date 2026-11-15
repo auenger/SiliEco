@@ -31,11 +31,11 @@ func TestCreateAgent_ThinkingLevel_ValidationConsistency(t *testing.T) {
 
 	t.Run("empty value succeeds", func(t *testing.T) {
 		body := map[string]any{
-			"name":                 "thinking-test-empty",
-			"runtime_id":           claudeRuntimeID,
-			"visibility":           "private",
-			"max_concurrent_tasks": 1,
-			"thinking_level":       "",
+			"name":                "thinking-test-empty",
+			"runtime_id":          claudeRuntimeID,
+			"visibility":          "private",
+			"max_concurrent_runs": 1,
+			"thinking_level":      "",
 		}
 		w := httptest.NewRecorder()
 		testHandler.CreateAgent(w, newRequest(http.MethodPost, "/api/agents", body))
@@ -46,11 +46,11 @@ func TestCreateAgent_ThinkingLevel_ValidationConsistency(t *testing.T) {
 
 	t.Run("known claude value succeeds", func(t *testing.T) {
 		body := map[string]any{
-			"name":                 "thinking-test-known",
-			"runtime_id":           claudeRuntimeID,
-			"visibility":           "private",
-			"max_concurrent_tasks": 1,
-			"thinking_level":       "high",
+			"name":                "thinking-test-known",
+			"runtime_id":          claudeRuntimeID,
+			"visibility":          "private",
+			"max_concurrent_runs": 1,
+			"thinking_level":      "high",
 		}
 		w := httptest.NewRecorder()
 		testHandler.CreateAgent(w, newRequest(http.MethodPost, "/api/agents", body))
@@ -69,11 +69,11 @@ func TestCreateAgent_ThinkingLevel_ValidationConsistency(t *testing.T) {
 		// gate must always 400 regardless of which other fields the
 		// request also tried to change.
 		body := map[string]any{
-			"name":                 "thinking-test-codex-only",
-			"runtime_id":           claudeRuntimeID,
-			"visibility":           "private",
-			"max_concurrent_tasks": 1,
-			"thinking_level":       "none",
+			"name":                "thinking-test-codex-only",
+			"runtime_id":          claudeRuntimeID,
+			"visibility":          "private",
+			"max_concurrent_runs": 1,
+			"thinking_level":      "none",
 		}
 		w := httptest.NewRecorder()
 		testHandler.CreateAgent(w, newRequest(http.MethodPost, "/api/agents", body))
@@ -84,11 +84,11 @@ func TestCreateAgent_ThinkingLevel_ValidationConsistency(t *testing.T) {
 
 	t.Run("garbage value rejected", func(t *testing.T) {
 		body := map[string]any{
-			"name":                 "thinking-test-garbage",
-			"runtime_id":           claudeRuntimeID,
-			"visibility":           "private",
-			"max_concurrent_tasks": 1,
-			"thinking_level":       "supersonic",
+			"name":                "thinking-test-garbage",
+			"runtime_id":          claudeRuntimeID,
+			"visibility":          "private",
+			"max_concurrent_runs": 1,
+			"thinking_level":      "supersonic",
 		}
 		w := httptest.NewRecorder()
 		testHandler.CreateAgent(w, newRequest(http.MethodPost, "/api/agents", body))
@@ -109,12 +109,12 @@ func TestAgentServiceTierValidationAndTriState(t *testing.T) {
 
 	t.Run("create persists Codex catalog id", func(t *testing.T) {
 		body := map[string]any{
-			"name":                 "service-tier-create",
-			"runtime_id":           codexRuntimeID,
-			"visibility":           "private",
-			"max_concurrent_tasks": 1,
-			"model":                "gpt-5.6-sol",
-			"service_tier":         "priority",
+			"name":                "service-tier-create",
+			"runtime_id":          codexRuntimeID,
+			"visibility":          "private",
+			"max_concurrent_runs": 1,
+			"model":               "gpt-5.6-sol",
+			"service_tier":        "priority",
 		}
 		w := httptest.NewRecorder()
 		testHandler.CreateAgent(w, newRequest(http.MethodPost, "/api/agents", body))
@@ -148,11 +148,11 @@ func TestAgentServiceTierValidationAndTriState(t *testing.T) {
 
 	t.Run("non-Codex runtime rejects tier", func(t *testing.T) {
 		body := map[string]any{
-			"name":                 "service-tier-rejected",
-			"runtime_id":           claudeRuntimeID,
-			"visibility":           "private",
-			"max_concurrent_tasks": 1,
-			"service_tier":         "priority",
+			"name":                "service-tier-rejected",
+			"runtime_id":          claudeRuntimeID,
+			"visibility":          "private",
+			"max_concurrent_runs": 1,
+			"service_tier":        "priority",
 		}
 		w := httptest.NewRecorder()
 		testHandler.CreateAgent(w, newRequest(http.MethodPost, "/api/agents", body))
@@ -534,7 +534,7 @@ func createAgentOnRuntime(t *testing.T, name, runtimeID, level string) string {
 	err := testPool.QueryRow(context.Background(), `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id,
+			runtime_id, visibility, max_concurrent_runs, owner_id,
 			instructions, custom_env, custom_args, thinking_level
 		)
 		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'private', 1, $4, '', '{}'::jsonb, '[]'::jsonb, $5)
@@ -555,7 +555,7 @@ func createAgentOnRuntimeWithModel(t *testing.T, name, runtimeID, model string) 
 	err := testPool.QueryRow(context.Background(), `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
-			runtime_id, visibility, max_concurrent_tasks, owner_id,
+			runtime_id, visibility, max_concurrent_runs, owner_id,
 			instructions, custom_env, custom_args, model
 		)
 		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'private', 1, $4, '', '{}'::jsonb, '[]'::jsonb, $5)

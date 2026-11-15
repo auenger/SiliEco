@@ -527,7 +527,7 @@ func (b *hermesBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 					// SessionID so the daemon's resume-failure fallback
 					// retries with a fresh session and stores the
 					// replacement id; keeping the stale id makes every
-					// future dispatch on this (agent, issue) fail the
+					// future dispatch on this (agent, task) fail the
 					// same way.
 					b.cfg.Logger.Warn("resumed session not found at prompt time; clearing session id so the daemon retries fresh",
 						"backend", "hermes",
@@ -1550,7 +1550,7 @@ func parseToolArgsJSON(argsText string) map[string]any {
 // that field as a Go string made json.Unmarshal fail, which made
 // handleToolCallUpdate return early and silently DROP the entire update —
 // including its status:"completed" — so the completion signal was lost and the
-// task was wrongly marked failed (issue #5509 / SILI-4860). Accept both shapes.
+// task was wrongly marked failed (task #5509 / SILI-4860). Accept both shapes.
 func acpRawText(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""

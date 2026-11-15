@@ -23,7 +23,7 @@ func decodeProject(t *testing.T, w *httptest.ResponseRecorder, wantStatus int) P
 }
 
 // Project start_date / due_date follow the same calendar-day contract as the
-// issue dates: create echoes them, GET persists them, an update with the key
+// task dates: create echoes them, GET persists them, an update with the key
 // present but empty clears the date while an absent key leaves it untouched.
 func TestProjectStartDueDateLifecycle(t *testing.T) {
 	// Create with both dates set.

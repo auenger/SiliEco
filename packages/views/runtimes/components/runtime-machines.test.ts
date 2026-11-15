@@ -49,7 +49,7 @@ describe("runtime machine grouping", () => {
       section: "local",
       isCurrent: true,
       onlineCount: 2,
-      issueCount: 0,
+      taskCount: 0,
       providerNames: ["claude", "codex"],
     });
   });
@@ -105,7 +105,7 @@ describe("runtime machine grouping", () => {
     expect(machines[0]?.title).toBe("dev-machine.local");
   });
 
-  it("counts machines with any offline runtime as issues", () => {
+  it("counts machines with any offline runtime as tasks", () => {
     const machines = buildRuntimeMachines(
       [
         makeRuntime({ id: "rt-online", provider: "claude" }),
@@ -122,9 +122,9 @@ describe("runtime machine grouping", () => {
     expect(runtimeMachineCounts(machines)).toEqual({
       all: 1,
       online: 1,
-      issues: 1,
+      tasks: 1,
     });
-    expect(filterRuntimeMachines(machines, "", "issues")).toHaveLength(1);
+    expect(filterRuntimeMachines(machines, "", "tasks")).toHaveLength(1);
   });
 
   it("does not surface agent CLI version branding as the machine subtitle", () => {

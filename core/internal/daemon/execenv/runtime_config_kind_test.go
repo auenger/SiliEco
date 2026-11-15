@@ -7,72 +7,72 @@ import (
 
 // TestClassifyTask pins the precedence rule on classifyTask. All four
 // kinds plus tiebreak cases for safety.
-func TestClassifyTask(t *testing.T) {
+func TestClassifyRun(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
-		ctx  TaskContextForEnv
-		want taskKind
+		ctx  RunContextForEnv
+		want runKind
 	}{
-		{"chat", TaskContextForEnv{ChatSessionID: "c"}, kindChat},
-		{"quick-create", TaskContextForEnv{QuickCreatePrompt: "p"}, kindQuickCreate},
-		{"autopilot", TaskContextForEnv{AutopilotRunID: "r"}, kindAutopilotRunOnly},
-		{"issue-comment-triggered", TaskContextForEnv{IssueID: "i", TriggerCommentID: "c"}, kindIssue},
-		{"issue-assignment-triggered", TaskContextForEnv{IssueID: "i"}, kindIssue},
-		{"issue-bare", TaskContextForEnv{}, kindIssue},
-		{"tiebreak-chat-vs-quick", TaskContextForEnv{ChatSessionID: "c", QuickCreatePrompt: "p"}, kindChat},
-		{"tiebreak-quick-vs-autopilot", TaskContextForEnv{QuickCreatePrompt: "p", AutopilotRunID: "r"}, kindQuickCreate},
-		{"tiebreak-autopilot-vs-comment", TaskContextForEnv{AutopilotRunID: "r", IssueID: "i", TriggerCommentID: "c"}, kindAutopilotRunOnly},
+		{"chat", RunContextForEnv{ChatSessionID: "c"}, kindChat},
+		{"quick-create", RunContextForEnv{QuickCreatePrompt: "p"}, kindQuickCreate},
+		{"autopilot", RunContextForEnv{AutopilotRunID: "r"}, kindAutopilotRunOnly},
+		{"task-comment-triggered", RunContextForEnv{TaskID: "i", TriggerCommentID: "c"}, kindTask},
+		{"task-assignment-triggered", RunContextForEnv{TaskID: "i"}, kindTask},
+		{"task-bare", RunContextForEnv{}, kindTask},
+		{"tiebreak-chat-vs-quick", RunContextForEnv{ChatSessionID: "c", QuickCreatePrompt: "p"}, kindChat},
+		{"tiebreak-quick-vs-autopilot", RunContextForEnv{QuickCreatePrompt: "p", AutopilotRunID: "r"}, kindQuickCreate},
+		{"tiebreak-autopilot-vs-comment", RunContextForEnv{AutopilotRunID: "r", TaskID: "i", TriggerCommentID: "c"}, kindAutopilotRunOnly},
 	}
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := classifyTask(tc.ctx); got != tc.want {
+			if got := classifyRun(tc.ctx); got != tc.want {
 				t.Errorf("classifyTask: got %d, want %d", got, tc.want)
 			}
 		})
 	}
 }
 
-// TestTaskKindHasIssueContext pins the predicate that gates Project
-// Context / Issue Metadata / Sub-issue Creation in the slim dispatcher.
-func TestTaskKindHasIssueContext(t *testing.T) {
+// TestRunKindHasTaskContext pins the predicate that gates Project
+// Context / Task Metadata / Sub-task Creation in the slim dispatcher.
+func TestRunKindHasTaskContext(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		kind taskKind
+		kind runKind
 		want bool
 	}{
-		{kindIssue, true},
+		{kindTask, true},
 		{kindAutopilotRunOnly, false},
 		{kindQuickCreate, false},
 		{kindChat, false},
 	}
 	for _, tc := range cases {
-		if got := tc.kind.hasIssueContext(); got != tc.want {
-			t.Errorf("kind=%d hasIssueContext: got %v, want %v", tc.kind, got, tc.want)
+		if got := tc.kind.hasTaskContext(); got != tc.want {
+			t.Errorf("kind=%d hasTaskContext: got %v, want %v", tc.kind, got, tc.want)
 		}
 	}
 }
 
 // TestBuildMetaSkillContentBriefContent pins that buildMetaSkillContent
-// renders the (now sole) brief: the `issue get` one-liner is present and
+// renders the (now sole) brief: the `task get` one-liner is present and
 // the retired legacy verbose description is not.
 func TestBuildMetaSkillContentBriefContent(t *testing.T) {
 	t.Parallel()
 
-	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID:          "issue-1",
+	out := buildMetaSkillContent("claude", RunContextForEnv{
+		TaskID:           "task-1",
 		TriggerCommentID: "comment-1",
 		AgentName:        "Eve",
 		AgentID:          "eve-1",
 	})
 
-	if !strings.Contains(out, "- `silieco issue get <id> --output json` — full issue.\n") {
-		t.Errorf("brief is missing the `issue get` one-liner\n---\n%s", out)
+	if !strings.Contains(out, "- `silieco task get <id> --output json` — full task.\n") {
+		t.Errorf("brief is missing the `task get` one-liner\n---\n%s", out)
 	}
-	if strings.Contains(out, "Get full issue details.") {
-		t.Errorf("brief still carries the retired legacy `issue get` description\n---\n%s", out)
+	if strings.Contains(out, "Get full task details.") {
+		t.Errorf("brief still carries the retired legacy `task get` description\n---\n%s", out)
 	}
 }
 
@@ -88,13 +88,13 @@ func TestBuildMetaSkillContentSlimKindMatrix(t *testing.T) {
 
 	type sectionCheck struct {
 		heading  string
-		mustHave map[taskKind]bool
+		mustHave map[runKind]bool
 	}
-	allKinds := map[taskKind]bool{
-		kindIssue: true, kindAutopilotRunOnly: true,
+	allKinds := map[runKind]bool{
+		kindTask: true, kindAutopilotRunOnly: true,
 		kindQuickCreate: true, kindChat: true,
 	}
-	issueKinds := map[taskKind]bool{kindIssue: true}
+	taskKinds := map[runKind]bool{kindTask: true}
 	checks := []sectionCheck{
 		{"# Silieco Agent Runtime", allKinds},
 		{"## Background Task Safety", allKinds},
@@ -103,28 +103,28 @@ func TestBuildMetaSkillContentSlimKindMatrix(t *testing.T) {
 		{"### Workflow", allKinds},
 		{"## Important: Always Use the `silieco` CLI", allKinds},
 		{"## Output", allKinds},
-		{"## Comment Formatting", issueKinds},
-		{"## Repositories", map[taskKind]bool{
-			kindIssue: true, kindAutopilotRunOnly: true, kindChat: true,
+		{"## Comment Formatting", taskKinds},
+		{"## Repositories", map[runKind]bool{
+			kindTask: true, kindAutopilotRunOnly: true, kindChat: true,
 		}},
-		{"## Issue Metadata", issueKinds},
-		{"## Instruction Precedence", issueKinds},
-		{"## Sub-issue Creation", issueKinds},
-		{"## Skills", map[taskKind]bool{
-			kindIssue: true, kindAutopilotRunOnly: true, kindChat: true,
+		{"## Task Metadata", taskKinds},
+		{"## Instruction Precedence", taskKinds},
+		{"## Sub-task Creation", taskKinds},
+		{"## Skills", map[runKind]bool{
+			kindTask: true, kindAutopilotRunOnly: true, kindChat: true,
 		}},
-		{"## Mentions", issueKinds},
-		{"## Attachments", issueKinds},
+		{"## Mentions", taskKinds},
+		{"## Attachments", taskKinds},
 	}
 
-	fixtures := map[taskKind]TaskContextForEnv{
+	fixtures := map[runKind]RunContextForEnv{
 		kindChat: {ChatSessionID: "c-1", AgentName: "Eve", AgentID: "eve-1",
 			Repos: baseRepo, AgentSkills: baseSkill},
 		kindQuickCreate: {QuickCreatePrompt: "p", AgentName: "Eve", AgentID: "eve-1",
 			Repos: baseRepo, AgentSkills: baseSkill},
 		kindAutopilotRunOnly: {AutopilotRunID: "r-1", AgentName: "Eve", AgentID: "eve-1",
 			Repos: baseRepo, AgentSkills: baseSkill},
-		kindIssue: {IssueID: "i-1", AgentName: "Eve", AgentID: "eve-1",
+		kindTask: {TaskID: "i-1", AgentName: "Eve", AgentID: "eve-1",
 			Repos: baseRepo, AgentSkills: baseSkill},
 	}
 
@@ -146,18 +146,18 @@ func TestBuildMetaSkillContentSlimKindMatrix(t *testing.T) {
 }
 
 // TestSlimQuickCreateAvailableCommands locks the minimal-variant content
-// for quick-create's Available Commands: `issue create` present, every
+// for quick-create's Available Commands: `task create` present, every
 // other Core command absent (the hard guardrails forbid the call).
 func TestSlimQuickCreateAvailableCommands(t *testing.T) {
 
-	out := buildMetaSkillContent("codex", TaskContextForEnv{
-		QuickCreatePrompt: "create an issue about flaky tests",
+	out := buildMetaSkillContent("codex", RunContextForEnv{
+		QuickCreatePrompt: "create an task about flaky tests",
 		AgentName:         "Eve", AgentID: "eve-1",
 	})
 
 	for _, want := range []string{
 		"## Available Commands",
-		"silieco issue create --title",
+		"silieco task create --title",
 		"`silieco --help`",
 	} {
 		if !strings.Contains(out, want) {
@@ -166,15 +166,15 @@ func TestSlimQuickCreateAvailableCommands(t *testing.T) {
 	}
 
 	for _, banned := range []string{
-		"silieco issue get <id>",
-		"silieco issue comment list <issue-id>",
-		"silieco issue update <id>",
-		"silieco issue status <id> <status>",
-		"silieco issue comment add <issue-id>",
-		"silieco issue metadata list <issue-id>",
-		"silieco issue metadata set <issue-id>",
-		"silieco issue metadata delete <issue-id>",
-		"silieco issue children <id>",
+		"silieco task get <id>",
+		"silieco task comment list <task-id>",
+		"silieco task update <id>",
+		"silieco task status <id> <status>",
+		"silieco task comment add <task-id>",
+		"silieco task metadata list <task-id>",
+		"silieco task metadata set <task-id>",
+		"silieco task metadata delete <task-id>",
+		"silieco task children <id>",
 		"silieco repo checkout <url>",
 		"### Squad maintenance",
 		"silieco squad member set-role",
@@ -192,10 +192,10 @@ func TestSlimQuickCreateAvailableCommands(t *testing.T) {
 // the compressed slim path so a future slim-brief trim can't quietly drop
 // the no-background-and-yield / no-"standing by" guardrails that address
 // the SILI-4091 mechanism.
-func TestBackgroundTaskSafetySlimHardPins(t *testing.T) {
+func TestBackgroundRunSafetySlimHardPins(t *testing.T) {
 
-	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID: "i-1", TriggerCommentID: "tc-1",
+	out := buildMetaSkillContent("claude", RunContextForEnv{
+		TaskID: "i-1", TriggerCommentID: "tc-1",
 		AgentName: "Eve", AgentID: "eve-1",
 	})
 

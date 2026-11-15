@@ -26,8 +26,8 @@ describe("routeIconForPath", () => {
 
   it("resolves distinct components for distinct routes", () => {
     const p = paths.workspace("acme");
-    expect(routeIconForPath(p.projects())).not.toBe(routeIconForPath(p.issues()));
-    expect(routeIconForPath(p.autopilots())).not.toBe(routeIconForPath(p.issues()));
+    expect(routeIconForPath(p.projects())).not.toBe(routeIconForPath(p.tasks()));
+    expect(routeIconForPath(p.autopilots())).not.toBe(routeIconForPath(p.tasks()));
   });
 
   it("returns the default component instead of undefined for an unknown route", () => {

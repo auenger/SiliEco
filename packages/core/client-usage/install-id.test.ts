@@ -21,7 +21,7 @@ describe("getOrCreateInstallId", () => {
 
   it("replaces corrupted persisted values", () => {
     const storage = memoryStorage();
-    storage.setItem("silieco_install_id", "broken");
+    storage.setItem("silieco_tr1_install_id", "broken");
     const generated = "c9c7a898-ee7c-44a0-bd0c-66a16461e591";
     expect(getOrCreateInstallId(storage, () => generated)).toBe(generated);
   });

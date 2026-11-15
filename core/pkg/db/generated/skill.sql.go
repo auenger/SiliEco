@@ -12,8 +12,12 @@ import (
 )
 
 const addAgentSkill = `-- name: AddAgentSkill :exec
-INSERT INTO agent_skill (agent_id, skill_id)
-VALUES ($1, $2)
+INSERT INTO agent_skill (agent_id, skill_id) SELECT
+    $1 AS agent_id,
+    $2 AS skill_id
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM agent AS ref_agent_id WHERE ref_agent_id.id = ($1) FOR KEY SHARE))
+  AND (($2)::uuid IS NULL OR EXISTS (SELECT 1 FROM skill AS ref_skill_id WHERE ref_skill_id.id = ($2) FOR KEY SHARE))
+
 ON CONFLICT DO NOTHING
 `
 
@@ -28,8 +32,16 @@ func (q *Queries) AddAgentSkill(ctx context.Context, arg AddAgentSkillParams) er
 }
 
 const createSkill = `-- name: CreateSkill :one
-INSERT INTO skill (workspace_id, name, description, content, config, created_by)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO skill (workspace_id, name, description, content, config, created_by) SELECT
+    $1 AS workspace_id,
+    $2 AS name,
+    $3 AS description,
+    $4 AS content,
+    $5 AS config,
+    $6 AS created_by
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM workspace AS ref_workspace_id WHERE ref_workspace_id.id = ($1) FOR KEY SHARE))
+  AND (($6)::uuid IS NULL OR EXISTS (SELECT 1 FROM "user" AS ref_created_by WHERE ref_created_by.id = ($6) FOR KEY SHARE))
+
 RETURNING id, workspace_id, name, description, content, config, created_by, created_at, updated_at
 `
 
@@ -67,7 +79,22 @@ func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill
 }
 
 const deleteSkill = `-- name: DeleteSkill :exec
-DELETE FROM skill WHERE id = $1 AND workspace_id = $2
+WITH RECURSIVE cleanup_target_agent_skill AS MATERIALIZED (
+    SELECT child.agent_id, child.skill_id, child.created_at, child.enabled FROM "agent_skill" child WHERE EXISTS (SELECT 1 FROM cleanup_target_skill parent WHERE child."skill_id" = parent."id")
+),
+cleanup_target_skill AS MATERIALIZED (
+    SELECT skill.id, skill.workspace_id, skill.name, skill.description, skill.content, skill.config, skill.created_by, skill.created_at, skill.updated_at FROM "skill" skill WHERE skill.id = $1 AND skill.workspace_id = $2
+),
+cleanup_target_skill_file AS MATERIALIZED (
+    SELECT child.id, child.skill_id, child.path, child.content, child.created_at, child.updated_at FROM "skill_file" child WHERE EXISTS (SELECT 1 FROM cleanup_target_skill parent WHERE child."skill_id" = parent."id")
+),
+cleanup_delete_agent_skill AS (
+    DELETE FROM "agent_skill" child WHERE (child."agent_id", child."skill_id") IN (SELECT "agent_id", "skill_id" FROM cleanup_target_agent_skill)
+),
+cleanup_delete_skill_file AS (
+    DELETE FROM "skill_file" child WHERE (child."id") IN (SELECT "id" FROM cleanup_target_skill_file)
+)
+DELETE FROM "skill" skill WHERE (skill."id") IN (SELECT "id" FROM cleanup_target_skill)
 `
 
 type DeleteSkillParams struct {
@@ -75,14 +102,14 @@ type DeleteSkillParams struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 }
 
-// Defense-in-depth: workspace_id is a SQL-layer tenant guard. See DeleteIssue.
+// Defense-in-depth: workspace_id is a SQL-layer tenant guard. See DeleteTask.
 func (q *Queries) DeleteSkill(ctx context.Context, arg DeleteSkillParams) error {
 	_, err := q.db.Exec(ctx, deleteSkill, arg.ID, arg.WorkspaceID)
 	return err
 }
 
 const deleteSkillFile = `-- name: DeleteSkillFile :exec
-DELETE FROM skill_file WHERE id = $1
+DELETE FROM skill_file WHERE skill_file.id = $1
 `
 
 func (q *Queries) DeleteSkillFile(ctx context.Context, id pgtype.UUID) error {
@@ -91,7 +118,7 @@ func (q *Queries) DeleteSkillFile(ctx context.Context, id pgtype.UUID) error {
 }
 
 const deleteSkillFilesBySkill = `-- name: DeleteSkillFilesBySkill :exec
-DELETE FROM skill_file WHERE skill_id = $1
+DELETE FROM skill_file WHERE skill_file.skill_id = $1
 `
 
 func (q *Queries) DeleteSkillFilesBySkill(ctx context.Context, skillID pgtype.UUID) error {
@@ -505,7 +532,7 @@ func (q *Queries) RemoveAgentSkill(ctx context.Context, arg RemoveAgentSkillPara
 }
 
 const removeAllAgentSkills = `-- name: RemoveAllAgentSkills :exec
-DELETE FROM agent_skill WHERE agent_id = $1
+DELETE FROM agent_skill WHERE agent_skill.agent_id = $1
 `
 
 func (q *Queries) RemoveAllAgentSkills(ctx context.Context, agentID pgtype.UUID) error {
@@ -576,8 +603,12 @@ func (q *Queries) UpdateSkill(ctx context.Context, arg UpdateSkillParams) (Skill
 }
 
 const upsertSkillFile = `-- name: UpsertSkillFile :one
-INSERT INTO skill_file (skill_id, path, content)
-VALUES ($1, $2, $3)
+INSERT INTO skill_file (skill_id, path, content) SELECT
+    $1 AS skill_id,
+    $2 AS path,
+    $3 AS content
+WHERE (($1)::uuid IS NULL OR EXISTS (SELECT 1 FROM skill AS ref_skill_id WHERE ref_skill_id.id = ($1) FOR KEY SHARE))
+
 ON CONFLICT (skill_id, path) DO UPDATE SET
     content = EXCLUDED.content,
     updated_at = now()
